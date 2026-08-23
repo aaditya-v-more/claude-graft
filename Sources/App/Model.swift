@@ -13,6 +13,8 @@ struct Shortcut: Codable, Identifiable, Hashable {
     var name: String
     var folder: String
     var source: Source = .main
+    /// Name the bundle was last installed under, so a rename can clean up.
+    var installedName: String?
 
     init(name: String, folder: String? = nil, source: Source = .main) {
         self.name = name

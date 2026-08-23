@@ -1,12 +1,29 @@
 import AppKit
+import Combine
 import SwiftUI
 
 struct ShortcutDetail: View {
     @EnvironmentObject private var store: ShortcutStore
     @Binding var shortcut: Shortcut
 
-    @State private var installedAt: URL?
     @State private var error: String?
+    /// Bumped on a timer so the status reflects what is actually on disk
+    /// rather than whatever was true when the view was built.
+    @State private var tick = 0
+
+    private let clock = Timer.publish(every: 2, on: .main, in: .common).autoconnect()
+
+    /// Read from disk each time the body runs; no cached copy to go stale.
+    private var installedAt: URL? {
+        _ = tick
+        return Installer.installedBundle(for: shortcut)
+    }
+
+    private var isRunning: Bool {
+        _ = tick
+        return Graft.isRunning(profile: shortcut.profileDir)
+    }
+
     /// Set once the folder is typed by hand, so renaming stops rewriting it.
     /// Pointing it at an existing folder adopts that profile, login and all.
     @State private var folderIsCustom = false
@@ -79,7 +96,7 @@ struct ShortcutDetail: View {
                         .truncationMode(.middle)
                 }
                 LabeledContent("Claude") {
-                    Text(Graft.isRunning(profile: shortcut.profileDir) ? "Running on this profile" : "Not running")
+                    Text(isRunning ? "Running on this profile" : "Not running")
                         .font(.callout)
                         .foregroundStyle(.secondary)
                 }
@@ -101,7 +118,7 @@ struct ShortcutDetail: View {
             .padding(14)
             .background(.bar)
         }
-        .onAppear { refresh() }
+        .onReceive(clock) { _ in tick &+= 1 }
         .alert("Could not create the shortcut", isPresented: .constant(error != nil)) {
             Button("OK") { error = nil }
         } message: {
@@ -119,17 +136,14 @@ struct ShortcutDetail: View {
         }
     }
 
-    private func refresh() {
-        installedAt = Installer.installedBundle(for: shortcut)
-    }
-
     private func install() {
         shortcut.name = shortcut.name.trimmingCharacters(in: .whitespaces)
         do {
-            let previous = installedAt?.deletingPathExtension().lastPathComponent
-            installedAt = try Installer.install(shortcut,
-                                                sourceDir: store.sourceDir(for: shortcut),
-                                                previousName: previous)
+            _ = try Installer.install(shortcut,
+                                      sourceDir: store.sourceDir(for: shortcut),
+                                      previousName: shortcut.installedName)
+            shortcut.installedName = shortcut.name
+            tick &+= 1
         } catch {
             self.error = error.localizedDescription
         }
@@ -142,6 +156,7 @@ struct ShortcutDetail: View {
 
     private func remove() {
         Installer.uninstall(shortcut)
-        installedAt = nil
+        shortcut.installedName = nil
+        tick &+= 1
     }
 }
