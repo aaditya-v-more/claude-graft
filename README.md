@@ -26,6 +26,10 @@ Add a shortcut, name it, pick where its chats come from, press **Create
 Shortcut**. You get `/Applications/<Name>.app`. Launch it, sign in with the
 other account, and both instances run side by side.
 
+The profile folder is editable. Point it at a folder that already exists and the
+shortcut adopts that profile — useful if you set one up by hand and would rather
+not sign in again.
+
 Each shortcut is a self-contained bundle holding the launcher binary and a JSON
 description of its profile, so shortcuts keep working whether or not Graft is
 installed. Every launch re-establishes the links before opening Claude, which

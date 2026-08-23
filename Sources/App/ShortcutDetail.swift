@@ -7,6 +7,9 @@ struct ShortcutDetail: View {
 
     @State private var installedAt: URL?
     @State private var error: String?
+    /// Set once the folder is typed by hand, so renaming stops rewriting it.
+    /// Pointing it at an existing folder adopts that profile, login and all.
+    @State private var folderIsCustom = false
 
     private var claudeMissing: Bool {
         !FileManager.default.fileExists(atPath: Graft.claudeApp.path)
@@ -24,17 +27,16 @@ struct ShortcutDetail: View {
             Section("Shortcut") {
                 TextField("Name", text: $shortcut.name)
                     .onChange(of: shortcut.name) { _ in
-                        guard installedAt == nil else { return }
+                        guard installedAt == nil, !folderIsCustom else { return }
                         shortcut.folder = Shortcut.folderName(for: shortcut.name)
                     }
 
                 LabeledContent("Profile folder") {
                     HStack(spacing: 6) {
-                        Text(shortcut.folder)
+                        TextField("", text: $shortcut.folder)
+                            .textFieldStyle(.plain)
                             .font(.callout.monospaced())
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
+                            .onChange(of: shortcut.folder) { _ in folderIsCustom = true }
                         Button {
                             NSWorkspace.shared.activateFileViewerSelecting([shortcut.profileDir])
                         } label: {
