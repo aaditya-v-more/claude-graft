@@ -20,12 +20,13 @@ struct Shortcut: Codable, Identifiable, Hashable {
         self.source = source
     }
 
-    /// "Work Account" -> "Claude-Work-Account"
+    /// "Work Account" -> "Claude-Work-Account", "Claude 2" -> "Claude-2".
     static func folderName(for name: String) -> String {
-        let cleaned = name
+        var words = name
             .components(separatedBy: CharacterSet.alphanumerics.inverted)
             .filter { !$0.isEmpty }
-            .joined(separator: "-")
+        if words.first?.lowercased() == "claude" { words.removeFirst() }
+        let cleaned = words.joined(separator: "-")
         return "Claude-" + (cleaned.isEmpty ? "Profile" : cleaned)
     }
 
@@ -91,12 +92,13 @@ final class ShortcutStore: ObservableObject {
         return false
     }
 
+    /// Numbering starts at two, since the stock app is the first one.
     func uniqueName(base: String = "Claude") -> String {
-        var candidate = base
         var n = 2
+        var candidate = "\(base) \(n)"
         while shortcuts.contains(where: { $0.name == candidate }) {
-            candidate = "\(base) \(n)"
             n += 1
+            candidate = "\(base) \(n)"
         }
         return candidate
     }
