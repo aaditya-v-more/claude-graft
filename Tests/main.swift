@@ -780,6 +780,49 @@ do {
           "nor the bundled command line, whose path is lowercase")
 }
 
+// MARK: - What the bar shows
+
+section("Menu bar figure")
+
+func entry(_ name: String, fiveHour: Int, running: Bool, live: Bool = true,
+           sampled: Date = Date()) -> UsageMonitor.Entry {
+    UsageMonitor.Entry(name: name,
+                       profile: support.appending(path: name),
+                       usage: Graft.Usage(fiveHour: fiveHour, week: 0,
+                                          organization: nil, sampled: sampled),
+                       isRunning: running,
+                       shortcut: nil,
+                       isLive: live)
+}
+
+do {
+    let monitor = UsageMonitor()
+
+    // An idle account sitting at its limit should not shout over the one being
+    // used: the figure follows whatever is open.
+    monitor.setEntriesForTesting([entry("Claude", fiveHour: 100, running: false),
+                                  entry("Claude 2", fiveHour: 46, running: true)])
+    check(monitor.headlineEntry?.name == "Claude 2", "the open account is the one shown")
+    check(monitor.headline == 46, "and its figure is the one in the bar")
+
+    monitor.setEntriesForTesting([entry("Claude", fiveHour: 30, running: true),
+                                  entry("Claude 2", fiveHour: 80, running: true)])
+    check(monitor.headline == 80, "with several open, the tightest window wins")
+
+    monitor.setEntriesForTesting([entry("Claude", fiveHour: 100, running: false),
+                                  entry("Claude 2", fiveHour: 46, running: false)])
+    check(monitor.headline == 100, "with nothing open it falls back to the tightest")
+
+    // A figure read off disk hours ago says nothing about the window now.
+    let old = Date().addingTimeInterval(-8 * 3600)
+    monitor.setEntriesForTesting([entry("Claude", fiveHour: 99, running: false, live: false, sampled: old),
+                                  entry("Claude 2", fiveHour: 12, running: false, live: false)])
+    check(monitor.headline == 12, "a stale figure is left out")
+
+    monitor.setEntriesForTesting([])
+    check(monitor.headline == nil, "nothing to show when there is nothing to show")
+}
+
 print("\n\(checks - failures)/\(checks) checks passed")
 if failures > 0 {
     print("\(failures) FAILED")

@@ -61,17 +61,23 @@ final class UsageMonitor: ObservableObject {
         return interactive && !serverAsked
     }
 
-    /// The number worth putting in the menu bar: the closest five-hour window
-    /// to its limit among everything still meaningful.
-    var headline: Int? {
-        entries
-            .compactMap { entry -> Int? in
-                guard let usage = entry.usage else { return nil }
-                guard entry.isLive || !usage.isStale else { return nil }
-                return usage.fiveHour
-            }
-            .max()
+    /// The account the number in the menu bar is about.
+    ///
+    /// Whatever is open, since that is the window being spent. An account left
+    /// sitting at its limit should not shout over the one actually in use.
+    /// With nothing open there is no such answer, so it falls back to whichever
+    /// is closest to its limit.
+    var headlineEntry: Entry? {
+        let usable = entries.filter { entry in
+            guard let usage = entry.usage else { return false }
+            return entry.isLive || !usage.isStale
+        }
+        let running = usable.filter(\.isRunning)
+        let pool = running.isEmpty ? usable : running
+        return pool.max { ($0.usage?.fiveHour ?? 0) < ($1.usage?.fiveHour ?? 0) }
     }
+
+    var headline: Int? { headlineEntry?.usage?.fiveHour }
 
     /// Idempotent: the window and the menu bar item both ask for it, and only
     /// one of the two may ever appear.
@@ -85,6 +91,9 @@ final class UsageMonitor: ObservableObject {
         RunLoop.main.add(timer, forMode: .common)
         self.timer = timer
     }
+
+    /// Used by the tests to drive the menu bar figure without a filesystem.
+    func setEntriesForTesting(_ replacement: [Entry]) { entries = replacement }
 
     func stop() {
         timer?.invalidate()

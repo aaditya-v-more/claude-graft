@@ -60,22 +60,25 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
         item = nil
     }
 
-    /// The tightest five-hour window, so the number in the bar is the one that
-    /// runs out first.
+    /// The five-hour figure for whichever Claude is open, with the rest behind
+    /// the tooltip.
     private func updateTitle() {
         guard let button = item?.button else { return }
-        if let headline = usage.headline {
-            button.title = " \(headline)%"
-            button.toolTip = usage.entries
-                .compactMap { entry -> String? in
-                    guard let usage = entry.usage else { return nil }
-                    return "\(entry.name): \(usage.fiveHour)% of 5 hours, \(usage.week)% of the week"
-                }
-                .joined(separator: "\n")
-        } else {
+        guard let headline = usage.headlineEntry, let figures = headline.usage else {
             button.title = ""
             button.toolTip = "No usage reported yet"
+            return
         }
+
+        button.title = " \(figures.fiveHour)%"
+
+        var lines = ["\(headline.name): \(figures.fiveHour)% of 5 hours, \(figures.week)% of the week"]
+        if headline.isRunning { lines[0] += " — open now" }
+        for entry in usage.entries where entry.id != headline.id {
+            guard let other = entry.usage else { continue }
+            lines.append("\(entry.name): \(other.fiveHour)% of 5 hours, \(other.week)% of the week")
+        }
+        button.toolTip = lines.joined(separator: "\n")
     }
 
     // MARK: - The popover

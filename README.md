@@ -51,8 +51,11 @@ open.
 
 ## Menu bar
 
-Graft lives in the menu bar, on by default. The bar shows the tightest
-five-hour window across every account; the dropdown breaks it down per account,
+Graft lives in the menu bar, on by default. The bar shows the five-hour figure
+for whichever Claude is open — an idle account sitting at its limit should not
+shout over the one being used — falling back to the tightest window when
+nothing is running, and naming the account it is reporting in its tooltip. The
+dropdown breaks it down per account,
 five hours and week, each with how long until it resets — `2d 3h 40m`, or
 `3h 40m` once there is less than a day. A dot marks whichever instances are
 running, and each has its own **Open**.
@@ -138,7 +141,7 @@ Claude uses are reserved.
 ./test.sh
 ```
 
-A hundred and sixty-four checks over a throwaway Application Support and
+A hundred and seventy checks over a throwaway Application Support and
 Applications directory:
 that foreign apps survive install, uninstall and delete; that updating a
 shortcut rewrites one bundle rather than leaving copies; that a rename onto an
