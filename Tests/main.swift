@@ -627,6 +627,53 @@ do {
     check(text(-60) == nil, "a time already past reads as nothing")
 }
 
+// MARK: - The live usage endpoint
+
+section("Usage endpoint")
+
+do {
+    let body: [String: Any] = [
+        "five_hour": ["utilization": 42, "resets_at": "2026-08-24T09:30:00Z"],
+        "seven_day": ["utilization": 71.4, "resets_at": "2026-08-25T22:51:00.000Z"],
+        "subscription_type": "max",
+    ]
+    let reading = UsageAPI.reading(from: body)
+    check(reading?.fiveHour == 42, "the five-hour figure is read")
+    check(reading?.week == 71, "a fractional weekly figure rounds")
+    check(reading?.plan == "Max", "the plan name is tidied up")
+    check(reading?.fiveHourReset != nil, "a plain ISO reset time parses")
+    check(reading?.weekReset != nil, "and so does one with fractional seconds")
+
+    // Reset times come from the service rather than being worked out, which is
+    // the whole point of preferring it over the file on disk.
+    let expected = ISO8601DateFormatter().date(from: "2026-08-24T09:30:00Z")
+    check(reading?.fiveHourReset == expected, "the reset time is exactly what was sent")
+
+    check(UsageAPI.reading(from: ["seven_day": ["utilization": 10]]) == nil,
+          "an answer without the five-hour window is refused")
+    check(UsageAPI.reading(from: [:]) == nil, "and so is an empty one")
+
+    let epoch: [String: Any] = ["five_hour": ["utilization": 5, "resets_at": 1_800_000_000]]
+    check(UsageAPI.reading(from: epoch)?.fiveHourReset != nil, "epoch seconds parse too")
+
+    let missingWeek: [String: Any] = ["five_hour": ["utilization": 5]]
+    check(UsageAPI.reading(from: missingWeek)?.week == 0,
+          "a missing weekly window reads as nothing used, not as a failure")
+}
+
+section("Borrowed credentials")
+
+do {
+    // The endpoint is Anthropic's own; a token must never go anywhere else.
+    check(UsageAPI.endpoint.host == "api.anthropic.com", "usage is read from Anthropic")
+    check(UsageAPI.endpoint.scheme == "https", "over https")
+
+    // A profile with no cached login yields nothing rather than throwing.
+    let bare = makeProfile("Claude-NoLogin", account: "AAAA")
+    check((try? ClaudeCredentials.token(for: bare, allowInteraction: false)) ?? nil == nil,
+          "a profile with no stored login has no token")
+}
+
 print("\n\(checks - failures)/\(checks) checks passed")
 if failures > 0 {
     print("\(failures) FAILED")

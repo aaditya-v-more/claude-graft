@@ -14,6 +14,8 @@ swiftc -swift-version 5 \
     "$ROOT/Sources/App/Model.swift" \
     "$ROOT/Sources/App/Installer.swift" \
     "$ROOT/Sources/App/Settings.swift" \
+    "$ROOT/Sources/App/UsageAPI.swift" \
+    "$ROOT/Sources/App/ClaudeCredentials.swift" \
     "$ROOT/Sources/App/UsageMonitor.swift" \
     "$ROOT/Tests/main.swift" \
     -o "$BUILD/tests"

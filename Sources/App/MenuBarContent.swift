@@ -43,7 +43,7 @@ struct MenuBarContent: View {
 
             Divider().padding(.vertical, 6)
 
-            if let problem {
+            if let problem = problem ?? usage.liveProblem {
                 Text(problem)
                     .font(.callout)
                     .foregroundStyle(.secondary)
@@ -80,6 +80,7 @@ struct MenuBarContent: View {
             Divider().padding(.vertical, 6)
 
             VStack(alignment: .leading, spacing: 4) {
+                MenuButton("Refresh Usage") { usage.refresh(store, interactive: true) }
                 MenuButton("Open Claude Graft", action: openMainWindow)
                 MenuButton("Quit Claude Graft") { NSApp.terminate(nil) }
             }
@@ -157,6 +158,11 @@ struct UsageRow: View {
                     .fill(entry.isRunning ? Color.green : Color.secondary.opacity(0.35))
                     .frame(width: 6, height: 6)
                 Text(entry.name).fontWeight(.medium)
+                if let plan = entry.plan {
+                    Text(plan)
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                }
                 Spacer()
                 Button("Open", action: open)
                     .controlSize(.small)
@@ -166,12 +172,12 @@ struct UsageRow: View {
                 UsageBar(label: "5 hours",
                          percent: usage.fiveHour,
                          resets: usage.fiveHourReset,
-                         dimmed: usage.isStale)
+                         dimmed: !entry.isLive && usage.isStale)
                 UsageBar(label: "Week",
                          percent: usage.week,
                          resets: usage.weekReset,
-                         dimmed: usage.isStale)
-                if usage.isStale {
+                         dimmed: !entry.isLive && usage.isStale)
+                if !entry.isLive, usage.isStale {
                     Text("Last seen \(Self.relative.localizedString(for: usage.sampled, relativeTo: Date()))")
                         .font(.caption)
                         .foregroundStyle(.tertiary)

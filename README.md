@@ -66,14 +66,28 @@ the Dock icon steps aside. Quit properly from the dropdown. The window comes
 back the way you left it: close it before quitting and the next launch stays in
 the menu bar, which is what makes **Open at Login** bearable.
 
-The numbers come from `plan-usage-history.json`, which each profile writes while
-it runs. An account nothing has opened for hours shows its last sample greyed
-out, because a five-hour window that has since rolled over says nothing useful.
+The figures come from Anthropic's own endpoint, `GET /api/oauth/usage` — the
+one Claude Code reads — asked once per profile every five minutes. That gives
+current numbers even for a profile that is not running, exact reset times, and
+the plan name.
 
-Reset times are not recorded anywhere, so they are worked out from that history:
-a window closing shows up as the figure dropping back to nothing, which dates
-the window that followed. Weekly resets are a cycle, so the last one seen is
-rolled forward even across stretches where Claude was not running to record it.
+Reaching it needs that profile's login, which Claude Desktop keeps encrypted in
+its own folder. Graft borrows it read-only, and macOS gates the borrowing: the
+first read asks permission for the `Claude Safe Storage` keychain item,
+and choosing Always Allow makes later reads silent. **Refresh Usage** in the
+dropdown is what triggers that prompt; background polls never ask. Only the
+access token is decrypted — never the refresh token, because Anthropic rotates
+those and using one would sign Claude Desktop out — nothing is written back to
+Claude's config or keychain, and the token goes to `api.anthropic.com` and
+nowhere else.
+
+Decline the prompt and the app still works: it falls back to
+`plan-usage-history.json`, which each profile writes while it runs. That file
+carries no reset times, so those are worked out from the history — a window
+closing shows up as the figure dropping to nothing, which dates the window that
+followed, and weekly resets are a cycle so the last one seen is rolled forward.
+Figures from a profile that has not run for hours are greyed out, since a
+five-hour window that has already rolled over says nothing useful.
 
 ### Start Session
 
@@ -106,7 +120,7 @@ Claude uses are reserved.
 ./test.sh
 ```
 
-A hundred and twenty-five checks over a throwaway Application Support and
+A hundred and thirty-eight checks over a throwaway Application Support and
 Applications directory:
 that foreign apps survive install, uninstall and delete; that updating a
 shortcut rewrites one bundle rather than leaving copies; that a rename onto an
