@@ -90,7 +90,8 @@ Claude uses are reserved.
 ./test.sh
 ```
 
-A hundred and fourteen checks over a throwaway Application Support and Applications directory:
+A hundred and fourteen checks over a throwaway Application Support and
+Applications directory:
 that foreign apps survive install, uninstall and delete; that updating a
 shortcut rewrites one bundle rather than leaving copies; that a rename onto an
 occupied name changes nothing; that grafting preserves the login, stashes what
