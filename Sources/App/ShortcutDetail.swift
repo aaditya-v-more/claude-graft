@@ -9,8 +9,9 @@ struct ShortcutDetail: View {
 
     @State private var error: String?
     @State private var errorTitle = "Something went wrong"
-    /// Both are looked up off the main thread and refreshed on a timer. Reading
-    /// them during a view update would mean touching the filesystem and running
+
+    /// Looked up off the main thread and refreshed on a timer. Reading them
+    /// during a view update would mean touching the filesystem and running
     /// pgrep inside the body, and blocking there re-enters AppKit layout.
     @State private var installedAt: URL?
     @State private var isRunning = false
@@ -22,21 +23,30 @@ struct ShortcutDetail: View {
     @State private var sharersOpen: [String] = []
     @State private var askAboutSharers = false
 
-    private let clock = Timer.publish(every: 5, on: .main, in: .common).autoconnect()
-
     /// Set once the folder is typed by hand, so renaming stops rewriting it.
-    /// Pointing it at an existing folder adopts that profile, login and all.
     @State private var folderIsCustom = false
+
+    private let clock = Timer.publish(every: 5, on: .main, in: .common).autoconnect()
 
     private var claudeMissing: Bool {
         !FileManager.default.fileExists(atPath: Graft.claudeApp.path)
     }
 
+    static let sessionNote = """
+        Sends a one-word message through Claude Code's command line, which opens \
+        a five-hour window without putting a window on screen.
+
+        It uses the account Claude Code is signed into. That is the only login \
+        reachable from outside Claude — the desktop keeps each profile's token \
+        encrypted in that profile — so it cannot be aimed at one shortcut's \
+        account in particular.
+        """
+
     var body: some View {
         Form {
             if claudeMissing {
                 Section {
-                    Label("Claude.app was not found in /Applications.", systemImage: "exclamationmark.triangle")
+                    Label("Claude.app was not found.", systemImage: "exclamationmark.triangle")
                         .foregroundStyle(.secondary)
                 }
             }
@@ -52,6 +62,7 @@ struct ShortcutDetail: View {
                     HStack(spacing: 6) {
                         TextField("", text: $shortcut.folder)
                             .textFieldStyle(.plain)
+                            .multilineTextAlignment(.trailing)
                             .font(.callout.monospaced())
                             .onChange(of: shortcut.folder) { _ in folderIsCustom = true }
                         Button {
@@ -64,27 +75,17 @@ struct ShortcutDetail: View {
                     }
                 }
             } header: {
-                Text("Shortcut")
-            } footer: {
-                Text("The name is what the app in \(Installer.installDirectory.path) is called. The profile folder is where this account's login, chats and settings are kept, inside ~/Library/Application Support. Naming an existing folder adopts that profile instead of starting an empty one.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.top, 2)
+                SectionHeader(title: "Shortcut", info: Self.shortcutNote)
             }
 
             Section {
-                Picker("Claude Code chats", selection: $shortcut.source) {
+                Picker("Reads chats from", selection: $shortcut.source) {
                     ForEach(store.availableSources(for: shortcut), id: \.self) { source in
                         Text(store.label(for: source)).tag(source)
                     }
                 }
-            } footer: {
-                Text(sourceExplanation)
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.top, 2)
+            } header: {
+                SectionHeader(title: "Chats", info: sourceExplanation)
             }
 
             Section("Status") {
@@ -103,27 +104,14 @@ struct ShortcutDetail: View {
             }
 
             Section {
-                if let usage {
-                    UsageBar(label: "5 hours", percent: usage.fiveHour, dimmed: usage.isStale)
-                    UsageBar(label: "Week", percent: usage.week, dimmed: usage.isStale)
-                } else {
-                    Text("No usage reported yet")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                }
+                UsageSummary(usage: usage)
             } header: {
-                Text("Plan usage")
-            } footer: {
-                Text(usageExplanation)
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.top, 2)
+                SectionHeader(title: "Plan usage", info: usageExplanation)
             }
         }
         .formStyle(.grouped)
         .safeAreaInset(edge: .bottom) {
-            HStack {
+            HStack(spacing: 8) {
                 Button(isDraft ? "Discard" : "Delete Shortcut…",
                        role: .destructive, action: requestDelete)
                 Spacer()
@@ -134,8 +122,8 @@ struct ShortcutDetail: View {
                         Text("Start Session")
                     }
                 }
-                .disabled(installedAt == nil || startingSession || claudeMissing)
-                .help("Sends “hi” in that Claude to open its five-hour window")
+                .disabled(startingSession || !SessionStarter.isAvailable)
+                InfoButton(Self.sessionNote)
 
                 Button("Open", action: open)
                     .disabled(installedAt == nil)
@@ -163,56 +151,47 @@ struct ShortcutDetail: View {
         }
     }
 
+    private static let shortcutNote = """
+        The name is what the app in \(Installer.installDirectory.path) is called. \
+        The profile folder is where this account's login, chats and settings are \
+        kept, inside ~/Library/Application Support.
+
+        Naming an existing folder adopts that profile instead of starting an \
+        empty one.
+        """
+
     private var sourceExplanation: String {
         switch shortcut.source {
         case .own:
             return "This profile keeps its own Claude Code history, connectors and preferences. Nothing is shared."
         default:
             let name = store.label(for: shortcut.source)
-            return "Opens \(name)'s Claude Code chats, connectors, extensions and window state. Logins stay separate, so this shortcut can sign into a different account."
-        }
-    }
-
-    private func install() {
-        shortcut.name = shortcut.name.trimmingCharacters(in: .whitespaces)
-        do {
-            _ = try Installer.install(shortcut,
-                                      sourceDir: store.sourceDir(for: shortcut),
-                                      previousName: shortcut.installedName)
-            shortcut.installedName = shortcut.name
-            refresh()
-        } catch {
-            errorTitle = "Could not create the shortcut"
-            self.error = error.localizedDescription
-        }
-    }
-
-    /// Off the main thread: `Installer.installedBundle` hits the filesystem and
-    /// `Graft.isRunning` spawns pgrep, neither of which belongs in a view update.
-    private func refresh() {
-        let target = shortcut
-        DispatchQueue.global(qos: .utility).async {
-            let bundle = Installer.installedBundle(for: target)
-            let running = Graft.isRunning(profile: target.profileDir)
-            let hasProfile = FileManager.default.fileExists(atPath: target.profileDir.path)
-            let plan = Graft.usage(of: target.profileDir)
-            DispatchQueue.main.async {
-                installedAt = bundle
-                isRunning = running
-                profileExists = hasProfile
-                usage = plan
-            }
+            return """
+                Opens \(name)'s Claude Code chats, connectors, extensions and window \
+                state. Logins stay separate, so this shortcut can sign into a \
+                different account.
+                """
         }
     }
 
     private var usageExplanation: String {
         guard let usage else {
-            return "Claude records how much of each window it has spent while it runs. Open this profile once and the numbers appear."
+            return """
+                Claude records how much of each window it has spent while it runs. \
+                Open this profile once and the numbers appear.
+                """
         }
         if usage.isStale {
-            return "Recorded while this profile was last open, which was long enough ago that the five-hour window has since reset."
+            return """
+                Recorded while this profile was last open, which was long enough ago \
+                that the five-hour window has since reset.
+                """
         }
-        return "Recorded by this profile at \(Self.time.string(from: usage.sampled)). It only updates while that Claude is running."
+        return """
+            Recorded by this profile at \(Self.time.string(from: usage.sampled)). It \
+            only updates while that Claude is running, and the reset times are worked \
+            out from its own history.
+            """
     }
 
     private static let time: DateFormatter = {
@@ -221,25 +200,6 @@ struct ShortcutDetail: View {
         formatter.dateStyle = .none
         return formatter
     }()
-
-    private func startSession() {
-        guard !startingSession else { return }
-        if !SessionStarter.hasAccessibility { SessionStarter.requestAccessibility() }
-        let profile = shortcut.profileDir
-        let bundle = installedAt
-        startingSession = true
-        DispatchQueue.global(qos: .userInitiated).async {
-            let failure = SessionStarter.start(profile: profile, bundle: bundle)
-            DispatchQueue.main.async {
-                startingSession = false
-                if let failure {
-                    errorTitle = "Could not start a session"
-                    error = failure.errorDescription
-                }
-                refresh()
-            }
-        }
-    }
 
     private var isDraft: Bool {
         installedAt == nil && !profileExists && shortcut.installedName == nil
@@ -256,15 +216,64 @@ struct ShortcutDetail: View {
                 + " and " + (sharersOpen.last ?? "") + " are"
         }
         return """
-        \(list) already open on the same Claude Code chats.
+            \(list) already open on the same Claude Code chats.
 
-        Both instances write to the same chat files. Opening the same \
-        conversation in two of them at once can lose messages.
-        """
+            Both instances write to the same chat files. Opening the same \
+            conversation in two of them at once can lose messages.
+            """
+    }
+
+    private func install() {
+        shortcut.name = shortcut.name.trimmingCharacters(in: .whitespaces)
+        shortcut.folder = shortcut.folder.trimmingCharacters(in: .whitespaces)
+        do {
+            _ = try Installer.install(shortcut,
+                                      sourceDir: store.sourceDir(for: shortcut),
+                                      previousName: shortcut.installedName)
+            shortcut.installedName = shortcut.name
+            refresh()
+        } catch {
+            errorTitle = "Could not create the shortcut"
+            self.error = error.localizedDescription
+        }
+    }
+
+    /// Off the main thread: these hit the filesystem and run pgrep, neither of
+    /// which belongs in a view update.
+    private func refresh() {
+        let target = shortcut
+        DispatchQueue.global(qos: .utility).async {
+            let bundle = Installer.installedBundle(for: target)
+            let running = Graft.isRunning(profile: target.profileDir)
+            let hasProfile = FileManager.default.fileExists(atPath: target.profileDir.path)
+            let plan = Graft.usage(of: target.profileDir)
+            DispatchQueue.main.async {
+                installedAt = bundle
+                isRunning = running
+                profileExists = hasProfile
+                usage = plan
+            }
+        }
+    }
+
+    private func startSession() {
+        guard !startingSession else { return }
+        startingSession = true
+        DispatchQueue.global(qos: .userInitiated).async {
+            let failure = SessionStarter.start()
+            DispatchQueue.main.async {
+                startingSession = false
+                if let failure {
+                    errorTitle = "Could not start a session"
+                    error = failure.errorDescription
+                }
+                refresh()
+            }
+        }
     }
 
     /// Checking who else is open means one pgrep per neighbour, so it happens
-    /// off the main thread and the window is opened once the answer is back.
+    /// off the main thread and the window opens once the answer is back.
     private func open() {
         guard installedAt != nil else { return }
         let neighbours = store.chatStoreNeighbours(of: shortcut)
@@ -285,5 +294,23 @@ struct ShortcutDetail: View {
         guard let installedAt else { return }
         NSWorkspace.shared.openApplication(at: installedAt,
                                            configuration: NSWorkspace.OpenConfiguration())
+    }
+}
+
+/// The two bars plus a note when there is nothing to show yet.
+struct UsageSummary: View {
+    let usage: Graft.Usage?
+
+    var body: some View {
+        if let usage {
+            UsageBar(label: "5 hours", percent: usage.fiveHour,
+                     resets: usage.fiveHourReset, dimmed: usage.isStale)
+            UsageBar(label: "Week", percent: usage.week,
+                     resets: usage.weekReset, dimmed: usage.isStale)
+        } else {
+            Text("No usage reported yet")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+        }
     }
 }

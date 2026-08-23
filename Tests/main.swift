@@ -578,6 +578,55 @@ do {
     check(!reopened.showInMenuBar, "and turning it off survives a restart")
 }
 
+// MARK: - When the windows reset
+
+section("Reset times")
+
+do {
+    let profile = makeProfile("Claude-Resets", account: "AAAA", org: "ORG1")
+    let now = Date().timeIntervalSince1970 * 1000
+    let hour = 3_600_000.0
+
+    // Opened two hours ago: three of the five hours left.
+    writeUsage(profile, [(now - 3 * hour, 0, 40), (now - 2 * hour, 5, 41), (now, 30, 45)])
+    let usage = Graft.usage(of: profile)
+    let remaining = usage?.fiveHourReset?.timeIntervalSinceNow ?? 0
+    check(remaining > 2.9 * 3600 && remaining < 3.1 * 3600,
+          "the five-hour window closes five hours after it opened")
+
+    writeUsage(profile, [(now - hour, 0, 40), (now, 0, 40)])
+    check(Graft.usage(of: profile)?.fiveHourReset == nil,
+          "nothing to report when no window is open")
+
+    // A history that starts partway through a window cannot say when it began.
+    writeUsage(profile, [(now - hour, 20, 40), (now, 25, 41)])
+    check(Graft.usage(of: profile)?.fiveHourReset == nil,
+          "nor when the history never saw the window open")
+
+    // Weekly resets roll forward across stretches Claude was not running.
+    let day = 24 * hour
+    writeUsage(profile, [(now - 20 * day, 0, 60), (now - 19.9 * day, 0, 2), (now, 10, 30)])
+    let week = Graft.usage(of: profile)?.weekReset
+    check(week != nil, "a weekly reset seen once gives the next one")
+    check(week.map { $0 > Date() } == true, "and it is always in the future")
+    check(week.map { $0.timeIntervalSinceNow < 7 * 24 * 3600 } == true,
+          "within one cycle, however long ago it was seen")
+}
+
+section("Countdown wording")
+
+do {
+    let now = Date()
+    func text(_ seconds: TimeInterval) -> String? {
+        Graft.countdown(to: now.addingTimeInterval(seconds), from: now)
+    }
+    check(text(2 * 86_400 + 3 * 3_600 + 40 * 60) == "2d 3h 40m", "days, hours and minutes together")
+    check(text(3 * 3_600 + 40 * 60) == "3h 40m", "hours and minutes once a day is gone")
+    check(text(40 * 60) == "40m", "minutes alone under the hour")
+    check(text(20) == "1m", "the last seconds round up rather than reading zero")
+    check(text(-60) == nil, "a time already past reads as nothing")
+}
+
 print("\n\(checks - failures)/\(checks) checks passed")
 if failures > 0 {
     print("\(failures) FAILED")

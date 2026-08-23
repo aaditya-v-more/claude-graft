@@ -1,79 +1,54 @@
-import AppKit
-import ApplicationServices
 import Foundation
 
-/// Starts a profile's five-hour window by sending it a one-word message.
+/// Opens a five-hour window by sending one cheap message through Claude Code's
+/// command line — no window, no keystrokes, no permission prompts.
 ///
-/// There is no way to do this behind the scenes. Claude Desktop keeps each
-/// account's token encrypted in its own profile, and Claude Code's command line
-/// holds a single set of credentials in the keychain for the whole machine, so
-/// an outside process cannot make an authenticated request as a chosen account
-/// without prising those credentials out. Driving the instance that is already
-/// signed in is the honest route: bring its window up and type into it.
+/// It uses the account Claude Code itself is signed into. That is the only set
+/// of credentials reachable from outside Claude: the desktop keeps each
+/// profile's token encrypted in that profile, and the command line keeps one
+/// login in the keychain for the whole machine. So this cannot be aimed at a
+/// chosen shortcut's account, and the interface says so rather than pretending.
 enum SessionStarter {
     enum Failure: LocalizedError {
-        case needsAccessibility
-        case didNotStart
-        case scriptFailed
+        case notInstalled
+        case failed(String)
 
         var errorDescription: String? {
             switch self {
-            case .needsAccessibility:
+            case .notInstalled:
                 return """
-                Claude Graft needs Accessibility permission to type into another \
-                app. Grant it in System Settings › Privacy & Security › \
-                Accessibility, then try again.
+                Claude Code's command line was not found. Install it, or sign in \
+                with `claude` once, and this will work.
                 """
-            case .didNotStart:
-                return "That Claude did not come up in time."
-            case .scriptFailed:
-                return "Could not reach that Claude's window. Bring it to the front and send a message yourself."
+            case .failed(let detail):
+                return detail.isEmpty
+                    ? "Claude Code could not start a session."
+                    : "Claude Code could not start a session: \(detail)"
             }
         }
     }
 
-    static var hasAccessibility: Bool { AXIsProcessTrusted() }
+    /// Where the command line usually lands, in the order worth trying.
+    static let searchPaths = [
+        "/opt/homebrew/bin/claude",
+        "/usr/local/bin/claude",
+        NSHomeDirectory() + "/.local/bin/claude",
+        NSHomeDirectory() + "/.claude/local/claude",
+        "/usr/bin/claude",
+    ]
 
-    /// Shows the system prompt once, so the user has somewhere to say yes.
-    static func requestAccessibility() {
-        let key = kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String
-        _ = AXIsProcessTrustedWithOptions([key: true] as CFDictionary)
+    static var executable: String? {
+        searchPaths.first { FileManager.default.isExecutableFile(atPath: $0) }
     }
 
-    /// Blocking; call it off the main thread. Returns nil when the message went.
-    static func start(profile: URL, bundle: URL?, prompt: String = "hi") -> Failure? {
-        guard hasAccessibility else { return .needsAccessibility }
+    static var isAvailable: Bool { executable != nil }
 
-        if Graft.processIDs(of: profile).isEmpty {
-            if let bundle {
-                NSWorkspace.shared.openApplication(at: bundle, configuration: NSWorkspace.OpenConfiguration())
-            } else {
-                Graft.launch(profile: profile)
-            }
-        }
-
-        // Electron takes a moment to put a window up, and typing before then
-        // goes nowhere.
-        var pid: Int32?
-        for _ in 0..<30 {
-            if let found = Graft.processIDs(of: profile).first { pid = found; break }
-            Thread.sleep(forTimeInterval: 0.5)
-        }
-        guard let pid else { return .didNotStart }
-        Thread.sleep(forTimeInterval: 2.5)
-
-        let escaped = prompt.replacingOccurrences(of: "\\", with: "\\\\")
-            .replacingOccurrences(of: "\"", with: "\\\"")
-        let script = """
-        tell application "System Events"
-            set target to first process whose unix id is \(pid)
-            set frontmost of target to true
-            delay 1.0
-            keystroke "\(escaped)"
-            delay 0.4
-            key code 36
-        end tell
-        """
-        return Graft.runTool("/usr/bin/osascript", ["-e", script]) == 0 ? nil : .scriptFailed
+    /// Blocking; call it off the main thread. Nil means the message went.
+    static func start(prompt: String = "hi", model: String = "haiku") -> Failure? {
+        guard let executable else { return .notInstalled }
+        let output = Graft.output(executable, ["-p", prompt, "--model", model])
+        return output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? .failed("")
+            : nil
     }
 }

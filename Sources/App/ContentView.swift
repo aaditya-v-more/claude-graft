@@ -2,8 +2,11 @@ import AppKit
 import SwiftUI
 
 struct ContentView: View {
+    /// Stands for Claude's own profile in the sidebar, which has no shortcut.
+    static let mainProfileID = UUID(uuidString: "00000000-0000-0000-0000-000000000001")!
+
     @EnvironmentObject private var store: ShortcutStore
-    @State private var selection: UUID?
+    @State private var selection: UUID? = ContentView.mainProfileID
     @State private var pendingDeletion: UUID?
     @State private var problem: String?
 
@@ -21,7 +24,9 @@ struct ContentView: View {
                     }
                 }
         } detail: {
-            if let selection, let index = store.shortcuts.firstIndex(where: { $0.id == selection }) {
+            if selection == Self.mainProfileID {
+                MainProfileDetail()
+            } else if let selection, let index = store.shortcuts.firstIndex(where: { $0.id == selection }) {
                 ShortcutDetail(shortcut: $store.shortcuts[index],
                                requestDelete: { requestDeletion(of: selection) })
                     .id(selection)
@@ -49,7 +54,7 @@ struct ContentView: View {
 
     /// A shortcut that was never created holds nothing, so it just goes.
     private func requestDeletion(of id: UUID) {
-        guard let shortcut = store.shortcut(id) else { return }
+        guard id != Self.mainProfileID, let shortcut = store.shortcut(id) else { return }
         if store.isDraft(shortcut) {
             if selection == id { selection = nil }
             store.shortcuts.removeAll { $0.id == id }
@@ -84,6 +89,21 @@ struct ContentView: View {
 
     private var sidebar: some View {
         List(selection: $selection) {
+            Section("Claude") {
+                Label {
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("Claude")
+                        Text("Installed normally")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                } icon: {
+                    Image(systemName: "house")
+                        .foregroundStyle(.secondary)
+                }
+                .tag(Self.mainProfileID)
+            }
+
             Section("Shortcuts") {
                 ForEach(store.shortcuts) { shortcut in
                     Label {

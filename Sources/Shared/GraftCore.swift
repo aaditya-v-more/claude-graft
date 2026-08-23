@@ -182,6 +182,11 @@ enum Graft {
         var week: Int
         var organization: String?
         var sampled: Date
+        /// Worked out from the history rather than reported: Claude does not
+        /// record when a window closes, but a reset shows up as the figure
+        /// dropping back to nothing.
+        var fiveHourReset: Date?
+        var weekReset: Date?
 
         /// Claude only writes this while it is running, so an old sample says
         /// nothing useful about a five-hour window that has since rolled over.
@@ -220,23 +225,78 @@ enum Graft {
     private static func parseUsage(at url: URL) -> Usage? {
         guard let data = try? Data(contentsOf: url),
               let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let samples = root["samples"] as? [[String: Any]]
+              let raw = root["samples"] as? [[String: Any]]
         else { return nil }
 
-        // Samples are appended in order, but the last one is only interesting
-        // if it carries both numbers.
-        for sample in samples.reversed() {
+        // Only samples carrying both figures are usable.
+        var samples: [(time: Date, fiveHour: Int, week: Int, org: String?)] = []
+        samples.reserveCapacity(raw.count)
+        for sample in raw {
             guard let stamp = sample["t"] as? Double,
                   let values = sample["u"] as? [String: Any],
                   let fiveHour = values["fh"] as? Int,
                   let week = values["sd"] as? Int
             else { continue }
-            return Usage(fiveHour: fiveHour,
-                         week: week,
-                         organization: sample["org"] as? String,
-                         sampled: Date(timeIntervalSince1970: stamp / 1000))
+            samples.append((Date(timeIntervalSince1970: stamp / 1000), fiveHour, week, sample["org"] as? String))
+        }
+        guard let latest = samples.last else { return nil }
+
+        return Usage(fiveHour: latest.fiveHour,
+                     week: latest.week,
+                     organization: latest.org,
+                     sampled: latest.time,
+                     fiveHourReset: fiveHourReset(from: samples),
+                     weekReset: weekReset(from: samples))
+    }
+
+    private static let fiveHourWindow: TimeInterval = 5 * 60 * 60
+    private static let weekWindow: TimeInterval = 7 * 24 * 60 * 60
+
+    /// The window opened at the first sample after the figure was last zero,
+    /// and closes five hours later. Nothing to report when none is open, or
+    /// when the history starts partway through one.
+    private static func fiveHourReset(
+        from samples: [(time: Date, fiveHour: Int, week: Int, org: String?)]
+    ) -> Date? {
+        guard let latest = samples.last, latest.fiveHour > 0 else { return nil }
+        for index in stride(from: samples.count - 1, to: 0, by: -1)
+        where samples[index - 1].fiveHour == 0 && samples[index].fiveHour > 0 {
+            let reset = samples[index].time.addingTimeInterval(fiveHourWindow)
+            return reset > Date() ? reset : nil
         }
         return nil
+    }
+
+    /// Weekly resets are a cycle, so the last one seen can be rolled forward
+    /// even across stretches where Claude was not running to record it.
+    private static func weekReset(
+        from samples: [(time: Date, fiveHour: Int, week: Int, org: String?)]
+    ) -> Date? {
+        var lastReset: Date?
+        for (previous, current) in zip(samples, samples.dropFirst())
+        where current.week < previous.week - 2 {
+            lastReset = current.time
+        }
+        guard var reset = lastReset?.addingTimeInterval(weekWindow) else { return nil }
+        let now = Date()
+        var rolls = 0
+        while reset <= now, rolls < 520 {
+            reset.addTimeInterval(weekWindow)
+            rolls += 1
+        }
+        return reset
+    }
+
+    /// "2d 3h 40m", "3h 40m", "12m" — days only when there is at least one.
+    static func countdown(to date: Date, from now: Date = Date()) -> String? {
+        let remaining = Int(date.timeIntervalSince(now))
+        guard remaining > 0 else { return nil }
+        let days = remaining / 86_400
+        let hours = (remaining % 86_400) / 3_600
+        let minutes = (remaining % 3_600) / 60
+        if days > 0 { return "\(days)d \(hours)h \(minutes)m" }
+        if hours > 0 { return "\(hours)h \(minutes)m" }
+        return "\(max(minutes, 1))m"
     }
 
     // MARK: - Grafting

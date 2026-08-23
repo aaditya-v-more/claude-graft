@@ -10,15 +10,21 @@ isolated second profile with nothing in it. Graft lets a work login open your
 personal Claude Code chats, connectors and extensions while the two accounts
 stay completely separate.
 
-## Build
+## Install
 
 ```
-./build.sh
-open "build/Claude Graft.app"
+./release.sh --install
 ```
 
-Requires the Swift toolchain that ships with Xcode. No project file, no
-dependencies — `swiftc` compiles the app and a small launcher binary.
+Runs the tests, builds, draws the icon, signs, packages `dist/ClaudeGraft-<version>.zip`
+and puts the app in `/Applications`. It signs with a Developer ID if
+`security find-identity` finds one — set `GRAFT_SIGNING_IDENTITY` to choose a
+particular one — and falls back to an ad-hoc signature, which runs on the
+machine that built it but needs right-click → Open anywhere else. The script
+prints the `notarytool` invocation for distributing it properly.
+
+For development, `./build.sh` alone builds into `build/`. Requires the Swift
+toolchain that ships with Xcode; no project file and no dependencies.
 
 ## Using it
 
@@ -47,7 +53,13 @@ open.
 
 Graft lives in the menu bar, on by default. The bar shows the tightest
 five-hour window across every account; the dropdown breaks it down per account,
-five hours and week, with a dot for whichever instances are running.
+five hours and week, each with how long until it resets — `2d 3h 40m`, or
+`3h 40m` once there is less than a day. A dot marks whichever instances are
+running, and each has its own **Open**.
+
+Claude's own installation appears in both the dropdown and the app's sidebar,
+alongside the shortcuts and read-only: Graft borrows from it but never changes
+it.
 
 Closing the window does not quit — the menu bar item carries on reporting, and
 the Dock icon steps aside. Quit properly from the dropdown. The window comes
@@ -58,19 +70,23 @@ The numbers come from `plan-usage-history.json`, which each profile writes while
 it runs. An account nothing has opened for hours shows its last sample greyed
 out, because a five-hour window that has since rolled over says nothing useful.
 
+Reset times are not recorded anywhere, so they are worked out from that history:
+a window closing shows up as the figure dropping back to nothing, which dates
+the window that followed. Weekly resets are a cycle, so the last one seen is
+rolled forward even across stretches where Claude was not running to record it.
+
 ### Start Session
 
-Each account has a **Start Session** button, which types `hi` into that
-instance to open its five-hour window.
+**Start Session** opens a five-hour window by sending one Haiku-sized message
+through Claude Code's command line — `claude -p hi --model haiku`. Nothing
+appears on screen and no permissions are involved.
 
-It really does type it. Claude Desktop keeps each account's token encrypted in
-its own profile, and Claude Code's command line holds one set of credentials in
-the keychain for the whole machine, so nothing outside Claude can make a request
-as a chosen account without prising credentials out of it. So Graft brings that
-instance's window up and sends a keystroke, which needs Accessibility permission
-the first time. Two consequences worth knowing: the message goes to whatever
-that window has focused, and it uses whichever model that instance is set to —
-there is no way to force Haiku from outside.
+It is one button rather than one per account, because it uses the account
+Claude Code itself is signed into. That is the only login reachable from
+outside Claude: the desktop keeps each profile's token encrypted in that
+profile, and the command line keeps a single login in the keychain for the
+whole machine. Aiming it at a chosen shortcut's account would mean prising that
+account's credentials out of Claude's own store, which Graft does not do.
 
 ## Deleting
 
@@ -90,7 +106,7 @@ Claude uses are reserved.
 ./test.sh
 ```
 
-A hundred and fourteen checks over a throwaway Application Support and
+A hundred and twenty-five checks over a throwaway Application Support and
 Applications directory:
 that foreign apps survive install, uninstall and delete; that updating a
 shortcut rewrites one bundle rather than leaving copies; that a rename onto an
@@ -184,6 +200,8 @@ storage.
 Sources/Shared/GraftCore.swift   linking, account mapping, launching
 Sources/Launcher/main.swift      the executable each shortcut bundle contains
 Sources/App/                     the SwiftUI manager and the status item
+Tools/make-icon.swift            draws the app icon
+release.sh                       tests, builds, signs, packages
 Tests/main.swift                 the suite
 build.sh                         builds the app and the launcher
 test.sh                          builds and runs the tests

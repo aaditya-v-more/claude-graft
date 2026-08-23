@@ -13,7 +13,6 @@
     <key>LSMinimumSystemVersion</key><string>13.0</string>
     <key>NSHighResolutionCapable</key><true/>
     <key>NSPrincipalClass</key><string>NSApplication</string>
-    <key>NSAppleEventsUsageDescription</key><string>Claude Graft types a short message into a Claude window to open its five-hour usage window.</string>
     <key>NSSupportsAutomaticTermination</key><true/>
 </dict>
 </plist>
