@@ -81,6 +81,19 @@ those and using one would sign Claude Desktop out — nothing is written back to
 Claude's config or keychain, and the token goes to `api.anthropic.com` and
 nowhere else.
 
+### How often it asks
+
+Once per profile every five minutes, and no more. The thirty-second timer only
+reads the local file and checks whether that Claude is running; the network call
+sits behind its own gate. Two profiles is twenty-four calls an hour against the
+endpoint Claude Code itself polls.
+
+A failed call is not simply retried on the next tick — that would turn one
+refusal into a hundred and twenty attempts an hour, which is how a client earns
+a rate limit. Failures back off one minute, two, five, fifteen, then half an
+hour, and a success clears the count. When the service sends `Retry-After` that
+wins, and it is the one wait pressing **Refresh Usage** cannot skip.
+
 Each pass writes what it found to
 `~/Library/Application Support/ClaudeGraft/usage-status.json` — the figures and
 whether they came from the API — so the state of live usage can be checked
@@ -123,7 +136,7 @@ Claude uses are reserved.
 ./test.sh
 ```
 
-A hundred and forty-three checks over a throwaway Application Support and
+A hundred and fifty-five checks over a throwaway Application Support and
 Applications directory:
 that foreign apps survive install, uninstall and delete; that updating a
 shortcut rewrites one bundle rather than leaving copies; that a rename onto an

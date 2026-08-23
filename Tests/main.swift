@@ -687,6 +687,47 @@ do {
           "reading usage and running the model are different permissions")
 }
 
+// MARK: - How hard the endpoint is asked
+
+section("Polling and backoff")
+
+do {
+    check(UsageMonitor.liveInterval == 300,
+          "usage is asked for at most once every five minutes per profile")
+
+    // Without backoff a refused call would be retried on the next tick, turning
+    // one failure into a hundred and twenty attempts an hour.
+    let first = UsageMonitor.retryDelay(afterFailures: 1, retryAfter: nil)
+    let second = UsageMonitor.retryDelay(afterFailures: 2, retryAfter: nil)
+    let fifth = UsageMonitor.retryDelay(afterFailures: 5, retryAfter: nil)
+    check(first >= 60, "the first failure waits at least a minute")
+    check(second > first, "and each further one waits longer")
+    check(fifth >= 1800, "settling at half an hour")
+    check(UsageMonitor.retryDelay(afterFailures: 50, retryAfter: nil) == fifth,
+          "the wait is capped rather than growing without end")
+
+    check(UsageMonitor.retryDelay(afterFailures: 1, retryAfter: 900) == 900,
+          "a Retry-After from the service is honoured exactly")
+    check(UsageMonitor.retryDelay(afterFailures: 4, retryAfter: 30) >= 60,
+          "a suspiciously short one is still floored at a minute")
+
+    let now = Date()
+    check(UsageMonitor.mayAttempt(now: now, until: nil, interactive: false, serverAsked: false),
+          "nothing outstanding means go ahead")
+    check(!UsageMonitor.mayAttempt(now: now, until: now.addingTimeInterval(300),
+                                   interactive: false, serverAsked: false),
+          "a background pass waits its turn")
+    check(UsageMonitor.mayAttempt(now: now, until: now.addingTimeInterval(300),
+                                  interactive: true, serverAsked: false),
+          "a person pressing refresh may skip our own wait")
+    check(!UsageMonitor.mayAttempt(now: now, until: now.addingTimeInterval(300),
+                                   interactive: true, serverAsked: true),
+          "but not one the service asked for")
+    check(UsageMonitor.mayAttempt(now: now, until: now.addingTimeInterval(-1),
+                                  interactive: false, serverAsked: true),
+          "and an expired wait releases either way")
+}
+
 print("\n\(checks - failures)/\(checks) checks passed")
 if failures > 0 {
     print("\(failures) FAILED")

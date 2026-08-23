@@ -16,16 +16,18 @@ enum UsageAPI {
     }
 
     enum Failure: LocalizedError {
-        case http(Int)
+        /// Carries `Retry-After` when the service sends one, so a caller can
+        /// wait exactly as long as it was asked to.
+        case http(Int, retryAfter: TimeInterval?)
         case unreadable
 
         var errorDescription: String? {
             switch self {
-            case .http(401), .http(403):
+            case .http(401, _), .http(403, _):
                 return "That login was refused. Open the profile once so Claude can renew it."
-            case .http(429):
+            case .http(429, _):
                 return "Anthropic is rate-limiting usage checks. The last figures stay on screen."
-            case .http(let code):
+            case .http(let code, _):
                 return "The usage service answered \(code)."
             case .unreadable:
                 return "The usage service sent something unexpected."
@@ -55,8 +57,12 @@ enum UsageAPI {
         _ = finished.wait(timeout: .now() + timeout + 5)
 
         if let failure { throw failure }
-        let code = (response as? HTTPURLResponse)?.statusCode ?? 0
-        guard code == 200 else { throw Failure.http(code) }
+        let http = response as? HTTPURLResponse
+        let code = http?.statusCode ?? 0
+        guard code == 200 else {
+            let header = http?.value(forHTTPHeaderField: "Retry-After")
+            throw Failure.http(code, retryAfter: header.flatMap(TimeInterval.init))
+        }
         guard let payload,
               let body = try? JSONSerialization.jsonObject(with: payload) as? [String: Any],
               let reading = reading(from: body)

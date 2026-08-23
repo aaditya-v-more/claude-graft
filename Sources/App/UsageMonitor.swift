@@ -36,7 +36,30 @@ final class UsageMonitor: ObservableObject {
 
     /// The API is polled far less often than the disk, and only per profile.
     private var liveCache: [String: (fetched: Date, reading: UsageAPI.Reading)] = [:]
-    private static let liveInterval: TimeInterval = 5 * 60
+    static let liveInterval: TimeInterval = 5 * 60
+
+    /// A failed call must not simply be retried on the next thirty-second tick:
+    /// that turns one refused request into a hundred and twenty an hour, which
+    /// is exactly how a client earns a rate limit. Each failure pushes the next
+    /// attempt further out, and a success clears it.
+    private var backoff: [String: (until: Date, failures: Int)] = [:]
+
+    static let backoffSteps: [TimeInterval] = [60, 120, 300, 900, 1800]
+
+    /// How long to wait after `failures` consecutive failures. A `Retry-After`
+    /// from the service wins over our own schedule — it knows better.
+    static func retryDelay(afterFailures failures: Int, retryAfter: TimeInterval?) -> TimeInterval {
+        if let retryAfter, retryAfter > 0 { return max(retryAfter, backoffSteps[0]) }
+        let index = min(max(failures, 1) - 1, backoffSteps.count - 1)
+        return backoffSteps[index]
+    }
+
+    /// `Retry-After` is the one wait a user's own refresh cannot shorten.
+    static func mayAttempt(now: Date, until: Date?, interactive: Bool, serverAsked: Bool) -> Bool {
+        guard let until else { return true }
+        if now >= until { return true }
+        return interactive && !serverAsked
+    }
 
     /// The number worth putting in the menu bar: the closest five-hour window
     /// to its limit among everything still meaningful.
@@ -160,15 +183,29 @@ final class UsageMonitor: ObservableObject {
                       interactive: Bool,
                       problem: inout String?,
                       locked: inout Bool) -> UsageAPI.Reading? {
+        let now = Date()
         if let cached = liveCache[profile.path],
-           Date().timeIntervalSince(cached.fetched) < Self.liveInterval {
+           now.timeIntervalSince(cached.fetched) < Self.liveInterval {
             return cached.reading
         }
+
+        let waiting = backoff[profile.path]
+        guard Self.mayAttempt(now: now,
+                              until: waiting?.until,
+                              interactive: interactive,
+                              serverAsked: serverAskedToWait.contains(profile.path))
+        else {
+            if interactive { problem = waitingMessage(until: waiting?.until) }
+            return liveCache[profile.path]?.reading
+        }
+
         do {
             guard let token = try ClaudeCredentials.token(for: profile, allowInteraction: interactive)
             else { return nil }
             let reading = try UsageAPI.fetch(token: token.value)
             liveCache[profile.path] = (Date(), reading)
+            backoff[profile.path] = nil
+            serverAskedToWait.remove(profile.path)
             return reading
         } catch {
             // Falling back to the on-disk figures is the normal outcome here,
@@ -177,7 +214,26 @@ final class UsageMonitor: ObservableObject {
             // fix and everything live depends on it.
             if case ClaudeCredentials.Failure.noKeychainAccess = error { locked = true }
             if interactive { problem = (error as? LocalizedError)?.errorDescription }
+
+            var retryAfter: TimeInterval?
+            if case UsageAPI.Failure.http(_, let asked) = error, let asked {
+                retryAfter = asked
+                serverAskedToWait.insert(profile.path)
+            }
+            let failures = (backoff[profile.path]?.failures ?? 0) + 1
+            let delay = Self.retryDelay(afterFailures: failures, retryAfter: retryAfter)
+            backoff[profile.path] = (Date().addingTimeInterval(delay), failures)
             return liveCache[profile.path]?.reading
         }
+    }
+
+    /// Paths the service itself asked us to leave alone for a while.
+    private var serverAskedToWait: Set<String> = []
+
+    private func waitingMessage(until: Date?) -> String {
+        guard let until, let remaining = Graft.countdown(to: until) else {
+            return "Waiting before asking for usage again."
+        }
+        return "Waiting \(remaining) before asking for usage again."
     }
 }
