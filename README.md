@@ -26,6 +26,9 @@ Add a shortcut, name it, pick where its chats come from, press **Create
 Shortcut**. You get `/Applications/<Name>.app`. Launch it, sign in with the
 other account, and both instances run side by side.
 
+A shortcut is a draft until you create it: it sits in the list marked *Not
+created yet*, and discarding one at that stage just removes the row.
+
 The profile folder is editable. Point it at a folder that already exists and the
 shortcut adopts that profile — useful if you set one up by hand and would rather
 not sign in again.
@@ -58,12 +61,14 @@ Claude uses are reserved.
 ./test.sh
 ```
 
-Fifty-nine checks over a throwaway Application Support and Applications
-directory: that foreign apps survive install, uninstall and delete; that
-updating a shortcut rewrites one bundle rather than leaving copies; that a
-rename onto an occupied name changes nothing; that grafting preserves the
-login, stashes what it replaces, and reverses cleanly; and that every guard on
-profile deletion fires for the reason it was meant to.
+Ninety checks over a throwaway Application Support and Applications directory:
+that foreign apps survive install, uninstall and delete; that updating a
+shortcut rewrites one bundle rather than leaving copies; that a rename onto an
+occupied name changes nothing; that grafting preserves the login, stashes what
+it replaces, and reverses cleanly; that a profile cannot be grafted from itself
+and a folder name cannot climb out of Application Support; that an awkward name
+still produces a readable plist; and that every guard on profile deletion fires
+for the reason it was meant to.
 
 ## How it works
 
