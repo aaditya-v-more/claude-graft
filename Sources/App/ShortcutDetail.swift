@@ -33,13 +33,11 @@ struct ShortcutDetail: View {
     }
 
     static let sessionNote = """
-        Sends a one-word message through Claude Code's command line, which opens \
-        a five-hour window without putting a window on screen.
+        Sends one short message to this account so its five-hour window opens. \
+        Nothing appears on screen.
 
-        It uses the account Claude Code is signed into. That is the only login \
-        reachable from outside Claude — the desktop keeps each profile's token \
-        encrypted in that profile — so it cannot be aimed at one shortcut's \
-        account in particular.
+        It uses that profile's own login, borrowed the same way the usage \
+        figures are, so each account can be started separately.
         """
 
     var body: some View {
@@ -122,7 +120,7 @@ struct ShortcutDetail: View {
                         Text("Start Session")
                     }
                 }
-                .disabled(startingSession || !SessionStarter.isAvailable)
+                .disabled(startingSession)
                 InfoButton(Self.sessionNote)
 
                 Button("Open", action: open)
@@ -259,8 +257,9 @@ struct ShortcutDetail: View {
     private func startSession() {
         guard !startingSession else { return }
         startingSession = true
+        let profile = shortcut.profileDir
         DispatchQueue.global(qos: .userInitiated).async {
-            let failure = SessionStarter.start()
+            let failure = SessionStarter.start(profile: profile)
             DispatchQueue.main.async {
                 startingSession = false
                 if let failure {

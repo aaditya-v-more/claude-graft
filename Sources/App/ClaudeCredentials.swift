@@ -23,8 +23,10 @@ enum ClaudeCredentials {
         var plan: String?
         var scopes: [String]
 
-        var isUsableForUsage: Bool {
-            expires > Date().addingTimeInterval(120) && scopes.contains(usageScope)
+        var isCurrent: Bool { expires > Date().addingTimeInterval(120) }
+
+        func covers(_ required: [String]) -> Bool {
+            required.allSatisfy(scopes.contains)
         }
     }
 
@@ -49,6 +51,7 @@ enum ClaudeCredentials {
     }
 
     static let usageScope = "user:profile"
+    static let inferenceScope = "user:inference"
 
     private static let keychainService = "Claude Safe Storage"
     private static let keychainAccount = "Claude Key"
@@ -145,7 +148,9 @@ enum ClaudeCredentials {
     // MARK: - The token
 
     /// Nil when this profile has no login cached at all.
-    static func token(for profile: URL, allowInteraction: Bool) throws -> Token? {
+    static func token(for profile: URL,
+                      allowInteraction: Bool,
+                      requiring scopes: [String] = [usageScope]) throws -> Token? {
         let config = Graft.configJSON(of: profile)
         let encoded = cacheKeys.compactMap { config[$0] as? String }.first
         guard let encoded, let blob = Data(base64Encoded: encoded) else { return nil }
@@ -168,8 +173,8 @@ enum ClaudeCredentials {
             let candidate = Token(value: token,
                                   expires: Date(timeIntervalSince1970: expires / 1000),
                                   plan: entry["subscriptionType"] as? String,
-                                  scopes: scopes(in: composite))
-            guard candidate.isUsableForUsage else { continue }
+                                  scopes: Self.scopes(in: composite))
+            guard candidate.isCurrent, candidate.covers(scopes) else { continue }
             if best == nil || candidate.expires > best!.expires { best = candidate }
         }
         guard let best else { throw Failure.expired }

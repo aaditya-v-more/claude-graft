@@ -672,6 +672,19 @@ do {
     let bare = makeProfile("Claude-NoLogin", account: "AAAA")
     check((try? ClaudeCredentials.token(for: bare, allowInteraction: false)) ?? nil == nil,
           "a profile with no stored login has no token")
+
+    // Starting a session goes to Anthropic, per profile, with a real model id.
+    check(SessionStarter.endpoint.host == "api.anthropic.com", "sessions start against Anthropic")
+    check(SessionStarter.endpoint.scheme == "https", "over https as well")
+    check(SessionStarter.model.hasPrefix("claude-haiku"), "and on Haiku, the cheapest way to open a window")
+
+    check(SessionStarter.start(profile: bare, interactive: false) != nil,
+          "a profile with no login cannot start a session")
+
+    // The two scopes are asked for separately: reading usage needs one, sending
+    // a message needs the other.
+    check(ClaudeCredentials.usageScope != ClaudeCredentials.inferenceScope,
+          "reading usage and running the model are different permissions")
 }
 
 print("\n\(checks - failures)/\(checks) checks passed")

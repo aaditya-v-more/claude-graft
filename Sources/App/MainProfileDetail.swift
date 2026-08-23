@@ -78,7 +78,7 @@ struct MainProfileDetail: View {
                         Text("Start Session")
                     }
                 }
-                .disabled(startingSession || !SessionStarter.isAvailable)
+                .disabled(startingSession)
                 InfoButton(ShortcutDetail.sessionNote)
 
                 Button("Open") {
@@ -115,7 +115,7 @@ struct MainProfileDetail: View {
         guard !startingSession else { return }
         startingSession = true
         DispatchQueue.global(qos: .userInitiated).async {
-            let failure = SessionStarter.start()
+            let failure = SessionStarter.start(profile: Graft.mainProfile)
             DispatchQueue.main.async {
                 startingSession = false
                 error = failure?.errorDescription

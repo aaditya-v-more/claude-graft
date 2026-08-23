@@ -12,17 +12,15 @@ struct MenuBarContent: View {
     /// the openWindow environment action is not available here.
     let openMainWindow: () -> Void
 
-    @State private var starting = false
+    @State private var starting: String?
     @State private var problem: String?
 
     private static let sessionNote = """
-        Sends a one-word message through Claude Code's command line, which \
-        opens a five-hour window without putting a window on screen.
+        Sends one short message to this account so its five-hour window opens. \
+        Nothing appears on screen.
 
-        It uses the account Claude Code is signed into. That is the only login \
-        reachable from outside Claude — the desktop keeps each profile's token \
-        encrypted in that profile — so it cannot be aimed at one shortcut's \
-        account in particular.
+        It uses that profile's own login, borrowed the same way the usage \
+        figures are, so each account can be started separately.
         """
 
     var body: some View {
@@ -34,7 +32,10 @@ struct MenuBarContent: View {
                     .padding(.vertical, 10)
             } else {
                 ForEach(usage.entries) { entry in
-                    UsageRow(entry: entry, open: { open(entry) })
+                    UsageRow(entry: entry,
+                             starting: starting == entry.id,
+                             open: { open(entry) },
+                             start: { startSession(entry) })
                     if entry.id != usage.entries.last?.id {
                         Divider().padding(.leading, 14)
                     }
@@ -51,22 +52,6 @@ struct MenuBarContent: View {
                     .padding(.horizontal, 14)
                     .padding(.bottom, 8)
             }
-
-            HStack(spacing: 6) {
-                Button(action: startSession) {
-                    if starting {
-                        ProgressView().controlSize(.small)
-                    } else {
-                        Text("Start Session")
-                    }
-                }
-                .controlSize(.small)
-                .disabled(starting || !SessionStarter.isAvailable)
-                InfoButton(Self.sessionNote)
-                Spacer()
-            }
-            .padding(.horizontal, 14)
-            .padding(.bottom, 8)
 
             VStack(alignment: .leading, spacing: 6) {
                 Toggle("Open at Login", isOn: Binding(
@@ -106,16 +91,17 @@ struct MenuBarContent: View {
         }
     }
 
-    private func startSession() {
-        guard !starting else { return }
-        starting = true
+    private func startSession(_ entry: UsageMonitor.Entry) {
+        guard starting == nil else { return }
+        starting = entry.id
         problem = nil
+        let profile = entry.profile
         DispatchQueue.global(qos: .userInitiated).async {
-            let failure = SessionStarter.start()
+            let failure = SessionStarter.start(profile: profile)
             DispatchQueue.main.async {
-                starting = false
+                starting = nil
                 problem = failure?.errorDescription
-                usage.refresh(store)
+                usage.refresh(store, interactive: true)
             }
         }
     }
@@ -149,7 +135,9 @@ struct MenuButton: View {
 
 struct UsageRow: View {
     let entry: UsageMonitor.Entry
+    let starting: Bool
     let open: () -> Void
+    let start: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -164,6 +152,16 @@ struct UsageRow: View {
                         .foregroundStyle(.tertiary)
                 }
                 Spacer()
+                Button(action: start) {
+                    if starting {
+                        ProgressView().controlSize(.small)
+                    } else {
+                        Text("Start Session")
+                    }
+                }
+                .controlSize(.small)
+                .disabled(starting)
+                .help("Sends one short message to this account to open its five-hour window")
                 Button("Open", action: open)
                     .controlSize(.small)
             }

@@ -91,16 +91,14 @@ five-hour window that has already rolled over says nothing useful.
 
 ### Start Session
 
-**Start Session** opens a five-hour window by sending one Haiku-sized message
-through Claude Code's command line — `claude -p hi --model haiku`. Nothing
-appears on screen and no permissions are involved.
+Every account has its own **Start Session**, which opens that account's
+five-hour window by sending it one short message on Haiku. Nothing appears on
+screen — no window is launched and nothing is typed.
 
-It is one button rather than one per account, because it uses the account
-Claude Code itself is signed into. That is the only login reachable from
-outside Claude: the desktop keeps each profile's token encrypted in that
-profile, and the command line keeps a single login in the keychain for the
-whole machine. Aiming it at a chosen shortcut's account would mean prising that
-account's credentials out of Claude's own store, which Graft does not do.
+It goes through the same borrowed login as the usage figures, so it really is
+per account: the request is made as that profile, with `max_tokens` set as low
+as the API allows, and the reply is discarded. The only thing it costs is the
+handful of tokens needed to make the window start counting.
 
 ## Deleting
 
@@ -120,7 +118,7 @@ Claude uses are reserved.
 ./test.sh
 ```
 
-A hundred and thirty-eight checks over a throwaway Application Support and
+A hundred and forty-three checks over a throwaway Application Support and
 Applications directory:
 that foreign apps survive install, uninstall and delete; that updating a
 shortcut rewrites one bundle rather than leaving copies; that a rename onto an
