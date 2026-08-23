@@ -172,6 +172,73 @@ enum Graft {
         configJSON(of: profile)["lastKnownAccountUuid"] as? String
     }
 
+    // MARK: - Plan usage
+
+    /// How much of a plan's two windows has been spent, as Claude records it in
+    /// the profile. `fh` is the five-hour window, `sd` the seven-day one, both
+    /// percentages already used.
+    struct Usage: Equatable {
+        var fiveHour: Int
+        var week: Int
+        var organization: String?
+        var sampled: Date
+
+        /// Claude only writes this while it is running, so an old sample says
+        /// nothing useful about a five-hour window that has since rolled over.
+        var isStale: Bool { Date().timeIntervalSince(sampled) > 5 * 60 * 60 }
+    }
+
+    /// Parsed history, keyed by file and only re-read when the file changes.
+    /// Claude appends to this all day and it grows into the hundreds of
+    /// kilobytes; polling it meant parsing the lot every couple of seconds.
+    private static var usageCache: [String: (stamp: Date, size: Int, usage: Usage?)] = [:]
+    private static let usageCacheLock = NSLock()
+
+    /// The most recent sample a profile recorded. Nil when Claude has never run
+    /// on it, or has not reported usage yet.
+    static func usage(of profile: URL) -> Usage? {
+        let url = profile.appending(path: "plan-usage-history.json")
+
+        let attributes = try? fm.attributesOfItem(atPath: url.path)
+        let stamp = attributes?[.modificationDate] as? Date ?? .distantPast
+        let size = (attributes?[.size] as? Int) ?? 0
+
+        usageCacheLock.lock()
+        if let cached = usageCache[url.path], cached.stamp == stamp, cached.size == size {
+            usageCacheLock.unlock()
+            return cached.usage
+        }
+        usageCacheLock.unlock()
+
+        let parsed = parseUsage(at: url)
+        usageCacheLock.lock()
+        usageCache[url.path] = (stamp, size, parsed)
+        usageCacheLock.unlock()
+        return parsed
+    }
+
+    private static func parseUsage(at url: URL) -> Usage? {
+        guard let data = try? Data(contentsOf: url),
+              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let samples = root["samples"] as? [[String: Any]]
+        else { return nil }
+
+        // Samples are appended in order, but the last one is only interesting
+        // if it carries both numbers.
+        for sample in samples.reversed() {
+            guard let stamp = sample["t"] as? Double,
+                  let values = sample["u"] as? [String: Any],
+                  let fiveHour = values["fh"] as? Int,
+                  let week = values["sd"] as? Int
+            else { continue }
+            return Usage(fiveHour: fiveHour,
+                         week: week,
+                         organization: sample["org"] as? String,
+                         sampled: Date(timeIntervalSince1970: stamp / 1000))
+        }
+        return nil
+    }
+
     // MARK: - Grafting
 
     /// Share the safe files, then map this profile's chat directory onto the
@@ -333,8 +400,47 @@ enum Graft {
         return task.terminationStatus
     }
 
+    /// Same discipline as `runTool`, with the output collected. The pipe is
+    /// drained on another queue so a tool that outruns the buffer cannot wedge
+    /// the caller.
+    static func output(_ tool: String, _ arguments: [String]) -> String {
+        guard fm.isExecutableFile(atPath: tool) else { return "" }
+        let task = Process()
+        let pipe = Pipe()
+        task.executableURL = URL(fileURLWithPath: tool)
+        task.arguments = arguments
+        task.standardOutput = pipe
+        task.standardError = FileHandle.nullDevice
+
+        var collected = Data()
+        let drained = DispatchSemaphore(value: 0)
+        DispatchQueue.global(qos: .userInitiated).async {
+            collected = pipe.fileHandleForReading.readDataToEndOfFile()
+            drained.signal()
+        }
+        do {
+            try task.run()
+        } catch {
+            // Nothing will ever close the write end, so release the reader.
+            try? pipe.fileHandleForWriting.close()
+            drained.wait()
+            return ""
+        }
+        drained.wait()
+        return String(decoding: collected, as: UTF8.self)
+    }
+
     static func isRunning(profile: URL) -> Bool {
         runTool("/usr/bin/pgrep", ["-f", "user-data-dir=\(profile.path)"]) == 0
+    }
+
+    /// Every process serving this profile. The main window is the one with the
+    /// lowest id; helpers are spawned afterwards.
+    static func processIDs(of profile: URL) -> [Int32] {
+        output("/usr/bin/pgrep", ["-f", "user-data-dir=\(profile.path)"])
+            .split(whereSeparator: \.isNewline)
+            .compactMap { Int32($0.trimmingCharacters(in: .whitespaces)) }
+            .sorted()
     }
 
     @discardableResult

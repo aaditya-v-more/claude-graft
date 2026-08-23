@@ -43,6 +43,35 @@ If Claude is already running on that profile, the shortcut skips the sync and
 just opens another window, rather than rewriting files a live instance holds
 open.
 
+## Menu bar
+
+Graft lives in the menu bar, on by default. The bar shows the tightest
+five-hour window across every account; the dropdown breaks it down per account,
+five hours and week, with a dot for whichever instances are running.
+
+Closing the window does not quit — the menu bar item carries on reporting, and
+the Dock icon steps aside. Quit properly from the dropdown. The window comes
+back the way you left it: close it before quitting and the next launch stays in
+the menu bar, which is what makes **Open at Login** bearable.
+
+The numbers come from `plan-usage-history.json`, which each profile writes while
+it runs. An account nothing has opened for hours shows its last sample greyed
+out, because a five-hour window that has since rolled over says nothing useful.
+
+### Start Session
+
+Each account has a **Start Session** button, which types `hi` into that
+instance to open its five-hour window.
+
+It really does type it. Claude Desktop keeps each account's token encrypted in
+its own profile, and Claude Code's command line holds one set of credentials in
+the keychain for the whole machine, so nothing outside Claude can make a request
+as a chosen account without prising credentials out of it. So Graft brings that
+instance's window up and sends a keystroke, which needs Accessibility permission
+the first time. Two consequences worth knowing: the message goes to whatever
+that window has focused, and it uses whichever model that instance is set to —
+there is no way to force Haiku from outside.
+
 ## Deleting
 
 Deleting a shortcut asks whether the profile folder should go with it. Keeping
@@ -61,7 +90,7 @@ Claude uses are reserved.
 ./test.sh
 ```
 
-Ninety checks over a throwaway Application Support and Applications directory:
+A hundred and fourteen checks over a throwaway Application Support and Applications directory:
 that foreign apps survive install, uninstall and delete; that updating a
 shortcut rewrites one bundle rather than leaving copies; that a rename onto an
 occupied name changes nothing; that grafting preserves the login, stashes what
@@ -153,7 +182,7 @@ storage.
 ```
 Sources/Shared/GraftCore.swift   linking, account mapping, launching
 Sources/Launcher/main.swift      the executable each shortcut bundle contains
-Sources/App/                     the SwiftUI manager
+Sources/App/                     the SwiftUI manager and the status item
 Tests/main.swift                 the suite
 build.sh                         builds the app and the launcher
 test.sh                          builds and runs the tests

@@ -450,6 +450,134 @@ do {
           "deleting a source leaves its followers on their own chats, not silently un-grafted")
 }
 
+// MARK: - Plan usage
+
+section("Plan usage")
+
+func writeUsage(_ profile: URL, _ samples: [(Double, Int, Int)]) {
+    let payload: [String: Any] = [
+        "version": 2,
+        "samples": samples.map { ["t": $0.0, "org": "ORG1", "u": ["fh": $0.1, "sd": $0.2]] },
+    ]
+    let data = try! JSONSerialization.data(withJSONObject: payload)
+    try! data.write(to: profile.appending(path: "plan-usage-history.json"))
+}
+
+do {
+    let profile = makeProfile("Claude-Usage", account: "AAAA", org: "ORG1")
+    check(Graft.usage(of: profile) == nil, "a profile with no history reports nothing")
+
+    let now = Date().timeIntervalSince1970 * 1000
+    writeUsage(profile, [(now - 60_000, 10, 20), (now, 45, 69)])
+    let usage = Graft.usage(of: profile)
+    check(usage?.fiveHour == 45, "the newest five-hour figure is the one reported")
+    check(usage?.week == 69, "and so is the weekly one")
+    check(usage?.organization == "ORG1", "the organization comes through")
+    check(usage?.isStale == false, "a fresh sample is not stale")
+
+    writeUsage(profile, [(now - 6 * 60 * 60 * 1000, 90, 90)])
+    check(Graft.usage(of: profile)?.isStale == true,
+          "a sample older than the five-hour window is stale")
+
+    // Claude has been seen to write samples with a missing figure.
+    let partial: [String: Any] = [
+        "version": 2,
+        "samples": [["t": now, "org": "ORG1", "u": ["sd": 5]],
+                    ["t": now - 1000, "org": "ORG1", "u": ["fh": 7, "sd": 8]]],
+    ]
+    try! JSONSerialization.data(withJSONObject: partial)
+        .write(to: profile.appending(path: "plan-usage-history.json"))
+    check(Graft.usage(of: profile)?.fiveHour == 7,
+          "a sample missing a figure is skipped for the last complete one")
+
+    try! Data("not json".utf8).write(to: profile.appending(path: "plan-usage-history.json"))
+    check(Graft.usage(of: profile) == nil, "a corrupt history is ignored rather than fatal")
+
+    // The parse is cached against the file's stamp and size; a later write has
+    // to be picked up rather than served from that cache.
+    writeUsage(profile, [(now, 1, 2)])
+    check(Graft.usage(of: profile)?.fiveHour == 1, "a rewritten history is re-read")
+    writeUsage(profile, [(now, 3, 4)])
+    check(Graft.usage(of: profile)?.fiveHour == 3, "and re-read again when it changes")
+
+    let empty: [String: Any] = ["version": 2, "samples": []]
+    try! JSONSerialization.data(withJSONObject: empty)
+        .write(to: profile.appending(path: "plan-usage-history.json"))
+    check(Graft.usage(of: profile) == nil, "so is an empty one")
+}
+
+do {
+    // The usage file belongs to one account and must never be linked away.
+    check(!Graft.sharedItems.contains("plan-usage-history.json"),
+          "usage history is not one of the shared files")
+}
+
+section("Command output")
+
+check(Graft.output("/bin/echo", ["hello"]).trimmingCharacters(in: .whitespacesAndNewlines) == "hello",
+      "output is captured")
+check(Graft.output("/nonexistent/tool", []).isEmpty, "a missing tool yields nothing")
+check(Graft.processIDs(of: support.appending(path: "Claude-NeverLaunched")).isEmpty,
+      "an unused profile has no processes")
+
+// MARK: - What the menu bar reports
+
+section("Usage monitor")
+
+/// Spins the run loop until the monitor has published, or gives up.
+func settle(_ monitor: UsageMonitor, expecting count: Int) {
+    let deadline = Date().addingTimeInterval(5)
+    while monitor.entries.count != count, Date() < deadline {
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+    }
+}
+
+do {
+    let now = Date().timeIntervalSince1970 * 1000
+    _ = makeProfile("Claude", account: "MAIN", org: "ORGM")
+    writeUsage(support.appending(path: "Claude"), [(now, 12, 34)])
+
+    let listed = makeProfile("Claude-Listed", account: "AAAA", org: "ORG1")
+    writeUsage(listed, [(now, 77, 88)])
+    _ = makeProfile("Claude-Draft", account: "BBBB", org: "ORG2")
+
+    let store = ShortcutStore()
+    var installed = Shortcut(name: "Listed", folder: "Claude-Listed", source: .main)
+    installed.installedName = "Listed"
+    let draft = Shortcut(name: "Draft", folder: "Claude-Draft", source: .main)
+    store.shortcuts = [installed, draft]
+
+    let monitor = UsageMonitor()
+    monitor.refresh(store)
+    settle(monitor, expecting: 2)
+
+    check(monitor.entries.count == 2, "the main profile and each created shortcut are listed")
+    check(monitor.entries.first?.name == "Claude", "the main profile comes first")
+    check(!monitor.entries.contains { $0.name == "Draft" }, "a draft shortcut is not listed")
+    check(monitor.entries.last?.usage?.fiveHour == 77, "each entry carries its own figures")
+    check(monitor.entries.first?.shortcut == nil, "the main profile has no shortcut behind it")
+    check(monitor.headline == 77, "the headline is the tightest five-hour window")
+
+    // A stale figure says nothing about the window that is running now.
+    writeUsage(listed, [(now - 8 * 60 * 60 * 1000, 99, 99)])
+    let second = UsageMonitor()
+    second.refresh(store)
+    settle(second, expecting: 2)
+    check(second.headline == 12, "a stale figure is left out of the headline")
+}
+
+section("Preferences")
+
+do {
+    let suite = UserDefaults(suiteName: "graft.tests.\(UUID().uuidString)")!
+    let settings = AppSettings(defaults: suite)
+    check(settings.showInMenuBar, "the menu bar item is on by default")
+
+    settings.showInMenuBar = false
+    let reopened = AppSettings(defaults: suite)
+    check(!reopened.showInMenuBar, "and turning it off survives a restart")
+}
+
 print("\n\(checks - failures)/\(checks) checks passed")
 if failures > 0 {
     print("\(failures) FAILED")

@@ -8,18 +8,21 @@ struct ShortcutDetail: View {
     let requestDelete: () -> Void
 
     @State private var error: String?
+    @State private var errorTitle = "Something went wrong"
     /// Both are looked up off the main thread and refreshed on a timer. Reading
     /// them during a view update would mean touching the filesystem and running
     /// pgrep inside the body, and blocking there re-enters AppKit layout.
     @State private var installedAt: URL?
     @State private var isRunning = false
     @State private var profileExists = false
+    @State private var usage: Graft.Usage?
+    @State private var startingSession = false
 
     /// Other instances found open on the same chat store when Open was pressed.
     @State private var sharersOpen: [String] = []
     @State private var askAboutSharers = false
 
-    private let clock = Timer.publish(every: 2, on: .main, in: .common).autoconnect()
+    private let clock = Timer.publish(every: 5, on: .main, in: .common).autoconnect()
 
     /// Set once the folder is typed by hand, so renaming stops rewriting it.
     /// Pointing it at an existing folder adopts that profile, login and all.
@@ -98,6 +101,25 @@ struct ShortcutDetail: View {
                         .foregroundStyle(.secondary)
                 }
             }
+
+            Section {
+                if let usage {
+                    UsageBar(label: "5 hours", percent: usage.fiveHour, dimmed: usage.isStale)
+                    UsageBar(label: "Week", percent: usage.week, dimmed: usage.isStale)
+                } else {
+                    Text("No usage reported yet")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
+            } header: {
+                Text("Plan usage")
+            } footer: {
+                Text(usageExplanation)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.top, 2)
+            }
         }
         .formStyle(.grouped)
         .safeAreaInset(edge: .bottom) {
@@ -105,6 +127,16 @@ struct ShortcutDetail: View {
                 Button(isDraft ? "Discard" : "Delete Shortcut…",
                        role: .destructive, action: requestDelete)
                 Spacer()
+                Button(action: startSession) {
+                    if startingSession {
+                        ProgressView().controlSize(.small)
+                    } else {
+                        Text("Start Session")
+                    }
+                }
+                .disabled(installedAt == nil || startingSession || claudeMissing)
+                .help("Sends “hi” in that Claude to open its five-hour window")
+
                 Button("Open", action: open)
                     .disabled(installedAt == nil)
                 Button(installedAt == nil ? "Create Shortcut" : "Update Shortcut", action: install)
@@ -124,7 +156,7 @@ struct ShortcutDetail: View {
         }
         .onAppear { refresh() }
         .onReceive(clock) { _ in refresh() }
-        .alert("Could not create the shortcut", isPresented: .constant(error != nil)) {
+        .alert(errorTitle, isPresented: .constant(error != nil)) {
             Button("OK") { error = nil }
         } message: {
             Text(error ?? "")
@@ -150,6 +182,7 @@ struct ShortcutDetail: View {
             shortcut.installedName = shortcut.name
             refresh()
         } catch {
+            errorTitle = "Could not create the shortcut"
             self.error = error.localizedDescription
         }
     }
@@ -162,10 +195,48 @@ struct ShortcutDetail: View {
             let bundle = Installer.installedBundle(for: target)
             let running = Graft.isRunning(profile: target.profileDir)
             let hasProfile = FileManager.default.fileExists(atPath: target.profileDir.path)
+            let plan = Graft.usage(of: target.profileDir)
             DispatchQueue.main.async {
                 installedAt = bundle
                 isRunning = running
                 profileExists = hasProfile
+                usage = plan
+            }
+        }
+    }
+
+    private var usageExplanation: String {
+        guard let usage else {
+            return "Claude records how much of each window it has spent while it runs. Open this profile once and the numbers appear."
+        }
+        if usage.isStale {
+            return "Recorded while this profile was last open, which was long enough ago that the five-hour window has since reset."
+        }
+        return "Recorded by this profile at \(Self.time.string(from: usage.sampled)). It only updates while that Claude is running."
+    }
+
+    private static let time: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.timeStyle = .short
+        formatter.dateStyle = .none
+        return formatter
+    }()
+
+    private func startSession() {
+        guard !startingSession else { return }
+        if !SessionStarter.hasAccessibility { SessionStarter.requestAccessibility() }
+        let profile = shortcut.profileDir
+        let bundle = installedAt
+        startingSession = true
+        DispatchQueue.global(qos: .userInitiated).async {
+            let failure = SessionStarter.start(profile: profile, bundle: bundle)
+            DispatchQueue.main.async {
+                startingSession = false
+                if let failure {
+                    errorTitle = "Could not start a session"
+                    error = failure.errorDescription
+                }
+                refresh()
             }
         }
     }
