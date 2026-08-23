@@ -237,6 +237,13 @@ Chats that were synced to the server under an account will still appear when you
 sign into that account, whatever the local links say. Graft only touches local
 storage.
 
+## Working on it
+
+`CLAUDE.md` carries the notes that are not obvious from the code: what Claude
+Desktop keeps where, the rules about borrowed credentials, and the several
+things that had to go wrong before this app worked. Read it before changing
+anything that touches profiles or the menu bar.
+
 ## Layout
 
 ```
