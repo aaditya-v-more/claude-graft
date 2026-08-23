@@ -51,6 +51,15 @@ struct MenuBarContent: View {
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.horizontal, 14)
                     .padding(.bottom, 8)
+            } else if usage.needsKeychainAccess {
+                Button { usage.refresh(store, interactive: true) } label: {
+                    Label("Turn on live usage", systemImage: "lock")
+                        .font(.callout)
+                }
+                .buttonStyle(.link)
+                .help("Reads each account's limits from Anthropic. macOS asks once for keychain access.")
+                .padding(.horizontal, 14)
+                .padding(.bottom, 8)
             }
 
             VStack(alignment: .leading, spacing: 6) {

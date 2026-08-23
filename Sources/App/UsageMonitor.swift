@@ -25,6 +25,10 @@ final class UsageMonitor: ObservableObject {
     @Published private(set) var entries: [Entry] = []
     /// Set when live usage is unavailable for a reason worth showing once.
     @Published private(set) var liveProblem: String?
+    /// True once a background pass has found the keychain shut to it, so the
+    /// dropdown can point at Refresh Usage rather than silently showing the
+    /// weaker figures from disk.
+    @Published private(set) var needsKeychainAccess = false
 
     private var timer: Timer?
     private let queue = DispatchQueue(label: "graft.usage", qos: .utility)
@@ -82,6 +86,7 @@ final class UsageMonitor: ObservableObject {
         queue.async { [weak self] in
             guard let self else { return }
             var problem: String?
+            var locked = false
             let fresh = targets.map { target -> Entry in
                 let onDisk = Graft.usage(of: target.profile)
                 var entry = Entry(name: target.name,
@@ -89,7 +94,10 @@ final class UsageMonitor: ObservableObject {
                                   usage: onDisk,
                                   isRunning: Graft.isRunning(profile: target.profile),
                                   shortcut: target.shortcut)
-                if let live = self.live(for: target.profile, interactive: interactive, problem: &problem) {
+                if let live = self.live(for: target.profile,
+                                        interactive: interactive,
+                                        problem: &problem,
+                                        locked: &locked) {
                     entry.usage = Graft.Usage(fiveHour: live.fiveHour,
                                               week: live.week,
                                               organization: onDisk?.organization,
@@ -105,6 +113,7 @@ final class UsageMonitor: ObservableObject {
                 self.inFlight = false
                 if self.entries != fresh { self.entries = fresh }
                 if self.liveProblem != problem { self.liveProblem = problem }
+                if self.needsKeychainAccess != locked { self.needsKeychainAccess = locked }
             }
         }
     }
@@ -113,7 +122,8 @@ final class UsageMonitor: ObservableObject {
     /// background pass.
     private func live(for profile: URL,
                       interactive: Bool,
-                      problem: inout String?) -> UsageAPI.Reading? {
+                      problem: inout String?,
+                      locked: inout Bool) -> UsageAPI.Reading? {
         if let cached = liveCache[profile.path],
            Date().timeIntervalSince(cached.fetched) < Self.liveInterval {
             return cached.reading
@@ -126,7 +136,10 @@ final class UsageMonitor: ObservableObject {
             return reading
         } catch {
             // Falling back to the on-disk figures is the normal outcome here,
-            // so only an explicit request reports why.
+            // so only an explicit request reports why. The keychain being shut
+            // is worth surfacing quietly either way, since it is one click to
+            // fix and everything live depends on it.
+            if case ClaudeCredentials.Failure.noKeychainAccess = error { locked = true }
             if interactive { problem = (error as? LocalizedError)?.errorDescription }
             return liveCache[profile.path]?.reading
         }

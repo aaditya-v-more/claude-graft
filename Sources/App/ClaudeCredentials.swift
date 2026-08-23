@@ -25,8 +25,11 @@ enum ClaudeCredentials {
 
         var isCurrent: Bool { expires > Date().addingTimeInterval(120) }
 
+        /// An entry whose scopes could not be read from its cache key is not
+        /// ruled out: the key's shape is Claude's to change, and the service
+        /// refuses the request anyway if the token really is insufficient.
         func covers(_ required: [String]) -> Bool {
-            required.allSatisfy(scopes.contains)
+            scopes.isEmpty || required.allSatisfy(scopes.contains)
         }
     }
 
