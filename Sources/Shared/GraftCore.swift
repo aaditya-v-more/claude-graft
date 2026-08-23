@@ -277,15 +277,30 @@ enum Graft {
 
     // MARK: - Launching
 
-    static func isRunning(profile: URL) -> Bool {
+    /// Run a tool to completion and hand back its exit status.
+    ///
+    /// This waits on a semaphore rather than calling `waitUntilExit`, which
+    /// spins the calling thread's run loop. On the main thread that re-enters
+    /// AppKit, so a call made during a view update would come back round into
+    /// layout and crash. Blocking outright is the safe behaviour.
+    @discardableResult
+    static func runTool(_ tool: String, _ arguments: [String]) -> Int32 {
+        guard fm.isExecutableFile(atPath: tool) else { return -1 }
         let task = Process()
-        task.executableURL = URL(fileURLWithPath: "/usr/bin/pgrep")
-        task.arguments = ["-f", "user-data-dir=\(profile.path)"]
+        task.executableURL = URL(fileURLWithPath: tool)
+        task.arguments = arguments
         task.standardOutput = FileHandle.nullDevice
         task.standardError = FileHandle.nullDevice
-        try? task.run()
-        task.waitUntilExit()
-        return task.terminationStatus == 0
+
+        let finished = DispatchSemaphore(value: 0)
+        task.terminationHandler = { _ in finished.signal() }
+        do { try task.run() } catch { return -1 }
+        finished.wait()
+        return task.terminationStatus
+    }
+
+    static func isRunning(profile: URL) -> Bool {
+        runTool("/usr/bin/pgrep", ["-f", "user-data-dir=\(profile.path)"]) == 0
     }
 
     @discardableResult

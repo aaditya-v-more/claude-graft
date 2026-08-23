@@ -191,13 +191,6 @@ enum Installer {
     }
 
     private static func run(_ tool: String, _ arguments: [String]) {
-        guard fm.isExecutableFile(atPath: tool) else { return }
-        let task = Process()
-        task.executableURL = URL(fileURLWithPath: tool)
-        task.arguments = arguments
-        task.standardOutput = FileHandle.nullDevice
-        task.standardError = FileHandle.nullDevice
-        try? task.run()
-        task.waitUntilExit()
+        Graft.runTool(tool, arguments)
     }
 }

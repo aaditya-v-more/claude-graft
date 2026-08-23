@@ -8,22 +8,13 @@ struct ShortcutDetail: View {
     let requestDelete: () -> Void
 
     @State private var error: String?
-    /// Bumped on a timer so the status reflects what is actually on disk
-    /// rather than whatever was true when the view was built.
-    @State private var tick = 0
+    /// Both are looked up off the main thread and refreshed on a timer. Reading
+    /// them during a view update would mean touching the filesystem and running
+    /// pgrep inside the body, and blocking there re-enters AppKit layout.
+    @State private var installedAt: URL?
+    @State private var isRunning = false
 
     private let clock = Timer.publish(every: 2, on: .main, in: .common).autoconnect()
-
-    /// Read from disk each time the body runs; no cached copy to go stale.
-    private var installedAt: URL? {
-        _ = tick
-        return Installer.installedBundle(for: shortcut)
-    }
-
-    private var isRunning: Bool {
-        _ = tick
-        return Graft.isRunning(profile: shortcut.profileDir)
-    }
 
     /// Set once the folder is typed by hand, so renaming stops rewriting it.
     /// Pointing it at an existing folder adopts that profile, login and all.
@@ -117,7 +108,8 @@ struct ShortcutDetail: View {
             .padding(14)
             .background(.bar)
         }
-        .onReceive(clock) { _ in tick &+= 1 }
+        .onAppear { refresh() }
+        .onReceive(clock) { _ in refresh() }
         .alert("Could not create the shortcut", isPresented: .constant(error != nil)) {
             Button("OK") { error = nil }
         } message: {
@@ -142,9 +134,23 @@ struct ShortcutDetail: View {
                                       sourceDir: store.sourceDir(for: shortcut),
                                       previousName: shortcut.installedName)
             shortcut.installedName = shortcut.name
-            tick &+= 1
+            refresh()
         } catch {
             self.error = error.localizedDescription
+        }
+    }
+
+    /// Off the main thread: `Installer.installedBundle` hits the filesystem and
+    /// `Graft.isRunning` spawns pgrep, neither of which belongs in a view update.
+    private func refresh() {
+        let target = shortcut
+        DispatchQueue.global(qos: .utility).async {
+            let bundle = Installer.installedBundle(for: target)
+            let running = Graft.isRunning(profile: target.profileDir)
+            DispatchQueue.main.async {
+                installedAt = bundle
+                isRunning = running
+            }
         }
     }
 

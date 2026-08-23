@@ -326,6 +326,20 @@ do {
           "nor one that would close a loop")
 }
 
+// MARK: - Running processes
+
+section("Process helpers")
+
+// runTool must not spin the caller's run loop. It is called from the main
+// thread during a view update, and waitUntilExit there re-enters AppKit
+// layout, which crashed the app when the status row asked whether Claude was
+// running. Reaching these checks at all means the call returned on its own.
+check(Graft.runTool("/usr/bin/true", []) == 0, "a tool that succeeds reports zero")
+check(Graft.runTool("/usr/bin/false", []) != 0, "a tool that fails does not")
+check(Graft.runTool("/nonexistent/tool", []) == -1, "a missing tool is reported, not fatal")
+check(!Graft.isRunning(profile: support.appending(path: "Claude-NeverLaunched")),
+      "an unused profile is not running")
+
 print("\n\(checks - failures)/\(checks) checks passed")
 if failures > 0 {
     print("\(failures) FAILED")
