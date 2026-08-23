@@ -147,5 +147,7 @@ storage.
 Sources/Shared/GraftCore.swift   linking, account mapping, launching
 Sources/Launcher/main.swift      the executable each shortcut bundle contains
 Sources/App/                     the SwiftUI manager
-build.sh                         builds both
+Tests/main.swift                 the suite
+build.sh                         builds the app and the launcher
+test.sh                          builds and runs the tests
 ```
