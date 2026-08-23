@@ -20,24 +20,40 @@ enum Installer {
         (directory ?? installDirectory).appending(path: "\(shortcut.name).app")
     }
 
-    /// An installed bundle for this shortcut, wherever it ended up.
+    /// Names that belong to Claude itself and must never be written over.
+    static let reservedNames = ["Claude", "Claude Graft"]
+
+    /// True only for a bundle this app built. Every destructive step checks it,
+    /// so an unrelated application that happens to share a name is left alone.
+    static func isGraftBundle(_ url: URL) -> Bool {
+        fm.fileExists(atPath: url.appending(path: "Contents/Resources/graft.json").path)
+    }
+
+    /// An installed shortcut bundle, wherever it ended up. Deliberately blind
+    /// to anything Graft did not create.
     static func installedBundle(for shortcut: Shortcut) -> URL? {
         for directory in [URL(fileURLWithPath: "/Applications"),
                           fm.homeDirectoryForCurrentUser.appending(path: "Applications")] {
             let candidate = bundleURL(for: shortcut, in: directory)
-            if fm.fileExists(atPath: candidate.path) { return candidate }
+            if fm.fileExists(atPath: candidate.path), isGraftBundle(candidate) { return candidate }
         }
         return nil
     }
 
     enum InstallError: LocalizedError {
         case missingLauncher
+        case reservedName(String)
+        case nameTaken(String)
         case writeFailed(String)
 
         var errorDescription: String? {
             switch self {
             case .missingLauncher:
                 return "This copy of Claude Graft is missing its launcher binary."
+            case .reservedName(let name):
+                return "“\(name)” is the name of Claude itself. Pick something else."
+            case .nameTaken(let path):
+                return "There is already an application at \(path) that Claude Graft did not create. Rename this shortcut."
             case .writeFailed(let detail):
                 return detail
             }
@@ -50,7 +66,12 @@ enum Installer {
             throw InstallError.missingLauncher
         }
 
-        // A rename leaves the old bundle behind, so clear it first.
+        guard !reservedNames.contains(shortcut.name) else {
+            throw InstallError.reservedName(shortcut.name)
+        }
+
+        // A rename leaves the old bundle behind, so clear it first. Only ever
+        // one of ours; installedBundle already refuses anything else.
         if let previousName, previousName != shortcut.name {
             var stale = shortcut
             stale.name = previousName
@@ -58,6 +79,10 @@ enum Installer {
         }
 
         let bundle = installedBundle(for: shortcut) ?? bundleURL(for: shortcut)
+        // Something is already there and it is not a shortcut of ours.
+        if fm.fileExists(atPath: bundle.path), !isGraftBundle(bundle) {
+            throw InstallError.nameTaken(bundle.path)
+        }
         let contents = bundle.appending(path: "Contents")
         let macos = contents.appending(path: "MacOS")
         let resources = contents.appending(path: "Resources")
@@ -95,7 +120,7 @@ enum Installer {
     }
 
     static func uninstall(_ shortcut: Shortcut) {
-        guard let bundle = installedBundle(for: shortcut) else { return }
+        guard let bundle = installedBundle(for: shortcut), isGraftBundle(bundle) else { return }
         try? fm.removeItem(at: bundle)
     }
 
