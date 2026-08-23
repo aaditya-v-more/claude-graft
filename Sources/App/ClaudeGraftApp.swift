@@ -8,8 +8,9 @@ struct ClaudeGraftApp: App {
         WindowGroup("Claude Graft") {
             ContentView()
                 .environmentObject(store)
-                .frame(minWidth: 760, minHeight: 480)
+                .frame(minWidth: 720, minHeight: 460)
         }
+        .defaultSize(width: 820, height: 560)
         .commands {
             CommandGroup(replacing: .newItem) {}
         }
