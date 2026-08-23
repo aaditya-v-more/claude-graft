@@ -81,6 +81,11 @@ those and using one would sign Claude Desktop out — nothing is written back to
 Claude's config or keychain, and the token goes to `api.anthropic.com` and
 nowhere else.
 
+Each pass writes what it found to
+`~/Library/Application Support/ClaudeGraft/usage-status.json` — the figures and
+whether they came from the API — so the state of live usage can be checked
+without reading it off the screen. Figures only; no token goes in it.
+
 Decline the prompt and the app still works: it falls back to
 `plan-usage-history.json`, which each profile writes while it runs. That file
 carries no reset times, so those are worked out from the history — a window

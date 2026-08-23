@@ -109,6 +109,7 @@ final class UsageMonitor: ObservableObject {
                 }
                 return entry
             }
+            self.record(fresh, locked: locked, problem: problem)
             DispatchQueue.main.async {
                 self.inFlight = false
                 if self.entries != fresh { self.entries = fresh }
@@ -116,6 +117,41 @@ final class UsageMonitor: ObservableObject {
                 if self.needsKeychainAccess != locked { self.needsKeychainAccess = locked }
             }
         }
+    }
+
+    /// A plain record of what the last pass found, so the state of live usage
+    /// can be checked without reading it off the screen. Figures only — no
+    /// token, and nothing that is not already on disk elsewhere.
+    static var statusFile: URL {
+        Graft.applicationSupport
+            .appending(path: "ClaudeGraft")
+            .appending(path: "usage-status.json")
+    }
+
+    private func record(_ entries: [Entry], locked: Bool, problem: String?) {
+        let stamp = ISO8601DateFormatter()
+        var report: [String: Any] = [
+            "checkedAt": stamp.string(from: Date()),
+            "keychainLocked": locked,
+        ]
+        if let problem { report["problem"] = problem }
+        report["profiles"] = entries.map { entry -> [String: Any] in
+            var row: [String: Any] = ["name": entry.name, "live": entry.isLive]
+            if let usage = entry.usage {
+                row["fiveHour"] = usage.fiveHour
+                row["week"] = usage.week
+                if let reset = usage.fiveHourReset { row["fiveHourReset"] = stamp.string(from: reset) }
+                if let reset = usage.weekReset { row["weekReset"] = stamp.string(from: reset) }
+            }
+            if let plan = entry.plan { row["plan"] = plan }
+            return row
+        }
+        guard let data = try? JSONSerialization.data(withJSONObject: report,
+                                                     options: [.prettyPrinted, .sortedKeys])
+        else { return }
+        try? FileManager.default.createDirectory(at: Self.statusFile.deletingLastPathComponent(),
+                                                 withIntermediateDirectories: true)
+        try? data.write(to: Self.statusFile)
     }
 
     /// Cached hard: one call per profile per interval, and never a prompt on a
