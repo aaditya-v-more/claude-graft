@@ -12,8 +12,12 @@ struct GraftConfig: Codable {
 enum Graft {
     static let fm = FileManager.default
 
+    /// Redirected by the test suite so nothing it does can reach real profiles.
+    static var applicationSupportOverride: URL?
+
     static var applicationSupport: URL {
-        fm.homeDirectoryForCurrentUser.appending(path: "Library/Application Support")
+        applicationSupportOverride
+            ?? fm.homeDirectoryForCurrentUser.appending(path: "Library/Application Support")
     }
 
     /// The profile the stock Claude.app uses when launched normally.
@@ -224,6 +228,51 @@ enum Graft {
             }
             unstash(dst.appending(path: "skills-plugin"))
         }
+    }
+
+    // MARK: - Removing a profile
+
+    /// Compares two locations by their real path. `deletingLastPathComponent`
+    /// leaves a trailing slash behind, and symlinked parents (a temporary
+    /// directory, /var) would otherwise look like different places.
+    static func samePath(_ a: URL, _ b: URL) -> Bool {
+        func normalize(_ url: URL) -> String {
+            var path = url.resolvingSymlinksInPath().standardizedFileURL.path
+            while path.count > 1, path.hasSuffix("/") { path.removeLast() }
+            return path
+        }
+        return normalize(a) == normalize(b)
+    }
+
+    enum ProfileError: LocalizedError, Equatable {
+        case mainProfile
+        case outsideApplicationSupport
+        case running
+
+        var errorDescription: String? {
+            switch self {
+            case .mainProfile:
+                return "That folder belongs to Claude itself and will not be deleted."
+            case .outsideApplicationSupport:
+                return "Only folders directly inside ~/Library/Application Support can be deleted."
+            case .running:
+                return "Claude is still running on this profile. Quit it first."
+            }
+        }
+    }
+
+    /// Deletes a profile's data. Guarded on every side: the folder has to sit
+    /// directly in Application Support, must not be Claude's own profile, and
+    /// must not be in use. Losing one means losing a login and its chats.
+    static func deleteProfile(_ url: URL) throws {
+        let profile = url
+        guard samePath(profile.deletingLastPathComponent(), applicationSupport),
+              !profile.lastPathComponent.isEmpty
+        else { throw ProfileError.outsideApplicationSupport }
+        guard !samePath(profile, mainProfile) else { throw ProfileError.mainProfile }
+        guard !isRunning(profile: profile) else { throw ProfileError.running }
+        guard isDirectory(profile) else { return }
+        try fm.removeItem(at: profile)
     }
 
     // MARK: - Launching

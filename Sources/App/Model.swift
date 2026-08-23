@@ -58,12 +58,28 @@ final class ShortcutStore: ObservableObject {
 
     func shortcut(_ id: UUID) -> Shortcut? { shortcuts.first { $0.id == id } }
 
-    /// Removes the shortcut and the app it installed. The profile folder is
-    /// left on disk — it holds a login and a chat history.
-    func delete(_ id: UUID) {
-        guard let shortcut = shortcut(id) else { return }
+    /// Removes the shortcut and the app it installed. The profile folder — a
+    /// login and a chat history — only goes when explicitly asked for, and
+    /// never while another shortcut still points at it.
+    /// Returns a message when the profile could not be removed.
+    @discardableResult
+    func delete(_ id: UUID, deletingProfile: Bool = false) -> String? {
+        guard let shortcut = shortcut(id) else { return nil }
         Installer.uninstall(shortcut)
+
+        var problem: String?
+        if deletingProfile {
+            let sharedWithAnother = shortcuts.contains { $0.id != id && $0.folder == shortcut.folder }
+            if sharedWithAnother {
+                problem = "The profile folder was kept: another shortcut still uses it."
+            } else {
+                do { try Graft.deleteProfile(shortcut.profileDir) }
+                catch { problem = error.localizedDescription }
+            }
+        }
+
         shortcuts.removeAll { $0.id == id }
+        return problem
     }
 
     /// Where a shortcut actually reads its chats from, following one hop.

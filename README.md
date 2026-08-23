@@ -40,6 +40,31 @@ If Claude is already running on that profile, the shortcut skips the sync and
 just opens another window, rather than rewriting files a live instance holds
 open.
 
+## Deleting
+
+Deleting a shortcut asks whether the profile folder should go with it. Keeping
+it is the default reading of the dialog; deleting it destroys that account's
+login and chat history, so it is guarded: Claude's own profile can never be
+removed, nor anything outside `~/Library/Application Support`, nor a profile
+that is currently running or that another shortcut still points at.
+
+Graft also refuses to touch any application it did not create. Bundles it owns
+are identified by the description file they carry, never by name, and the names
+Claude uses are reserved.
+
+## Tests
+
+```
+./test.sh
+```
+
+Fifty-nine checks over a throwaway Application Support and Applications
+directory: that foreign apps survive install, uninstall and delete; that
+updating a shortcut rewrites one bundle rather than leaving copies; that a
+rename onto an occupied name changes nothing; that grafting preserves the
+login, stashes what it replaces, and reverses cleanly; and that every guard on
+profile deletion fires for the reason it was meant to.
+
 ## How it works
 
 A shortcut launches `Claude.app` with `--user-data-dir` pointing at its own

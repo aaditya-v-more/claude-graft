@@ -1,0 +1,333 @@
+import Foundation
+
+// Every test runs against a throwaway Application Support and Applications
+// directory, so nothing here can reach a real profile or a real app.
+
+var failures = 0
+var checks = 0
+
+func check(_ condition: Bool, _ what: String) {
+    checks += 1
+    if condition {
+        print("  ok    \(what)")
+    } else {
+        failures += 1
+        print("  FAIL  \(what)")
+    }
+}
+
+func section(_ name: String) {
+    print("\n\(name)")
+}
+
+let fm = FileManager.default
+let root = URL(fileURLWithPath: NSTemporaryDirectory())
+    .appending(path: "claude-graft-tests-\(UUID().uuidString)")
+let support = root.appending(path: "Application Support")
+let apps = root.appending(path: "Applications")
+
+try! fm.createDirectory(at: support, withIntermediateDirectories: true)
+try! fm.createDirectory(at: apps, withIntermediateDirectories: true)
+
+Graft.applicationSupportOverride = support
+Installer.installDirectoryOverride = apps
+Installer.registersWithLaunchServices = false
+
+defer { try? fm.removeItem(at: root) }
+
+// MARK: - Helpers
+
+func makeProfile(_ name: String, account: String?, org: String? = nil,
+                 chats: [String] = [], extras: [String: String] = [:]) -> URL {
+    let profile = support.appending(path: name)
+    try? fm.createDirectory(at: profile, withIntermediateDirectories: true)
+    if let account {
+        var config: [String: Any] = ["lastKnownAccountUuid": account]
+        config["oauth:tokenCache"] = "token-for-\(name)"
+        for (k, v) in extras { config[k] = v }
+        let data = try! JSONSerialization.data(withJSONObject: config)
+        try! data.write(to: profile.appending(path: "config.json"))
+    }
+    if let account, let org {
+        for store in Graft.chatStores {
+            let dir = profile.appending(path: store).appending(path: account).appending(path: org)
+            try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
+            for chat in chats {
+                try! "{}".write(to: dir.appending(path: "local_\(chat).json"), atomically: true, encoding: .utf8)
+            }
+        }
+    }
+    return profile
+}
+
+/// An application Graft did not create, of the kind that must never be touched.
+func makeForeignApp(named name: String) -> URL {
+    let bundle = apps.appending(path: "\(name).app")
+    let binary = bundle.appending(path: "Contents/MacOS/Something")
+    try? fm.createDirectory(at: binary.deletingLastPathComponent(), withIntermediateDirectories: true)
+    try! "not ours".write(to: binary, atomically: true, encoding: .utf8)
+    return bundle
+}
+
+func isIntact(_ foreign: URL) -> Bool {
+    let binary = foreign.appending(path: "Contents/MacOS/Something")
+    return (try? String(contentsOf: binary, encoding: .utf8)) == "not ours"
+}
+
+func chatsVisible(to profile: URL) -> [String] {
+    let store = profile.appending(path: "claude-code-sessions")
+    guard let accounts = try? fm.contentsOfDirectory(atPath: store.path) else { return [] }
+    var found: [String] = []
+    for account in accounts where !account.hasPrefix(".") {
+        let accountDir = store.appending(path: account)
+        guard let orgs = try? fm.contentsOfDirectory(atPath: accountDir.path) else { continue }
+        for org in orgs where !org.hasPrefix(".") {
+            let files = (try? fm.contentsOfDirectory(atPath: accountDir.appending(path: org).path)) ?? []
+            found += files.filter { $0.hasPrefix("local_") }
+        }
+    }
+    return found.sorted()
+}
+
+func sourcePath(ofBundle bundle: URL) -> String? {
+    guard let data = try? Data(contentsOf: bundle.appending(path: "Contents/Resources/graft.json")),
+          let config = try? JSONDecoder().decode(GraftConfig.self, from: data)
+    else { return nil }
+    return config.sourceDir
+}
+
+// MARK: - Never touch anything Graft did not create
+
+section("Foreign applications")
+do {
+    let claude = makeForeignApp(named: "Claude")
+    let other = makeForeignApp(named: "Pages")
+
+    check(Installer.installedBundle(for: Shortcut(name: "Pages")) == nil,
+          "an app Graft did not create is not seen as installed")
+
+    var reserved = false
+    do { _ = try Installer.install(Shortcut(name: "Claude"), sourceDir: nil) }
+    catch { reserved = true }
+    check(reserved, "the name Claude is refused outright")
+    check(isIntact(claude), "Claude.app is untouched after that attempt")
+
+    var refused = false
+    do { _ = try Installer.install(Shortcut(name: "Pages"), sourceDir: nil) }
+    catch { refused = true }
+    check(refused, "installing over another application is refused")
+    check(isIntact(other), "that application is untouched")
+
+    Installer.uninstall(Shortcut(name: "Pages"))
+    check(isIntact(other), "uninstall leaves a foreign app of the same name alone")
+
+    let store = ShortcutStore()
+    store.shortcuts = [Shortcut(name: "Pages")]
+    store.delete(store.shortcuts[0].id)
+    check(isIntact(other), "deleting a shortcut named after a real app spares the app")
+    check(store.shortcuts.isEmpty, "the shortcut is still removed from the list")
+
+    var alsoReserved = false
+    do { _ = try Installer.install(Shortcut(name: "Claude Graft"), sourceDir: nil) }
+    catch { alsoReserved = true }
+    check(alsoReserved, "the name Claude Graft is reserved too")
+
+    try? fm.removeItem(at: claude)
+    try? fm.removeItem(at: other)
+}
+
+// MARK: - Creating, updating and renaming
+
+section("Create and update")
+do {
+    let main = makeProfile("Claude", account: "AAAA", org: "ORG-A", chats: ["a1", "a2"],
+                           extras: ["userThemeMode": "dark", "locale": "en-GB"])
+    var shortcut = Shortcut(name: "Work", source: .main)
+
+    let bundle = try! Installer.install(shortcut, sourceDir: main)
+    check(fm.fileExists(atPath: bundle.appending(path: "Contents/MacOS/launcher").path),
+          "the bundle carries a launcher")
+    check(Installer.isGraftBundle(bundle), "the bundle is recognisable as ours")
+    check(Installer.installedBundle(for: shortcut) == bundle, "it is found again afterwards")
+    check(sourcePath(ofBundle: bundle) == main.path, "its description records the source profile")
+    check(fm.fileExists(atPath: shortcut.profileDir.path), "the profile folder was created")
+
+    // Update in place: same bundle, no duplicates.
+    let again = try! Installer.install(shortcut, sourceDir: main, previousName: shortcut.name)
+    check(again == bundle, "updating writes to the same bundle")
+    let installed = (try? fm.contentsOfDirectory(atPath: apps.path))?.filter { $0.hasSuffix(".app") }
+    check(installed?.count == 1, "updating does not leave a second copy behind")
+
+    // Update after switching the source to none.
+    let detached = try! Installer.install(shortcut, sourceDir: nil, previousName: shortcut.name)
+    check(sourcePath(ofBundle: detached) == nil, "switching to its own chats clears the source")
+    check(chatsVisible(to: shortcut.profileDir).isEmpty, "and the borrowed chats are gone")
+
+    // And back again.
+    _ = try! Installer.install(shortcut, sourceDir: main, previousName: shortcut.name)
+    check(chatsVisible(to: shortcut.profileDir) == ["local_a1.json", "local_a2.json"],
+          "switching back restores them")
+
+    // Rename.
+    let oldName = shortcut.name
+    shortcut.name = "Work Two"
+    let renamed = try! Installer.install(shortcut, sourceDir: main, previousName: oldName)
+    check(renamed.lastPathComponent == "Work Two.app", "renaming installs under the new name")
+    check(!fm.fileExists(atPath: apps.appending(path: "Work.app").path),
+          "and removes the bundle under the old name")
+
+    // A rename onto an occupied name must change nothing at all.
+    let occupied = makeForeignApp(named: "Taken")
+    var clash = shortcut
+    clash.name = "Taken"
+    var blocked = false
+    do { _ = try Installer.install(clash, sourceDir: main, previousName: shortcut.name) }
+    catch { blocked = true }
+    check(blocked, "renaming onto an occupied name is refused")
+    check(isIntact(occupied), "the occupying app survives")
+    check(fm.fileExists(atPath: renamed.path), "and the original bundle is still there")
+
+    try? fm.removeItem(at: occupied)
+    try? fm.removeItem(at: renamed)
+    try? fm.removeItem(at: shortcut.profileDir)
+    try? fm.removeItem(at: main)
+}
+
+// MARK: - Grafting between accounts
+
+section("Grafting")
+do {
+    let main = makeProfile("Claude", account: "AAAA", org: "ORG-A", chats: ["shared"],
+                           extras: ["userThemeMode": "dark", "locale": "en-GB"])
+    try! "{\"preferences\":{}}".write(to: main.appending(path: "claude_desktop_config.json"),
+                                      atomically: true, encoding: .utf8)
+
+    // Different account: the link has to go one level deeper.
+    let work = makeProfile("Claude-Work", account: "BBBB", org: "ORG-B", chats: ["mine"])
+    Graft.graft(from: main, into: work)
+    check(chatsVisible(to: work) == ["local_shared.json"], "it reads the source account's chats")
+
+    let ownFolder = work.appending(path: "claude-code-sessions/BBBB/.ORG-B.graft-own")
+    check(fm.fileExists(atPath: ownFolder.appending(path: "local_mine.json").path),
+          "its own chats are stashed, not destroyed")
+    check(!fm.fileExists(atPath: work.appending(path: "claude-code-sessions/BBBB/ORG-B.graft-own").path),
+          "the stash is hidden, so it cannot be read back as an organization")
+
+    let config = Graft.configJSON(of: work)
+    check(config["oauth:tokenCache"] as? String == "token-for-Claude-Work",
+          "the login is not overwritten by the source's")
+    check(config["userThemeMode"] as? String == "dark", "the theme is copied across")
+    check(config["locale"] as? String == "en-GB", "so is the locale")
+    check(Graft.isSymlink(work.appending(path: "claude_desktop_config.json")),
+          "shared settings are linked")
+    check(!Graft.exists(work.appending(path: "extensions-blocklist.json")),
+          "the per-organization blocklist is never linked")
+
+    Graft.graft(from: main, into: work)
+    check(chatsVisible(to: work) == ["local_shared.json"], "grafting twice changes nothing")
+
+    Graft.ungraft(work)
+    check(chatsVisible(to: work) == ["local_mine.json"], "ungrafting gives back its own chats")
+    check(!Graft.isSymlink(work.appending(path: "claude_desktop_config.json")),
+          "and drops the links")
+
+    // Same account: sharing the whole store is enough.
+    let twin = makeProfile("Claude-Twin", account: "AAAA", org: "ORG-A")
+    Graft.graft(from: main, into: twin)
+    check(Graft.isSymlink(twin.appending(path: "claude-code-sessions")),
+          "the same account shares the whole store")
+    check(chatsVisible(to: twin) == ["local_shared.json"], "and sees the same chats")
+
+    for profile in [main, work, twin] { try? fm.removeItem(at: profile) }
+}
+
+// MARK: - Deleting a profile
+
+section("Profile deletion")
+do {
+    let main = makeProfile("Claude", account: "AAAA", org: "ORG-A", chats: ["keep"])
+    let work = makeProfile("Claude-Work", account: "BBBB", org: "ORG-B", chats: ["gone"])
+
+    func refusal(_ url: URL) -> Graft.ProfileError? {
+        do { try Graft.deleteProfile(url); return nil }
+        catch let error as Graft.ProfileError { return error }
+        catch { return nil }
+    }
+
+    check(refusal(main) == .mainProfile, "Claude's own profile is refused as the main profile")
+    check(fm.fileExists(atPath: main.path), "it is still there")
+    check(refusal(support.appending(path: "Some/Nested/Path")) == .outsideApplicationSupport,
+          "a nested folder is refused")
+    check(refusal(fm.homeDirectoryForCurrentUser) == .outsideApplicationSupport,
+          "the home directory is refused")
+    check(refusal(support) == .outsideApplicationSupport,
+          "Application Support itself is refused")
+    check(refusal(URL(fileURLWithPath: "/")) == .outsideApplicationSupport,
+          "the root of the disk is refused")
+    check(refusal(support.appending(path: "Claude/../Claude")) == .mainProfile,
+          "a path that walks back round to the main profile is still refused")
+
+    let store = ShortcutStore()
+    var keeper = Shortcut(name: "Work", source: .main)
+    keeper.folder = "Claude-Work"
+    var sameFolder = Shortcut(name: "Work Copy", source: .main)
+    sameFolder.folder = "Claude-Work"
+    store.shortcuts = [keeper, sameFolder]
+
+    let message = store.delete(keeper.id, deletingProfile: true)
+    check(message != nil, "deleting a profile another shortcut uses is reported")
+    check(fm.fileExists(atPath: work.path), "and the profile survives")
+    check(store.shortcuts.count == 1, "the shortcut itself is still removed")
+
+    let clean = store.delete(sameFolder.id, deletingProfile: true)
+    check(clean == nil, "the last shortcut may delete its profile")
+    check(!fm.fileExists(atPath: work.path), "the profile folder is gone")
+    check(store.shortcuts.isEmpty, "and so is the shortcut")
+
+    // Keeping the profile is the other path.
+    let kept = makeProfile("Claude-Kept", account: "CCCC", org: "ORG-C")
+    var keepShortcut = Shortcut(name: "Keep", source: .own)
+    keepShortcut.folder = "Claude-Kept"
+    store.shortcuts = [keepShortcut]
+    store.delete(keepShortcut.id, deletingProfile: false)
+    check(fm.fileExists(atPath: kept.path), "deleting the shortcut alone keeps the profile")
+
+    try? fm.removeItem(at: main)
+    try? fm.removeItem(at: kept)
+}
+
+// MARK: - Naming
+
+section("Naming")
+do {
+    check(Shortcut.folderName(for: "Claude 2") == "Claude-2", "Claude 2 becomes Claude-2")
+    check(Shortcut.folderName(for: "Work") == "Claude-Work", "Work becomes Claude-Work")
+    check(Shortcut.folderName(for: "Work Account") == "Claude-Work-Account", "spaces become dashes")
+    check(Shortcut.folderName(for: "  ") == "Claude-Profile", "an empty name still yields a folder")
+
+    let store = ShortcutStore()
+    store.shortcuts = []
+    check(store.uniqueName() == "Claude 2", "the first suggestion is Claude 2")
+    store.shortcuts = [Shortcut(name: "Claude 2")]
+    check(store.uniqueName() == "Claude 3", "the next one steps past it")
+
+    // A shortcut may not inherit from itself, directly or through a chain.
+    var a = Shortcut(name: "A")
+    var b = Shortcut(name: "B")
+    b.source = .shortcut(a.id)
+    a.source = .main
+    store.shortcuts = [a, b]
+    let options = store.availableSources(for: b)
+    check(!options.contains(.shortcut(b.id)), "a shortcut is not offered itself as a source")
+
+    a.source = .shortcut(b.id)
+    store.shortcuts = [a, b]
+    check(!store.availableSources(for: b).contains(.shortcut(a.id)),
+          "nor one that would close a loop")
+}
+
+print("\n\(checks - failures)/\(checks) checks passed")
+if failures > 0 {
+    print("\(failures) FAILED")
+    exit(1)
+}

@@ -6,9 +6,17 @@ import Foundation
 enum Installer {
     static let fm = FileManager.default
 
+    /// Redirected by the test suite; also stops it registering junk bundles.
+    static var installDirectoryOverride: URL?
+    static var registersWithLaunchServices = true
+
     /// Preferred install directory, falling back to the user's own when
     /// /Applications is not writable.
     static var installDirectory: URL {
+        if let installDirectoryOverride {
+            try? fm.createDirectory(at: installDirectoryOverride, withIntermediateDirectories: true)
+            return installDirectoryOverride
+        }
         let system = URL(fileURLWithPath: "/Applications")
         if fm.isWritableFile(atPath: system.path) { return system }
         let user = fm.homeDirectoryForCurrentUser.appending(path: "Applications")
@@ -31,9 +39,15 @@ enum Installer {
 
     /// An installed shortcut bundle, wherever it ended up. Deliberately blind
     /// to anything Graft did not create.
+    /// Where an already-installed shortcut might be sitting.
+    static var searchDirectories: [URL] {
+        if let installDirectoryOverride { return [installDirectoryOverride] }
+        return [URL(fileURLWithPath: "/Applications"),
+                fm.homeDirectoryForCurrentUser.appending(path: "Applications")]
+    }
+
     static func installedBundle(for shortcut: Shortcut) -> URL? {
-        for directory in [URL(fileURLWithPath: "/Applications"),
-                          fm.homeDirectoryForCurrentUser.appending(path: "Applications")] {
+        for directory in searchDirectories {
             let candidate = bundleURL(for: shortcut, in: directory)
             if fm.fileExists(atPath: candidate.path), isGraftBundle(candidate) { return candidate }
         }
@@ -70,18 +84,19 @@ enum Installer {
             throw InstallError.reservedName(shortcut.name)
         }
 
-        // A rename leaves the old bundle behind, so clear it first. Only ever
-        // one of ours; installedBundle already refuses anything else.
+        let bundle = installedBundle(for: shortcut) ?? bundleURL(for: shortcut)
+        // Something is already there and it is not a shortcut of ours. Checked
+        // before anything is removed, so a refused rename leaves both intact.
+        if fm.fileExists(atPath: bundle.path), !isGraftBundle(bundle) {
+            throw InstallError.nameTaken(bundle.path)
+        }
+
+        // A rename leaves the old bundle behind, so clear it. Only ever one of
+        // ours; installedBundle already refuses anything else.
         if let previousName, previousName != shortcut.name {
             var stale = shortcut
             stale.name = previousName
             if let old = installedBundle(for: stale) { try? fm.removeItem(at: old) }
-        }
-
-        let bundle = installedBundle(for: shortcut) ?? bundleURL(for: shortcut)
-        // Something is already there and it is not a shortcut of ours.
-        if fm.fileExists(atPath: bundle.path), !isGraftBundle(bundle) {
-            throw InstallError.nameTaken(bundle.path)
         }
         let contents = bundle.appending(path: "Contents")
         let macos = contents.appending(path: "MacOS")
@@ -170,6 +185,7 @@ enum Installer {
     /// Nudge Launch Services so the new name and icon show up straight away.
     private static func touch(_ bundle: URL) {
         run("/usr/bin/touch", [bundle.path])
+        guard registersWithLaunchServices else { return }
         run("/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister",
             ["-f", bundle.path])
     }

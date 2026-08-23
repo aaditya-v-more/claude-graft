@@ -5,6 +5,7 @@ struct ContentView: View {
     @EnvironmentObject private var store: ShortcutStore
     @State private var selection: UUID?
     @State private var pendingDeletion: UUID?
+    @State private var problem: String?
 
     var body: some View {
         NavigationSplitView {
@@ -32,17 +33,35 @@ struct ContentView: View {
                             isPresented: Binding(get: { pendingDeletion != nil },
                                                  set: { if !$0 { pendingDeletion = nil } }),
                             titleVisibility: .visible) {
-            Button("Delete Shortcut", role: .destructive) {
-                if let pendingDeletion {
-                    if selection == pendingDeletion { selection = nil }
-                    store.delete(pendingDeletion)
-                }
-                pendingDeletion = nil
-            }
+            Button("Delete Shortcut Only") { delete(alsoProfile: false) }
+            Button("Delete Shortcut and Profile", role: .destructive) { delete(alsoProfile: true) }
             Button("Cancel", role: .cancel) { pendingDeletion = nil }
         } message: {
-            Text("The app is removed from \(Installer.installDirectory.path). The profile folder keeps its login and chats, and stays on disk.")
+            Text(deletionMessage)
         }
+        .alert("The shortcut was deleted", isPresented: Binding(get: { problem != nil },
+                                                               set: { if !$0 { problem = nil } })) {
+            Button("OK") { problem = nil }
+        } message: {
+            Text(problem ?? "")
+        }
+    }
+
+    private func delete(alsoProfile: Bool) {
+        guard let pendingDeletion else { return }
+        if selection == pendingDeletion { selection = nil }
+        problem = store.delete(pendingDeletion, deletingProfile: alsoProfile)
+        self.pendingDeletion = nil
+    }
+
+    private var deletionMessage: String {
+        guard let pendingDeletion, let shortcut = store.shortcut(pendingDeletion) else { return "" }
+        return """
+        The app is removed from \(Installer.installDirectory.path) either way.
+
+        Its profile folder, \(shortcut.folder), holds that account's login and \
+        chat history. Deleting it cannot be undone.
+        """
     }
 
     private var deletionTitle: String {
