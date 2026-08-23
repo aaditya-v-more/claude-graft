@@ -340,6 +340,116 @@ check(Graft.runTool("/nonexistent/tool", []) == -1, "a missing tool is reported,
 check(!Graft.isRunning(profile: support.appending(path: "Claude-NeverLaunched")),
       "an unused profile is not running")
 
+// MARK: - Guarding against self-reference
+
+section("Self-reference")
+
+do {
+    // A profile grafted from itself would stash every file it owns and leave
+    // links pointing at their own empty names.
+    let profile = makeProfile("Claude-Selfie", account: "AAAA", org: "ORG1", chats: ["1"])
+    try! "kept".write(to: profile.appending(path: "window-state.json"), atomically: true, encoding: .utf8)
+
+    Graft.graft(from: profile, into: profile)
+
+    check(!Graft.isSymlink(profile.appending(path: "window-state.json")),
+          "grafting a profile from itself changes nothing")
+    check((try? String(contentsOf: profile.appending(path: "window-state.json"), encoding: .utf8)) == "kept",
+          "and its own files are untouched")
+    let store = profile.appending(path: "claude-code-sessions/AAAA/ORG1")
+    check(fm.fileExists(atPath: store.appending(path: "local_1.json").path),
+          "and its chats are still there")
+
+    check(!Graft.relink(target: profile, at: profile), "relink refuses a link to itself")
+    check(Graft.isDirectory(profile), "the folder survives that too")
+}
+
+do {
+    let profile = makeProfile("Claude-Loop", account: "BBBB", org: "ORG2")
+    var shortcut = Shortcut(name: "Loop", folder: "Claude-Loop", source: .own)
+    shortcut.installedName = nil
+    var thrown: Error?
+    do { _ = try Installer.install(shortcut, sourceDir: profile) }
+    catch { thrown = error }
+    check(thrown != nil, "installing a shortcut sourced from its own profile is refused")
+}
+
+// MARK: - Folder names
+
+section("Profile folder names")
+
+check(Graft.validateFolder("Claude-Work") == nil, "an ordinary folder name is fine")
+check(Graft.validateFolder("") != nil, "an empty one is not")
+check(Graft.validateFolder("  ") != nil, "nor is whitespace")
+check(Graft.validateFolder("../Claude") != nil, "nor one that climbs out")
+check(Graft.validateFolder("a/b") != nil, "nor one with a separator")
+check(Graft.validateFolder(".hidden") != nil, "nor a hidden name")
+check(Graft.validateFolder("Claude") != nil, "Claude's own folder is refused")
+check(Graft.validateFolder("ClaudeGraft") != nil, "and so is Graft's own")
+
+do {
+    var shortcut = Shortcut(name: "Escapee", folder: "../Escaped", source: .own)
+    shortcut.installedName = nil
+    var thrown: Error?
+    do { _ = try Installer.install(shortcut, sourceDir: nil) } catch { thrown = error }
+    check(thrown != nil, "a shortcut with a path for a folder cannot be installed")
+    check(!fm.fileExists(atPath: support.appending(path: "../Escaped").path),
+          "and nothing is created outside Application Support")
+}
+
+// MARK: - Awkward names
+
+section("Awkward names")
+
+do {
+    let shortcut = Shortcut(name: "Ben & Co <work>", folder: "Claude-Ben", source: .own)
+    let bundle = try! Installer.install(shortcut, sourceDir: nil)
+    let plist = try! String(contentsOf: bundle.appending(path: "Contents/Info.plist"), encoding: .utf8)
+    check(!plist.contains("Ben & Co"), "an ampersand in a name is escaped")
+    check(plist.contains("Ben &amp; Co &lt;work&gt;"), "and so are angle brackets")
+    let parsed = (try? PropertyListSerialization.propertyList(
+        from: Data(plist.utf8), options: [], format: nil)) as? [String: Any]
+    check((parsed?["CFBundleName"] as? String) == "Ben & Co <work>",
+          "the plist still reads back as the name typed")
+}
+
+// MARK: - Sharing a chat store
+
+section("Chat store neighbours")
+
+do {
+    let store = ShortcutStore()
+    let main = Shortcut(name: "From Main", folder: "Claude-A", source: .main)
+    let alsoMain = Shortcut(name: "Also Main", folder: "Claude-B", source: .main)
+    let alone = Shortcut(name: "Alone", folder: "Claude-C", source: .own)
+    store.shortcuts = [main, alsoMain, alone]
+
+    let neighbours = store.chatStoreNeighbours(of: main).map(\.name)
+    check(neighbours.contains("Claude"), "the main profile counts as a neighbour")
+    check(neighbours.contains("Also Main"), "so does another shortcut on the same source")
+    check(!neighbours.contains("Alone"), "one with its own chats does not")
+    check(!neighbours.contains("From Main"), "and neither does the shortcut itself")
+
+    check(store.chatStoreNeighbours(of: alone).isEmpty, "a profile on its own has no neighbours")
+
+    let chained = Shortcut(name: "Chained", folder: "Claude-D", source: .shortcut(main.id))
+    store.shortcuts.append(chained)
+    check(Graft.samePath(store.chatRoot(for: chained), Graft.mainProfile),
+          "a chain of sources resolves to the profile at its end")
+    check(store.chatStoreNeighbours(of: chained).map(\.name).contains("From Main"),
+          "so everything along it shares the same store")
+}
+
+do {
+    let store = ShortcutStore()
+    let target = Shortcut(name: "Target", folder: "Claude-T", source: .own)
+    let follower = Shortcut(name: "Follower", folder: "Claude-F", source: .shortcut(target.id))
+    store.shortcuts = [target, follower]
+    store.delete(target.id)
+    check(store.shortcuts.first?.source == Shortcut.Source.own,
+          "deleting a source leaves its followers on their own chats, not silently un-grafted")
+}
+
 print("\n\(checks - failures)/\(checks) checks passed")
 if failures > 0 {
     print("\(failures) FAILED")

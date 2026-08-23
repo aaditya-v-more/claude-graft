@@ -23,7 +23,35 @@ enum Graft {
     /// The profile the stock Claude.app uses when launched normally.
     static var mainProfile: URL { applicationSupport.appending(path: "Claude") }
 
-    static let claudeApp = URL(fileURLWithPath: "/Applications/Claude.app")
+    /// Claude Desktop, wherever it was installed. /Applications is the normal
+    /// place; a per-user install is the only other one worth looking in.
+    static var claudeApp: URL {
+        let user = fm.homeDirectoryForCurrentUser.appending(path: "Applications/Claude.app")
+        let system = URL(fileURLWithPath: "/Applications/Claude.app")
+        if !fm.fileExists(atPath: system.path), fm.fileExists(atPath: user.path) { return user }
+        return system
+    }
+
+    /// A profile folder name has to be one plain component sitting directly in
+    /// Application Support. Anything else could send a graft, or a delete, at
+    /// somebody else's data.
+    static func validateFolder(_ folder: String) -> String? {
+        let trimmed = folder.trimmingCharacters(in: .whitespaces)
+        if trimmed.isEmpty { return "The profile folder needs a name." }
+        if trimmed.contains("/") || trimmed.contains(":") {
+            return "The profile folder must be a single folder name, not a path."
+        }
+        if trimmed == "." || trimmed == ".." || trimmed.hasPrefix(".") {
+            return "“\(trimmed)” is not a usable folder name."
+        }
+        if trimmed == "Claude" {
+            return "That is Claude's own profile folder. Pick another name."
+        }
+        if trimmed == "ClaudeGraft" {
+            return "That folder belongs to Claude Graft itself. Pick another name."
+        }
+        return nil
+    }
 
     /// Files a second profile can share wholesale. Everything absent from this
     /// list is either credential material, per-organization cache, or a store
@@ -96,6 +124,9 @@ enum Graft {
     @discardableResult
     static func relink(target: URL, at link: URL) -> Bool {
         guard exists(target) else { return false }
+        // Linking something to itself would stash the real thing away and leave
+        // a symlink pointing at its own empty name.
+        guard !samePath(target, link) else { return false }
         if isSymlink(link) {
             if (try? fm.destinationOfSymbolicLink(atPath: link.path)) == target.path { return true }
             try? fm.removeItem(at: link)
@@ -148,6 +179,9 @@ enum Graft {
     /// different accounts the link has to be made one level deeper: the
     /// destination's own <account>/<org> directory points at the source's.
     static func graft(from source: URL, into profile: URL) {
+        // A profile pointed at itself would stash every one of its own files
+        // away and replace them with links to nothing.
+        guard !samePath(source, profile) else { return }
         try? fm.createDirectory(at: profile, withIntermediateDirectories: true)
 
         for item in sharedItems {

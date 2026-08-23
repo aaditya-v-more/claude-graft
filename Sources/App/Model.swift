@@ -79,7 +79,20 @@ final class ShortcutStore: ObservableObject {
         }
 
         shortcuts.removeAll { $0.id == id }
+
+        // Anything that borrowed from it would silently fall back to its own
+        // chats, un-grafting on the next launch without a word.
+        for index in shortcuts.indices where shortcuts[index].source == .shortcut(id) {
+            shortcuts[index].source = .own
+        }
         return problem
+    }
+
+    /// Never created, and holding no data: safe to drop without asking.
+    func isDraft(_ shortcut: Shortcut) -> Bool {
+        shortcut.installedName == nil
+            && Installer.installedBundle(for: shortcut) == nil
+            && !FileManager.default.fileExists(atPath: shortcut.profileDir.path)
     }
 
     /// Where a shortcut actually reads its chats from, following one hop.
@@ -89,6 +102,42 @@ final class ShortcutStore: ObservableObject {
         case .main: return Graft.mainProfile
         case .shortcut(let id): return self.shortcut(id)?.profileDir
         }
+    }
+
+    /// The profile whose chat store a shortcut ends up reading, following the
+    /// chain of sources to its end.
+    func chatRoot(for shortcut: Shortcut) -> URL {
+        var seen: Set<UUID> = []
+        var current = shortcut
+        while true {
+            switch current.source {
+            case .own:
+                return current.profileDir
+            case .main:
+                return Graft.mainProfile
+            case .shortcut(let id):
+                guard seen.insert(current.id).inserted, let next = self.shortcut(id) else {
+                    return current.profileDir
+                }
+                current = next
+            }
+        }
+    }
+
+    /// Everything else reading the same chat store as this shortcut, as
+    /// name-and-profile pairs. Whether any of them is open is a separate,
+    /// slower question best asked off the main thread.
+    func chatStoreNeighbours(of shortcut: Shortcut) -> [(name: String, profile: URL)] {
+        let root = chatRoot(for: shortcut)
+        var found: [(name: String, profile: URL)] = []
+        if Graft.samePath(root, Graft.mainProfile) {
+            found.append((name: "Claude", profile: Graft.mainProfile))
+        }
+        for other in shortcuts where other.id != shortcut.id {
+            guard Graft.samePath(chatRoot(for: other), root) else { continue }
+            found.append((name: other.name, profile: other.profileDir))
+        }
+        return found
     }
 
     func label(for source: Shortcut.Source) -> String {

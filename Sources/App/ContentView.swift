@@ -23,7 +23,7 @@ struct ContentView: View {
         } detail: {
             if let selection, let index = store.shortcuts.firstIndex(where: { $0.id == selection }) {
                 ShortcutDetail(shortcut: $store.shortcuts[index],
-                               requestDelete: { pendingDeletion = selection })
+                               requestDelete: { requestDeletion(of: selection) })
                     .id(selection)
             } else {
                 EmptyState(hasShortcuts: !store.shortcuts.isEmpty, add: add)
@@ -45,6 +45,17 @@ struct ContentView: View {
         } message: {
             Text(problem ?? "")
         }
+    }
+
+    /// A shortcut that was never created holds nothing, so it just goes.
+    private func requestDeletion(of id: UUID) {
+        guard let shortcut = store.shortcut(id) else { return }
+        if store.isDraft(shortcut) {
+            if selection == id { selection = nil }
+            store.shortcuts.removeAll { $0.id == id }
+            return
+        }
+        pendingDeletion = id
     }
 
     private func delete(alsoProfile: Bool) {
@@ -78,7 +89,9 @@ struct ContentView: View {
                     Label {
                         VStack(alignment: .leading, spacing: 1) {
                             Text(shortcut.name)
-                            Text(store.label(for: shortcut.source))
+                            Text(shortcut.installedName == nil
+                                 ? "Not created yet"
+                                 : store.label(for: shortcut.source))
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
@@ -88,8 +101,9 @@ struct ContentView: View {
                     }
                     .tag(shortcut.id)
                     .contextMenu {
-                        Button("Delete Shortcut…", role: .destructive) {
-                            pendingDeletion = shortcut.id
+                        Button(store.isDraft(shortcut) ? "Discard" : "Delete Shortcut…",
+                               role: .destructive) {
+                            requestDeletion(of: shortcut.id)
                         }
                     }
                 }
@@ -102,7 +116,7 @@ struct ContentView: View {
             .buttonStyle(.plain)
             .padding(.vertical, 2)
         }
-        .onDeleteCommand { if let selection { pendingDeletion = selection } }
+        .onDeleteCommand { if let selection { requestDeletion(of: selection) } }
     }
 
     private func add() {

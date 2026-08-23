@@ -58,6 +58,8 @@ enum Installer {
         case missingLauncher
         case reservedName(String)
         case nameTaken(String)
+        case badFolder(String)
+        case selfSource
         case writeFailed(String)
 
         var errorDescription: String? {
@@ -68,6 +70,10 @@ enum Installer {
                 return "“\(name)” is the name of Claude itself. Pick something else."
             case .nameTaken(let path):
                 return "There is already an application at \(path) that Claude Graft did not create. Rename this shortcut."
+            case .badFolder(let reason):
+                return reason
+            case .selfSource:
+                return "This shortcut is set to borrow chats from its own profile. Choose a different source."
             case .writeFailed(let detail):
                 return detail
             }
@@ -82,6 +88,14 @@ enum Installer {
 
         guard !reservedNames.contains(shortcut.name) else {
             throw InstallError.reservedName(shortcut.name)
+        }
+
+        if let reason = Graft.validateFolder(shortcut.folder) {
+            throw InstallError.badFolder(reason)
+        }
+
+        if let sourceDir, Graft.samePath(sourceDir, shortcut.profileDir) {
+            throw InstallError.selfSource
         }
 
         let bundle = installedBundle(for: shortcut) ?? bundleURL(for: shortcut)
@@ -141,15 +155,26 @@ enum Installer {
 
     // MARK: - Bundle pieces
 
+    /// A name is free text and lands inside an XML document; an ampersand in it
+    /// would otherwise produce a plist macOS refuses to read.
+    private static func escaped(_ text: String) -> String {
+        text.replacingOccurrences(of: "&", with: "&amp;")
+            .replacingOccurrences(of: "<", with: "&lt;")
+            .replacingOccurrences(of: ">", with: "&gt;")
+    }
+
     private static func infoPlist(for shortcut: Shortcut) -> String {
-        let identifier = "graft." + shortcut.folder.lowercased()
+        let slug = shortcut.folder.lowercased()
+            .map { $0.isLetter || $0.isNumber || $0 == "-" ? $0 : "-" }
+        let identifier = "graft." + String(slug)
+        let name = escaped(shortcut.name)
         return """
         <?xml version="1.0" encoding="UTF-8"?>
         <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
         <plist version="1.0">
         <dict>
-            <key>CFBundleName</key><string>\(shortcut.name)</string>
-            <key>CFBundleDisplayName</key><string>\(shortcut.name)</string>
+            <key>CFBundleName</key><string>\(name)</string>
+            <key>CFBundleDisplayName</key><string>\(name)</string>
             <key>CFBundleIdentifier</key><string>\(identifier)</string>
             <key>CFBundleExecutable</key><string>launcher</string>
             <key>CFBundleIconFile</key><string>icon</string>

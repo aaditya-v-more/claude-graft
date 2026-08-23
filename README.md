@@ -124,8 +124,10 @@ a stashed organization folder from being mistaken for a real one.
 
 ## Worth knowing
 
-Two instances sharing a chat store write to the same files — don't open the same
-chat in both at once.
+Two instances sharing a chat store write to the same files, so opening the same
+conversation in both at once can lose messages. Opening a shortcut from Graft
+checks first and warns when something else is already on those chats, with the
+choice to go ahead anyway. Launching the shortcut from the Dock does not check.
 
 Claude Code prunes transcripts under `~/.claude/projects/` after 30 days, while
 the desktop's session records are permanent. Older chats therefore appear in the

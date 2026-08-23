@@ -13,6 +13,11 @@ struct ShortcutDetail: View {
     /// pgrep inside the body, and blocking there re-enters AppKit layout.
     @State private var installedAt: URL?
     @State private var isRunning = false
+    @State private var profileExists = false
+
+    /// Other instances found open on the same chat store when Open was pressed.
+    @State private var sharersOpen: [String] = []
+    @State private var askAboutSharers = false
 
     private let clock = Timer.publish(every: 2, on: .main, in: .common).autoconnect()
 
@@ -97,7 +102,8 @@ struct ShortcutDetail: View {
         .formStyle(.grouped)
         .safeAreaInset(edge: .bottom) {
             HStack {
-                Button("Delete Shortcut…", role: .destructive, action: requestDelete)
+                Button(isDraft ? "Discard" : "Delete Shortcut…",
+                       role: .destructive, action: requestDelete)
                 Spacer()
                 Button("Open", action: open)
                     .disabled(installedAt == nil)
@@ -107,6 +113,14 @@ struct ShortcutDetail: View {
             }
             .padding(14)
             .background(.bar)
+        }
+        .confirmationDialog("Another Claude is open on these chats",
+                            isPresented: $askAboutSharers,
+                            titleVisibility: .visible) {
+            Button("Open Anyway") { launch() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(sharersMessage)
         }
         .onAppear { refresh() }
         .onReceive(clock) { _ in refresh() }
@@ -147,15 +161,58 @@ struct ShortcutDetail: View {
         DispatchQueue.global(qos: .utility).async {
             let bundle = Installer.installedBundle(for: target)
             let running = Graft.isRunning(profile: target.profileDir)
+            let hasProfile = FileManager.default.fileExists(atPath: target.profileDir.path)
             DispatchQueue.main.async {
                 installedAt = bundle
                 isRunning = running
+                profileExists = hasProfile
             }
         }
     }
 
+    private var isDraft: Bool {
+        installedAt == nil && !profileExists && shortcut.installedName == nil
+    }
+
+    private var sharersMessage: String {
+        let list: String
+        switch sharersOpen.count {
+        case 0: list = ""
+        case 1: list = sharersOpen[0] + " is"
+        case 2: list = sharersOpen.joined(separator: " and ") + " are"
+        default:
+            list = sharersOpen.dropLast().joined(separator: ", ")
+                + " and " + (sharersOpen.last ?? "") + " are"
+        }
+        return """
+        \(list) already open on the same Claude Code chats.
+
+        Both instances write to the same chat files. Opening the same \
+        conversation in two of them at once can lose messages.
+        """
+    }
+
+    /// Checking who else is open means one pgrep per neighbour, so it happens
+    /// off the main thread and the window is opened once the answer is back.
     private func open() {
+        guard installedAt != nil else { return }
+        let neighbours = store.chatStoreNeighbours(of: shortcut)
+        DispatchQueue.global(qos: .userInitiated).async {
+            let openNow = neighbours.filter { Graft.isRunning(profile: $0.profile) }.map(\.name)
+            DispatchQueue.main.async {
+                if openNow.isEmpty {
+                    launch()
+                } else {
+                    sharersOpen = openNow
+                    askAboutSharers = true
+                }
+            }
+        }
+    }
+
+    private func launch() {
         guard let installedAt else { return }
-        NSWorkspace.shared.openApplication(at: installedAt, configuration: NSWorkspace.OpenConfiguration())
+        NSWorkspace.shared.openApplication(at: installedAt,
+                                           configuration: NSWorkspace.OpenConfiguration())
     }
 }
