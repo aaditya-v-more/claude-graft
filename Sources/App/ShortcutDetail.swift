@@ -24,7 +24,7 @@ struct ShortcutDetail: View {
                 }
             }
 
-            Section("Shortcut") {
+            Section {
                 TextField("Name", text: $shortcut.name)
                     .onChange(of: shortcut.name) { _ in
                         guard installedAt == nil, !folderIsCustom else { return }
@@ -46,6 +46,14 @@ struct ShortcutDetail: View {
                         .help("Show in Finder")
                     }
                 }
+            } header: {
+                Text("Shortcut")
+            } footer: {
+                Text("The name is what the app in \(Installer.installDirectory.path) is called. The profile folder is where this account's login, chats and settings are kept, inside ~/Library/Application Support. Naming an existing folder adopts that profile instead of starting an empty one.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.top, 2)
             }
 
             Section {
