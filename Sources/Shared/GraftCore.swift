@@ -490,14 +490,53 @@ enum Graft {
         return String(decoding: collected, as: UTF8.self)
     }
 
+    /// Regex metacharacters have to survive being put inside a pgrep pattern.
+    static func escapedForPattern(_ text: String) -> String {
+        var escaped = ""
+        for character in text {
+            if "\\.[]()*+?{}|^$".contains(character) { escaped.append("\\") }
+            escaped.append(character)
+        }
+        return escaped
+    }
+
+    /// Anchored at the end of the argument. Without that, one profile's path is
+    /// a prefix of another's — `…/Claude` sits inside `…/Claude-2` — and every
+    /// profile looks like it is running as soon as any longer-named one is.
+    static func dataDirPattern(for profile: URL) -> String {
+        "user-data-dir=\(escapedForPattern(profile.path))([[:space:]]|$)"
+    }
+
     static func isRunning(profile: URL) -> Bool {
-        runTool("/usr/bin/pgrep", ["-f", "user-data-dir=\(profile.path)"]) == 0
+        // Claude launched the ordinary way carries no --user-data-dir at all,
+        // so the main profile has to be recognised by the absence of one.
+        if samePath(profile, mainProfile) { return defaultInstanceIsRunning() }
+        return runTool("/usr/bin/pgrep", ["-f", dataDirPattern(for: profile)]) == 0
+    }
+
+    /// True when a Claude is running on no profile in particular.
+    static func defaultInstanceIsRunning() -> Bool {
+        commandLines().contains(where: isDefaultInstance)
+    }
+
+    /// The main binary of Claude itself: not a helper process, and not the
+    /// bundled command line, whose path is lowercase.
+    static func isDefaultInstance(_ command: String) -> Bool {
+        command.contains("Claude.app/Contents/MacOS/Claude")
+            && !command.contains("Helper")
+            && !command.contains("--user-data-dir=")
+    }
+
+    static func commandLines() -> [String] {
+        output("/bin/ps", ["-Ao", "command"])
+            .split(separator: "\n")
+            .map(String.init)
     }
 
     /// Every process serving this profile. The main window is the one with the
     /// lowest id; helpers are spawned afterwards.
     static func processIDs(of profile: URL) -> [Int32] {
-        output("/usr/bin/pgrep", ["-f", "user-data-dir=\(profile.path)"])
+        output("/usr/bin/pgrep", ["-f", dataDirPattern(for: profile)])
             .split(whereSeparator: \.isNewline)
             .compactMap { Int32($0.trimmingCharacters(in: .whitespaces)) }
             .sorted()

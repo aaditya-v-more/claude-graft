@@ -728,6 +728,58 @@ do {
           "and an expired wait releases either way")
 }
 
+// MARK: - Telling instances apart
+
+section("Which Claude is running")
+
+func matches(_ pattern: String, _ command: String) -> Bool {
+    guard let regex = try? NSRegularExpression(pattern: pattern) else { return false }
+    let range = NSRange(command.startIndex..., in: command)
+    return regex.firstMatch(in: command, range: range) != nil
+}
+
+do {
+    let main = support.appending(path: "Claude")
+    let second = support.appending(path: "Claude-2")
+
+    let mainPattern = Graft.dataDirPattern(for: main)
+    let secondPattern = Graft.dataDirPattern(for: second)
+
+    let runningSecond = "/Applications/Claude.app/Contents/MacOS/Claude --user-data-dir=\(second.path)"
+    // One profile's path sits inside another's, so an unanchored match made
+    // every shorter-named profile look like it was running.
+    check(matches(secondPattern, runningSecond), "a profile matches its own instance")
+    check(!matches(mainPattern, runningSecond),
+          "and not one whose folder merely starts with the same name")
+
+    let runningMainWithFlag = "/Applications/Claude.app/Contents/MacOS/Claude --user-data-dir=\(main.path)"
+    check(matches(mainPattern, runningMainWithFlag), "an exact path still matches")
+    check(matches(mainPattern, runningMainWithFlag + " --other-flag"),
+          "including when further arguments follow")
+
+    // Paths land inside a regex, so anything special in them has to be quoted.
+    let awkward = support.appending(path: "Claude (work)")
+    check(matches(Graft.dataDirPattern(for: awkward),
+                  "Claude --user-data-dir=\(awkward.path)"),
+          "a folder name with brackets in it still matches itself")
+}
+
+do {
+    // Claude launched normally carries no --user-data-dir at all, so the main
+    // profile cannot be recognised by one.
+    check(Graft.isDefaultInstance("/Applications/Claude.app/Contents/MacOS/Claude"),
+          "a plain launch is the default instance")
+    check(!Graft.isDefaultInstance(
+            "/Applications/Claude.app/Contents/MacOS/Claude --user-data-dir=/tmp/Claude-2"),
+          "one launched on a profile is not")
+    check(!Graft.isDefaultInstance(
+            "/Applications/Claude.app/Contents/Frameworks/Claude Helper.app/Contents/MacOS/Claude Helper --type=gpu-process"),
+          "nor is a helper process")
+    check(!Graft.isDefaultInstance(
+            "/Users/x/Library/Application Support/Claude/claude-code/2.1.237/claude.app/Contents/MacOS/claude -p hi"),
+          "nor the bundled command line, whose path is lowercase")
+}
+
 print("\n\(checks - failures)/\(checks) checks passed")
 if failures > 0 {
     print("\(failures) FAILED")

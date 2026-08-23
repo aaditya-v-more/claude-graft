@@ -59,7 +59,9 @@ running, and each has its own **Open**.
 
 Claude's own installation appears in both the dropdown and the app's sidebar,
 alongside the shortcuts and read-only: Graft borrows from it but never changes
-it.
+it. It is recognised by having no `--user-data-dir` at all, which is how Claude
+launches when opened the ordinary way; the shortcuts are matched on their exact
+profile path, anchored, since one profile's folder sits inside another's.
 
 Closing the window does not quit — the menu bar item carries on reporting, and
 the Dock icon steps aside. Quit properly from the dropdown. The window comes
@@ -136,7 +138,7 @@ Claude uses are reserved.
 ./test.sh
 ```
 
-A hundred and fifty-five checks over a throwaway Application Support and
+A hundred and sixty-four checks over a throwaway Application Support and
 Applications directory:
 that foreign apps survive install, uninstall and delete; that updating a
 shortcut rewrites one bundle rather than leaving copies; that a rename onto an
