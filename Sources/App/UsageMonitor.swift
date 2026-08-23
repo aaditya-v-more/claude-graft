@@ -95,11 +95,6 @@ final class UsageMonitor: ObservableObject {
     /// Used by the tests to drive the menu bar figure without a filesystem.
     func setEntriesForTesting(_ replacement: [Entry]) { entries = replacement }
 
-    func stop() {
-        timer?.invalidate()
-        timer = nil
-    }
-
     /// Reads the store on the calling thread — it must be the main one — then
     /// does the filesystem, keychain and network work away from it.
     ///

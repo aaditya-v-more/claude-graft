@@ -517,8 +517,6 @@ section("Command output")
 check(Graft.output("/bin/echo", ["hello"]).trimmingCharacters(in: .whitespacesAndNewlines) == "hello",
       "output is captured")
 check(Graft.output("/nonexistent/tool", []).isEmpty, "a missing tool yields nothing")
-check(Graft.processIDs(of: support.appending(path: "Claude-NeverLaunched")).isEmpty,
-      "an unused profile has no processes")
 
 // MARK: - What the menu bar reports
 

@@ -141,15 +141,23 @@ Claude uses are reserved.
 ./test.sh
 ```
 
-A hundred and seventy checks over a throwaway Application Support and
-Applications directory:
-that foreign apps survive install, uninstall and delete; that updating a
-shortcut rewrites one bundle rather than leaving copies; that a rename onto an
-occupied name changes nothing; that grafting preserves the login, stashes what
-it replaces, and reverses cleanly; that a profile cannot be grafted from itself
-and a folder name cannot climb out of Application Support; that an awkward name
-still produces a readable plist; and that every guard on profile deletion fires
-for the reason it was meant to.
+A hundred and sixty-nine checks, all against a throwaway Application Support
+and Applications directory, so nothing they do can reach a real profile or a
+real app.
+
+They cover: that applications Graft did not create survive install, uninstall
+and delete; that updating a shortcut rewrites one bundle rather than leaving
+copies behind, and that a rename onto an occupied name changes nothing; that
+grafting preserves the login, stashes whatever it replaces, and reverses
+cleanly; that a profile cannot be grafted from itself and a folder name cannot
+climb out of Application Support; that a name with an ampersand in it still
+produces a plist macOS can read; that every guard on profile deletion fires for
+the reason it was meant to; that both usage sources parse, including the two
+reset-time formats and a history with figures missing; that a refused call
+backs off instead of retrying on the next tick, and that `Retry-After` is the
+one wait a person cannot skip; that one profile's path being a prefix of
+another's no longer makes every profile look like it is running; and that the
+figure in the menu bar follows whichever Claude is open.
 
 ## How it works
 
@@ -232,12 +240,24 @@ storage.
 ## Layout
 
 ```
-Sources/Shared/GraftCore.swift   linking, account mapping, launching
-Sources/Launcher/main.swift      the executable each shortcut bundle contains
-Sources/App/                     the SwiftUI manager and the status item
-Tools/make-icon.swift            draws the app icon
-release.sh                       tests, builds, signs, packages
-Tests/main.swift                 the suite
-build.sh                         builds the app and the launcher
-test.sh                          builds and runs the tests
+Sources/Shared/GraftCore.swift     linking, account mapping, launching
+Sources/Launcher/main.swift        the executable each shortcut bundle contains
+Sources/App/ClaudeGraftApp.swift   scenes, app lifecycle, Dock behaviour
+Sources/App/ContentView.swift      sidebar and deletion
+Sources/App/ShortcutDetail.swift   one shortcut's settings
+Sources/App/MainProfileDetail.swift  Claude's own profile, read-only
+Sources/App/Installer.swift        builds a shortcut's .app bundle
+Sources/App/Model.swift            shortcuts and where each reads chats from
+Sources/App/MenuBarController.swift  the status item
+Sources/App/MenuBarContent.swift   what drops down from it
+Sources/App/UsageMonitor.swift     polling, caching, backoff
+Sources/App/UsageAPI.swift         Anthropic's usage endpoint
+Sources/App/ClaudeCredentials.swift  borrowing a profile's access token
+Sources/App/SessionStarter.swift   opening a five-hour window
+Sources/App/Settings.swift         preferences and the login item
+Tools/make-icon.swift              draws the app icon
+build.sh                           builds the app and the launcher
+test.sh                            builds and runs the tests
+release.sh                         tests, builds, signs, packages
+Tests/main.swift                   the suite
 ```

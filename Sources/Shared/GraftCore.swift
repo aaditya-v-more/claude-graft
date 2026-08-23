@@ -533,15 +533,6 @@ enum Graft {
             .map(String.init)
     }
 
-    /// Every process serving this profile. The main window is the one with the
-    /// lowest id; helpers are spawned afterwards.
-    static func processIDs(of profile: URL) -> [Int32] {
-        output("/usr/bin/pgrep", ["-f", dataDirPattern(for: profile)])
-            .split(whereSeparator: \.isNewline)
-            .compactMap { Int32($0.trimmingCharacters(in: .whitespaces)) }
-            .sorted()
-    }
-
     @discardableResult
     static func launch(profile: URL) -> Bool {
         let task = Process()

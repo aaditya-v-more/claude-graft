@@ -15,14 +15,6 @@ struct MenuBarContent: View {
     @State private var starting: String?
     @State private var problem: String?
 
-    private static let sessionNote = """
-        Sends one short message to this account so its five-hour window opens. \
-        Nothing appears on screen.
-
-        It uses that profile's own login, borrowed the same way the usage \
-        figures are, so each account can be started separately.
-        """
-
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             if usage.entries.isEmpty {
