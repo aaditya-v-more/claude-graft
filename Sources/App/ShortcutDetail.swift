@@ -5,6 +5,7 @@ import SwiftUI
 struct ShortcutDetail: View {
     @EnvironmentObject private var store: ShortcutStore
     @Binding var shortcut: Shortcut
+    let requestDelete: () -> Void
 
     @State private var error: String?
     /// Bumped on a timer so the status reflects what is actually on disk
@@ -105,9 +106,7 @@ struct ShortcutDetail: View {
         .formStyle(.grouped)
         .safeAreaInset(edge: .bottom) {
             HStack {
-                if installedAt != nil {
-                    Button("Remove Shortcut", role: .destructive, action: remove)
-                }
+                Button("Delete Shortcut…", role: .destructive, action: requestDelete)
                 Spacer()
                 Button("Open", action: open)
                     .disabled(installedAt == nil)
@@ -152,11 +151,5 @@ struct ShortcutDetail: View {
     private func open() {
         guard let installedAt else { return }
         NSWorkspace.shared.openApplication(at: installedAt, configuration: NSWorkspace.OpenConfiguration())
-    }
-
-    private func remove() {
-        Installer.uninstall(shortcut)
-        shortcut.installedName = nil
-        tick &+= 1
     }
 }

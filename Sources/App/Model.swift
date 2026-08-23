@@ -58,6 +58,14 @@ final class ShortcutStore: ObservableObject {
 
     func shortcut(_ id: UUID) -> Shortcut? { shortcuts.first { $0.id == id } }
 
+    /// Removes the shortcut and the app it installed. The profile folder is
+    /// left on disk — it holds a login and a chat history.
+    func delete(_ id: UUID) {
+        guard let shortcut = shortcut(id) else { return }
+        Installer.uninstall(shortcut)
+        shortcuts.removeAll { $0.id == id }
+    }
+
     /// Where a shortcut actually reads its chats from, following one hop.
     func sourceDir(for shortcut: Shortcut) -> URL? {
         switch shortcut.source {

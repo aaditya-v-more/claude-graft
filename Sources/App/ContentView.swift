@@ -4,19 +4,52 @@ import SwiftUI
 struct ContentView: View {
     @EnvironmentObject private var store: ShortcutStore
     @State private var selection: UUID?
+    @State private var pendingDeletion: UUID?
 
     var body: some View {
         NavigationSplitView {
             sidebar
                 .navigationSplitViewColumnWidth(min: 200, ideal: 220, max: 280)
+                .toolbar {
+                    ToolbarItem {
+                        Button(action: add) {
+                            Label("New Shortcut", systemImage: "plus")
+                        }
+                        .keyboardShortcut("n", modifiers: .command)
+                        .help("New shortcut")
+                    }
+                }
         } detail: {
             if let selection, let index = store.shortcuts.firstIndex(where: { $0.id == selection }) {
-                ShortcutDetail(shortcut: $store.shortcuts[index])
+                ShortcutDetail(shortcut: $store.shortcuts[index],
+                               requestDelete: { pendingDeletion = selection })
                     .id(selection)
             } else {
                 EmptyState(hasShortcuts: !store.shortcuts.isEmpty, add: add)
             }
         }
+        .confirmationDialog(deletionTitle,
+                            isPresented: Binding(get: { pendingDeletion != nil },
+                                                 set: { if !$0 { pendingDeletion = nil } }),
+                            titleVisibility: .visible) {
+            Button("Delete Shortcut", role: .destructive) {
+                if let pendingDeletion {
+                    if selection == pendingDeletion { selection = nil }
+                    store.delete(pendingDeletion)
+                }
+                pendingDeletion = nil
+            }
+            Button("Cancel", role: .cancel) { pendingDeletion = nil }
+        } message: {
+            Text("The app is removed from \(Installer.installDirectory.path). The profile folder keeps its login and chats, and stays on disk.")
+        }
+    }
+
+    private var deletionTitle: String {
+        guard let pendingDeletion, let shortcut = store.shortcut(pendingDeletion) else {
+            return "Delete this shortcut?"
+        }
+        return "Delete “\(shortcut.name)”?"
     }
 
     private var sidebar: some View {
@@ -35,36 +68,28 @@ struct ContentView: View {
                             .foregroundStyle(.secondary)
                     }
                     .tag(shortcut.id)
+                    .contextMenu {
+                        Button("Delete Shortcut…", role: .destructive) {
+                            pendingDeletion = shortcut.id
+                        }
+                    }
                 }
             }
-        }
-        .safeAreaInset(edge: .bottom) {
-            HStack(spacing: 2) {
-                Button(action: add) { Image(systemName: "plus") }
-                    .help("Add a shortcut")
-                Button(action: removeSelected) { Image(systemName: "minus") }
-                    .help("Remove the selected shortcut")
-                    .disabled(selection == nil)
-                Spacer()
+
+            Button(action: add) {
+                Label("New Shortcut", systemImage: "plus")
+                    .foregroundStyle(.secondary)
             }
-            .buttonStyle(.borderless)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(.bar)
+            .buttonStyle(.plain)
+            .padding(.vertical, 2)
         }
+        .onDeleteCommand { if let selection { pendingDeletion = selection } }
     }
 
     private func add() {
         let shortcut = Shortcut(name: store.uniqueName())
         store.shortcuts.append(shortcut)
         selection = shortcut.id
-    }
-
-    private func removeSelected() {
-        guard let selection, let shortcut = store.shortcut(selection) else { return }
-        Installer.uninstall(shortcut)
-        store.shortcuts.removeAll { $0.id == selection }
-        self.selection = store.shortcuts.first?.id
     }
 }
 
@@ -84,7 +109,7 @@ private struct EmptyState: View {
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
             if !hasShortcuts {
-                Button("Add Shortcut", action: add)
+                Button("New Shortcut", action: add)
                     .padding(.top, 4)
             }
         }
