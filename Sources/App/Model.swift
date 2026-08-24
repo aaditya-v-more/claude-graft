@@ -124,16 +124,21 @@ final class ShortcutStore: ObservableObject {
         }
     }
 
-    /// Everything else reading the same chat store as this shortcut, as
-    /// name-and-profile pairs. Whether any of them is open is a separate,
-    /// slower question best asked off the main thread.
-    func chatStoreNeighbours(of shortcut: Shortcut) -> [(name: String, profile: URL)] {
-        let root = chatRoot(for: shortcut)
+    /// Everything else reading the same chat store, as name-and-profile pairs.
+    /// Whether any of them is open is a separate, slower question best asked
+    /// off the main thread.
+    ///
+    /// Nil asks on behalf of Claude's own profile, which has no shortcut to
+    /// stand for it and was therefore the one profile that could never find out
+    /// who else was on its chats — the case the question gets asked about most,
+    /// since every shortcut grafted from main reads exactly those files.
+    func chatStoreNeighbours(of shortcut: Shortcut?) -> [(name: String, profile: URL)] {
+        let root = shortcut.map(chatRoot(for:)) ?? Graft.mainProfile
         var found: [(name: String, profile: URL)] = []
-        if Graft.samePath(root, Graft.mainProfile) {
+        if shortcut != nil, Graft.samePath(root, Graft.mainProfile) {
             found.append((name: "Claude", profile: Graft.mainProfile))
         }
-        for other in shortcuts where other.id != shortcut.id {
+        for other in shortcuts where other.id != shortcut?.id {
             guard Graft.samePath(chatRoot(for: other), root) else { continue }
             found.append((name: other.name, profile: other.profileDir))
         }

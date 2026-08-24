@@ -22,7 +22,7 @@ would have written by hand.
 
     ./build.sh                 app + launcher into build.noindex/, this arch only
     GRAFT_UNIVERSAL=1 ./build.sh   both arches, joined with lipo
-    ./test.sh                  233 checks, all in a throwaway directory
+    ./test.sh                  246 checks, all in a throwaway directory
     ./release.sh [--install]   tests, builds universal, draws the icon, signs, packages
 
 ## Invariants
@@ -138,12 +138,35 @@ to tell them apart. Opening the wrong one gives two instances polling the same
 profiles, racing for the same keychain prompt, and a Sparkle that updates a
 bundle nobody installed. Seen for real, which is why the directory was renamed.
 
+**Every route that opens a profile asks first.** Two Claudes on one chat store
+both write the same files, so the same conversation open in two of them can lose
+messages — the one way this app can cost you something. The check lived inside
+`ShortcutDetail.open`, so it covered exactly one of the three buttons that open
+a profile: the dropdown's Open went straight to `openApplication`, and Claude's
+own profile had no shortcut to ask on its behalf, so nothing ever looked. That
+last one is the case it matters for, since every shortcut grafted from main
+reads precisely the files main is about to open. `ChatConflict` is the rule and
+`chatStoreNeighbours(of:)` takes an optional now, nil meaning main. The suite
+reads all three views and fails if one of them stops naming `ChatConflict`.
+
+The dropdown asks with an `NSAlert`, not a `confirmationDialog`. It is an
+`NSPopover`, which gives up key window the moment anything else appears and
+takes any sheet it was hosting down with it.
+
 **An update installs itself and says nothing.** Checked hourly and at launch
 once that much has passed, downloaded, installed and restarted with nobody
 asked. The gentle-reminder route was tried first and was wrong for this app:
 there is usually no window to put a question in front of, so an update that
 waits to be noticed is one that never gets installed. What it costs is the
 status item blinking out and back.
+
+That goes for a press as much as for the schedule. `checkForUpdatesInBackground`
+is what the dropdown calls, never `checkForUpdates` — Sparkle's interactive
+check puts up its own panel and waits on Install and Relaunch, so the scheduled
+check installed silently while the button asked, which is one app behaving two
+ways. Pressing a line that already reads "Version 1.0.6 is available" is not a
+request to be asked whether you want it. The suite fails if the interactive call
+reappears.
 
 That only works because `applicationShouldTerminate` lets it through, and
 Sparkle's own header warns that `updaterWillRelaunchApplication` may not be

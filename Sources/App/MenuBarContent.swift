@@ -61,7 +61,7 @@ struct MenuBarContent: View {
                         .font(.callout)
                 }
                 .buttonStyle(.link)
-                .help("Opens Sparkle's update window, with the release notes.")
+                .help("Installs it and restarts. Nothing is asked.")
                 .padding(.horizontal, 14)
                 .padding(.bottom, 8)
             }
@@ -81,7 +81,7 @@ struct MenuBarContent: View {
                 MenuButton(usage.isRefreshing ? "Refreshing…" : "Refresh Usage") {
                     usage.refresh(store, interactive: true)
                 }
-                MenuButton(updater.canCheck ? "Check for Updates…" : "Checking for Updates…") {
+                MenuButton(updater.canCheck ? "Check for Updates" : "Checking for Updates…") {
                     updater.checkForUpdates()
                 }
                 .disabled(!updater.canCheck)
@@ -99,15 +99,22 @@ struct MenuBarContent: View {
         }
     }
 
+    /// The dropdown is where a Claude actually gets opened most of the time,
+    /// and it was the one route that never checked who else was already on
+    /// those chats — it went straight to `openApplication`. The window asked
+    /// and this did not, for the same click.
     private func open(_ entry: UsageMonitor.Entry) {
-        if let id = entry.shortcut,
-           let shortcut = store.shortcut(id),
-           let bundle = Installer.installedBundle(for: shortcut) {
-            NSWorkspace.shared.openApplication(at: bundle, configuration: NSWorkspace.OpenConfiguration())
-        } else {
-            // The main profile has no shortcut of its own to go through.
-            NSWorkspace.shared.openApplication(at: Graft.claudeApp,
-                                               configuration: NSWorkspace.OpenConfiguration())
+        let shortcut = entry.shortcut.flatMap { store.shortcut($0) }
+        let bundle = shortcut.flatMap { Installer.installedBundle(for: $0) } ?? Graft.claudeApp
+        let neighbours = store.chatStoreNeighbours(of: shortcut)
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            let openNow = ChatConflict.openSharers(among: neighbours)
+            DispatchQueue.main.async {
+                guard openNow.isEmpty || ChatConflict.askInPopover(sharers: openNow) else { return }
+                NSWorkspace.shared.openApplication(at: bundle,
+                                                   configuration: NSWorkspace.OpenConfiguration())
+            }
         }
     }
 

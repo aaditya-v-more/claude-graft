@@ -12,6 +12,7 @@ swiftc -swift-version 5 \
     -target "$(uname -m)-apple-macos${MACOS_DEPLOYMENT_TARGET:-13.0}" \
     "$ROOT/Sources/Shared/GraftCore.swift" \
     "$ROOT/Sources/App/Model.swift" \
+    "$ROOT/Sources/App/ChatConflict.swift" \
     "$ROOT/Sources/App/Installer.swift" \
     "$ROOT/Sources/App/Settings.swift" \
     "$ROOT/Sources/App/UsageAPI.swift" \

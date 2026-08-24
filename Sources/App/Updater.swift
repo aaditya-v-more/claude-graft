@@ -64,13 +64,23 @@ final class Updater: NSObject, ObservableObject {
             .sink { [weak self] in self?.canCheck = $0 }
     }
 
-    /// The dropdown's Check for Updates. Everything else happens on its own.
+    /// The dropdown's Check for Updates, and its "version N is available" line.
+    ///
+    /// `checkForUpdatesInBackground` rather than `checkForUpdates`, which is
+    /// the difference between an update installing and an update asking. The
+    /// interactive one puts up Sparkle's own panel and waits on Install and
+    /// Relaunch — so the scheduled check installed silently, exactly as
+    /// intended, while pressing the button in the dropdown did not, which is a
+    /// strange thing for the same app to do two ways. Pressing a line that
+    /// already reads "Version 1.0.6 is available" is not a request to be asked
+    /// whether you want it.
+    ///
+    /// Nothing is brought to the front any more either: there is no panel to
+    /// order forward, and stealing focus for something invisible is worse than
+    /// doing nothing.
     func checkForUpdates() {
         guard let controller else { return }
-        // A dockless app that just orders a panel front puts it behind whatever
-        // is already there.
-        NSApp.activate(ignoringOtherApps: true)
-        controller.updater.checkForUpdates()
+        controller.updater.checkForUpdatesInBackground()
     }
 }
 

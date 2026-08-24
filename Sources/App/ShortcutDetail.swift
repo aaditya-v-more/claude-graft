@@ -132,13 +132,13 @@ struct ShortcutDetail: View {
             .padding(14)
             .background(.bar)
         }
-        .confirmationDialog("Another Claude is open on these chats",
+        .confirmationDialog(ChatConflict.title,
                             isPresented: $askAboutSharers,
                             titleVisibility: .visible) {
             Button("Open Anyway") { launch() }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text(sharersMessage)
+            Text(ChatConflict.message(sharers: sharersOpen))
         }
         .onAppear { refresh() }
         .onReceive(clock) { _ in refresh() }
@@ -203,24 +203,6 @@ struct ShortcutDetail: View {
         installedAt == nil && !profileExists && shortcut.installedName == nil
     }
 
-    private var sharersMessage: String {
-        let list: String
-        switch sharersOpen.count {
-        case 0: list = ""
-        case 1: list = sharersOpen[0] + " is"
-        case 2: list = sharersOpen.joined(separator: " and ") + " are"
-        default:
-            list = sharersOpen.dropLast().joined(separator: ", ")
-                + " and " + (sharersOpen.last ?? "") + " are"
-        }
-        return """
-            \(list) already open on the same Claude Code chats.
-
-            Both instances write to the same chat files. Opening the same \
-            conversation in two of them at once can lose messages.
-            """
-    }
-
     private func install() {
         shortcut.name = shortcut.name.trimmingCharacters(in: .whitespaces)
         shortcut.folder = shortcut.folder.trimmingCharacters(in: .whitespaces)
@@ -277,7 +259,7 @@ struct ShortcutDetail: View {
         guard installedAt != nil else { return }
         let neighbours = store.chatStoreNeighbours(of: shortcut)
         DispatchQueue.global(qos: .userInitiated).async {
-            let openNow = neighbours.filter { Graft.isRunning(profile: $0.profile) }.map(\.name)
+            let openNow = ChatConflict.openSharers(among: neighbours)
             DispatchQueue.main.async {
                 if openNow.isEmpty {
                     launch()

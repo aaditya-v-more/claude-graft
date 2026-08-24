@@ -528,6 +528,30 @@ do {
           "a chain of sources resolves to the profile at its end")
     check(store.chatStoreNeighbours(of: chained).map(\.name).contains("From Main"),
           "so everything along it shares the same store")
+
+    // Claude's own profile has no shortcut to ask on its behalf, so nothing
+    // ever asked: opening it while a shortcut grafted from it was running gave
+    // no warning at all, which is the pairing this warning exists for.
+    let fromMain = store.chatStoreNeighbours(of: nil).map(\.name)
+    check(fromMain.contains("From Main") && fromMain.contains("Also Main"),
+          "Claude's own profile can ask who else is on its chats")
+    check(!fromMain.contains("Claude"),
+          "without counting itself among them")
+    check(!fromMain.contains("Alone"),
+          "and a profile keeping its own chats is still nobody's neighbour")
+}
+
+// The wording is shared because three buttons say it, and only one of the
+// three used to say anything at all.
+do {
+    check(ChatConflict.message(sharers: ["Claude 2"]).contains("Claude 2 is already open"),
+          "one other instance reads as a sentence")
+    check(ChatConflict.message(sharers: ["Claude 2", "Work"]).contains("Claude 2 and Work are"),
+          "so does a pair")
+    check(ChatConflict.message(sharers: ["A", "B", "C"]).contains("A, B and C are"),
+          "and a list longer than that")
+    check(ChatConflict.message(sharers: ["Claude 2"]).contains("can lose messages"),
+          "and it says what is actually at stake, not just who is open")
 }
 
 do {
@@ -867,6 +891,15 @@ do {
     check(updater.contains("immediateInstallHandler()"),
           "and now, rather than on a quit that a menu bar app may not see for weeks")
 
+    // Sparkle's interactive check puts up a panel and waits on Install and
+    // Relaunch. The scheduled check installed silently and the button did not,
+    // which is one app behaving two ways — and pressing a line that already
+    // reads "version 1.0.6 is available" is not a request to be asked about it.
+    check(updater.contains("checkForUpdatesInBackground()"),
+          "the dropdown's check installs rather than asking")
+    check(!updater.contains("updater.checkForUpdates()"),
+          "so Sparkle's own panel is never what a press puts on screen")
+
     // Four files name the account now, not two: the app links to the site and
     // the sponsor page as well, and those links are compiled into copies that
     // will never be built again. GitHub redirects a renamed repository but
@@ -985,6 +1018,32 @@ do {
         if source.contains("prompting: .yes") { namesYes.append(file.lastPathComponent) }
     }
     check(namesYes.isEmpty, "and nothing reaches for the unconditional keychain prompt by hand")
+}
+
+// MARK: - Opening a Claude onto chats something else is already reading
+
+section("Warning before a shared store is opened")
+
+do {
+    let sources = URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+        .appending(path: "Sources/App")
+    func read(_ name: String) -> String {
+        (try? String(contentsOf: sources.appending(path: name), encoding: .utf8)) ?? ""
+    }
+
+    // The dropdown went straight to openApplication, so the same click that
+    // asked from the window asked nothing from the menu bar.
+    for file in ["MenuBarContent.swift", "MainProfileDetail.swift", "ShortcutDetail.swift"] {
+        check(read(file).contains("ChatConflict"),
+              "\(file) asks before opening a profile something else is on")
+    }
+
+    // A popover gives up key window the moment anything else appears, taking a
+    // sheet with it, which is why the dropdown's question is an NSAlert.
+    check(read("MenuBarContent.swift").contains("askInPopover"),
+          "and the dropdown asks in the one way a popover can")
 }
 
 // MARK: - How hard the endpoint is asked

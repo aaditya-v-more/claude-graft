@@ -6,10 +6,13 @@ import SwiftUI
 /// are in the same place. Nothing here is editable: this is the installation
 /// Graft borrows from, not something it created.
 struct MainProfileDetail: View {
+    @EnvironmentObject private var store: ShortcutStore
     @State private var isRunning = false
     @State private var usage: Graft.Usage?
     @State private var startingSession = false
     @State private var error: String?
+    @State private var sharersOpen: [String] = []
+    @State private var askAboutSharers = false
 
     private let clock = Timer.publish(every: 5, on: .main, in: .common).autoconnect()
 
@@ -81,10 +84,7 @@ struct MainProfileDetail: View {
                 .disabled(startingSession)
                 InfoButton(ShortcutDetail.sessionNote)
 
-                Button("Open") {
-                    NSWorkspace.shared.openApplication(at: Graft.claudeApp,
-                                                       configuration: NSWorkspace.OpenConfiguration())
-                }
+                Button("Open", action: open)
                 .keyboardShortcut(.defaultAction)
                 .disabled(claudeMissing)
             }
@@ -93,11 +93,43 @@ struct MainProfileDetail: View {
         }
         .onAppear { refresh() }
         .onReceive(clock) { _ in refresh() }
+        .confirmationDialog(ChatConflict.title,
+                            isPresented: $askAboutSharers,
+                            titleVisibility: .visible) {
+            Button("Open Anyway") { launch() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(ChatConflict.message(sharers: sharersOpen))
+        }
         .alert("Could not start a session", isPresented: .constant(error != nil)) {
             Button("OK") { error = nil }
         } message: {
             Text(error ?? "")
         }
+    }
+
+    /// Every shortcut grafted from main reads the files this is about to open,
+    /// so this is the warning that matters most — and the one profile that
+    /// never had it, because the check went through a shortcut and main has
+    /// none.
+    private func open() {
+        let neighbours = store.chatStoreNeighbours(of: nil)
+        DispatchQueue.global(qos: .userInitiated).async {
+            let openNow = ChatConflict.openSharers(among: neighbours)
+            DispatchQueue.main.async {
+                if openNow.isEmpty {
+                    launch()
+                } else {
+                    sharersOpen = openNow
+                    askAboutSharers = true
+                }
+            }
+        }
+    }
+
+    private func launch() {
+        NSWorkspace.shared.openApplication(at: Graft.claudeApp,
+                                           configuration: NSWorkspace.OpenConfiguration())
     }
 
     private func refresh() {

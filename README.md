@@ -88,9 +88,9 @@ rather not wait.
 ## Worth knowing
 
 Two Claudes sharing a chat store write to the same files, so opening the *same*
-conversation in both at once can lose messages. Opening a shortcut from Graft
-warns you when something else is already on those chats; launching it from the
-Dock doesn't check.
+conversation in both at once can lose messages. Opening one from Graft — the
+window or the menu bar, a shortcut or Claude itself — warns you when something
+else is already on those chats. Launching it from the Dock doesn't check.
 
 `~/.claude` — settings, `CLAUDE.md`, skills, plugins, MCP servers, transcripts —
 is already shared by every instance, since it comes from `$HOME` rather than the
@@ -112,7 +112,7 @@ description file they carry, never by name.
 
 ```
 ./build.sh     the app, into build.noindex/
-./test.sh      233 checks, all in a throwaway directory
+./test.sh      246 checks, all in a throwaway directory
 ./release.sh   tests, builds universal, signs, packages
 ```
 
