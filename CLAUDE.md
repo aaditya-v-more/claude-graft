@@ -20,9 +20,10 @@ would have written by hand.
 
 ## Commands
 
-    ./build.sh                 app + launcher into build/
-    ./test.sh                  177 checks, all in a throwaway directory
-    ./release.sh [--install]   tests, builds, draws the icon, signs, packages
+    ./build.sh                 app + launcher into build/, this arch only
+    GRAFT_UNIVERSAL=1 ./build.sh   both arches, joined with lipo
+    ./test.sh                  200 checks, all in a throwaway directory
+    ./release.sh [--install]   tests, builds universal, draws the icon, signs, packages
 
 ## Invariants
 
@@ -56,9 +57,55 @@ chats go, without asking it.
 **Credentials are borrowed, never taken.** Only the access token is decrypted,
 never the refresh token: Anthropic rotates those and using one signs Claude
 Desktop out. Nothing is written back to Claude's config, cookies or keychain.
-The token goes to `api.anthropic.com` and nowhere else. Background polls read
-the keychain non-interactively and fall back quietly; only an action the user
-took may raise the macOS prompt.
+The token goes to `api.anthropic.com` and nowhere else.
+
+**The keychain is asked once, and only when asking is the way through.** Every
+read tries silently first, so a build already on the item's ACL never sees a
+dialog no matter who asked. When that read comes back shut the app asks rather
+than falling back without saying why — once for the life of the process, never
+again after a decline, and not while it is coming up hidden into the menu bar,
+since a dialog thrown over a login is answered by nobody. The rule is
+`ClaudeCredentials.mayRaiseDialog`, kept pure so the suite can drive it;
+`UsageMonitor.mayPromptUnasked` carries the login case.
+
+`SecKeychainSetUserInteractionAllowed` is what actually makes a read silent. The
+`LAContext` the compiler suggests in its place governs items backed by an access
+control, not an ACL of trusted applications, and was measured sailing straight
+past the suppression and putting a dialog on screen from a background poll —
+which is what the old "background polls never prompt" rule believed it had.
+
+**Only a person starts a session.** `SessionStarter.start` runs because a
+button was pressed and for no other reason: it defaults to non-interactive, so
+a call from anywhere unaudited fails quietly instead of raising a keychain
+prompt, and it claims the profile for the length of the call so the window and
+the dropdown cannot both start the same account. The suite reads
+`Sources/App/*.swift` and fails if a fourth caller appears or if `startSession`
+turns up on a line with `onAppear`, `onReceive` or a timer — a view refreshes
+every thirty seconds, and a session wired into one would open a five-hour
+window on every account, over and over.
+
+**⌘Q does not quit.** `applicationShouldTerminate` cancels an unasked-for
+terminate and closes the window instead, because the menu bar item is the part
+that does the reporting and closing a window is not asking for it to stop.
+`AppDelegate.quit()`, wired only to Quit in the dropdown, is what really ends
+it, along with a logout — refusing that stalls the shutdown on a dialog. The
+rule lives in `QuitPolicy` so the suite can drive it, and its last clause is
+the way out: with nothing actually in the bar, `MenuBarController.isShowing`
+reads false and a quit is a quit. Ask that, not the setting; the setting says
+what was wanted, not whether the bar had room.
+
+**The version is written down once.** `VERSION` at the repo root, stamped into
+the bundle by `build.sh`. `Resources/Info.plist` carries `0.0.0` and nothing
+else, so a bundle still holding that number was never stamped; the suite fails
+if the real number reappears there. `release.sh` refuses to build a version
+whose tag already exists — two binaries answering to one number is a thing no
+update feed can tell apart, and it is only noticed after the upload.
+
+**A release carries both architectures.** `build.sh` compiles one slice per
+architecture and `lipo`s them; a plain `./build.sh` stays single-slice because a
+development build only has to run here. `release.sh` sets `GRAFT_UNIVERSAL=1`
+and then asks the bundle what it actually got, because an Intel Mac handed an
+arm64-only app reports nothing more useful than a bounce in the Dock.
 
 **Profile folders are validated.** One plain component inside Application
 Support, never `Claude`, never a path. Without this, typing `Claude` into the
@@ -100,6 +147,14 @@ service `Claude Safe Storage`, account `Claude Key`, PBKDF2-HMAC-SHA1 with salt
 `saltysalt` over 1003 iterations, AES-128-CBC, IV of sixteen spaces, `v10`
 prefix.
 
+That item's decrypt ACL names each trusted build by code hash, so an ad-hoc
+signature earns a fresh entry every time the app is rebuilt — nine entries for
+the same `build/Claude Graft.app` path were counted on the development machine,
+alongside ten `cdhash:` entries in the item's partition list. A Developer ID
+would be one `teamid:` entry that survives every version. Both a suppressed read
+and a declined dialog answer `errSecAuthFailed`, so the two are told apart by
+which call was made, never by the status.
+
 Live usage is `GET https://api.anthropic.com/api/oauth/usage` with a bearer
 token and `anthropic-beta: oauth-2025-04-20`. It answers with `five_hour` and
 `seven_day` objects carrying `utilization` and `resets_at`, plus
@@ -126,7 +181,11 @@ and is the one wait a person pressing refresh cannot skip.
 
 Working and checked end to end: shortcut creation, adopting an existing profile,
 cross-account chat mapping, live usage for both accounts, memory steady around
-106MB at zero idle CPU.
+106MB at zero idle CPU. Quitting too, from outside: with the item in the bar a
+quit is cancelled, the window closes and `mainWindowOpen` goes to 0 with the
+process still alive; with `showInMenuBar` off the same quit ends it, so the app
+cannot become unquittable. Quit in the dropdown takes the second of those two
+paths.
 
 Unproven: **Start Session** has never successfully opened a window. It POSTs one
 Haiku message with `max_tokens: 4` and Claude Code's system prompt, which these

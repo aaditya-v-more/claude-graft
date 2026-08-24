@@ -42,6 +42,10 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
 
     // MARK: - The item itself
 
+    /// Whether there is actually something in the bar. The setting says what
+    /// was wanted; this says what happened.
+    var isShowing: Bool { item != nil }
+
     func install() {
         guard item == nil else { updateTitle(); return }
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -87,7 +91,11 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
         if popover.isShown { popover.performClose(nil); return }
         guard let button = item?.button else { return }
 
-        usage.refresh(store)
+        // Opening the dropdown is someone asking to see the figures, so it may
+        // ask for the access those figures need — but not skip the backoff, or
+        // every open would be another call to the endpoint.
+        usage.mayPromptUnasked = true
+        usage.refresh(store, prompting: .onceIfShut)
         let content = MenuBarContent(openMainWindow: { [weak self] in
             self?.popover.performClose(nil)
             self?.openMainWindow()

@@ -83,20 +83,50 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var menuBar: MenuBarController?
     /// Guards against hiding the app before its first window ever appears.
     private var hasShownWindow = false
+    /// Set by Quit in the dropdown, and by nothing else. See `applicationShouldTerminate`.
+    private static var quitWasAskedFor = false
+    private var systemIsGoingDown = false
 
     func applicationWillFinishLaunching(_ notification: Notification) {
         let wantsWindow = UserDefaults.standard.object(forKey: Self.windowOpenKey) as? Bool ?? true
         Shared.startHidden = !wantsWindow && Shared.settings.showInMenuBar
+        // A login launch puts nothing on screen, so there is nobody to read a
+        // keychain dialog; the first poll stays quiet and the prompt waits for
+        // the window or the dropdown.
+        Shared.usage.mayPromptUnasked = !Shared.startHidden
         Shared.usage.start(watching: Shared.store)
         menuBar = MenuBarController(store: Shared.store,
                                     settings: Shared.settings,
                                     usage: Shared.usage,
                                     openMainWindow: { [weak self] in self?.showMainWindow() })
         watchForWindowClose()
+        watchForShutdown()
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         false
+    }
+
+    /// Quit in the dropdown, and nothing else. Every other route to terminate
+    /// reaches `applicationShouldTerminate` without this flag set, which is how
+    /// that method tells a deliberate quit from a reflex.
+    static func quit() {
+        quitWasAskedFor = true
+        NSApp.terminate(nil)
+    }
+
+    /// An unasked-for terminate — ⌘Q, the app menu, the Dock — puts the window
+    /// away instead and leaves the status item reporting. `QuitPolicy` says
+    /// which is which, and `isShowing` is asked rather than the setting: the
+    /// setting says what was wanted, not whether the bar had room.
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        if QuitPolicy.endsTheApp(askedFor: Self.quitWasAskedFor,
+                                 systemGoingDown: systemIsGoingDown,
+                                 menuBarShowing: menuBar?.isShowing == true) {
+            return .terminateNow
+        }
+        hideToMenuBar()
+        return .terminateCancel
     }
 
     /// Comes back the way it was left. Closing the window and quitting means
@@ -124,6 +154,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func showMainWindow() {
+        Shared.usage.mayPromptUnasked = true
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
         if let window = NSApp.windows.first(where: { $0.canBecomeMain }) {
@@ -134,12 +165,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// ⌘Q by hand is one thing; a logout or a restart is macOS closing the app
+    /// on its way past, and refusing that stalls the shutdown on a dialog.
+    private func watchForShutdown() {
+        NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.willPowerOffNotification,
+            object: nil, queue: .main) { [weak self] _ in self?.systemIsGoingDown = true }
+    }
+
+    /// What ⌘Q does instead of quitting: the same state closing the window by
+    /// hand leaves behind, so the next launch comes back the way it was left.
+    private func hideToMenuBar() {
+        NSApp.windows.filter { $0.isVisible && $0.canBecomeMain }.forEach { $0.close() }
+        UserDefaults.standard.set(false, forKey: Self.windowOpenKey)
+        NSApp.setActivationPolicy(.accessory)
+    }
+
     /// Only when a window actually closes. Doing this on resign-active hid the
     /// app the moment it launched behind something else.
     private func watchForWindowClose() {
         NotificationCenter.default.addObserver(forName: NSWindow.didBecomeMainNotification,
                                                object: nil, queue: .main) { [weak self] _ in
             guard !Shared.startHidden else { return }
+            Shared.usage.mayPromptUnasked = true
             self?.hasShownWindow = true
             UserDefaults.standard.set(true, forKey: Self.windowOpenKey)
         }

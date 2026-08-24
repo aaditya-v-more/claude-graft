@@ -2,6 +2,22 @@ import AppKit
 import Foundation
 import ServiceManagement
 
+/// Whether a terminate really means terminate.
+///
+/// ⌘Q is the reflex for putting a window away, and it used to take the menu bar
+/// item with it — the part of Graft that does the reporting, and the part
+/// nobody asked to close. So only Quit in the dropdown ends the app, along with
+/// macOS on its way to a logout, which stalls on a dialog if it is refused.
+///
+/// The last clause is the way out: with nothing in the bar to go back to,
+/// cancelling a quit would leave no window, no item, and no way to stop the app
+/// but Force Quit.
+enum QuitPolicy {
+    static func endsTheApp(askedFor: Bool, systemGoingDown: Bool, menuBarShowing: Bool) -> Bool {
+        askedFor || systemGoingDown || !menuBarShowing
+    }
+}
+
 /// The handful of preferences the menu bar exposes. Stored in UserDefaults,
 /// except for the login item, which is state macOS owns.
 final class AppSettings: ObservableObject {

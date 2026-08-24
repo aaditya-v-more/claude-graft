@@ -9,12 +9,19 @@ import Foundation
 /// Anthropic and nowhere else. That is what makes it per account — the command
 /// line could only ever have started a window on whichever single account it
 /// happens to be signed into.
+///
+/// Nothing here may run except because somebody pressed the button. The three
+/// callers are the three Start Session buttons and the suite checks that no
+/// fourth appears: a view refreshes on appearing and again every thirty
+/// seconds, so a session wired into one of those would start a five-hour
+/// window on every account, over and over, without anybody asking for one.
 enum SessionStarter {
     static let endpoint = URL(string: "https://api.anthropic.com/v1/messages")!
     static let model = "claude-haiku-4-5-20251001"
 
     enum Failure: LocalizedError {
         case noLogin
+        case inFlight
         case credentials(String)
         case http(Int, String)
         case unreachable(String)
@@ -26,6 +33,8 @@ enum SessionStarter {
                     No login is stored for this profile yet. Open it once and sign in, \
                     then a session can be started from here.
                     """
+            case .inFlight:
+                return "A session is already being started for this account."
             case .credentials(let detail):
                 return detail
             case .http(401, _), .http(403, _):
@@ -45,12 +54,17 @@ enum SessionStarter {
     /// Blocking; call it off the main thread. Nil means the window is open.
     ///
     /// `interactive` allows the one keychain prompt macOS shows before a
-    /// profile's token can be read.
-    static func start(profile: URL, interactive: Bool = true, prompt: String = "hi") -> Failure? {
+    /// profile's token can be read. It is off unless a caller says otherwise,
+    /// so a call arriving from somewhere nobody audited fails quietly rather
+    /// than putting a system prompt in front of someone who asked for nothing.
+    static func start(profile: URL, interactive: Bool = false, prompt: String = "hi") -> Failure? {
+        guard claim(profile) else { return .inFlight }
+        defer { release(profile) }
+
         let token: ClaudeCredentials.Token?
         do {
             token = try ClaudeCredentials.token(for: profile,
-                                                allowInteraction: interactive,
+                                                prompting: interactive ? .yes : .no,
                                                 requiring: [ClaudeCredentials.inferenceScope])
         } catch {
             return .credentials((error as? LocalizedError)?.errorDescription
@@ -91,6 +105,28 @@ enum SessionStarter {
         let code = (response as? HTTPURLResponse)?.statusCode ?? 0
         guard code == 200 else { return .http(code, message(in: payload)) }
         return nil
+    }
+
+    // MARK: - One at a time, per account
+
+    /// The window and the dropdown each carry a Start Session button for the
+    /// same account, and each only knows about its own press. A second one
+    /// landing while the first is still open sends a second message to start a
+    /// window that is already starting.
+    private static let claims = NSLock()
+    private static var claimed: Set<String> = []
+
+    /// Not private: the suite presses the same account twice.
+    static func claim(_ profile: URL) -> Bool {
+        claims.lock()
+        defer { claims.unlock() }
+        return claimed.insert(profile.standardizedFileURL.path).inserted
+    }
+
+    static func release(_ profile: URL) {
+        claims.lock()
+        claimed.remove(profile.standardizedFileURL.path)
+        claims.unlock()
     }
 
     /// Anthropic returns `{ "error": { "message": … } }` on a refusal.

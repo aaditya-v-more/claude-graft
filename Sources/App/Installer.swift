@@ -163,11 +163,20 @@ enum Installer {
             .replacingOccurrences(of: ">", with: "&gt;")
     }
 
+    /// The running app's own version. Nil only under the test binary, which is
+    /// not a bundle and has no version to inherit.
+    static var graftVersion: String {
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.0.0"
+    }
+
     private static func infoPlist(for shortcut: Shortcut) -> String {
         let slug = shortcut.folder.lowercased()
             .map { $0.isLetter || $0.isNumber || $0 == "-" ? $0 : "-" }
         let identifier = "graft." + String(slug)
         let name = escaped(shortcut.name)
+        // Stamped with whichever Graft built it, so a shortcut left behind by an
+        // older one can be told apart from the current crop.
+        let version = graftVersion
         return """
         <?xml version="1.0" encoding="UTF-8"?>
         <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -179,8 +188,8 @@ enum Installer {
             <key>CFBundleExecutable</key><string>launcher</string>
             <key>CFBundleIconFile</key><string>icon</string>
             <key>CFBundlePackageType</key><string>APPL</string>
-            <key>CFBundleShortVersionString</key><string>1.0</string>
-            <key>CFBundleVersion</key><string>1</string>
+            <key>CFBundleShortVersionString</key><string>\(version)</string>
+            <key>CFBundleVersion</key><string>\(version)</string>
             <key>LSUIElement</key><true/>
             <key>LSMinimumSystemVersion</key><string>13.0</string>
         </dict>

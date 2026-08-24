@@ -8,8 +8,11 @@
     <key>CFBundleExecutable</key><string>ClaudeGraft</string>
     <key>CFBundleIconFile</key><string>AppIcon</string>
     <key>CFBundlePackageType</key><string>APPL</string>
-    <key>CFBundleShortVersionString</key><string>1.0</string>
-    <key>CFBundleVersion</key><string>1</string>
+    <!-- Both stamped by build.sh from the VERSION file at the repo root, which
+         is the only place the number is written down. 0.0.0 here is a
+         placeholder: a bundle still carrying it was never stamped. -->
+    <key>CFBundleShortVersionString</key><string>0.0.0</string>
+    <key>CFBundleVersion</key><string>0.0.0</string>
     <key>LSMinimumSystemVersion</key><string>13.0</string>
     <key>NSHighResolutionCapable</key><true/>
     <key>NSPrincipalClass</key><string>NSApplication</string>

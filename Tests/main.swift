@@ -768,7 +768,7 @@ do {
 
     // A profile with no cached login yields nothing rather than throwing.
     let bare = makeProfile("Claude-NoLogin", account: "AAAA")
-    check((try? ClaudeCredentials.token(for: bare, allowInteraction: false)) ?? nil == nil,
+    check((try? ClaudeCredentials.token(for: bare, prompting: .no)) ?? nil == nil,
           "a profile with no stored login has no token")
 
     // Starting a session goes to Anthropic, per profile, with a real model id.
@@ -783,6 +783,124 @@ do {
     // a message needs the other.
     check(ClaudeCredentials.usageScope != ClaudeCredentials.inferenceScope,
           "reading usage and running the model are different permissions")
+}
+
+// MARK: - One place the version is written down
+
+section("Version")
+
+do {
+    let repo = URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+    let version = ((try? String(contentsOf: repo.appending(path: "VERSION"), encoding: .utf8)) ?? "")
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+
+    check(version.first?.isNumber == true && version.split(separator: ".").count >= 2,
+          "the VERSION file holds something that reads as a version")
+
+    // A second copy of the number in the source plist is a second copy to
+    // forget, and an update feed cannot tell two builds answering to one
+    // number apart.
+    let plist = (try? String(contentsOf: repo.appending(path: "Resources/Info.plist"),
+                             encoding: .utf8)) ?? ""
+    check(plist.contains("<string>0.0.0</string>"),
+          "the source plist carries only the placeholder the build overwrites")
+    check(!plist.contains("<string>\(version)</string>"),
+          "so the number itself lives in exactly one file")
+
+    // Outside a bundle there is no version to inherit, and the placeholder is
+    // what says so rather than a plausible-looking number.
+    check(Installer.graftVersion == "0.0.0",
+          "a shortcut built by something that is not an app is stamped unmistakably")
+}
+
+// MARK: - Who is allowed to put a keychain dialog on screen
+
+section("Asking for keychain access")
+
+do {
+    // Every case reads silently first, so none of this is reached while the
+    // build is still on the item's ACL. It decides what happens the first time
+    // a new build is not.
+    check(!ClaudeCredentials.mayRaiseDialog(.no, alreadyAsked: false, declined: false),
+          "a pass that must stay silent stays silent even with the keychain shut to it")
+    check(ClaudeCredentials.mayRaiseDialog(.onceIfShut, alreadyAsked: false, declined: false),
+          "the first pass to find it shut asks, rather than showing worse figures without saying why")
+    check(!ClaudeCredentials.mayRaiseDialog(.onceIfShut, alreadyAsked: true, declined: false),
+          "having asked once, the next thirty-second tick does not ask again")
+    check(!ClaudeCredentials.mayRaiseDialog(.onceIfShut, alreadyAsked: false, declined: true),
+          "and nothing asks again once the answer has been no")
+    check(ClaudeCredentials.mayRaiseDialog(.yes, alreadyAsked: true, declined: true),
+          "but pressing Refresh Usage asks whatever has gone before, since that is the way back in")
+
+    // The dropdown tells someone to choose Always Allow. After a decline there
+    // is no dialog to choose it in, so it must say something else.
+    check(ClaudeCredentials.Failure.keychainDeclined.errorDescription
+            != ClaudeCredentials.Failure.noKeychainAccess.errorDescription,
+          "being declined reads differently from never having been asked")
+
+    // A dialog nobody asked for is only fair while someone is looking at the
+    // app. The monitor starts willing; the app turns it off for a login launch.
+    let monitor = UsageMonitor()
+    check(monitor.mayPromptUnasked, "a monitor is willing to ask until something says otherwise")
+}
+
+// MARK: - Nothing asks for a session by itself
+
+section("Starting a session")
+
+do {
+    let account = makeProfile("Claude-Session", account: nil)
+
+    check(SessionStarter.claim(account), "the first press takes the account")
+    check(!SessionStarter.claim(account), "a second press while that one is still open is turned away")
+    SessionStarter.release(account)
+    check(SessionStarter.claim(account), "and the account is free again once it finishes")
+    SessionStarter.release(account)
+
+    // A view refreshes when it appears and again every thirty seconds. A
+    // session wired into one of those would open a five-hour window on every
+    // account, over and over, without anybody pressing anything.
+    let appSource = URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+        .appending(path: "Sources/App")
+    let swiftFiles = ((try? fm.contentsOfDirectory(at: appSource, includingPropertiesForKeys: nil)) ?? [])
+        .filter { $0.pathExtension == "swift" }
+        .sorted { $0.lastPathComponent < $1.lastPathComponent }
+    check(swiftFiles.count > 5, "the app's own source is there to be read")
+
+    let runsOnItsOwn = ["onAppear", "onReceive", "onChange", ".task", "Timer",
+                        "asyncAfter", "FinishLaunching"]
+    var callers: [String] = []
+    var quiet: [String] = []
+    var automatic: [String] = []
+    for file in swiftFiles {
+        guard let source = try? String(contentsOf: file, encoding: .utf8) else { continue }
+        for line in source.split(separator: "\n", omittingEmptySubsequences: false).map(String.init) {
+            if line.contains("SessionStarter.start(") {
+                callers.append(file.lastPathComponent)
+                if !line.contains("interactive: true") { quiet.append(file.lastPathComponent) }
+            }
+            guard line.contains("startSession"), !line.contains("func startSession") else { continue }
+            if runsOnItsOwn.contains(where: line.contains) { automatic.append(file.lastPathComponent) }
+        }
+    }
+
+    check(callers.sorted() == ["MainProfileDetail.swift", "MenuBarContent.swift", "ShortcutDetail.swift"],
+          "only the three Start Session buttons ask Anthropic for a session")
+    check(automatic.isEmpty, "and nothing that runs on its own is wired to one")
+    check(quiet.isEmpty, "each of the three says a person asked, which is what allows the keychain prompt")
+
+    // `.yes` asks unconditionally. Nothing should name it directly: it is
+    // reached by saying a person pressed something, which is auditable.
+    var namesYes: [String] = []
+    for file in swiftFiles {
+        guard let source = try? String(contentsOf: file, encoding: .utf8) else { continue }
+        if source.contains("prompting: .yes") { namesYes.append(file.lastPathComponent) }
+    }
+    check(namesYes.isEmpty, "and nothing reaches for the unconditional keychain prompt by hand")
 }
 
 // MARK: - How hard the endpoint is asked
@@ -919,6 +1037,21 @@ do {
 
     monitor.setEntriesForTesting([])
     check(monitor.headline == nil, "nothing to show when there is nothing to show")
+}
+
+section("Quitting")
+
+do {
+    check(!QuitPolicy.endsTheApp(askedFor: false, systemGoingDown: false, menuBarShowing: true),
+          "command-Q puts the window away and leaves the menu bar item reporting")
+    check(QuitPolicy.endsTheApp(askedFor: true, systemGoingDown: false, menuBarShowing: true),
+          "Quit in the dropdown is the one that ends it")
+    check(QuitPolicy.endsTheApp(askedFor: false, systemGoingDown: true, menuBarShowing: true),
+          "a logout is not something to argue with")
+
+    // Without this the app would have no window, no item, and no way out.
+    check(QuitPolicy.endsTheApp(askedFor: false, systemGoingDown: false, menuBarShowing: false),
+          "with nothing in the bar to go back to, a quit is a quit")
 }
 
 print("\n\(checks - failures)/\(checks) checks passed")

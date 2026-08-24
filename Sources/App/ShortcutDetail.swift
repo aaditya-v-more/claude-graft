@@ -259,7 +259,7 @@ struct ShortcutDetail: View {
         startingSession = true
         let profile = shortcut.profileDir
         DispatchQueue.global(qos: .userInitiated).async {
-            let failure = SessionStarter.start(profile: profile)
+            let failure = SessionStarter.start(profile: profile, interactive: true)
             DispatchQueue.main.async {
                 startingSession = false
                 if let failure {

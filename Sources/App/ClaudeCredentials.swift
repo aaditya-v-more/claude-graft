@@ -1,6 +1,5 @@
 import CommonCrypto
 import Foundation
-import LocalAuthentication
 import Security
 
 /// Borrows the access token Claude Desktop already holds for a profile, so
@@ -13,9 +12,15 @@ import Security
 /// * nothing is ever written back to Claude's config, cookies or keychain;
 /// * the token goes to `api.anthropic.com` and nowhere else.
 ///
-/// macOS asks for permission the first time the `Claude Safe Storage` keychain
-/// item is read. Background polls never prompt: they ask non-interactively and
-/// give up quietly, leaving the prompt to a refresh the user asked for.
+/// The `Claude Safe Storage` item is guarded by an ACL naming the exact builds
+/// allowed to decrypt it, and each name is a code hash rather than a developer.
+/// An ad-hoc signature gives every build its own hash, so every new version
+/// arrives as a stranger and has to be let in again.
+///
+/// `Prompting` says who may raise that dialog. Every path reads silently first
+/// and escalates only when that read comes back shut, so a build already on the
+/// list never asks at all — and one that is not asks once, rather than quietly
+/// showing worse figures.
 enum ClaudeCredentials {
     struct Token {
         var value: String
@@ -35,6 +40,7 @@ enum ClaudeCredentials {
 
     enum Failure: LocalizedError, Equatable {
         case noKeychainAccess
+        case keychainDeclined
         case notSignedIn
         case expired
 
@@ -45,12 +51,33 @@ enum ClaudeCredentials {
                     macOS has not granted access to the “Claude Safe Storage” keychain \
                     item. Choose Always Allow when it asks, and live usage starts working.
                     """
+            case .keychainDeclined:
+                return """
+                    Access to the “Claude Safe Storage” keychain item was declined, so usage \
+                    is coming from disk. Refresh Usage asks again.
+                    """
             case .notSignedIn:
                 return "No Claude Desktop login was found for this profile."
             case .expired:
                 return "That profile's login has expired. Open it once so Claude can renew it."
             }
         }
+    }
+
+    /// Who may raise the macOS keychain dialog on a given read.
+    ///
+    /// Every case tries the silent read first, so none of them prompts while
+    /// this build is still on the item's ACL. The distinction only matters once
+    /// that read comes back shut.
+    enum Prompting {
+        /// Never. Whatever is on disk is shown instead.
+        case no
+        /// Once for the life of the process, and never again after a decline.
+        /// A thirty-second timer must not turn one lost grant into a dialog
+        /// every thirty seconds.
+        case onceIfShut
+        /// Someone pressed something and is waiting for the answer.
+        case yes
     }
 
     static let usageScope = "user:profile"
@@ -64,13 +91,85 @@ enum ClaudeCredentials {
 
     /// Cached for the process: the keychain read is the part that can prompt.
     private static var cachedKey: Data?
+    /// Whether the one unasked-for prompt has been spent, and whether the
+    /// answer was no. Both last only as long as the process, so a relaunch is
+    /// allowed to ask once more.
+    private static var hasAskedUnprompted = false
+    private static var wasDeclined = false
     private static let keyLock = NSLock()
 
-    static func safeStorageKey(allowInteraction: Bool) throws -> Data? {
-        keyLock.lock()
-        if let cachedKey { keyLock.unlock(); return cachedKey }
-        keyLock.unlock()
+    /// Whether a read that nobody asked for is still allowed to open a dialog.
+    /// Separate from the read itself so the rule can be read, and tested, on
+    /// its own.
+    static func mayRaiseDialog(_ prompting: Prompting,
+                               alreadyAsked: Bool,
+                               declined: Bool) -> Bool {
+        switch prompting {
+        case .no: return false
+        case .onceIfShut: return !alreadyAsked && !declined
+        case .yes: return true
+        }
+    }
 
+    /// The lock is held across the dialog on purpose: two profiles finding the
+    /// keychain shut in the same pass would otherwise stack two dialogs for one
+    /// item, and the second would be answered by someone who has already
+    /// answered the first.
+    static func safeStorageKey(prompting: Prompting) throws -> Data? {
+        keyLock.lock()
+        defer { keyLock.unlock() }
+        if let cachedKey { return cachedKey }
+
+        switch read(allowingDialog: false) {
+        case .password(let password):
+            return try remember(password)
+        case .missing:
+            return nil
+        case .shut:
+            break
+        }
+
+        guard mayRaiseDialog(prompting, alreadyAsked: hasAskedUnprompted, declined: wasDeclined)
+        else { throw wasDeclined ? Failure.keychainDeclined : Failure.noKeychainAccess }
+        if case .onceIfShut = prompting { hasAskedUnprompted = true }
+
+        switch read(allowingDialog: true) {
+        case .password(let password):
+            wasDeclined = false
+            return try remember(password)
+        case .missing:
+            return nil
+        case .shut:
+            // The dialog was up and the answer was no. Asking again on the next
+            // tick is the nagging this whole path exists to avoid.
+            wasDeclined = true
+            throw Failure.keychainDeclined
+        }
+    }
+
+    private static func remember(_ password: String) throws -> Data {
+        guard let key = derive(password: password) else { throw Failure.noKeychainAccess }
+        cachedKey = key
+        return key
+    }
+
+    private enum Read {
+        case password(String)
+        /// No such item at all: Claude has never stored one on this machine.
+        case missing
+        /// The item is there and this build is not on its list.
+        case shut
+    }
+
+    /// `SecKeychainSetUserInteractionAllowed` is what actually governs this
+    /// dialog. The `LAContext` that used to stand in for it covers items backed
+    /// by an access control, not an ACL of trusted applications, and left a
+    /// background poll free to prompt — measured on a build the item had never
+    /// seen, which sailed past the suppression and put a dialog on screen.
+    ///
+    /// It is deprecated and process-wide, so it is put back the moment the read
+    /// returns, under the lock every caller of this file already holds.
+    private static func read(allowingDialog: Bool) -> Read {
         var query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: keychainService,
@@ -78,27 +177,26 @@ enum ClaudeCredentials {
             kSecMatchLimit as String: kSecMatchLimitOne,
             kSecReturnData as String: true,
         ]
-        if !allowInteraction {
-            let context = LAContext()
-            context.interactionNotAllowed = true
-            query[kSecUseAuthenticationContext as String] = context
+        if !allowingDialog {
+            query[kSecUseAuthenticationUI as String] = kSecUseAuthenticationUIFail
+            SecKeychainSetUserInteractionAllowed(false)
         }
+        defer { if !allowingDialog { SecKeychainSetUserInteractionAllowed(true) } }
 
         var result: CFTypeRef?
         switch SecItemCopyMatching(query as CFDictionary, &result) {
         case errSecSuccess:
             guard let data = result as? Data,
-                  let password = String(data: data, encoding: .utf8),
-                  let key = derive(password: password)
-            else { throw Failure.noKeychainAccess }
-            keyLock.lock()
-            cachedKey = key
-            keyLock.unlock()
-            return key
+                  let password = String(data: data, encoding: .utf8)
+            else { return .shut }
+            return .password(password)
         case errSecItemNotFound:
-            return nil
+            return .missing
         default:
-            throw Failure.noKeychainAccess
+            // A refusal comes back as errSecAuthFailed whether the dialog was
+            // suppressed or answered with Deny, so the two are told apart by
+            // which call made it rather than by the status.
+            return .shut
         }
     }
 
@@ -152,13 +250,13 @@ enum ClaudeCredentials {
 
     /// Nil when this profile has no login cached at all.
     static func token(for profile: URL,
-                      allowInteraction: Bool,
+                      prompting: Prompting,
                       requiring scopes: [String] = [usageScope]) throws -> Token? {
         let config = Graft.configJSON(of: profile)
         let encoded = cacheKeys.compactMap { config[$0] as? String }.first
         guard let encoded, let blob = Data(base64Encoded: encoded) else { return nil }
 
-        guard let key = try safeStorageKey(allowInteraction: allowInteraction) else {
+        guard let key = try safeStorageKey(prompting: prompting) else {
             throw Failure.noKeychainAccess
         }
         guard let plain = decrypt(blob, key: key),

@@ -115,7 +115,7 @@ struct MainProfileDetail: View {
         guard !startingSession else { return }
         startingSession = true
         DispatchQueue.global(qos: .userInitiated).async {
-            let failure = SessionStarter.start(profile: Graft.mainProfile)
+            let failure = SessionStarter.start(profile: Graft.mainProfile, interactive: true)
             DispatchQueue.main.async {
                 startingSession = false
                 error = failure?.errorDescription

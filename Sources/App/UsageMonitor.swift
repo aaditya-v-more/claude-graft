@@ -8,6 +8,10 @@ import Foundation
 /// fallback is `plan-usage-history.json`, which a profile writes while it runs
 /// — good enough to show something before the keychain prompt is answered, or
 /// if it is declined.
+///
+/// The fallback is never taken in silence. When the keychain turns out to be
+/// shut, one pass raises the dialog and the dropdown says so until it is
+/// answered; see `mayPromptUnasked` for the one case that waits.
 final class UsageMonitor: ObservableObject {
     struct Entry: Identifiable, Equatable {
         var id: String { profile.path }
@@ -29,6 +33,15 @@ final class UsageMonitor: ObservableObject {
     /// dropdown can point at Refresh Usage rather than silently showing the
     /// weaker figures from disk.
     @Published private(set) var needsKeychainAccess = false
+
+    /// Whether a pass nobody asked for may raise the one keychain dialog.
+    ///
+    /// False only while the app is coming up into the menu bar with no window,
+    /// which is what a login item does: a dialog thrown over whatever someone
+    /// is doing at login is an ambush, and the answer to it is worthless. It
+    /// turns on the moment the window or the dropdown is opened, which is when
+    /// the figures are being looked at anyway.
+    var mayPromptUnasked = true
 
     private var timer: Timer?
     private let queue = DispatchQueue(label: "graft.usage", qos: .utility)
@@ -98,15 +111,22 @@ final class UsageMonitor: ObservableObject {
     /// Reads the store on the calling thread — it must be the main one — then
     /// does the filesystem, keychain and network work away from it.
     ///
-    /// `interactive` allows the one keychain prompt macOS shows before a
-    /// profile's token can be read; background polls never ask.
-    func refresh(_ store: ShortcutStore, interactive: Bool = false) {
+    /// `interactive` says a person pressed something, which is what allows a
+    /// pass to skip its own backoff. Whether the keychain dialog may be raised
+    /// is a separate question with a separate answer, because opening the
+    /// dropdown should be allowed to ask for access without also being allowed
+    /// to hammer the endpoint on every open.
+    func refresh(_ store: ShortcutStore,
+                 interactive: Bool = false,
+                 prompting: ClaudeCredentials.Prompting? = nil) {
         var targets: [(name: String, profile: URL, shortcut: UUID?)] = [
             (name: "Claude", profile: Graft.mainProfile, shortcut: nil)
         ]
         for shortcut in store.shortcuts where shortcut.installedName != nil {
             targets.append((name: shortcut.name, profile: shortcut.profileDir, shortcut: shortcut.id))
         }
+
+        let asking = prompting ?? (interactive ? .yes : (mayPromptUnasked ? .onceIfShut : .no))
 
         guard !inFlight else { return }
         inFlight = true
@@ -123,6 +143,7 @@ final class UsageMonitor: ObservableObject {
                                   shortcut: target.shortcut)
                 if let live = self.live(for: target.profile,
                                         interactive: interactive,
+                                        prompting: asking,
                                         problem: &problem,
                                         locked: &locked) {
                     entry.usage = Graft.Usage(fiveHour: live.fiveHour,
@@ -185,6 +206,7 @@ final class UsageMonitor: ObservableObject {
     /// background pass.
     private func live(for profile: URL,
                       interactive: Bool,
+                      prompting: ClaudeCredentials.Prompting,
                       problem: inout String?,
                       locked: inout Bool) -> UsageAPI.Reading? {
         let now = Date()
@@ -204,7 +226,7 @@ final class UsageMonitor: ObservableObject {
         }
 
         do {
-            guard let token = try ClaudeCredentials.token(for: profile, allowInteraction: interactive)
+            guard let token = try ClaudeCredentials.token(for: profile, prompting: prompting)
             else { return nil }
             let reading = try UsageAPI.fetch(token: token.value)
             liveCache[profile.path] = (Date(), reading)
@@ -216,7 +238,13 @@ final class UsageMonitor: ObservableObject {
             // so only an explicit request reports why. The keychain being shut
             // is worth surfacing quietly either way, since it is one click to
             // fix and everything live depends on it.
-            if case ClaudeCredentials.Failure.noKeychainAccess = error { locked = true }
+            switch error {
+            case ClaudeCredentials.Failure.noKeychainAccess,
+                 ClaudeCredentials.Failure.keychainDeclined:
+                locked = true
+            default:
+                break
+            }
             if interactive { problem = (error as? LocalizedError)?.errorDescription }
 
             var retryAfter: TimeInterval?

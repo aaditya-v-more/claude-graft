@@ -16,15 +16,22 @@ stay completely separate.
 ./release.sh --install
 ```
 
-Runs the tests, builds, draws the icon, signs, packages `dist/ClaudeGraft-<version>.zip`
-and puts the app in `/Applications`. It signs with a Developer ID if
-`security find-identity` finds one — set `GRAFT_SIGNING_IDENTITY` to choose a
-particular one — and falls back to an ad-hoc signature, which runs on the
-machine that built it but needs right-click → Open anywhere else. The script
-prints the `notarytool` invocation for distributing it properly.
+Runs the tests, builds for both architectures, draws the icon, signs, packages
+`dist/ClaudeGraft-<version>.zip` and puts the app in `/Applications`. It signs
+with a Developer ID if `security find-identity` finds one — set
+`GRAFT_SIGNING_IDENTITY` to choose a particular one — and falls back to an
+ad-hoc signature, which runs on the machine that built it but needs right-click
+→ Open anywhere else. The script prints the `notarytool` invocation for
+distributing it properly.
 
-For development, `./build.sh` alone builds into `build/`. Requires the Swift
-toolchain that ships with Xcode; no project file and no dependencies.
+For development, `./build.sh` alone builds into `build/`, for this machine only
+and in one compile; `GRAFT_UNIVERSAL=1` gets you both slices. Requires the Swift
+toolchain that ships with Xcode; no project file.
+
+The version lives in one file, `VERSION`, and the build stamps it into the
+bundle. Bump it, run `./release.sh`, publish what it names — releasing the same
+number twice leaves two different binaries answering to one version, so the
+script refuses when the tag already exists.
 
 ## Using it
 
@@ -67,9 +74,11 @@ launches when opened the ordinary way; the shortcuts are matched on their exact
 profile path, anchored, since one profile's folder sits inside another's.
 
 Closing the window does not quit — the menu bar item carries on reporting, and
-the Dock icon steps aside. Quit properly from the dropdown. The window comes
-back the way you left it: close it before quitting and the next launch stays in
-the menu bar, which is what makes **Open at Login** bearable.
+the Dock icon steps aside. Neither does ⌘Q, which puts the window away and
+leaves the item where it is; **Quit** in the dropdown is the way out, and the
+only one, unless the item is switched off or a logout is under way. The window
+comes back the way you left it: close it before quitting and the next launch
+stays in the menu bar, which is what makes **Open at Login** bearable.
 
 The figures come from Anthropic's own endpoint, `GET /api/oauth/usage` — the
 one Claude Code reads — asked once per profile every five minutes. That gives
@@ -78,9 +87,12 @@ the plan name.
 
 Reaching it needs that profile's login, which Claude Desktop keeps encrypted in
 its own folder. Graft borrows it read-only, and macOS gates the borrowing: the
-first read asks permission for the `Claude Safe Storage` keychain item,
-and choosing Always Allow makes later reads silent. **Refresh Usage** in the
-dropdown is what triggers that prompt; background polls never ask. Only the
+first read asks permission for the `Claude Safe Storage` keychain item, and
+choosing Always Allow makes later reads silent. macOS grants that permission to
+one exact build, so a new version has to ask again — which it does, once, rather
+than quietly showing you worse numbers. It asks nothing while it is starting up
+into the menu bar at login, and nothing again once you have said no; **Refresh
+Usage** in the dropdown is the way back. Only the
 access token is decrypted — never the refresh token, because Anthropic rotates
 those and using one would sign Claude Desktop out — nothing is written back to
 Claude's config or keychain, and the token goes to `api.anthropic.com` and
@@ -122,6 +134,13 @@ It goes through the same borrowed login as the usage figures, so it really is
 per account: the request is made as that profile, with `max_tokens` set as low
 as the API allows, and the reply is discarded. The only thing it costs is the
 handful of tokens needed to make the window start counting.
+
+It happens because the button was pressed and for no other reason. Nothing on
+the launch path can reach it, nothing on a timer can, and the suite reads the
+app's own source to check that no fourth caller has appeared — a session wired
+into a view refresh would start a window on every account every thirty seconds.
+The same account cannot have two starts in flight at once either, since the
+window and the dropdown each carry their own button for it.
 
 ## Deleting
 

@@ -68,7 +68,7 @@ struct MenuBarContent: View {
             VStack(alignment: .leading, spacing: 4) {
                 MenuButton("Refresh Usage") { usage.refresh(store, interactive: true) }
                 MenuButton("Open Claude Graft", action: openMainWindow)
-                MenuButton("Quit Claude Graft") { NSApp.terminate(nil) }
+                MenuButton("Quit Claude Graft") { AppDelegate.quit() }
             }
             .padding(.horizontal, 8)
             .padding(.bottom, 8)
@@ -76,7 +76,7 @@ struct MenuBarContent: View {
         .frame(width: 320)
         .onAppear {
             settings.refreshLoginItem()
-            usage.refresh(store)
+            usage.refresh(store, prompting: .onceIfShut)
         }
     }
 
@@ -98,7 +98,7 @@ struct MenuBarContent: View {
         problem = nil
         let profile = entry.profile
         DispatchQueue.global(qos: .userInitiated).async {
-            let failure = SessionStarter.start(profile: profile)
+            let failure = SessionStarter.start(profile: profile, interactive: true)
             DispatchQueue.main.async {
                 starting = nil
                 problem = failure?.errorDescription
