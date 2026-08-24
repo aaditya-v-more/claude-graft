@@ -157,6 +157,16 @@ To publish $TAG:
 The appcast must be pushed for the feed to serve it, and the release must exist
 for the URL inside it to resolve. Do both before telling anyone.
 
+Then check the feed actually rebuilt. A push does not reliably queue a Pages
+build — one has already errored here, and another never started — and a feed
+still serving the old file means nobody is offered the update:
+
+  curl -s https://aaditya-v-more.github.io/claude-graft/appcast.xml | grep shortVersionString
+
+If it does not name this version, ask for a build and wait for it:
+
+  gh api -X POST repos/aaditya-v-more/claude-graft/pages/builds
+
 To notarise first (needs a Developer ID and an app-specific password):
   xcrun notarytool submit "$ZIP" --apple-id <you> --team-id <team> \\
       --password <app-specific-password> --wait
