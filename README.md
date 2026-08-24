@@ -17,6 +17,10 @@ brew install --cask aaditya-v-more/claude-graft/claude-graft
 xattr -dr com.apple.quarantine "/Applications/Claude Graft.app"
 ```
 
+Homebrew will ask you to trust the cask the first time, since this is not an
+official Homebrew tap and a tap can run its own code at install time. It is
+remembered by name, so later versions never ask again.
+
 The second line is needed once. The app is ad-hoc signed rather than notarised
 — notarising means a paid Apple developer account — and Homebrew quarantines
 everything it downloads, with no flag to skip it since Homebrew 6. Opening
