@@ -644,7 +644,17 @@ do {
     check(!monitor.entries.contains { $0.name == "Draft" }, "a draft shortcut is not listed")
     check(monitor.entries.last?.usage?.fiveHour == 77, "each entry carries its own figures")
     check(monitor.entries.first?.shortcut == nil, "the main profile has no shortcut behind it")
-    check(monitor.headline == 77, "the headline is the tightest five-hour window")
+    // Whether a Claude is open on the main profile is a fact about this machine
+    // rather than about the fixture: that instance is recognised by carrying no
+    // profile flag at all, which no temporary directory can redirect. The
+    // figures this refresh read off disk are replayed with nothing open, since
+    // which account is open has a section of its own below.
+    monitor.setEntriesForTesting(monitor.entries.map {
+        var settled = $0
+        settled.isRunning = false
+        return settled
+    })
+    check(monitor.headline == 77, "the headline comes from the figures a refresh read off disk")
 
     // A stale figure says nothing about the window that is running now.
     writeUsage(listed, [(now - 8 * 60 * 60 * 1000, 99, 99)])
