@@ -216,6 +216,14 @@ hidden sibling ending in `.graft-own`. Switching a shortcut back to *Its own
 chats* removes the links and restores what was there. The hidden name also keeps
 a stashed organization folder from being mistaken for a real one.
 
+Claude does not always leave the links alone. It writes its settings file, and
+recreates chat directories, by renaming a temporary over them, and a rename puts
+an ordinary file back where the link was — after which the profile carries on
+writing its own copy while the stash still holds what it had before the graft.
+When the next launch finds both, it folds them into one: chats from either side
+are kept, and where the same file exists twice the one the profile has been
+using wins. Nothing is deleted for having a stash beside it.
+
 ## Worth knowing
 
 Two instances sharing a chat store write to the same files, so opening the same

@@ -21,7 +21,7 @@ would have written by hand.
 ## Commands
 
     ./build.sh                 app + launcher into build/
-    ./test.sh                  169 checks, all in a throwaway directory
+    ./test.sh                  177 checks, all in a throwaway directory
     ./release.sh [--install]   tests, builds, draws the icon, signs, packages
 
 ## Invariants
@@ -36,6 +36,22 @@ hidden `.<name>.graft-own` sibling first, and restored when the shortcut goes
 back to its own chats. A profile must never be grafted from itself — guarded in
 `graft`, `relink` and `install`, because self-grafting stashes away every file
 the profile has and leaves links pointing at their own names.
+
+**A stash already sitting there is not proof of a duplicate.** Claude writes
+`config.json`, and recreates chat directories, by renaming a temporary over
+them, and a rename leaves a real file where the symlink was. The profile then
+goes back to writing its own copy while the stash still holds the pre-graft
+state. `stash` used to read that as drift and delete it, which threw away every
+chat written since the graft; it now folds the two together and keeps the copy
+the profile is actually using. `unstash` used to bail whenever something already
+sat at the link, which is what left the stash there to arm the next graft.
+
+**An unreadable `config.json` is not an empty one.** A profile that has never
+been signed in has no file at all and can share the whole store safely. A file
+that will not parse is one caught mid-rename, and treating that as "no account,
+so the same account as the source" linked an entire store away. `readableConfigJSON`
+tells the two apart; nothing may write that file, or decide where a profile's
+chats go, without asking it.
 
 **Credentials are borrowed, never taken.** Only the access token is decrypted,
 never the refresh token: Anthropic rotates those and using one signs Claude

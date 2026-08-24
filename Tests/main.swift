@@ -241,6 +241,96 @@ do {
     for profile in [main, work, twin] { try? fm.removeItem(at: profile) }
 }
 
+// MARK: - What a link cannot protect
+
+// Claude writes config.json, and recreates chat directories, by renaming over
+// whatever is there. A rename leaves a real file where the symlink was, so the
+// profile goes back to writing its own copy without anything noticing. These
+// cover what has to happen the next time that profile is grafted.
+
+section("Data written after a graft")
+do {
+    let main = makeProfile("Claude", account: "AAAA", org: "ORG-A", chats: ["shared"])
+    try! "{\"preferences\":{}}".write(to: main.appending(path: "claude_desktop_config.json"),
+                                      atomically: true, encoding: .utf8)
+
+    let work = makeProfile("Claude-Work", account: "BBBB", org: "ORG-B", chats: ["mine"])
+    let settings = work.appending(path: "claude_desktop_config.json")
+    try! "own settings".write(to: settings, atomically: true, encoding: .utf8)
+    Graft.graft(from: main, into: work)
+
+    // Claude renames a temporary over the link and carries on writing its own.
+    try? fm.removeItem(at: settings)
+    try! "own settings, edited since".write(to: settings, atomically: true, encoding: .utf8)
+
+    let ownChats = work.appending(path: "claude-code-sessions/BBBB/ORG-B")
+    try? fm.removeItem(at: ownChats)
+    try! fm.createDirectory(at: ownChats, withIntermediateDirectories: true)
+    try! "{}".write(to: ownChats.appending(path: "local_written_since.json"),
+                    atomically: true, encoding: .utf8)
+
+    Graft.graft(from: main, into: work)
+    Graft.ungraft(work)
+
+    check(chatsVisible(to: work) == ["local_mine.json", "local_written_since.json"],
+          "a chat written after the graft survives the next one, and so does one from before it")
+    check((try? String(contentsOf: settings, encoding: .utf8)) == "own settings, edited since",
+          "an edit made after the graft is what comes back, not the copy it replaced")
+
+    for profile in [main, work] { try? fm.removeItem(at: profile) }
+}
+
+section("An orphaned stash")
+do {
+    let main = makeProfile("Claude", account: "AAAA", org: "ORG-A", chats: ["shared"])
+    let work = makeProfile("Claude-Work", account: "BBBB", org: "ORG-B", chats: ["mine"])
+    Graft.graft(from: main, into: work)
+
+    let ownChats = work.appending(path: "claude-code-sessions/BBBB/ORG-B")
+    try? fm.removeItem(at: ownChats)
+    try! fm.createDirectory(at: ownChats, withIntermediateDirectories: true)
+    try! "{}".write(to: ownChats.appending(path: "local_written_since.json"),
+                    atomically: true, encoding: .utf8)
+
+    Graft.ungraft(work)
+    check(!Graft.exists(work.appending(path: "claude-code-sessions/BBBB/.ORG-B.graft-own")),
+          "ungrafting folds the stash back in rather than abandoning it beside the link")
+    check(chatsVisible(to: work) == ["local_mine.json", "local_written_since.json"],
+          "so the profile is handed both halves of what it owns")
+
+    for profile in [main, work] { try? fm.removeItem(at: profile) }
+}
+
+section("A config caught mid-write")
+do {
+    let main = makeProfile("Claude", account: "AAAA", org: "ORG-A", chats: ["shared"],
+                           extras: ["userThemeMode": "dark", "locale": "en-GB"])
+    let work = makeProfile("Claude-Work", account: "BBBB", org: "ORG-B", chats: ["mine"])
+
+    // What a read landing part way through Claude's rename sees.
+    let config = work.appending(path: "config.json")
+    try! "{\"lastKnownAccountUuid\":\"BBBB\",\"oauth:tokenCache\":\"the-login\"".write(
+        to: config, atomically: true, encoding: .utf8)
+
+    Graft.graft(from: main, into: work)
+    check((try? String(contentsOf: config, encoding: .utf8))?.contains("the-login") == true,
+          "a config that will not parse is left as it is, login and all")
+    check(chatsVisible(to: work) == ["local_mine.json"],
+          "and the profile keeps reading its own chats")
+    check(!Graft.isSymlink(work.appending(path: "claude-code-sessions")),
+          "an account nothing can read is never taken for the source's own")
+
+    // A profile that has never been signed in has no config at all, and
+    // sharing the whole store is what that case is for.
+    let fresh = support.appending(path: "Claude-Fresh")
+    try! fm.createDirectory(at: fresh, withIntermediateDirectories: true)
+    Graft.graft(from: main, into: fresh)
+    check(Graft.isSymlink(fresh.appending(path: "claude-code-sessions")),
+          "a profile with no config yet still shares the whole store")
+
+    for profile in [main, work, fresh] { try? fm.removeItem(at: profile) }
+}
+
 // MARK: - Deleting a profile
 
 section("Profile deletion")

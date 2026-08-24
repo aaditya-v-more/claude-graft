@@ -92,9 +92,6 @@ enum Graft {
     /// Suffix for anything a profile owned before it was grafted.
     static let stashSuffix = ".graft-own"
 
-    /// Move a profile's own file or folder aside rather than destroying it. The
-    /// first stash is the pre-graft state and is never overwritten; later ones
-    /// are drift from the shared copy, so they are discarded.
     /// Hidden sibling, so the app never mistakes a stashed organization folder
     /// for a real one when it scans the store.
     private static func stashURL(for url: URL) -> URL {
@@ -102,21 +99,65 @@ enum Graft {
             .appending(path: "." + url.lastPathComponent + stashSuffix)
     }
 
+    /// Move a profile's own file or folder aside rather than destroying it.
+    ///
+    /// A stash already sitting beside the link does not mean the item is a
+    /// redundant copy of the shared one. Claude writes config.json by renaming
+    /// a temporary file over it, and a rename replaces a symlink with a
+    /// regular file, so the profile quietly goes back to writing its own copy
+    /// while the stash still holds the pre-graft state. A chat directory
+    /// Claude recreates when it cannot follow the link does the same. Deleting
+    /// in that case threw away every chat written since the graft.
     private static func stash(_ url: URL) {
         guard exists(url), !isSymlink(url) else { return }
         let stashed = stashURL(for: url)
-        if exists(stashed) {
-            try? fm.removeItem(at: url)
-        } else {
-            try? fm.moveItem(at: url, to: stashed)
+        if exists(stashed) { absorb(stashed, into: url) }
+        // Anything absorb could not move is still in there and is still this
+        // profile's; leave both alone rather than write over one of them.
+        guard !exists(stashed) else { return }
+        try? fm.moveItem(at: url, to: stashed)
+    }
+
+    /// Fold a stash back into the copy the profile is using now, so that one
+    /// item holds everything it owns. A name that appears in both is the same
+    /// chat, or the same file written twice, and the live copy is the version
+    /// the profile went on using.
+    private static func absorb(_ stashed: URL, into live: URL) {
+        guard isDirectory(stashed), isDirectory(live),
+              !isSymlink(stashed), !isSymlink(live)
+        else {
+            // Two files: the profile overwrote the stashed one itself, so the
+            // live copy supersedes it. A stashed directory against a live file
+            // is neither, and is left alone rather than guessed at.
+            if !isDirectory(stashed) { try? fm.removeItem(at: stashed) }
+            return
+        }
+
+        for name in (try? fm.contentsOfDirectory(atPath: stashed.path)) ?? [] {
+            let from = stashed.appending(path: name)
+            let to = live.appending(path: name)
+            if exists(to) {
+                absorb(from, into: to)
+            } else {
+                try? fm.moveItem(at: from, to: to)
+            }
+        }
+        // An empty shell left behind would read as a stash again on the next
+        // launch. Anything still in there failed to move and stays.
+        if ((try? fm.contentsOfDirectory(atPath: stashed.path)) ?? [""]).isEmpty {
+            try? fm.removeItem(at: stashed)
         }
     }
 
-    /// Put back whatever this profile owned before the graft.
+    /// Put back what this profile owns: the state it had before the graft, and
+    /// anything it has written since the link stopped being followed. Bailing
+    /// out because something already sits at the link is what left stashes
+    /// orphaned, and an orphaned stash is what armed the next graft to delete.
     private static func unstash(_ link: URL) {
         if isSymlink(link) { try? fm.removeItem(at: link) }
         let stashed = stashURL(for: link)
-        guard exists(stashed), !exists(link) else { return }
+        guard exists(stashed) else { return }
+        guard !exists(link) else { return absorb(stashed, into: link) }
         try? fm.moveItem(at: stashed, to: link)
     }
 
@@ -160,11 +201,21 @@ enum Graft {
     // MARK: - Profile identity
 
     static func configJSON(of profile: URL) -> [String: Any] {
+        readableConfigJSON(of: profile) ?? [:]
+    }
+
+    /// The same, except that a file which is there and will not parse comes
+    /// back as nil rather than as an empty config. Claude writes this file by
+    /// renaming a temporary over it, so a read landing mid-rename sees a
+    /// truncated one; a profile that has simply never been signed in has no
+    /// file at all. Anything that would write the config back, or decide where
+    /// a profile's chats go, has to tell those two apart.
+    static func readableConfigJSON(of profile: URL) -> [String: Any]? {
         let url = profile.appending(path: "config.json")
-        guard let data = try? Data(contentsOf: url),
-              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-        else { return [:] }
-        return obj
+        guard let data = try? Data(contentsOf: url) else {
+            return exists(url) ? nil : [:]
+        }
+        return try? JSONSerialization.jsonObject(with: data) as? [String: Any]
     }
 
     /// The account this profile is currently signed into.
@@ -320,7 +371,12 @@ enum Graft {
 
     static func linkChatStores(from source: URL, into profile: URL) {
         guard let sourceAccount = account(of: source) else { return }
-        let ownAccount = account(of: profile)
+        // A profile whose config cannot be read is one Claude is part way
+        // through writing, not one signed into the same account as the source.
+        // Reading it as the latter linked the whole store away, stash and all,
+        // over a file that was unreadable for a moment.
+        guard let ownConfig = readableConfigJSON(of: profile) else { return }
+        let ownAccount = ownConfig["lastKnownAccountUuid"] as? String
 
         for store in chatStores {
             let src = source.appending(path: store)
@@ -338,7 +394,11 @@ enum Graft {
             guard let ownOrg = newestChild(of: dst.appending(path: ownAccount))
                     ?? newestChild(of: src.appending(path: ownAccount)) else { continue }
 
-            if isSymlink(dst) { try? fm.removeItem(at: dst) }
+            // The two profiles were on one account last time and the whole
+            // store is a link. Take the profile's own store back before
+            // linking one organization inside it, or the store-wide stash is
+            // orphaned and the next graft has something to delete.
+            unstash(dst)
             try? fm.createDirectory(at: dst, withIntermediateDirectories: true)
             relink(target: src.appending(path: sourceAccount).appending(path: sourceOrg),
                    at: dst.appending(path: ownAccount).appending(path: ownOrg))
@@ -356,14 +416,32 @@ enum Graft {
     static func copyAppearance(from source: URL, into profile: URL) {
         let from = configJSON(of: source)
         guard !from.isEmpty else { return }
-        var into = configJSON(of: profile)
-        for key in appearanceKeys where from[key] != nil {
-            into[key] = from[key]
-        }
+
+        // Writing the two appearance keys over a config caught mid-rename
+        // took the profile's login and the account its chats are filed under
+        // along with it.
+        guard var into = readableConfigJSON(of: profile) else { return }
+
+        // Nothing to gain from rewriting a file that holds a login, on every
+        // launch, to put back the two values already in it.
+        let wanted = appearanceKeys.filter { from[$0] != nil }
+        guard wanted.contains(where: { !sameJSON(into[$0], from[$0]) }) else { return }
+        for key in wanted { into[key] = from[key] }
+
         guard let data = try? JSONSerialization.data(withJSONObject: into,
                                                      options: [.prettyPrinted, .sortedKeys])
         else { return }
-        try? data.write(to: profile.appending(path: "config.json"))
+        try? data.write(to: profile.appending(path: "config.json"), options: .atomic)
+    }
+
+    /// Everything JSONSerialization hands back is an NSObject, and comparing
+    /// two of those is the only comparison `Any?` allows.
+    private static func sameJSON(_ a: Any?, _ b: Any?) -> Bool {
+        switch (a, b) {
+        case (nil, nil): return true
+        case let (a as NSObject, b as NSObject): return a == b
+        default: return false
+        }
     }
 
     /// Undo a graft: drop every symlink this profile holds so it falls back to
