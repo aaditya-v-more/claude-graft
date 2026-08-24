@@ -3,150 +3,313 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Claude Graft</title>
-<meta name="description" content="Run several Claude Desktop logins side by side on macOS, sharing chat history between them.">
+<title>Claude Graft — one Claude login is never the right amount</title>
+<meta name="description" content="1× is less but 5× is too much. Run several Claude Desktop logins side by side on macOS, sharing chat history between them.">
+<meta property="og:title" content="Claude Graft">
+<meta property="og:description" content="1× is less but 5× is too much. Run several Claude Desktop logins side by side, sharing chat history between them.">
+<meta property="og:type" content="website">
+<link rel="icon" href="assets/icon.png" type="image/png">
+<link rel="apple-touch-icon" href="assets/icon.png">
 <style>
+:root {
+  --bg:        #faf8f5;
+  --bg-deep:   #f2ece3;
+  --card:      #ffffff;
+  --ink:       #1a1815;
+  --ink-soft:  #57504a;
+  --ink-faint: #8b8279;
+  --line:      #e6ded2;
+  --accent:    #c2410c;
+  --accent-in: #ffffff;
+  --glow:      rgba(194,65,12,.10);
+  --shadow:    0 1px 2px rgba(26,24,21,.05), 0 12px 32px -8px rgba(26,24,21,.14);
+}
+@media (prefers-color-scheme: dark) {
   :root {
-    --bg: #fbfaf8;
-    --panel: #ffffff;
-    --ink: #1d1b18;
-    --muted: #6b6560;
-    --line: #e5e0d8;
-    --accent: #b4552d;
+    --bg:        #14120f;
+    --bg-deep:   #1b1814;
+    --card:      #1d1a16;
+    --ink:       #f2eee8;
+    --ink-soft:  #b3aa9e;
+    --ink-faint: #837a6f;
+    --line:      #2e2921;
+    --accent:    #f0855a;
+    --accent-in: #1a1005;
+    --glow:      rgba(240,133,90,.13);
+    --shadow:    0 1px 2px rgba(0,0,0,.4), 0 20px 48px -12px rgba(0,0,0,.6);
   }
-  @media (prefers-color-scheme: dark) {
-    :root {
-      --bg: #171614;
-      --panel: #201e1b;
-      --ink: #eceae6;
-      --muted: #9c948b;
-      --line: #322e29;
-      --accent: #d97a4e;
-    }
-  }
-  * { box-sizing: border-box; }
-  body {
-    margin: 0;
-    padding: 0 1.5rem 5rem;
-    background: var(--bg);
-    color: var(--ink);
-    font: 17px/1.65 ui-sans-serif, -apple-system, "SF Pro Text", system-ui, sans-serif;
-    -webkit-font-smoothing: antialiased;
-  }
-  main { max-width: 44rem; margin: 0 auto; }
-  header { padding: 5rem 0 2.5rem; }
-  h1 {
-    font-size: clamp(2.4rem, 7vw, 3.4rem);
-    line-height: 1.05;
-    letter-spacing: -0.03em;
-    margin: 0 0 1rem;
-  }
-  .lede { font-size: 1.18rem; color: var(--muted); margin: 0; max-width: 34rem; }
-  h2 {
-    font-size: 1.05rem;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    color: var(--muted);
-    margin: 3.5rem 0 1rem;
-    font-weight: 600;
-  }
-  p { margin: 0 0 1rem; }
-  a { color: var(--accent); }
-  figure { margin: 2rem 0; }
-  img {
-    max-width: 100%;
-    height: auto;
-    display: block;
-    border: 1px solid var(--line);
-    border-radius: 12px;
-    background: var(--panel);
-  }
-  figcaption { color: var(--muted); font-size: 0.92rem; margin-top: 0.6rem; }
-  pre {
-    background: var(--panel);
-    border: 1px solid var(--line);
-    border-radius: 10px;
-    padding: 0.9rem 1.1rem;
-    overflow-x: auto;
-    margin: 0 0 1rem;
-  }
-  code { font: 14px/1.6 ui-monospace, "SF Mono", Menlo, monospace; }
-  .note { color: var(--muted); font-size: 0.95rem; }
-  footer {
-    margin-top: 4rem;
-    padding-top: 1.5rem;
-    border-top: 1px solid var(--line);
-    color: var(--muted);
-    font-size: 0.95rem;
-  }
+}
+
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font: 17px/1.65 ui-sans-serif, -apple-system, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+.wrap { width: 100%; max-width: 60rem; margin: 0 auto; padding: 0 1.5rem; }
+a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+
+/* ---------- hero ---------- */
+.hero {
+  position: relative;
+  padding: clamp(4rem, 12vw, 8.5rem) 0 clamp(3rem, 7vw, 5rem);
+  overflow: hidden;
+}
+.hero::before {
+  content: "";
+  position: absolute;
+  top: -30vh; left: 50%;
+  width: min(120rem, 190vw); height: 90vh;
+  transform: translateX(-50%);
+  background: radial-gradient(50% 50% at 50% 50%, var(--glow), transparent 70%);
+  pointer-events: none;
+}
+.hero > .wrap { position: relative; }
+
+.eyebrow {
+  display: inline-flex; align-items: center; gap: .55rem;
+  font-size: .82rem; font-weight: 600;
+  letter-spacing: .09em; text-transform: uppercase;
+  color: var(--ink-faint);
+  margin: 0 0 1.6rem;
+}
+.eyebrow .dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 4px var(--glow);
+}
+
+h1 {
+  font-size: clamp(2.6rem, 7.4vw, 5rem);
+  line-height: 1.02;
+  letter-spacing: -.045em;
+  font-weight: 680;
+  margin: 0 0 1.4rem;
+  max-width: 18ch;
+}
+.aside {
+  font-size: clamp(.98rem, 1.5vw, 1.12rem);
+  line-height: 1.4;
+  color: var(--ink-faint);
+  font-weight: 450;
+  letter-spacing: -.005em;
+  margin: -.55rem 0 1.5rem;
+}
+
+.lede {
+  font-size: clamp(1.1rem, 2vw, 1.32rem);
+  line-height: 1.55;
+  color: var(--ink-soft);
+  max-width: 40rem;
+  margin: 0 0 2.4rem;
+}
+.lede strong { color: var(--ink); font-weight: 600; }
+
+/* ---------- install ---------- */
+.install { display: flex; flex-wrap: wrap; align-items: center; gap: .75rem; }
+.cmd {
+  display: flex; align-items: center; gap: .9rem;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: .7rem .7rem .7rem 1.05rem;
+  box-shadow: var(--shadow);
+  max-width: 100%;
+}
+.cmd code {
+  font: 13.5px/1.5 ui-monospace, "SF Mono", Menlo, monospace;
+  white-space: nowrap; overflow-x: auto; color: var(--ink);
+}
+.cmd button {
+  flex: none;
+  font: 600 12.5px/1 ui-sans-serif, system-ui, sans-serif;
+  letter-spacing: .04em; text-transform: uppercase;
+  color: var(--accent-in); background: var(--accent);
+  border: 0; border-radius: 7px; padding: .5rem .7rem;
+  cursor: pointer; transition: opacity .15s;
+}
+.cmd button:hover { opacity: .85; }
+.sub { font-size: .93rem; color: var(--ink-faint); margin: 1rem 0 0; }
+
+/* ---------- shots ---------- */
+.shot { margin: 0; }
+.shot img {
+  display: block; width: 100%; height: auto;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  box-shadow: var(--shadow);
+  background: var(--card);
+}
+.shot figcaption {
+  margin-top: .85rem;
+  font-size: .93rem;
+  color: var(--ink-faint);
+}
+.hero-shot { margin-top: clamp(3rem, 6vw, 4.5rem); max-width: 34rem; }
+
+/* ---------- sections ---------- */
+section { padding: clamp(3.5rem, 8vw, 6rem) 0; }
+.band { background: var(--bg-deep); border-block: 1px solid var(--line); }
+h2 {
+  font-size: clamp(1.6rem, 3.4vw, 2.3rem);
+  letter-spacing: -.03em; line-height: 1.15;
+  font-weight: 660; margin: 0 0 1rem; max-width: 22ch;
+}
+p { margin: 0 0 1.1rem; max-width: 40rem; }
+p:last-child { margin-bottom: 0; }
+.muted { color: var(--ink-soft); }
+
+.split { display: grid; gap: clamp(2rem, 5vw, 3.5rem); align-items: center; }
+@media (min-width: 60rem) { .split { grid-template-columns: 1fr 1.15fr; } }
+
+.grid { display: grid; gap: 1.1rem; margin-top: 2.5rem; }
+@media (min-width: 48rem) { .grid { grid-template-columns: repeat(3, 1fr); } }
+.card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 1.4rem 1.35rem;
+}
+.card h3 {
+  font-size: 1.02rem; font-weight: 640; margin: 0 0 .5rem;
+  letter-spacing: -.01em;
+}
+.card p { font-size: .95rem; color: var(--ink-soft); margin: 0; }
+code:not(.cmd code) {
+  font: 13.5px/1.5 ui-monospace, "SF Mono", Menlo, monospace;
+  background: var(--bg-deep); border: 1px solid var(--line);
+  border-radius: 5px; padding: .08em .38em;
+}
+.band code:not(.cmd code) { background: var(--card); }
+
+footer {
+  padding: 2.5rem 0 4rem;
+  border-top: 1px solid var(--line);
+  color: var(--ink-faint); font-size: .93rem;
+}
+footer p { max-width: none; }
 </style>
 </head>
 <body>
-<main>
 
-<header>
-  <h1>Claude Graft</h1>
-  <p class="lede">Claude Desktop signs into one account at a time. Graft gives you
-  as many Claudes as you want — each with its own name, icon and login — and lets
-  any of them read another one's Claude Code history.</p>
-</header>
+<div class="hero">
+  <div class="wrap">
+    <p class="eyebrow"><span class="dot"></span> macOS · free · open source</p>
 
-<p>That last part is the point. Every other way of running two accounts gives you
-an empty second profile. Graft lets your work login open your personal chats,
-connectors and extensions while the accounts stay completely separate.</p>
+    <h1>1× is less but 5× is too much.</h1>
+    <p class="aside">Or 20× is less, lol.</p>
 
-<figure>
-  <img src="assets/menu-bar.png" alt="The menu bar dropdown showing five-hour and weekly usage for two Claude accounts, with reset times.">
-  <figcaption>Live usage for every account, read from Anthropic's own endpoint.</figcaption>
-</figure>
+    <p class="lede">One Claude login is never quite the right amount.
+    <strong>Claude Graft</strong> gives you as many as you want — each with its own
+    name, icon and account — and lets any of them read another one's Claude Code
+    history.</p>
 
-<h2>Install</h2>
+    <div class="install">
+      <div class="cmd">
+        <code id="cmd">brew install --cask aaditya-v-more/claude-graft/claude-graft</code>
+        <button type="button" id="copy" aria-label="Copy install command">Copy</button>
+      </div>
+    </div>
+    <p class="sub">macOS 13+ · Apple Silicon and Intel · or grab the disk image from
+    <a href="https://github.com/aaditya-v-more/claude-graft/releases">releases</a></p>
 
-<pre><code>brew install --cask aaditya-v-more/claude-graft/claude-graft</code></pre>
+    <figure class="shot hero-shot">
+      <img src="assets/menu-bar.png" width="918" height="892"
+           alt="The menu bar dropdown showing five-hour and weekly usage for two Claude accounts, each with its reset time.">
+      <figcaption>Every account's limits, live, without switching between them.</figcaption>
+    </figure>
+  </div>
+</div>
 
-<p class="note">Homebrew asks you to trust the cask the first time, because this
-isn't an official Homebrew tap. Say yes once and it never asks again. macOS 13 or
-later; universal, for Apple Silicon and Intel. Or take the disk image from the
-<a href="https://github.com/aaditya-v-more/claude-graft/releases">releases page</a>.</p>
+<section class="band">
+  <div class="wrap">
+    <div class="split">
+      <div>
+        <h2>Two accounts, one set of chats</h2>
+        <p class="muted">This is the part nothing else does. Every other way of
+        running two logins hands you an empty second profile with none of your
+        work in it.</p>
+        <p class="muted">Graft lets a work login open your personal Claude Code
+        history, connectors and extensions — while the accounts themselves stay
+        completely separate. You choose, per shortcut, whose chats it reads.</p>
+      </div>
+      <figure class="shot">
+        <img src="assets/window.png" width="1712" height="1222"
+             alt="Claude Graft's window: a shortcut named Claude 2, with its chats set to come from the main Claude profile.">
+      </figure>
+    </div>
+  </div>
+</section>
 
-<h2>Making a Claude</h2>
+<section>
+  <div class="wrap">
+    <div class="split">
+      <figure class="shot">
+        <img src="assets/shortcuts.png" width="1160" height="846"
+             alt="Spotlight showing Claude and Claude 2 as two separate applications.">
+      </figure>
+      <div>
+        <h2>They're real apps, not profiles</h2>
+        <p class="muted">Name it, press Create Shortcut, and you get an app in
+        <code>/Applications</code>. Launch it from Spotlight, pin it to the Dock,
+        give it its own icon.</p>
+        <p class="muted">Each one carries its own launcher, so it keeps working
+        whether or not Graft is installed or even running.</p>
+      </div>
+    </div>
+  </div>
+</section>
 
-<p>Name it, choose where its chats come from, press Create Shortcut. You get a
-real app in <code>/Applications</code> that you can launch from Spotlight or pin
-to the Dock like any other.</p>
+<section class="band">
+  <div class="wrap">
+    <h2>Careful about the things that matter</h2>
+    <p class="muted">It borrows as little as it can, and destroys nothing.</p>
 
-<figure>
-  <img src="assets/shortcuts.png" alt="Spotlight showing Claude and Claude 2 as two separate applications.">
-</figure>
-
-<figure>
-  <img src="assets/window.png" alt="Claude Graft's window, showing a shortcut named Claude 2 reading its chats from the main Claude profile.">
-  <figcaption>Each shortcut carries its own launcher, so it keeps working whether
-  or not Graft is running.</figcaption>
-</figure>
-
-<h2>What it does not do</h2>
-
-<p>Nothing is written back to Claude's config or keychain. Only the access token
-is ever read, never the refresh token — Anthropic rotates those, and using one
-would sign Claude Desktop out. The token goes to <code>api.anthropic.com</code>
-and nowhere else.</p>
-
-<p>It also refuses to touch any application it did not create, identifying its
-own by a description file they carry rather than by name.</p>
-
-<h2>Updating</h2>
-
-<p>Graft updates itself, checking hourly and at launch. Every download is
-verified against a signing key that ships inside the app; anything that doesn't
-match is refused.</p>
+    <div class="grid">
+      <div class="card">
+        <h3>Your token stays yours</h3>
+        <p>Only the access token is ever read — never the refresh token, because
+        rotating one signs Claude Desktop out. Nothing is written back to Claude's
+        config or keychain, and it goes to <code>api.anthropic.com</code> and
+        nowhere else.</p>
+      </div>
+      <div class="card">
+        <h3>It won't touch what it didn't make</h3>
+        <p>Graft identifies its own apps by a description file they carry, never
+        by name. Claude's own profile can't be deleted, and neither can anything
+        outside Application Support.</p>
+      </div>
+      <div class="card">
+        <h3>Updates verify themselves</h3>
+        <p>It checks hourly and installs on its own. Every download is checked
+        against a signing key that ships inside the app; anything that doesn't
+        match is refused.</p>
+      </div>
+    </div>
+  </div>
+</section>
 
 <footer>
-  Free and open source, MIT licensed —
-  <a href="https://github.com/aaditya-v-more/claude-graft">source on GitHub</a>.
-  Not affiliated with Anthropic.
+  <div class="wrap">
+    <p>Free and open source, MIT licensed —
+    <a href="https://github.com/aaditya-v-more/claude-graft">source on GitHub</a>.
+    An independent project, not affiliated with Anthropic.</p>
+  </div>
 </footer>
 
-</main>
+<script>
+document.getElementById('copy').addEventListener('click', function () {
+  var button = this;
+  navigator.clipboard.writeText(document.getElementById('cmd').textContent).then(function () {
+    button.textContent = 'Copied';
+    setTimeout(function () { button.textContent = 'Copy'; }, 1600);
+  });
+});
+</script>
+
 </body>
 </html>

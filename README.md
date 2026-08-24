@@ -1,5 +1,9 @@
 # Claude Graft
 
+**1× is less but 5× is too much.** *(Or 20× is less, lol.)*
+
+One Claude login is never quite the right amount.
+
 Claude Desktop signs into one account at a time. Graft gives you as many Claudes
 as you want — each with its own name, icon and login — and lets any of them read
 another one's Claude Code history.
