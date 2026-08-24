@@ -20,9 +20,9 @@ would have written by hand.
 
 ## Commands
 
-    ./build.sh                 app + launcher into build/, this arch only
+    ./build.sh                 app + launcher into build.noindex/, this arch only
     GRAFT_UNIVERSAL=1 ./build.sh   both arches, joined with lipo
-    ./test.sh                  221 checks, all in a throwaway directory
+    ./test.sh                  224 checks, all in a throwaway directory
     ./release.sh [--install]   tests, builds universal, draws the icon, signs, packages
 
 ## Invariants
@@ -130,6 +130,14 @@ development build only has to run here. `release.sh` sets `GRAFT_UNIVERSAL=1`
 and then asks the bundle what it actually got, because an Intel Mac handed an
 arm64-only app reports nothing more useful than a bounce in the Dock.
 
+**The build directory is called `build.noindex` for the suffix.** Spotlight
+skips any directory whose name ends in it, and a development build needs that:
+what comes out is a complete, launchable `Claude Graft.app`, so an ordinary
+`build/` puts a second Graft in Spotlight beside the installed one with nothing
+to tell them apart. Opening the wrong one gives two instances polling the same
+profiles, racing for the same keychain prompt, and a Sparkle that updates a
+bundle nobody installed. Seen for real, which is why the directory was renamed.
+
 **An update installs itself and says nothing.** Checked hourly and at launch
 once that much has passed, downloaded, installed and restarted with nobody
 asked. The gentle-reminder route was tried first and was wrong for this app:
@@ -195,7 +203,7 @@ prefix.
 
 That item's decrypt ACL names each trusted build by code hash, so an ad-hoc
 signature earns a fresh entry every time the app is rebuilt — nine entries for
-the same `build/Claude Graft.app` path were counted on the development machine,
+the same `build.noindex/Claude Graft.app` path were counted on the development machine,
 alongside ten `cdhash:` entries in the item's partition list. A Developer ID
 would be one `teamid:` entry that survives every version. Both a suppressed read
 and a declined dialog answer `errSecAuthFailed`, so the two are told apart by

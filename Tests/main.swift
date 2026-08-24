@@ -867,6 +867,18 @@ do {
     check(updater.contains("immediateInstallHandler()"),
           "and now, rather than on a quit that a menu bar app may not see for weeks")
 
+    // Four files name the account now, not two: the app links to the site and
+    // the sponsor page as well, and those links are compiled into copies that
+    // will never be built again. GitHub redirects a renamed repository but
+    // gives Pages nothing, so half of these would go quietly dead.
+    let links = read("Sources/App/Links.swift")
+    check(links.contains("static let owner = \"\(owner)\""),
+          "the app sends people to the same account the feed does")
+    check(read(".github/FUNDING.yml").contains("github: \(owner)"),
+          "and the repository's sponsor button points at that account too")
+    check(read("docs/index.html").contains("github.com/sponsors/\(owner)"),
+          "as does the site")
+
     // An enclosure without a signature is one every client refuses, and
     // generate_appcast omits it silently when the key does not match.
     let appcast = read("docs/appcast.xml")

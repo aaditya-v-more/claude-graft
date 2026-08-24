@@ -12,6 +12,9 @@ That last part is the point. Every other way of running two accounts gives you
 an empty second profile. Graft lets your work login open your personal chats,
 connectors and extensions while the accounts stay completely separate.
 
+There are screenshots and the short version at
+**[claude-graft](https://aaditya-v-more.github.io/claude-graft/)**.
+
 ![Live usage for both accounts in the menu bar](docs/assets/menu-bar.png)
 
 ## Install
@@ -108,8 +111,8 @@ description file they carry, never by name.
 ## Building it
 
 ```
-./build.sh     the app, into build/
-./test.sh      221 checks, all in a throwaway directory
+./build.sh     the app, into build.noindex/
+./test.sh      224 checks, all in a throwaway directory
 ./release.sh   tests, builds universal, signs, packages
 ```
 
@@ -121,6 +124,14 @@ checksum. The version lives in one file, `VERSION`.
 keeps where, the rules around borrowed credentials, and the several things that
 had to go wrong before this worked. Read it before changing anything that
 touches profiles, the keychain or the menu bar.
+
+## Sponsoring it
+
+Free, and staying that way — no licence to buy, no account to make, nothing
+measured and sent anywhere. If it saved you the trouble, there's a
+[sponsor page](https://github.com/sponsors/aaditya-v-more). New macOS releases
+break things and Claude Desktop moves its own furniture every few weeks, and
+that's what the money is for.
 
 ## Licence
 

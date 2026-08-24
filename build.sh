@@ -1,13 +1,20 @@
 #!/bin/bash
-# Builds Claude Graft.app into ./build. No Xcode project involved; swiftc is
-# enough for a single-window SwiftUI app plus the small launcher binary.
+# Builds Claude Graft.app into ./build.noindex. No Xcode project involved;
+# swiftc is enough for a single-window SwiftUI app plus the small launcher
+# binary.
 #
 #   ./build.sh                    one slice, for this machine
 #   GRAFT_UNIVERSAL=1 ./build.sh  arm64 and x86_64, for shipping
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
-BUILD="$ROOT/build"
+# Spotlight skips any directory whose name ends in .noindex, and that suffix is
+# the whole reason this one is spelled that way. A development build is a
+# complete, launchable Claude Graft.app, so an ordinary build directory puts a
+# second one in Spotlight beside the installed copy — indistinguishable, and
+# the wrong one to open. Two instances then poll the same profiles, race for
+# the same keychain prompt, and Sparkle updates a bundle nobody installed.
+BUILD="$ROOT/build.noindex"
 APP="$BUILD/Claude Graft.app"
 DEPLOYMENT_TARGET="${MACOS_DEPLOYMENT_TARGET:-13.0}"
 

@@ -10,7 +10,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 DIST="$ROOT/dist"
-APP="$ROOT/build/Claude Graft.app"
+APP="$ROOT/build.noindex/Claude Graft.app"
 
 VERSION="$(tr -d '[:space:]' < "$ROOT/VERSION")"
 TAG="v$VERSION"
@@ -26,12 +26,15 @@ if git -C "$ROOT" rev-parse "$TAG" >/dev/null 2>&1; then
 fi
 
 # The icon is drawn rather than stored, so a clean checkout builds the same one.
+# The site's copy comes out of the same run: two files drawn by one program
+# cannot end up showing different marks.
 if [ ! -f "$ROOT/Resources/AppIcon.icns" ]; then
     echo "drawing the icon"
     ICONSET="$(mktemp -d)/AppIcon.iconset"
     swiftc -swift-version 5 -O "$ROOT/Tools/make-icon.swift" -o "$(dirname "$ICONSET")/make-icon"
-    "$(dirname "$ICONSET")/make-icon" "$ICONSET" >/dev/null
+    "$(dirname "$ICONSET")/make-icon" "$ICONSET" "$(dirname "$ICONSET")/icon.png" >/dev/null
     iconutil -c icns "$ICONSET" -o "$ROOT/Resources/AppIcon.icns"
+    sips -Z 180 "$(dirname "$ICONSET")/icon.png" --out "$ROOT/docs/assets/icon.png" >/dev/null
 fi
 
 "$ROOT/test.sh" >/dev/null

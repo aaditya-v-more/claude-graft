@@ -14,6 +14,7 @@ struct ContentView: View {
         NavigationSplitView {
             sidebar
                 .navigationSplitViewColumnWidth(min: 200, ideal: 220, max: 280)
+                .safeAreaInset(edge: .bottom, spacing: 0) { sidebarFooter }
                 .toolbar {
                     ToolbarItem {
                         Button(action: add) {
@@ -137,6 +138,26 @@ struct ContentView: View {
             .padding(.vertical, 2)
         }
         .onDeleteCommand { if let selection { requestDeletion(of: selection) } }
+    }
+
+    /// The foot of the sidebar. There is no About panel and no preferences
+    /// window worth opening, so this is the app's only standing place to say
+    /// where it came from and who pays for it — the dropdown item is seen only
+    /// by people who are already in the menu bar.
+    private var sidebarFooter: some View {
+        VStack(spacing: 0) {
+            Divider()
+            HStack(spacing: 0) {
+                FooterLink("Sponsor", icon: "heart", url: Links.sponsor,
+                           help: "Claude Graft is free. Sponsoring it on GitHub is what keeps it worked on.")
+                Spacer(minLength: 8)
+                FooterLink("Source", icon: "chevron.left.forwardslash.chevron.right", url: Links.source,
+                           help: Links.source.absoluteString)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
+        }
+        .background(.bar)
     }
 
     private func add() {

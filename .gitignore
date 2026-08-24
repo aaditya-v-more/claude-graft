@@ -1,4 +1,4 @@
-build/
+build.noindex/
 dist/
 .DS_Store
 *.xcuserstate

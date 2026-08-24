@@ -4,7 +4,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
-BUILD="$ROOT/build/tests"
+BUILD="$ROOT/build.noindex/tests"
 
 mkdir -p "$BUILD"
 
