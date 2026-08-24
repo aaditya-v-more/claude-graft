@@ -14,21 +14,24 @@ stay completely separate.
 
 ```
 brew install --cask aaditya-v-more/claude-graft/claude-graft
-xattr -dr com.apple.quarantine "/Applications/Claude Graft.app"
 ```
 
 Homebrew will ask you to trust the cask the first time, since this is not an
 official Homebrew tap and a tap can run its own code at install time. It is
 remembered by name, so later versions never ask again.
 
-The second line is needed once. The app is ad-hoc signed rather than notarised
-— notarising means a paid Apple developer account — and Homebrew quarantines
-everything it downloads, with no flag to skip it since Homebrew 6. Opening
-System Settings → Privacy & Security and choosing Open Anyway after the first
-refusal does the same thing. It never asks again: updates arrive through the app
-itself, and those are not quarantined.
+That is the whole install. The app is ad-hoc signed rather than notarised —
+notarising means a paid Apple developer account — and macOS refuses to open a
+quarantined app that is not notarised, so the cask clears that attribute for you
+rather than leaving everyone to do it by hand. The command it runs is in the
+cask file, and nothing about the app's signature changes.
 
-To build it instead:
+Taking the zip from the [releases page](https://github.com/aaditya-v-more/claude-graft/releases)
+instead works too; macOS will refuse it once, and System Settings → Privacy &
+Security has the Open Anyway button. Either way it is once — updates arrive
+through the app itself and are not quarantined.
+
+To build it from source:
 
 ```
 ./release.sh --install
@@ -38,9 +41,8 @@ Runs the tests, builds for both architectures, draws the icon, signs, packages
 `dist/ClaudeGraft-<version>.zip` and puts the app in `/Applications`. It signs
 with a Developer ID if `security find-identity` finds one — set
 `GRAFT_SIGNING_IDENTITY` to choose a particular one — and falls back to an
-ad-hoc signature, which runs on the machine that built it but needs right-click
-→ Open anywhere else. The script prints the `notarytool` invocation for
-distributing it properly.
+ad-hoc signature. The script prints the `notarytool` invocation for distributing
+it properly.
 
 For development, `./build.sh` alone builds into `build/`, for this machine only
 and in one compile; `GRAFT_UNIVERSAL=1` gets you both slices. Requires the Swift
