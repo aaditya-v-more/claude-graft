@@ -204,23 +204,33 @@ Claude uses are reserved.
 ./test.sh
 ```
 
-A hundred and sixty-nine checks, all against a throwaway Application Support
-and Applications directory, so nothing they do can reach a real profile or a
-real app.
+Two hundred and seven checks, all against a throwaway Application Support and
+Applications directory, so nothing they do can reach a real profile or a real
+app.
 
 They cover: that applications Graft did not create survive install, uninstall
 and delete; that updating a shortcut rewrites one bundle rather than leaving
 copies behind, and that a rename onto an occupied name changes nothing; that
 grafting preserves the login, stashes whatever it replaces, and reverses
-cleanly; that a profile cannot be grafted from itself and a folder name cannot
-climb out of Application Support; that a name with an ampersand in it still
-produces a plist macOS can read; that every guard on profile deletion fires for
-the reason it was meant to; that both usage sources parse, including the two
-reset-time formats and a history with figures missing; that a refused call
-backs off instead of retrying on the next tick, and that `Retry-After` is the
-one wait a person cannot skip; that one profile's path being a prefix of
-another's no longer makes every profile look like it is running; and that the
-figure in the menu bar follows whichever Claude is open.
+cleanly; that a chat or a setting written after a graft survives the next one
+and is handed back when the shortcut returns to its own chats; that a config
+file caught halfway through Claude's own rename is left alone rather than read
+as a profile with no account; that a profile cannot be grafted from itself and
+a folder name cannot climb out of Application Support; that a name with an
+ampersand in it still produces a plist macOS can read; that every guard on
+profile deletion fires for the reason it was meant to; that both usage sources
+parse, including the two reset-time formats and a history with figures missing;
+that a refused call backs off instead of retrying on the next tick, and that
+`Retry-After` is the one wait a person cannot skip; that the keychain is asked
+once and not again after a no, while **Refresh Usage** is the way back in; that
+the three **Start Session** buttons are the only things that can open a
+session, and nothing running on a timer is wired to one; that the version is
+written down in one file, and that the update feed and the downloads it
+advertises name the same account; that one profile's path being a prefix of
+another's no longer makes every profile look like it is running; that the
+figure in the menu bar follows whichever Claude is open; and that ⌘Q puts the
+window away while the menu bar item carries on reporting, but really does quit
+when there is nothing left in the bar to go back to.
 
 ## How it works
 

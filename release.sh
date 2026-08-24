@@ -75,9 +75,35 @@ echo "signature verified, framework included"
 
 rm -rf "$DIST"
 mkdir -p "$DIST"
-ZIP="$DIST/ClaudeGraft-$VERSION.zip"
+mkdir -p "$DIST/sparkle"
+ZIP="$DIST/sparkle/ClaudeGraft-$VERSION.zip"
 ditto -c -k --keepParent "$APP" "$ZIP"
 echo "packaged $ZIP"
+
+# The zip is for Sparkle, which unpacks it correctly. People get a disk image.
+# A zip has to be unarchived, and an unarchiver that drops the framework's
+# symlinks or extended attributes leaves a bundle whose seal no longer matches
+# what it claims — macOS calls that damaged and offers no way past it, unlike an
+# unnotarised app, which at least has Open Anyway. A disk image is copied rather
+# than extracted, so there is nothing for a third-party tool to get wrong.
+DMG="$DIST/ClaudeGraft-$VERSION.dmg"
+STAGE="$(mktemp -d)/stage"
+mkdir -p "$STAGE"
+ditto "$APP" "$STAGE/Claude Graft.app"
+ln -s /Applications "$STAGE/Applications"
+hdiutil create -volname "Claude Graft" -srcfolder "$STAGE" -ov -format UDZO -quiet "$DMG"
+rm -rf "$(dirname "$STAGE")"
+
+# A disk image whose contents do not verify is worse than no disk image: it is
+# the failure this one exists to prevent.
+MOUNT="$(hdiutil attach "$DMG" -nobrowse -readonly | sed -n 's|.*\(/Volumes/.*\)|\1|p')"
+if ! codesign --verify --deep --strict "$MOUNT/Claude Graft.app" 2>/dev/null; then
+    hdiutil detach "$MOUNT" -quiet
+    echo "the app inside $DMG does not verify." >&2
+    exit 1
+fi
+hdiutil detach "$MOUNT" -quiet
+echo "packaged $DMG"
 
 # The appcast is a file in docs/, which Pages serves straight off main. No
 # branch to juggle, no CI secret: the signing key stays in this machine's
@@ -88,7 +114,7 @@ mkdir -p "$ROOT/docs"
     --download-url-prefix "https://github.com/aaditya-v-more/claude-graft/releases/download/$TAG/" \
     --link "https://github.com/aaditya-v-more/claude-graft" \
     -o "$ROOT/docs/appcast.xml" \
-    "$DIST"
+    "$DIST/sparkle"
 
 # generate_appcast drops the signature silently when the key it finds does not
 # match SUPublicEDKey, and an unsigned enclosure is one every client refuses.
