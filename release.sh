@@ -110,11 +110,26 @@ echo "packaged $DMG"
 # keychain and generate_appcast reads it from there.
 echo "updating the appcast"
 mkdir -p "$ROOT/docs"
+
+# generate_appcast merges into an appcast it finds beside the archives, and the
+# download prefix it is given applies only to the build it has not seen before.
+# Without seeding it with the live feed, this run would rewrite the file from
+# the one new zip and every earlier version would vanish along with its URL.
+BEFORE=0
+if [ -f "$ROOT/docs/appcast.xml" ]; then
+    cp "$ROOT/docs/appcast.xml" "$DIST/sparkle/appcast.xml"
+    BEFORE="$(grep -c "<item>" "$ROOT/docs/appcast.xml" || true)"
+fi
+
 "$ROOT/vendor/bin/generate_appcast" \
     --download-url-prefix "https://github.com/aaditya-v-more/claude-graft/releases/download/$TAG/" \
     --link "https://github.com/aaditya-v-more/claude-graft" \
     -o "$ROOT/docs/appcast.xml" \
     "$DIST/sparkle"
+
+AFTER="$(grep -c "<item>" "$ROOT/docs/appcast.xml" || true)"
+[ "$AFTER" -ge "$BEFORE" ] \
+    || { echo "the appcast lost entries ($BEFORE -> $AFTER)." >&2; exit 1; }
 
 # generate_appcast drops the signature silently when the key it finds does not
 # match SUPublicEDKey, and an unsigned enclosure is one every client refuses.
