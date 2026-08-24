@@ -26,7 +26,10 @@ distributing it properly.
 
 For development, `./build.sh` alone builds into `build/`, for this machine only
 and in one compile; `GRAFT_UNIVERSAL=1` gets you both slices. Requires the Swift
-toolchain that ships with Xcode; no project file.
+toolchain that ships with Xcode; no project file. Sparkle is fetched into
+`vendor/` on the first build, pinned to a version and a checksum rather than
+committed — fifteen megabytes nothing here edits, reproduced the same way the
+icon is.
 
 The version lives in one file, `VERSION`, and the build stamps it into the
 bundle. Bump it, run `./release.sh`, publish what it names — releasing the same
@@ -141,6 +144,27 @@ app's own source to check that no fourth caller has appeared — a session wired
 into a view refresh would start a window on every account every thirty seconds.
 The same account cannot have two starts in flight at once either, since the
 window and the dropdown each carry their own button for it.
+
+## Updating
+
+Graft updates itself through [Sparkle](https://sparkle-project.org). A check
+runs in the background; when it finds something, the dropdown gains a line
+offering it, and pressing that line opens Sparkle's window with the release
+notes. A version found in the background never opens a window on its own —
+Graft usually has no window of its own on screen, so a panel arriving unasked
+would belong to no visible app and interrupt something else. **Check for
+Updates…** in the dropdown asks whenever you like.
+
+Every download is signed with an EdDSA key whose public half ships inside the
+app, and anything that does not match is refused. That signature is Sparkle's
+own and has nothing to do with Apple, which is what lets updates work without a
+Developer ID: an unsigned first install still needs right-click → Open once, but
+Sparkle clears the quarantine on what it installs, so every update after that
+lands without argument.
+
+The feed is `docs/appcast.xml`, served by GitHub Pages off `main`. `./release.sh`
+regenerates it, signs the new download, and refuses to finish if the entry came
+out unsigned or without the version in it.
 
 ## Deleting
 

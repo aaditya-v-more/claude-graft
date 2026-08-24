@@ -7,6 +7,7 @@ struct MenuBarContent: View {
     @EnvironmentObject private var store: ShortcutStore
     @EnvironmentObject private var settings: AppSettings
     @EnvironmentObject private var usage: UsageMonitor
+    @ObservedObject private var updater = Shared.updater
 
     /// Passed in: this view is hosted by an NSPopover, outside any scene, so
     /// the openWindow environment action is not available here.
@@ -54,6 +55,17 @@ struct MenuBarContent: View {
                 .padding(.bottom, 8)
             }
 
+            if let version = updater.availableVersion {
+                Button { updater.checkForUpdates() } label: {
+                    Label("Version \(version) is available", systemImage: "arrow.down.circle")
+                        .font(.callout)
+                }
+                .buttonStyle(.link)
+                .help("Opens Sparkle's update window, with the release notes.")
+                .padding(.horizontal, 14)
+                .padding(.bottom, 8)
+            }
+
             VStack(alignment: .leading, spacing: 6) {
                 Toggle("Open at Login", isOn: Binding(
                     get: { settings.openAtLogin },
@@ -67,6 +79,10 @@ struct MenuBarContent: View {
 
             VStack(alignment: .leading, spacing: 4) {
                 MenuButton("Refresh Usage") { usage.refresh(store, interactive: true) }
+                MenuButton(updater.canCheck ? "Check for Updates…" : "Checking for Updates…") {
+                    updater.checkForUpdates()
+                }
+                .disabled(!updater.canCheck)
                 MenuButton("Open Claude Graft", action: openMainWindow)
                 MenuButton("Quit Claude Graft") { AppDelegate.quit() }
             }

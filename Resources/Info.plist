@@ -17,5 +17,13 @@
     <key>NSHighResolutionCapable</key><true/>
     <key>NSPrincipalClass</key><string>NSApplication</string>
     <key>NSSupportsAutomaticTermination</key><true/>
+    <!-- Sparkle. The feed is a GitHub Pages path and is baked into every copy
+         ever shipped: a build that is out in the world polls the URL it was born
+         with, and GitHub gives Pages no redirect if the account is ever renamed.
+         SUPublicEDKey is the public half of the key in the login keychain; an
+         update whose signature does not match it is refused. -->
+    <key>SUFeedURL</key><string>https://aaditya-v-more.github.io/claude-graft/appcast.xml</string>
+    <key>SUPublicEDKey</key><string>TncOVOd5VFXtXoAD5/KoGC2ea9ls2tO3amPVx5jtty8=</string>
+    <key>SUEnableAutomaticChecks</key><true/>
 </dict>
 </plist>

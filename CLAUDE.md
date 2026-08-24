@@ -22,7 +22,7 @@ would have written by hand.
 
     ./build.sh                 app + launcher into build/, this arch only
     GRAFT_UNIVERSAL=1 ./build.sh   both arches, joined with lipo
-    ./test.sh                  200 checks, all in a throwaway directory
+    ./test.sh                  207 checks, all in a throwaway directory
     ./release.sh [--install]   tests, builds universal, draws the icon, signs, packages
 
 ## Invariants
@@ -107,6 +107,21 @@ development build only has to run here. `release.sh` sets `GRAFT_UNIVERSAL=1`
 and then asks the bundle what it actually got, because an Intel Mac handed an
 arm64-only app reports nothing more useful than a bounce in the Dock.
 
+**An update nobody asked for does not open a window.** Sparkle is told the app
+handles gentle reminders itself, which is what buys the right to answer no to
+`standardUserDriverShouldHandleShowingScheduledUpdate` unless the app is already
+in focus. A background find becomes a line in the dropdown; the panel opens when
+that line is pressed. Same rule as the keychain prompt, for the same reason:
+Graft usually has no window on screen, so anything it raises lands over someone
+else's work.
+
+**The feed URL is unchangeable once shipped.** A copy out in the world polls the
+URL it was born with, and GitHub gives Pages no redirect if the account is ever
+renamed — repositories redirect, Pages does not. `Resources/Info.plist` and the
+`--download-url-prefix` in `release.sh` both name the account, and the suite
+checks they agree, because a rename that touched one would leave the feed
+advertising downloads nobody can fetch.
+
 **Profile folders are validated.** One plain component inside Application
 Support, never `Claude`, never a path. Without this, typing `Claude` into the
 folder field pointed a shortcut at Claude's own profile.
@@ -154,6 +169,18 @@ alongside ten `cdhash:` entries in the item's partition list. A Developer ID
 would be one `teamid:` entry that survives every version. Both a suppressed read
 and a declined dialog answer `errSecAuthFailed`, so the two are told apart by
 which call was made, never by the status.
+
+Sparkle ships its framework already ad-hoc signed, and its validator accepts an
+EdDSA signature alone — the header comment on `validateUpdateForHost` says it
+"allows change of Code Signing identity", which is exactly what an ad-hoc build
+does on every compile. Elsewhere it says outright that "if no Apple Code Signing
+certificate is available, adhoc signing can be used at minimum". `SUFileManager`
+strips `com.apple.quarantine` from what it installs, so only the first install
+meets Gatekeeper. The XPC services are removed from the embedded copy: they need
+entitlements this app does not carry, and launchd refuses them for a
+non-sandboxed app. The signing key lives in the login keychain under
+`https://sparkle-project.org`; `vendor/bin/generate_keys -x` exports it if CI
+ever needs it.
 
 Live usage is `GET https://api.anthropic.com/api/oauth/usage` with a bearer
 token and `anthropic-beta: oauth-2025-04-20`. It answers with `five_hour` and

@@ -47,6 +47,7 @@ enum Shared {
     static let store = ShortcutStore()
     static let settings = AppSettings()
     static let usage = UsageMonitor()
+    static let updater = Updater()
 }
 
 struct SettingsView: View {
@@ -95,6 +96,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // the window or the dropdown.
         Shared.usage.mayPromptUnasked = !Shared.startHidden
         Shared.usage.start(watching: Shared.store)
+        Shared.updater.start()
         menuBar = MenuBarController(store: Shared.store,
                                     settings: Shared.settings,
                                     usage: Shared.usage,

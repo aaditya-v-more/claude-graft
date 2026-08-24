@@ -815,6 +815,55 @@ do {
           "a shortcut built by something that is not an app is stamped unmistakably")
 }
 
+// MARK: - Updating itself
+
+section("Updates")
+
+do {
+    let repo = URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+    func read(_ path: String) -> String {
+        (try? String(contentsOf: repo.appending(path: path), encoding: .utf8)) ?? ""
+    }
+    let plist = read("Resources/Info.plist")
+
+    // The feed is baked into every copy ever shipped and cannot be changed for
+    // one already installed, so it is worth being sure about.
+    check(plist.contains("<key>SUFeedURL</key><string>https://"),
+          "the update feed is fetched over https")
+    check(plist.contains("<key>SUPublicEDKey</key>") && !plist.contains("<key>SUPublicEDKey</key><string></string>"),
+          "and an update is refused unless it is signed by the key shipped alongside it")
+
+    // Two places name the account, and a rename that touched only one would
+    // leave the feed advertising downloads nobody can reach.
+    let release = read("release.sh")
+    let owner = "aaditya-v-more"
+    check(plist.contains("https://\(owner).github.io/"),
+          "the feed and the release assets agree on whose account they are")
+    check(release.contains("github.com/\(owner)/claude-graft/releases/download/"),
+          "so a download the feed advertises resolves to something")
+
+    // Fetched over the wire, then trusted to verify every future update.
+    let fetch = read("Tools/fetch-sparkle.sh")
+    check(fetch.contains("SHA256=\"") && fetch.contains("VERSION=\""),
+          "the update framework is pinned to one version and one checksum")
+
+    // Present, they need entitlements and signing this app does not do, and
+    // launchd refuses them for a non-sandboxed app.
+    check(read("build.sh").contains("XPCServices"),
+          "Sparkle's XPC services are stripped from the embedded copy")
+
+    // An enclosure without a signature is one every client refuses, and
+    // generate_appcast omits it silently when the key does not match.
+    let appcast = read("docs/appcast.xml")
+    if !appcast.isEmpty {
+        let enclosures = appcast.components(separatedBy: "<enclosure ").dropFirst()
+        check(!enclosures.isEmpty && enclosures.allSatisfy { $0.contains("sparkle:edSignature") },
+              "every download the published feed offers carries a signature")
+    }
+}
+
 // MARK: - Who is allowed to put a keychain dialog on screen
 
 section("Asking for keychain access")

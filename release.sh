@@ -37,6 +37,24 @@ fi
 "$ROOT/test.sh" >/dev/null
 echo "tests passed"
 
+# Sign with a Developer ID when one is available, otherwise ad-hoc. Resolved
+# here but applied by build.sh, which signs the embedded framework as well —
+# an ad-hoc framework inside a Developer ID app is a mixed bundle, and
+# notarisation rejects those.
+IDENTITY="${GRAFT_SIGNING_IDENTITY:-}"
+if [ -z "$IDENTITY" ]; then
+    IDENTITY="$(security find-identity -v -p codesigning 2>/dev/null \
+        | awk -F'"' '/Developer ID Application/ {print $2; exit}')"
+fi
+if [ -n "$IDENTITY" ]; then
+    echo "signing as $IDENTITY"
+    export GRAFT_SIGN_FLAGS="--options runtime --timestamp"
+else
+    echo "no Developer ID found; ad-hoc signature only"
+    IDENTITY="-"
+fi
+export GRAFT_SIGNING_IDENTITY="$IDENTITY"
+
 GRAFT_UNIVERSAL=1 "$ROOT/build.sh" >/dev/null
 echo "built universal"
 
@@ -52,28 +70,34 @@ STAMPED="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/
 [ "$STAMPED" = "$VERSION" ] || { echo "bundle says $STAMPED, VERSION says $VERSION." >&2; exit 1; }
 echo "verified $STAMPED, arm64 + x86_64"
 
-# Sign with a Developer ID when one is available, otherwise ad-hoc. An ad-hoc
-# build runs on this machine; anywhere else Gatekeeper wants right-click Open.
-IDENTITY="${GRAFT_SIGNING_IDENTITY:-}"
-if [ -z "$IDENTITY" ]; then
-    IDENTITY="$(security find-identity -v -p codesigning 2>/dev/null \
-        | awk -F'"' '/Developer ID Application/ {print $2; exit}')"
-fi
-if [ -n "$IDENTITY" ]; then
-    echo "signing as $IDENTITY"
-    codesign --force --deep --options runtime --timestamp \
-        --sign "$IDENTITY" "$APP"
-else
-    echo "no Developer ID found; ad-hoc signature only"
-    codesign --force --deep --sign - "$APP"
-fi
 codesign --verify --deep --strict "$APP"
+echo "signature verified, framework included"
 
 rm -rf "$DIST"
 mkdir -p "$DIST"
 ZIP="$DIST/ClaudeGraft-$VERSION.zip"
 ditto -c -k --keepParent "$APP" "$ZIP"
 echo "packaged $ZIP"
+
+# The appcast is a file in docs/, which Pages serves straight off main. No
+# branch to juggle, no CI secret: the signing key stays in this machine's
+# keychain and generate_appcast reads it from there.
+echo "updating the appcast"
+mkdir -p "$ROOT/docs"
+"$ROOT/vendor/bin/generate_appcast" \
+    --download-url-prefix "https://github.com/aaditya-v-more/claude-graft/releases/download/$TAG/" \
+    --link "https://github.com/aaditya-v-more/claude-graft" \
+    -o "$ROOT/docs/appcast.xml" \
+    "$DIST"
+
+# generate_appcast drops the signature silently when the key it finds does not
+# match SUPublicEDKey, and an unsigned enclosure is one every client refuses.
+# Better to hear about it here than from a user who cannot update.
+grep -q "sparkle:edSignature" "$ROOT/docs/appcast.xml" \
+    || { echo "the new appcast entry carries no EdDSA signature." >&2; exit 1; }
+grep -q "ClaudeGraft-$VERSION.zip" "$ROOT/docs/appcast.xml" \
+    || { echo "the appcast does not mention $VERSION." >&2; exit 1; }
+echo "appcast has a signed entry for $VERSION"
 
 if [ "${1:-}" = "--install" ]; then
     rm -rf "/Applications/Claude Graft.app"
@@ -84,9 +108,13 @@ fi
 cat <<NOTE
 
 To publish $TAG:
+  git add docs/appcast.xml && git commit -m "Release $VERSION"
   git tag -a $TAG -m "Claude Graft $VERSION"
-  git push origin $TAG
+  git push origin main --tags
   gh release create $TAG "$ZIP" --title "Claude Graft $VERSION" --notes-file -
+
+The appcast must be pushed for the feed to serve it, and the release must exist
+for the URL inside it to resolve. Do both before telling anyone.
 
 To notarise first (needs a Developer ID and an app-specific password):
   xcrun notarytool submit "$ZIP" --apple-id <you> --team-id <team> \\

@@ -24,8 +24,16 @@ else
     ARCHES="$(uname -m)"
 fi
 
+# Whoever signs, signs everything: a framework left carrying the ad-hoc
+# signature inside an app signed with a Developer ID is a mixed bundle, which
+# notarisation rejects. release.sh sets these; a plain build gets ad-hoc.
+IDENTITY="${GRAFT_SIGNING_IDENTITY:--}"
+SIGN_FLAGS="${GRAFT_SIGN_FLAGS:-}"
+
+"$ROOT/Tools/fetch-sparkle.sh"
+
 rm -rf "$BUILD"
-mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$APP/Contents/Frameworks"
 SLICES="$(mktemp -d)"
 trap 'rm -rf "$SLICES"' EXIT
 
@@ -55,8 +63,31 @@ compile "$APP/Contents/Resources/graft-launch" \
 
 echo "building app"
 compile "$APP/Contents/MacOS/ClaudeGraft" \
+    -F "$ROOT/vendor" -framework Sparkle \
     "$ROOT/Sources/Shared/GraftCore.swift" \
     "$ROOT"/Sources/App/*.swift
+
+echo "embedding Sparkle"
+FRAMEWORK="$APP/Contents/Frameworks/Sparkle.framework"
+ditto "$ROOT/vendor/Sparkle.framework" "$FRAMEWORK"
+
+# Graft is not sandboxed, so Sparkle's XPC services do nothing for it, and
+# removing them avoids the nested-entitlements dance and the launchd refusals
+# that non-sandboxed apps hit with them present. The version letter is globbed
+# because Sparkle has not always used B, and a silent no-op here would leave
+# nested XPC for a --deep sign to trip over.
+rm -rf "$FRAMEWORK"/Versions/*/XPCServices
+rm -f "$FRAMEWORK/XPCServices"
+
+# The binary was linked against @rpath/Sparkle.framework; this is what makes it
+# resolve inside the bundle rather than wherever it was built from.
+install_name_tool -add_rpath "@executable_path/../Frameworks" \
+    "$APP/Contents/MacOS/ClaudeGraft" 2>/dev/null
+
+# --deep is right here and wrong on the outer bundle: the framework's own nested
+# helpers (Autoupdate, Updater.app) need signing, and doing it now means the app
+# signature below seals a framework that is already settled.
+codesign --force --deep $SIGN_FLAGS --sign "$IDENTITY" "$FRAMEWORK" >/dev/null
 
 cp "$ROOT/Resources/Info.plist" "$APP/Contents/Info.plist"
 /usr/libexec/PlistBuddy \
@@ -67,6 +98,6 @@ if [ -f "$ROOT/Resources/AppIcon.icns" ]; then
     cp "$ROOT/Resources/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
 fi
 
-codesign --force --sign - "$APP" >/dev/null 2>&1 || true
+codesign --force $SIGN_FLAGS --sign "$IDENTITY" "$APP" >/dev/null
 
 echo "built $APP ($VERSION, $ARCHES)"
