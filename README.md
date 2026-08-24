@@ -26,10 +26,18 @@ quarantined app that is not notarised, so the cask clears that attribute for you
 rather than leaving everyone to do it by hand. The command it runs is in the
 cask file, and nothing about the app's signature changes.
 
-Taking the zip from the [releases page](https://github.com/aaditya-v-more/claude-graft/releases)
-instead works too; macOS will refuse it once, and System Settings → Privacy &
-Security has the Open Anyway button. Either way it is once — updates arrive
-through the app itself and are not quarantined.
+Downloading it by hand works too — take the **.dmg** from the
+[releases page](https://github.com/aaditya-v-more/claude-graft/releases) and
+drag the app to Applications. macOS will refuse the first launch, and System
+Settings → Privacy & Security has the Open Anyway button for it. Either way it
+is once: updates arrive through the app itself and are not quarantined.
+
+Prefer the disk image over the zip. The zip is there for the updater, which
+unpacks it correctly; an unarchiver that drops the symlinks or extended
+attributes inside the embedded framework leaves a bundle whose signature no
+longer matches, and macOS calls that damaged and offers nothing to click. A disk
+image is copied rather than extracted, so nothing sits between the download and
+the app.
 
 To build it from source:
 
