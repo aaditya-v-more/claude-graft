@@ -13,6 +13,20 @@ stay completely separate.
 ## Install
 
 ```
+brew install --cask aaditya-v-more/claude-graft/claude-graft
+xattr -dr com.apple.quarantine "/Applications/Claude Graft.app"
+```
+
+The second line is needed once. The app is ad-hoc signed rather than notarised
+— notarising means a paid Apple developer account — and Homebrew quarantines
+everything it downloads, with no flag to skip it since Homebrew 6. Opening
+System Settings → Privacy & Security and choosing Open Anyway after the first
+refusal does the same thing. It never asks again: updates arrive through the app
+itself, and those are not quarantined.
+
+To build it instead:
+
+```
 ./release.sh --install
 ```
 
