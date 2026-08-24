@@ -86,6 +86,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var hasShownWindow = false
     /// Set by Quit in the dropdown, and by nothing else. See `applicationShouldTerminate`.
     private static var quitWasAskedFor = false
+    /// Set once a terminate has been allowed through. Window bookkeeping stops
+    /// there: windows closing on the way out are the app shutting down, not
+    /// someone putting the window away, and recording it as the latter brings
+    /// the next launch up hidden. An update relaunch made that visible — the
+    /// new version would arrive with no window and no way to tell why.
+    private static var isTerminating = false
     private var systemIsGoingDown = false
 
     func applicationWillFinishLaunching(_ notification: Notification) {
@@ -123,8 +129,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// setting says what was wanted, not whether the bar had room.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         if QuitPolicy.endsTheApp(askedFor: Self.quitWasAskedFor,
+                                 installingUpdate: Updater.isRelaunchingForUpdate,
                                  systemGoingDown: systemIsGoingDown,
                                  menuBarShowing: menuBar?.isShowing == true) {
+            Self.isTerminating = true
             return .terminateNow
         }
         hideToMenuBar()
@@ -188,7 +196,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func watchForWindowClose() {
         NotificationCenter.default.addObserver(forName: NSWindow.didBecomeMainNotification,
                                                object: nil, queue: .main) { [weak self] _ in
-            guard !Shared.startHidden else { return }
+            guard !Shared.startHidden, !Self.isTerminating else { return }
             Shared.usage.mayPromptUnasked = true
             self?.hasShownWindow = true
             UserDefaults.standard.set(true, forKey: Self.windowOpenKey)
@@ -200,6 +208,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func hideDockIconIfWindowless() {
+        guard !Self.isTerminating else { return }
         guard Shared.settings.showInMenuBar, hasShownWindow else { return }
         let hasWindow = NSApp.windows.contains {
             $0.isVisible && $0.canBecomeMain && !$0.isMiniaturized

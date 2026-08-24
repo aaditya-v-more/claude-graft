@@ -9,12 +9,21 @@ import ServiceManagement
 /// nobody asked to close. So only Quit in the dropdown ends the app, along with
 /// macOS on its way to a logout, which stalls on a dialog if it is refused.
 ///
+/// An update is the other exception, and it was learned the hard way: Sparkle
+/// swaps the bundle and starts the new copy by asking the app to terminate.
+/// Refusing that left the old version running, the update never came up, and
+/// the window was put away on the way past — which read as the app quitting
+/// itself on launch and never coming back with a window again.
+///
 /// The last clause is the way out: with nothing in the bar to go back to,
 /// cancelling a quit would leave no window, no item, and no way to stop the app
 /// but Force Quit.
 enum QuitPolicy {
-    static func endsTheApp(askedFor: Bool, systemGoingDown: Bool, menuBarShowing: Bool) -> Bool {
-        askedFor || systemGoingDown || !menuBarShowing
+    static func endsTheApp(askedFor: Bool,
+                           installingUpdate: Bool,
+                           systemGoingDown: Bool,
+                           menuBarShowing: Bool) -> Bool {
+        askedFor || installingUpdate || systemGoingDown || !menuBarShowing
     }
 }
 

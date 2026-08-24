@@ -25,6 +25,10 @@ final class Updater: NSObject, ObservableObject {
     private var controller: SPUStandardUpdaterController?
     private var watch: AnyCancellable?
 
+    /// Read by `applicationShouldTerminate`, which is the only thing standing
+    /// between Sparkle and the new version starting.
+    nonisolated(unsafe) private(set) static var isRelaunchingForUpdate = false
+
     /// `Shared` builds this before anything is on the main actor's books, so
     /// construction has to be allowed from outside it. Nothing here touches
     /// Sparkle — `start()` does, and that is called from the main thread.
@@ -38,6 +42,18 @@ final class Updater: NSObject, ObservableObject {
                                                      updaterDelegate: self,
                                                      userDriverDelegate: self)
         self.controller = controller
+
+        // A background find is meant to become a line in the dropdown, not a
+        // new version arriving by itself: an app that replaces itself and
+        // restarts while someone is working is the interruption all of this
+        // was written to avoid, and it reads as the app quitting on its own.
+        // Seeded once, so the checkbox in Sparkle's own panel still wins after.
+        let seeded = "updatePreferenceSeeded"
+        if !UserDefaults.standard.bool(forKey: seeded) {
+            UserDefaults.standard.set(true, forKey: seeded)
+            controller.updater.automaticallyDownloadsUpdates = false
+        }
+
         canCheck = controller.updater.canCheckForUpdates
         watch = controller.updater.publisher(for: \.canCheckForUpdates)
             .receive(on: RunLoop.main)
@@ -61,6 +77,16 @@ final class Updater: NSObject, ObservableObject {
 extension Updater: SPUUpdaterDelegate {
     nonisolated func updater(_ updater: SPUUpdater, didFindValidUpdate item: SUAppcastItem) {
         Task { @MainActor in self.availableVersion = item.displayVersionString }
+    }
+
+    /// Sparkle starts the new copy by asking this one to terminate, and this
+    /// app refuses a terminate it did not ask for. Without this the update
+    /// installs, the old version keeps running, and the window is put away on
+    /// the way past — which is what it looked like the first time.
+    ///
+    /// Nothing clears the flag. The process is on its way out.
+    nonisolated func updaterWillRelaunchApplication(_ updater: SPUUpdater) {
+        Updater.isRelaunchingForUpdate = true
     }
 }
 

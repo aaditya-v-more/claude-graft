@@ -1091,15 +1091,25 @@ do {
 section("Quitting")
 
 do {
-    check(!QuitPolicy.endsTheApp(askedFor: false, systemGoingDown: false, menuBarShowing: true),
+    check(!QuitPolicy.endsTheApp(askedFor: false, installingUpdate: false, systemGoingDown: false, menuBarShowing: true),
           "command-Q puts the window away and leaves the menu bar item reporting")
-    check(QuitPolicy.endsTheApp(askedFor: true, systemGoingDown: false, menuBarShowing: true),
+    check(QuitPolicy.endsTheApp(askedFor: true, installingUpdate: false, systemGoingDown: false, menuBarShowing: true),
           "Quit in the dropdown is the one that ends it")
-    check(QuitPolicy.endsTheApp(askedFor: false, systemGoingDown: true, menuBarShowing: true),
+    check(QuitPolicy.endsTheApp(askedFor: false, installingUpdate: false, systemGoingDown: true, menuBarShowing: true),
           "a logout is not something to argue with")
 
     // Without this the app would have no window, no item, and no way out.
-    check(QuitPolicy.endsTheApp(askedFor: false, systemGoingDown: false, menuBarShowing: false),
+    // Sparkle starts the new version by asking this one to terminate. Refusing
+    // that leaves the old copy running with the update already staged, and the
+    // window put away on the way past — which reads as the app quitting itself.
+    check(QuitPolicy.endsTheApp(askedFor: false, installingUpdate: true,
+                                systemGoingDown: false, menuBarShowing: true),
+          "an update replacing the app is allowed to end it, or the new version never starts")
+    check(!QuitPolicy.endsTheApp(askedFor: false, installingUpdate: false,
+                                 systemGoingDown: false, menuBarShowing: true),
+          "and nothing else about that changed: a plain terminate is still refused")
+
+    check(QuitPolicy.endsTheApp(askedFor: false, installingUpdate: false, systemGoingDown: false, menuBarShowing: false),
           "with nothing in the bar to go back to, a quit is a quit")
 }
 

@@ -22,7 +22,7 @@ would have written by hand.
 
     ./build.sh                 app + launcher into build/, this arch only
     GRAFT_UNIVERSAL=1 ./build.sh   both arches, joined with lipo
-    ./test.sh                  207 checks, all in a throwaway directory
+    ./test.sh                  209 checks, all in a throwaway directory
     ./release.sh [--install]   tests, builds universal, draws the icon, signs, packages
 
 ## Invariants
@@ -88,7 +88,18 @@ window on every account, over and over.
 terminate and closes the window instead, because the menu bar item is the part
 that does the reporting and closing a window is not asking for it to stop.
 `AppDelegate.quit()`, wired only to Quit in the dropdown, is what really ends
-it, along with a logout — refusing that stalls the shutdown on a dialog. The
+it, along with a logout — refusing that stalls the shutdown on a dialog — and
+along with an update. Sparkle starts the new version by asking this one to
+terminate; refusing that left 1.0.0 running with 1.0.1 already staged, put the
+window away on the way past, and wrote `mainWindowOpen` false, so every launch
+after came up with no window. One refused terminate, three symptoms, none of
+which named the cause. `Updater.isRelaunchingForUpdate` is the clause that
+fixes it.
+
+Window bookkeeping stops once a terminate is allowed. `AppDelegate.isTerminating`
+guards it, because windows closing on the way out are the app shutting down, not
+someone putting a window away, and recording it as the latter brings the next
+launch — an update's own relaunch above all — up hidden. The
 rule lives in `QuitPolicy` so the suite can drive it, and its last clause is
 the way out: with nothing actually in the bar, `MenuBarController.isShowing`
 reads false and a quit is a quit. Ask that, not the setting; the setting says
