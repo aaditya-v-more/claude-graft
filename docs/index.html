@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Claude Graft</title>
+<meta name="description" content="Run several Claude Desktop logins side by side on macOS, sharing chat history between them.">
+<style>
+  :root {
+    --bg: #fbfaf8;
+    --panel: #ffffff;
+    --ink: #1d1b18;
+    --muted: #6b6560;
+    --line: #e5e0d8;
+    --accent: #b4552d;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #171614;
+      --panel: #201e1b;
+      --ink: #eceae6;
+      --muted: #9c948b;
+      --line: #322e29;
+      --accent: #d97a4e;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 0 1.5rem 5rem;
+    background: var(--bg);
+    color: var(--ink);
+    font: 17px/1.65 ui-sans-serif, -apple-system, "SF Pro Text", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  main { max-width: 44rem; margin: 0 auto; }
+  header { padding: 5rem 0 2.5rem; }
+  h1 {
+    font-size: clamp(2.4rem, 7vw, 3.4rem);
+    line-height: 1.05;
+    letter-spacing: -0.03em;
+    margin: 0 0 1rem;
+  }
+  .lede { font-size: 1.18rem; color: var(--muted); margin: 0; max-width: 34rem; }
+  h2 {
+    font-size: 1.05rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin: 3.5rem 0 1rem;
+    font-weight: 600;
+  }
+  p { margin: 0 0 1rem; }
+  a { color: var(--accent); }
+  figure { margin: 2rem 0; }
+  img {
+    max-width: 100%;
+    height: auto;
+    display: block;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--panel);
+  }
+  figcaption { color: var(--muted); font-size: 0.92rem; margin-top: 0.6rem; }
+  pre {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 0.9rem 1.1rem;
+    overflow-x: auto;
+    margin: 0 0 1rem;
+  }
+  code { font: 14px/1.6 ui-monospace, "SF Mono", Menlo, monospace; }
+  .note { color: var(--muted); font-size: 0.95rem; }
+  footer {
+    margin-top: 4rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--line);
+    color: var(--muted);
+    font-size: 0.95rem;
+  }
+</style>
+</head>
+<body>
+<main>
+
+<header>
+  <h1>Claude Graft</h1>
+  <p class="lede">Claude Desktop signs into one account at a time. Graft gives you
+  as many Claudes as you want — each with its own name, icon and login — and lets
+  any of them read another one's Claude Code history.</p>
+</header>
+
+<p>That last part is the point. Every other way of running two accounts gives you
+an empty second profile. Graft lets your work login open your personal chats,
+connectors and extensions while the accounts stay completely separate.</p>
+
+<figure>
+  <img src="assets/menu-bar.png" alt="The menu bar dropdown showing five-hour and weekly usage for two Claude accounts, with reset times.">
+  <figcaption>Live usage for every account, read from Anthropic's own endpoint.</figcaption>
+</figure>
+
+<h2>Install</h2>
+
+<pre><code>brew install --cask aaditya-v-more/claude-graft/claude-graft</code></pre>
+
+<p class="note">Homebrew asks you to trust the cask the first time, because this
+isn't an official Homebrew tap. Say yes once and it never asks again. macOS 13 or
+later; universal, for Apple Silicon and Intel. Or take the disk image from the
+<a href="https://github.com/aaditya-v-more/claude-graft/releases">releases page</a>.</p>
+
+<h2>Making a Claude</h2>
+
+<p>Name it, choose where its chats come from, press Create Shortcut. You get a
+real app in <code>/Applications</code> that you can launch from Spotlight or pin
+to the Dock like any other.</p>
+
+<figure>
+  <img src="assets/shortcuts.png" alt="Spotlight showing Claude and Claude 2 as two separate applications.">
+</figure>
+
+<figure>
+  <img src="assets/window.png" alt="Claude Graft's window, showing a shortcut named Claude 2 reading its chats from the main Claude profile.">
+  <figcaption>Each shortcut carries its own launcher, so it keeps working whether
+  or not Graft is running.</figcaption>
+</figure>
+
+<h2>What it does not do</h2>
+
+<p>Nothing is written back to Claude's config or keychain. Only the access token
+is ever read, never the refresh token — Anthropic rotates those, and using one
+would sign Claude Desktop out. The token goes to <code>api.anthropic.com</code>
+and nowhere else.</p>
+
+<p>It also refuses to touch any application it did not create, identifying its
+own by a description file they carry rather than by name.</p>
+
+<h2>Updating</h2>
+
+<p>Graft updates itself, checking hourly and at launch. Every download is
+verified against a signing key that ships inside the app; anything that doesn't
+match is refused.</p>
+
+<footer>
+  Free and open source, MIT licensed —
+  <a href="https://github.com/aaditya-v-more/claude-graft">source on GitHub</a>.
+  Not affiliated with Anthropic.
+</footer>
+
+</main>
+</body>
+</html>

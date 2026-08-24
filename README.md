@@ -8,7 +8,7 @@ That last part is the point. Every other way of running two accounts gives you
 an empty second profile. Graft lets your work login open your personal chats,
 connectors and extensions while the accounts stay completely separate.
 
-![Live usage for both accounts in the menu bar](assets/menu-bar.png)
+![Live usage for both accounts in the menu bar](docs/assets/menu-bar.png)
 
 ## Install
 
@@ -34,11 +34,11 @@ Name it, choose where its chats come from, press **Create Shortcut**. You get a
 real app in `/Applications` that you can launch from Spotlight or pin to the
 Dock like any other.
 
-![Claude and Claude 2 side by side in Spotlight](assets/shortcuts.png)
+![Claude and Claude 2 side by side in Spotlight](docs/assets/shortcuts.png)
 
 Launch it, sign in with the other account, and both run side by side.
 
-![The shortcut's settings](assets/window.png)
+![The shortcut's settings](docs/assets/window.png)
 
 Each shortcut is self-contained — it carries its own launcher and a description
 of its profile — so it keeps working whether or not Graft is installed or
