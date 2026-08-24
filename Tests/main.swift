@@ -958,7 +958,21 @@ section("Polling and backoff")
 
 do {
     check(UsageMonitor.liveInterval == 300,
-          "usage is asked for at most once every five minutes per profile")
+          "a tick nobody asked for reuses a figure up to five minutes old")
+
+    // The cache used to be consulted before anyone asked who was waiting, so
+    // Refresh Usage handed back whatever was already in hand and the figure
+    // could sit five minutes stale with no way to hurry it.
+    check(UsageMonitor.mayUseCache(age: 120, freshness: .cached),
+          "two minutes old is fresh enough for a background pass")
+    check(!UsageMonitor.mayUseCache(age: 120, freshness: .recent),
+          "but not for someone who just asked to see the number")
+    check(UsageMonitor.mayUseCache(age: 10, freshness: .recent),
+          "asking twice in ten seconds still only asks the service once")
+    check(UsageMonitor.recentInterval < UsageMonitor.liveInterval,
+          "someone looking gets a shorter cache than a timer does")
+    check(UsageMonitor.recentInterval >= 30,
+          "with a floor, since a button can be pressed faster than a service wants to answer")
 
     // Without backoff a refused call would be retried on the next tick, turning
     // one failure into a hundred and twenty attempts an hour.

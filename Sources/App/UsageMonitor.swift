@@ -51,6 +51,30 @@ final class UsageMonitor: ObservableObject {
     private var liveCache: [String: (fetched: Date, reading: UsageAPI.Reading)] = [:]
     static let liveInterval: TimeInterval = 5 * 60
 
+    /// How current the figures need to be for whoever is asking.
+    enum Freshness {
+        /// A tick nobody asked for. Five minutes old will do.
+        case cached
+        /// Someone is looking at the numbers right now.
+        case recent
+    }
+
+    /// The five-minute cache exists to keep a thirty-second timer off the
+    /// endpoint, not to make a button do nothing. Pressing Refresh Usage used
+    /// to return whatever was already in hand, so the figure could sit five
+    /// minutes out of date with no way to hurry it — which reads as the app
+    /// having stopped updating. Someone looking gets a shorter cache; the floor
+    /// is still there, because a button can be pressed faster than any service
+    /// wants to answer.
+    static let recentInterval: TimeInterval = 60
+
+    static func mayUseCache(age: TimeInterval, freshness: Freshness) -> Bool {
+        switch freshness {
+        case .cached: return age < liveInterval
+        case .recent: return age < recentInterval
+        }
+    }
+
     /// A failed call must not simply be retried on the next thirty-second tick:
     /// that turns one refused request into a hundred and twenty an hour, which
     /// is exactly how a client earns a rate limit. Each failure pushes the next
@@ -118,7 +142,8 @@ final class UsageMonitor: ObservableObject {
     /// to hammer the endpoint on every open.
     func refresh(_ store: ShortcutStore,
                  interactive: Bool = false,
-                 prompting: ClaudeCredentials.Prompting? = nil) {
+                 prompting: ClaudeCredentials.Prompting? = nil,
+                 freshness: Freshness? = nil) {
         var targets: [(name: String, profile: URL, shortcut: UUID?)] = [
             (name: "Claude", profile: Graft.mainProfile, shortcut: nil)
         ]
@@ -127,6 +152,9 @@ final class UsageMonitor: ObservableObject {
         }
 
         let asking = prompting ?? (interactive ? .yes : (mayPromptUnasked ? .onceIfShut : .no))
+        // Opening the dropdown wants a current figure but must not skip the
+        // backoff: a failing endpoint would then be asked again on every open.
+        let wanted = freshness ?? (interactive ? .recent : .cached)
 
         guard !inFlight else { return }
         inFlight = true
@@ -143,6 +171,7 @@ final class UsageMonitor: ObservableObject {
                                   shortcut: target.shortcut)
                 if let live = self.live(for: target.profile,
                                         interactive: interactive,
+                                        freshness: wanted,
                                         prompting: asking,
                                         problem: &problem,
                                         locked: &locked) {
@@ -206,12 +235,13 @@ final class UsageMonitor: ObservableObject {
     /// background pass.
     private func live(for profile: URL,
                       interactive: Bool,
+                      freshness: Freshness,
                       prompting: ClaudeCredentials.Prompting,
                       problem: inout String?,
                       locked: inout Bool) -> UsageAPI.Reading? {
         let now = Date()
         if let cached = liveCache[profile.path],
-           now.timeIntervalSince(cached.fetched) < Self.liveInterval {
+           Self.mayUseCache(age: now.timeIntervalSince(cached.fetched), freshness: freshness) {
             return cached.reading
         }
 

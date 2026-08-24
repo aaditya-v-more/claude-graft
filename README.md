@@ -131,7 +131,8 @@ nowhere else.
 
 ### How often it asks
 
-Once per profile every five minutes, and no more. The thirty-second timer only
+Once per profile every five minutes when nobody asked, and at most once a
+minute when somebody did — opening the dropdown, or pressing Refresh Usage. The thirty-second timer only
 reads the local file and checks whether that Claude is running; the network call
 sits behind its own gate. Two profiles is twenty-four calls an hour against the
 endpoint Claude Code itself polls.

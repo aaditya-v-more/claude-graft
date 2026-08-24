@@ -104,7 +104,7 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
         // ask for the access those figures need — but not skip the backoff, or
         // every open would be another call to the endpoint.
         usage.mayPromptUnasked = true
-        usage.refresh(store, prompting: .onceIfShut)
+        usage.refresh(store, prompting: .onceIfShut, freshness: .recent)
         let content = MenuBarContent(openMainWindow: { [weak self] in
             self?.popover.performClose(nil)
             self?.openMainWindow()

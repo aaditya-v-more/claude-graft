@@ -22,7 +22,7 @@ would have written by hand.
 
     ./build.sh                 app + launcher into build/, this arch only
     GRAFT_UNIVERSAL=1 ./build.sh   both arches, joined with lipo
-    ./test.sh                  213 checks, all in a throwaway directory
+    ./test.sh                  218 checks, all in a throwaway directory
     ./release.sh [--install]   tests, builds universal, draws the icon, signs, packages
 
 ## Invariants
@@ -223,7 +223,14 @@ Session goes through each profile's own borrowed token rather than the CLI.
 ## Polling budget
 
 The thirty-second timer reads local files and checks what is running. The API is
-asked once per profile per five minutes. Failures back off 60/120/300/900/1800
+asked once per profile per five minutes on a tick nobody asked for, and once a
+minute when somebody is actually looking — opening the dropdown or pressing
+Refresh Usage. That second figure is not a nicety: the cache used to be
+consulted before anything asked who was waiting, so Refresh Usage returned
+whatever was already in hand and the number could sit five minutes stale with
+no way to hurry it. `mayUseCache` is the rule. Opening the dropdown asks for a
+current figure but does not skip the backoff, because a failing endpoint would
+then be asked again on every open. Failures back off 60/120/300/900/1800
 seconds and a success clears the count; a `Retry-After` from the service wins
 and is the one wait a person pressing refresh cannot skip.
 

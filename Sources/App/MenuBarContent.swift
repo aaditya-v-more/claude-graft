@@ -92,7 +92,7 @@ struct MenuBarContent: View {
         .frame(width: 320)
         .onAppear {
             settings.refreshLoginItem()
-            usage.refresh(store, prompting: .onceIfShut)
+            usage.refresh(store, prompting: .onceIfShut, freshness: .recent)
         }
     }
 
