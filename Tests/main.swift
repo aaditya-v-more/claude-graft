@@ -886,6 +886,16 @@ do {
         let enclosures = appcast.components(separatedBy: "<enclosure ").dropFirst()
         check(!enclosures.isEmpty && enclosures.allSatisfy { $0.contains("sparkle:edSignature") },
               "every download the published feed offers carries a signature")
+
+        // generate_appcast prunes to a few entries per branch point by default,
+        // so each release quietly dropped the oldest one. Nothing broke — the
+        // newest is what gets offered — but the signature in an entry is over
+        // an archive that is never built again, so a dropped entry is not one
+        // that can be regenerated later.
+        check(release.contains("--maximum-versions 0"),
+              "the feed keeps every release it has ever carried")
+        check(release.contains("[ \"$AFTER\" -eq \"$((BEFORE + 1))\" ]"),
+              "and a run that adds one while losing another is caught, not waved through")
     }
 }
 
@@ -998,6 +1008,28 @@ do {
           "someone looking gets a shorter cache than a timer does")
     check(UsageMonitor.recentInterval >= 30,
           "with a floor, since a button can be pressed faster than a service wants to answer")
+
+    // Opening the dropdown starts a pass, so a figure a few seconds old was
+    // always the one Refresh Usage found — and the minute-long floor meant it
+    // handed that straight back and asked nobody anything.
+    check(!UsageMonitor.mayUseCache(age: 30, freshness: .now),
+          "someone who pressed the button gets the service asked, not the last answer")
+    check(UsageMonitor.mayUseCache(age: 1, freshness: .now),
+          "though a double-click is still one request")
+    check(UsageMonitor.nowInterval < UsageMonitor.recentInterval,
+          "pressing for a figure beats merely looking at one")
+
+    // A press landing inside the pass the dropdown itself started used to be
+    // dropped on the floor, which is indistinguishable from a button that does
+    // nothing at all.
+    check(UsageMonitor.arrival(passInFlight: false, interactive: true) == .start,
+          "with nothing running, a press goes straight out")
+    check(UsageMonitor.arrival(passInFlight: false, interactive: false) == .start,
+          "and so does a tick")
+    check(UsageMonitor.arrival(passInFlight: true, interactive: true) == .queue,
+          "a press arriving mid-pass waits for its turn rather than being lost")
+    check(UsageMonitor.arrival(passInFlight: true, interactive: false) == .drop,
+          "but a tick is worth dropping, since the pass will answer it anyway")
 
     // Without backoff a refused call would be retried on the next tick, turning
     // one failure into a hundred and twenty attempts an hour.

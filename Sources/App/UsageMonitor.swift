@@ -44,8 +44,24 @@ final class UsageMonitor: ObservableObject {
     var mayPromptUnasked = true
 
     private var timer: Timer?
+    /// Serial, which is what lets `invalidate` be ordered against the pass that
+    /// follows it rather than racing the same dictionary from two threads.
     private let queue = DispatchQueue(label: "graft.usage", qos: .utility)
     private var inFlight = false
+
+    /// A press that arrived mid-pass, run as soon as that pass is out of the
+    /// way. Only ever one: two presses waiting on the same answer are one
+    /// press.
+    private struct Waiting {
+        var prompting: ClaudeCredentials.Prompting
+        var freshness: Freshness
+        weak var store: ShortcutStore?
+    }
+    private var waiting: Waiting?
+
+    /// True while a pass someone asked for is running, so a button can say so.
+    /// Timer ticks leave it alone — a spinner every thirty seconds is noise.
+    @Published private(set) var isRefreshing = false
 
     /// The API is polled far less often than the disk, and only per profile.
     private var liveCache: [String: (fetched: Date, reading: UsageAPI.Reading)] = [:]
@@ -57,6 +73,8 @@ final class UsageMonitor: ObservableObject {
         case cached
         /// Someone is looking at the numbers right now.
         case recent
+        /// Someone pressed something and is waiting for the answer.
+        case now
     }
 
     /// The five-minute cache exists to keep a thirty-second timer off the
@@ -68,11 +86,34 @@ final class UsageMonitor: ObservableObject {
     /// wants to answer.
     static let recentInterval: TimeInterval = 60
 
+    /// Opening the dropdown is someone looking; pressing Refresh Usage is
+    /// someone asking. Those were the same thing, and the minute that made the
+    /// first one cheap made the second one do nothing at all — press it and the
+    /// figure it handed back could be fifty-nine seconds old, with the button
+    /// giving no sign either way. The floor left here is only wide enough to
+    /// swallow a double-click.
+    static let nowInterval: TimeInterval = 2
+
     static func mayUseCache(age: TimeInterval, freshness: Freshness) -> Bool {
         switch freshness {
         case .cached: return age < liveInterval
         case .recent: return age < recentInterval
+        case .now: return age < nowInterval
         }
+    }
+
+    /// What becomes of a request that arrives while a pass is already running.
+    ///
+    /// A timer tick is worth dropping: the pass in flight is about to answer
+    /// the same question. A press is not. Opening the dropdown starts a pass of
+    /// its own, so pressing Refresh Usage a moment later — the obvious thing to
+    /// do when the figure looks stale — used to land squarely inside it and be
+    /// discarded without a trace.
+    enum Arrival { case start, queue, drop }
+
+    static func arrival(passInFlight: Bool, interactive: Bool) -> Arrival {
+        guard passInFlight else { return .start }
+        return interactive ? .queue : .drop
     }
 
     /// A failed call must not simply be retried on the next thirty-second tick:
@@ -154,9 +195,19 @@ final class UsageMonitor: ObservableObject {
         let asking = prompting ?? (interactive ? .yes : (mayPromptUnasked ? .onceIfShut : .no))
         // Opening the dropdown wants a current figure but must not skip the
         // backoff: a failing endpoint would then be asked again on every open.
-        let wanted = freshness ?? (interactive ? .recent : .cached)
+        let wanted = freshness ?? (interactive ? .now : .cached)
 
-        guard !inFlight else { return }
+        if interactive { isRefreshing = true }
+
+        switch Self.arrival(passInFlight: inFlight, interactive: interactive) {
+        case .drop:
+            return
+        case .queue:
+            waiting = Waiting(prompting: asking, freshness: wanted, store: store)
+            return
+        case .start:
+            break
+        }
         inFlight = true
         queue.async { [weak self] in
             guard let self else { return }
@@ -192,6 +243,15 @@ final class UsageMonitor: ObservableObject {
                 if self.entries != fresh { self.entries = fresh }
                 if self.liveProblem != problem { self.liveProblem = problem }
                 if self.needsKeychainAccess != locked { self.needsKeychainAccess = locked }
+
+                if let queued = self.waiting, let store = queued.store {
+                    self.waiting = nil
+                    self.refresh(store, interactive: true,
+                                 prompting: queued.prompting, freshness: queued.freshness)
+                } else {
+                    self.waiting = nil
+                    self.isRefreshing = false
+                }
             }
         }
     }
@@ -229,6 +289,17 @@ final class UsageMonitor: ObservableObject {
         try? FileManager.default.createDirectory(at: Self.statusFile.deletingLastPathComponent(),
                                                  withIntermediateDirectories: true)
         try? data.write(to: Self.statusFile)
+    }
+
+    /// Drops the stored reading for one profile.
+    ///
+    /// For the caller that has just changed the number itself. Starting a
+    /// session opens a five-hour window, so the figure taken before it is known
+    /// to be wrong — and it was still inside every cache window there is, which
+    /// is why pressing Start Session moved nothing on screen. Ordered ahead of
+    /// the refresh that follows by the queue both go through.
+    func invalidate(_ profile: URL) {
+        queue.async { [weak self] in self?.liveCache[profile.path] = nil }
     }
 
     /// Cached hard: one call per profile per interval, and never a prompt on a

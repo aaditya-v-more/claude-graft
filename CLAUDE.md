@@ -22,7 +22,7 @@ would have written by hand.
 
     ./build.sh                 app + launcher into build.noindex/, this arch only
     GRAFT_UNIVERSAL=1 ./build.sh   both arches, joined with lipo
-    ./test.sh                  224 checks, all in a throwaway directory
+    ./test.sh                  233 checks, all in a throwaway directory
     ./release.sh [--install]   tests, builds universal, draws the icon, signs, packages
 
 ## Invariants
@@ -154,6 +154,16 @@ starts, which happened twice before it was understood. `willInstallUpdateOnQuit`
 also calls the immediate handler: Sparkle would otherwise wait for a quit that a
 menu bar app may not see for weeks.
 
+**The feed keeps every release it has ever carried.** `generate_appcast` prunes
+to a handful of entries per branch point unless told otherwise, so each release
+silently dropped the oldest — 1.0.0 and 1.0.1 had already gone before anyone
+looked. Nothing breaks when they go, since a client is offered the newest entry
+regardless, but the signature in an entry is over an archive that is never built
+again, so a dropped entry cannot be regenerated, only recovered out of git.
+`release.sh` passes `--maximum-versions 0` and checks the count went up by
+exactly one; the old check was "no fewer than before", which adding one and
+losing one satisfies perfectly.
+
 **The feed URL is unchangeable once shipped.** A copy out in the world polls the
 URL it was born with, and GitHub gives Pages no redirect if the account is ever
 renamed — repositories redirect, Pages does not. `Resources/Info.plist` and the
@@ -238,17 +248,32 @@ Session goes through each profile's own borrowed token rather than the CLI.
 
 ## Polling budget
 
-The thirty-second timer reads local files and checks what is running. The API is
-asked once per profile per five minutes on a tick nobody asked for, and once a
-minute when somebody is actually looking — opening the dropdown or pressing
-Refresh Usage. That second figure is not a nicety: the cache used to be
-consulted before anything asked who was waiting, so Refresh Usage returned
-whatever was already in hand and the number could sit five minutes stale with
-no way to hurry it. `mayUseCache` is the rule. Opening the dropdown asks for a
-current figure but does not skip the backoff, because a failing endpoint would
-then be asked again on every open. Failures back off 60/120/300/900/1800
-seconds and a success clears the count; a `Retry-After` from the service wins
-and is the one wait a person pressing refresh cannot skip.
+The thirty-second timer reads local files and checks what is running. The API
+has three rungs, and `mayUseCache` is the rule: five minutes for a tick nobody
+asked for, a minute for somebody looking — that is opening the dropdown — and
+two seconds for somebody who pressed something. The last rung was missing, and
+its absence is why Refresh Usage felt broken: opening the dropdown starts a pass
+of its own, so the figure was always a few seconds old, always inside the
+minute, and the button handed it straight back without asking anyone anything.
+Two seconds is only wide enough to swallow a double-click.
+
+A press that lands while a pass is running is queued, not dropped. `arrival` is
+the rule. `inFlight` used to refuse everything, and the pass it most often
+refused was the one the dropdown had just started itself — so the obvious move,
+open the dropdown and press Refresh because the number looks stale, was the one
+guaranteed to do nothing.
+
+Starting a session is the one thing here that changes the number itself, so it
+calls `invalidate` for that profile before refreshing rather than trusting any
+cache window. That is ordered against the refresh by the serial queue both go
+through. Without it, a five-hour window would open and the bar would go on
+showing the figure from before it.
+
+Opening the dropdown asks for a current figure but does not skip the backoff,
+because a failing endpoint would then be asked again on every open. Failures
+back off 60/120/300/900/1800 seconds and a success clears the count; a
+`Retry-After` from the service wins and is the one wait a person pressing
+refresh cannot skip.
 
 ## Verification state
 

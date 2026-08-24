@@ -124,15 +124,24 @@ if [ -f "$ROOT/docs/appcast.xml" ]; then
     BEFORE="$(grep -c "<item>" "$ROOT/docs/appcast.xml" || true)"
 fi
 
+# --maximum-versions 0 keeps every entry. The default prunes to a handful per
+# branch point, which quietly dropped the oldest release on each run — 1.0.0 and
+# 1.0.1 had already gone this way before anyone noticed, and they were recovered
+# out of git history rather than regenerated, since the signature in an entry is
+# over an archive that is not built again.
 "$ROOT/vendor/bin/generate_appcast" \
+    --maximum-versions 0 \
     --download-url-prefix "https://github.com/aaditya-v-more/claude-graft/releases/download/$TAG/" \
     --link "https://github.com/aaditya-v-more/claude-graft" \
     -o "$ROOT/docs/appcast.xml" \
     "$DIST/sparkle"
 
+# One new entry and not one fewer of the old ones. The check used to be
+# "no fewer than before", which is satisfied exactly as well by adding this
+# release and dropping the oldest — which is what was happening.
 AFTER="$(grep -c "<item>" "$ROOT/docs/appcast.xml" || true)"
-[ "$AFTER" -ge "$BEFORE" ] \
-    || { echo "the appcast lost entries ($BEFORE -> $AFTER)." >&2; exit 1; }
+[ "$AFTER" -eq "$((BEFORE + 1))" ] \
+    || { echo "the appcast should have gone $BEFORE -> $((BEFORE + 1)), went $BEFORE -> $AFTER." >&2; exit 1; }
 
 # generate_appcast drops the signature silently when the key it finds does not
 # match SUPublicEDKey, and an unsigned enclosure is one every client refuses.

@@ -78,7 +78,9 @@ struct MenuBarContent: View {
             Divider().padding(.vertical, 6)
 
             VStack(alignment: .leading, spacing: 4) {
-                MenuButton("Refresh Usage") { usage.refresh(store, interactive: true) }
+                MenuButton(usage.isRefreshing ? "Refreshing…" : "Refresh Usage") {
+                    usage.refresh(store, interactive: true)
+                }
                 MenuButton(updater.canCheck ? "Check for Updates…" : "Checking for Updates…") {
                     updater.checkForUpdates()
                 }
@@ -116,6 +118,9 @@ struct MenuBarContent: View {
         let profile = entry.profile
         DispatchQueue.global(qos: .userInitiated).async {
             let failure = SessionStarter.start(profile: profile, interactive: true)
+            // The window this just opened is exactly what the stored reading
+            // predates, so it is dropped rather than waited out.
+            usage.invalidate(profile)
             DispatchQueue.main.async {
                 starting = nil
                 problem = failure?.errorDescription
