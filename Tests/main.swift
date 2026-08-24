@@ -854,6 +854,19 @@ do {
     check(read("build.sh").contains("XPCServices"),
           "Sparkle's XPC services are stripped from the embedded copy")
 
+    // Sparkle starts the new version by ending this one, and this app refuses a
+    // terminate nobody asked for. Missing that is what left an update installed
+    // and never started, twice. Sparkle's own header says the relaunch hook may
+    // not be called, so one place to set the flag is not enough.
+    let updater = read("Sources/App/Updater.swift")
+    let marks = updater.components(separatedBy: "isRelaunchingForUpdate = true").count - 1
+    check(marks >= 3,
+          "the terminate is marked as asked-for at every hook before an install, not just one")
+    check(updater.contains("automaticallyDownloadsUpdates = true"),
+          "an update installs itself rather than waiting to be noticed")
+    check(updater.contains("immediateInstallHandler()"),
+          "and now, rather than on a quit that a menu bar app may not see for weeks")
+
     // An enclosure without a signature is one every client refuses, and
     // generate_appcast omits it silently when the key does not match.
     let appcast = read("docs/appcast.xml")

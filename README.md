@@ -176,13 +176,12 @@ window and the dropdown each carry their own button for it.
 
 ## Updating
 
-Graft updates itself through [Sparkle](https://sparkle-project.org). A check
-runs in the background; when it finds something, the dropdown gains a line
-offering it, and pressing that line opens Sparkle's window with the release
-notes. A version found in the background never opens a window on its own —
-Graft usually has no window of its own on screen, so a panel arriving unasked
-would belong to no visible app and interrupt something else. **Check for
-Updates…** in the dropdown asks whenever you like.
+Graft updates itself through [Sparkle](https://sparkle-project.org), and it does
+it without asking. It checks once an hour, and at launch when an hour has passed
+since the last time, so a copy that only runs as a login item still keeps up.
+Anything it finds is downloaded, installed and restarted on its own; the only
+thing you see is the menu bar item blink out and come back. **Check for
+Updates…** in the dropdown asks immediately if you would rather not wait.
 
 Every download is signed with an EdDSA key whose public half ships inside the
 app, and anything that does not match is refused. That signature is Sparkle's

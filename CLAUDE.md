@@ -22,7 +22,7 @@ would have written by hand.
 
     ./build.sh                 app + launcher into build/, this arch only
     GRAFT_UNIVERSAL=1 ./build.sh   both arches, joined with lipo
-    ./test.sh                  218 checks, all in a throwaway directory
+    ./test.sh                  221 checks, all in a throwaway directory
     ./release.sh [--install]   tests, builds universal, draws the icon, signs, packages
 
 ## Invariants
@@ -130,13 +130,21 @@ development build only has to run here. `release.sh` sets `GRAFT_UNIVERSAL=1`
 and then asks the bundle what it actually got, because an Intel Mac handed an
 arm64-only app reports nothing more useful than a bounce in the Dock.
 
-**An update nobody asked for does not open a window.** Sparkle is told the app
-handles gentle reminders itself, which is what buys the right to answer no to
-`standardUserDriverShouldHandleShowingScheduledUpdate` unless the app is already
-in focus. A background find becomes a line in the dropdown; the panel opens when
-that line is pressed. Same rule as the keychain prompt, for the same reason:
-Graft usually has no window on screen, so anything it raises lands over someone
-else's work.
+**An update installs itself and says nothing.** Checked hourly and at launch
+once that much has passed, downloaded, installed and restarted with nobody
+asked. The gentle-reminder route was tried first and was wrong for this app:
+there is usually no window to put a question in front of, so an update that
+waits to be noticed is one that never gets installed. What it costs is the
+status item blinking out and back.
+
+That only works because `applicationShouldTerminate` lets it through, and
+Sparkle's own header warns that `updaterWillRelaunchApplication` may not be
+called. So `isRelaunchingForUpdate` is set at every hook before an install —
+`willInstallUpdate`, `willInstallUpdateOnQuit` and the relaunch — and the suite
+counts them, because one missed hook is an update that installs and never
+starts, which happened twice before it was understood. `willInstallUpdateOnQuit`
+also calls the immediate handler: Sparkle would otherwise wait for a quit that a
+menu bar app may not see for weeks.
 
 **The feed URL is unchangeable once shipped.** A copy out in the world polls the
 URL it was born with, and GitHub gives Pages no redirect if the account is ever

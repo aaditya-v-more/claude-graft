@@ -2,32 +2,41 @@ import AppKit
 import Combine
 import Sparkle
 
-/// In-app updates, through Sparkle.
+/// In-app updates, through Sparkle, and they look after themselves.
 ///
-/// Two things shape this. A scheduled check must not throw a panel over
-/// whatever is in front: Graft usually has no window of its own open, so an
-/// update window arriving on its own belongs to no visible app and interrupts
-/// something else's work. And a window shown deliberately has to be asked for
-/// first — a dockless app that just orders a panel front puts it behind
-/// whatever is already there.
+/// A new version is found on a schedule, downloaded, installed and started
+/// without anyone being asked. That is a deliberate choice for something that
+/// lives in the menu bar: there is usually no window to put a question in
+/// front of, and an update that waits to be noticed is one that never gets
+/// installed. The visible cost is the app disappearing and coming back, which
+/// for a status item is a flicker.
 ///
-/// So a background check that finds something says so in the dropdown and stops
-/// there. The panel appears when someone presses the line offering it, which is
-/// the same rule the keychain prompt follows.
+/// What makes it possible at all is `applicationShouldTerminate` letting the
+/// update through. Sparkle starts the new version by ending this one, and this
+/// app refuses a terminate nobody asked for. Refusing that is what left 1.0.0
+/// running with 1.0.1 already staged, so the flag is set at every hook Sparkle
+/// offers before it installs — `updaterWillRelaunchApplication` alone is not
+/// enough, its own header says it may not be called.
 @MainActor
 final class Updater: NSObject, ObservableObject {
-    /// The version a background check found, if any. What the dropdown offers.
+    /// The version a check found, in the moment before it installs itself.
     @Published private(set) var availableVersion: String?
-    /// False while a check is already running, so the menu line can dim rather
-    /// than stacking a second check on the first.
+    /// False while a check is running, so the menu line can dim rather than
+    /// stacking a second check on the first.
     @Published private(set) var canCheck = false
+
+    /// Read by `applicationShouldTerminate`, which is the only thing standing
+    /// between Sparkle and the new version starting. Nothing clears it: by the
+    /// time it is set, the process is on its way out.
+    nonisolated(unsafe) private(set) static var isRelaunchingForUpdate = false
+
+    /// Checked this often, and at launch when this much has passed since the
+    /// last one — so a Mac that only ever runs Graft as a login item still
+    /// keeps up.
+    static let checkInterval: TimeInterval = 60 * 60
 
     private var controller: SPUStandardUpdaterController?
     private var watch: AnyCancellable?
-
-    /// Read by `applicationShouldTerminate`, which is the only thing standing
-    /// between Sparkle and the new version starting.
-    nonisolated(unsafe) private(set) static var isRelaunchingForUpdate = false
 
     /// `Shared` builds this before anything is on the main actor's books, so
     /// construction has to be allowed from outside it. Nothing here touches
@@ -40,19 +49,14 @@ final class Updater: NSObject, ObservableObject {
         guard controller == nil else { return }
         let controller = SPUStandardUpdaterController(startingUpdater: true,
                                                      updaterDelegate: self,
-                                                     userDriverDelegate: self)
+                                                     userDriverDelegate: nil)
         self.controller = controller
 
-        // A background find is meant to become a line in the dropdown, not a
-        // new version arriving by itself: an app that replaces itself and
-        // restarts while someone is working is the interruption all of this
-        // was written to avoid, and it reads as the app quitting on its own.
-        // Seeded once, so the checkbox in Sparkle's own panel still wins after.
-        let seeded = "updatePreferenceSeeded"
-        if !UserDefaults.standard.bool(forKey: seeded) {
-            UserDefaults.standard.set(true, forKey: seeded)
-            controller.updater.automaticallyDownloadsUpdates = false
-        }
+        // Set every launch rather than seeded once: this is how the app
+        // behaves, not a default someone was offered and might have changed.
+        controller.updater.automaticallyChecksForUpdates = true
+        controller.updater.automaticallyDownloadsUpdates = true
+        controller.updater.updateCheckInterval = Self.checkInterval
 
         canCheck = controller.updater.canCheckForUpdates
         watch = controller.updater.publisher(for: \.canCheckForUpdates)
@@ -60,17 +64,13 @@ final class Updater: NSObject, ObservableObject {
             .sink { [weak self] in self?.canCheck = $0 }
     }
 
-    /// Only ever from something a person pressed.
+    /// The dropdown's Check for Updates. Everything else happens on its own.
     func checkForUpdates() {
         guard let controller else { return }
+        // A dockless app that just orders a panel front puts it behind whatever
+        // is already there.
         NSApp.activate(ignoringOtherApps: true)
-        availableVersion = nil
         controller.updater.checkForUpdates()
-    }
-
-    var automaticallyChecks: Bool {
-        get { controller?.updater.automaticallyChecksForUpdates ?? false }
-        set { controller?.updater.automaticallyChecksForUpdates = newValue }
     }
 }
 
@@ -79,36 +79,25 @@ extension Updater: SPUUpdaterDelegate {
         Task { @MainActor in self.availableVersion = item.displayVersionString }
     }
 
-    /// Sparkle starts the new copy by asking this one to terminate, and this
-    /// app refuses a terminate it did not ask for. Without this the update
-    /// installs, the old version keeps running, and the window is put away on
-    /// the way past — which is what it looked like the first time.
-    ///
-    /// Nothing clears the flag. The process is on its way out.
+    /// The earliest hook before the bundle is replaced.
+    nonisolated func updater(_ updater: SPUUpdater, willInstallUpdate item: SUAppcastItem) {
+        Updater.isRelaunchingForUpdate = true
+    }
+
     nonisolated func updaterWillRelaunchApplication(_ updater: SPUUpdater) {
         Updater.isRelaunchingForUpdate = true
     }
-}
 
-extension Updater: SPUStandardUserDriverDelegate {
-    /// Saying yes here is what buys the right to answer no below. Sparkle only
-    /// lets a scheduled update be handled quietly if something has claimed it
-    /// will be shown some other way.
-    nonisolated var supportsGentleScheduledUpdateReminders: Bool { true }
-
-    /// No, unless the app is already in front. A check nobody asked for gets a
-    /// line in the dropdown; it does not get to interrupt.
-    nonisolated func standardUserDriverShouldHandleShowingScheduledUpdate(
-        _ update: SUAppcastItem, andInImmediateFocus immediateFocus: Bool) -> Bool {
-        immediateFocus
+    /// Sparkle would rather wait for a quit that may never come — Graft is
+    /// meant to sit in the menu bar for weeks. Taking responsibility here and
+    /// calling the handler installs it now instead.
+    nonisolated func updater(_ updater: SPUUpdater,
+                             willInstallUpdateOnQuit item: SUAppcastItem,
+                             immediateInstallationBlock immediateInstallHandler: @escaping () -> Void) -> Bool {
+        Updater.isRelaunchingForUpdate = true
+        immediateInstallHandler()
+        return true
     }
 
-    /// Sparkle is taking over the telling, so the dropdown stops offering it and
-    /// the two cannot disagree about what is on screen.
-    nonisolated func standardUserDriverWillHandleShowingUpdate(
-        _ handleShowingUpdate: Bool, forUpdate update: SUAppcastItem,
-        state: SPUUserUpdateState) {
-        guard handleShowingUpdate else { return }
-        Task { @MainActor in self.availableVersion = nil }
-    }
+    nonisolated func updaterShouldRelaunchApplication(_ updater: SPUUpdater) -> Bool { true }
 }

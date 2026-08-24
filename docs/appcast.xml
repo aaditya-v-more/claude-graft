@@ -3,6 +3,15 @@
     <channel>
         <title>Claude Graft</title>
         <item>
+            <title>1.0.4</title>
+            <pubDate>Mon, 24 Aug 2026 23:28:15 +0530</pubDate>
+            <link>https://github.com/aaditya-v-more/claude-graft</link>
+            <sparkle:version>1.0.4</sparkle:version>
+            <sparkle:shortVersionString>1.0.4</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+            <enclosure url="https://github.com/aaditya-v-more/claude-graft/releases/download/v1.0.4/ClaudeGraft-1.0.4.zip" length="2716108" type="application/octet-stream" sparkle:edSignature="9/1PXvzWmOS+pw8924ylxXW5qEz/Tc1AesWD16u1vWMxdngBrckEda8aMNReAZgqpsmdVvODciSbRgMUawhwBg=="/>
+        </item>
+        <item>
             <title>1.0.3</title>
             <pubDate>Mon, 24 Aug 2026 23:17:42 +0530</pubDate>
             <link>https://github.com/aaditya-v-more/claude-graft</link>
@@ -19,15 +28,6 @@
             <sparkle:shortVersionString>1.0.2</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
             <enclosure url="https://github.com/aaditya-v-more/claude-graft/releases/download/v1.0.2/ClaudeGraft-1.0.2.zip" length="2714000" type="application/octet-stream" sparkle:edSignature="uB8FQn1rLn1fgNmNvPxFf2L5Eliw+2kuCe1XVLdh2gqjCTNHsi+OoSSuKSVlc5V2cvUyzS7lXeFhz0TqmBrbAg=="/>
-        </item>
-        <item>
-            <title>1.0.1</title>
-            <pubDate>Mon, 24 Aug 2026 19:07:06 +0530</pubDate>
-            <link>https://github.com/aaditya-v-more/claude-graft</link>
-            <sparkle:version>1.0.1</sparkle:version>
-            <sparkle:shortVersionString>1.0.1</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
-            <enclosure url="https://github.com/aaditya-v-more/claude-graft/releases/download/v1.0.1/ClaudeGraft-1.0.1.zip" length="2713131" type="application/octet-stream" sparkle:edSignature="IykkTXVxUqFu1u82pzkfrgsz//VB+n/bXCRDzdj5BC1f8a6I6j7M22FnieJ1G97ZY0XN3litJNt85G/FWQY7DA=="/>
         </item>
     </channel>
 </rss>
