@@ -42,9 +42,18 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
 
     // MARK: - The item itself
 
-    /// Whether there is actually something in the bar. The setting says what
-    /// was wanted; this says what happened.
-    var isShowing: Bool { item != nil }
+    /// Whether there is actually something in the bar to go back to.
+    ///
+    /// Not `item != nil`. An item macOS had no room for is still an object and
+    /// still reports itself visible, so that test says yes to a bar that has
+    /// nowhere to put it — and cancelling a quit then leaves no window, no
+    /// reachable item, and Force Quit as the only way out. `MenuBarPlacement`
+    /// carries the rule and what it was measured against.
+    var isShowing: Bool {
+        guard let window = item?.button?.window else { return false }
+        return MenuBarPlacement.isReachable(window.frame,
+                                            onAnyOf: NSScreen.screens.map(\.frame))
+    }
 
     func install() {
         guard item == nil else { updateTitle(); return }

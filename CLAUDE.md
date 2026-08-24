@@ -22,7 +22,7 @@ would have written by hand.
 
     ./build.sh                 app + launcher into build/, this arch only
     GRAFT_UNIVERSAL=1 ./build.sh   both arches, joined with lipo
-    ./test.sh                  209 checks, all in a throwaway directory
+    ./test.sh                  213 checks, all in a throwaway directory
     ./release.sh [--install]   tests, builds universal, draws the icon, signs, packages
 
 ## Invariants
@@ -101,9 +101,21 @@ guards it, because windows closing on the way out are the app shutting down, not
 someone putting a window away, and recording it as the latter brings the next
 launch — an update's own relaunch above all — up hidden. The
 rule lives in `QuitPolicy` so the suite can drive it, and its last clause is
-the way out: with nothing actually in the bar, `MenuBarController.isShowing`
+the way out: with nothing reachable in the bar, `MenuBarController.isShowing`
 reads false and a quit is a quit. Ask that, not the setting; the setting says
 what was wanted, not whether the bar had room.
+
+**A status item that exists is not a status item you can click.** macOS drops
+items it has no room for — a full bar, and a notch taking the middle — without
+telling the app, and the dropped item is still an object that answers
+`isVisible` true. `isShowing` used to be `item != nil`, which said yes to a bar
+with nowhere to put it, so the clause above would have cancelled a quit and left
+Force Quit as the only way out. What actually gives it away is placement:
+filling the bar with throwaway items put the overflow at x of -71, -115, -160
+and -204. `MenuBarPlacement.isReachable` is the rule, horizontal only because
+the bar sits above `NSScreen.frame` and a full containment test rejects every
+item there is. Seen for real: Graft vanished from the bar with the process alive
+and polling, and came back when another app's item was removed.
 
 **The version is written down once.** `VERSION` at the repo root, stamped into
 the bundle by `build.sh`. `Resources/Info.plist` carries `0.0.0` and nothing

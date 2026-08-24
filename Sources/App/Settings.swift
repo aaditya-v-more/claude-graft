@@ -18,6 +18,22 @@ import ServiceManagement
 /// The last clause is the way out: with nothing in the bar to go back to,
 /// cancelling a quit would leave no window, no item, and no way to stop the app
 /// but Force Quit.
+/// Whether a status item is somewhere a pointer can reach it.
+///
+/// macOS drops menu bar items it has no room for — a full bar, and a notch
+/// taking the middle of it — without telling the app. The item is still an
+/// object, and it still answers `isVisible` true; what gives it away is where
+/// it was put. Filling the bar with throwaway items until they overflowed put
+/// the last four at x of -71, -115, -160 and -204, which no pointer reaches.
+///
+/// Horizontal only, on purpose: the bar sits above `NSScreen.frame`, so asking
+/// whether a screen contains the whole item rejects every item there is.
+enum MenuBarPlacement {
+    static func isReachable(_ frame: CGRect, onAnyOf screens: [CGRect]) -> Bool {
+        screens.contains { frame.minX >= $0.minX && frame.maxX <= $0.maxX }
+    }
+}
+
 enum QuitPolicy {
     static func endsTheApp(askedFor: Bool,
                            installingUpdate: Bool,

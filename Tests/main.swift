@@ -1091,6 +1091,22 @@ do {
 section("Quitting")
 
 do {
+    // Measured by filling the bar until items overflowed: the ones macOS had no
+    // room for came back at negative x, while still answering isVisible true.
+    let screen = CGRect(x: 0, y: 0, width: 1710, height: 1073)
+    check(MenuBarPlacement.isReachable(CGRect(x: 903, y: 1073, width: 36, height: 39),
+                                       onAnyOf: [screen]),
+          "an item the bar had room for is somewhere a pointer can reach")
+    check(!MenuBarPlacement.isReachable(CGRect(x: -71, y: 1073, width: 45, height: 39),
+                                        onAnyOf: [screen]),
+          "one pushed off the end of a full bar is not")
+    check(!MenuBarPlacement.isReachable(CGRect(x: -26, y: 1073, width: 45, height: 39),
+                                        onAnyOf: [screen]),
+          "and half of one hanging off the edge does not count as a way back")
+    check(!MenuBarPlacement.isReachable(CGRect(x: 903, y: 1073, width: 36, height: 39),
+                                        onAnyOf: []),
+          "with no screen at all there is nowhere for it to be")
+
     check(!QuitPolicy.endsTheApp(askedFor: false, installingUpdate: false, systemGoingDown: false, menuBarShowing: true),
           "command-Q puts the window away and leaves the menu bar item reporting")
     check(QuitPolicy.endsTheApp(askedFor: true, installingUpdate: false, systemGoingDown: false, menuBarShowing: true),
