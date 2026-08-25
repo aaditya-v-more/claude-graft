@@ -22,7 +22,7 @@ would have written by hand.
 
     ./build.sh                 app + launcher into build.noindex/, this arch only
     GRAFT_UNIVERSAL=1 ./build.sh   both arches, joined with lipo
-    ./test.sh                  246 checks, all in a throwaway directory
+    ./test.sh                  273 checks, all in a throwaway directory
     ./release.sh [--install]   tests, builds universal, draws the icon, signs, packages
 
 ## Invariants
@@ -152,6 +152,72 @@ reads all three views and fails if one of them stops naming `ChatConflict`.
 The dropdown asks with an `NSAlert`, not a `confirmationDialog`. It is an
 `NSPopover`, which gives up key window the moment anything else appears and
 takes any sheet it was hosting down with it.
+
+**Opening a profile that is already open shows the Claude that is there.**
+Claude Desktop never calls `requestSingleInstanceLock`, so nothing on its side
+refuses a second process on one `--user-data-dir`: `open -n` twice was measured
+giving two live Claudes on one profile, both reading and writing the same chat
+store. That is the loss `ChatConflict` exists to warn about, reached by pressing
+Open twice on the same shortcut — and it is worse than the case that rule covers,
+since it is not two accounts sharing chats but one profile's own files written
+over twice. `Graft.open` and `Graft.run` ask `isRunning` before anything else
+and hand the pid to `reveal`. The suite fails if anything in `Sources/App` calls
+`Graft.launch` directly.
+
+**A shortcut behaves like the Graft that built it.** The bundle carries its own
+copy of the launcher, nothing re-saves a shortcut on its own, and the routes
+this rule matters most for never touch the app at all — the Dock, Finder and
+Spotlight run the binary in the bundle and ask Graft nothing. So a change to how
+opening works would have reached nobody who already had shortcuts, which is
+everybody. `Installer.refreshLaunchers` replaces every stale one at launch,
+recognising them by the version stamped in the bundle. Only the binary and that
+stamp are rewritten: regenerating the whole plist would write the shortcut's
+current name into a bundle that may still be sitting under its old one, waiting
+for the save that renames it.
+
+The conflict question goes quiet on that path, and `sharersToAskAbout` is the
+clause. A profile already open is not about to be opened; the Claude being
+brought forward has been reading those chats all along, so the warning would
+describe a situation rather than one the press is about to create — and it
+would arrive attached to a button that creates nothing.
+
+`reveal` sends two things because neither does the other's job. Claude answers
+`window-all-closed` with an empty handler, so closing the last window leaves the
+process alive with nothing on screen; its `activate` handler builds the main
+window back when it finds none, and the reopen Apple event — `aevt`/`rapp`,
+aimed at a pid — is what fires that handler. Bringing the app forward is the
+other half: a reopen on its own was measured leaving the app exactly where it
+was in the stacking order, three times out of three, and
+`NSRunningApplication.activate` is what moves it. The reopen needs no automation
+consent and no `com.apple.security.automation.apple-events` entitlement: it was
+measured going through unchanged from an ad-hoc bundle, from one signed
+`--options runtime`, and from one signed with the entitlement. The scripting
+activate event (`misc`/`actv`) is delivered too and does nothing, Electron
+having no handler for it.
+
+Measuring any of this needs care, and three wrong conclusions came out of not
+taking it. `NSWorkspace.frontmostApplication` is kept current by notifications
+on the run loop, so a poll loop that sleeps rather than pumping one reads its
+own startup value for as long as it runs and reports that nothing ever changed.
+That is what made a working launcher look like it needed an `NSApplication` of
+its own, and then like it needed to stay alive after asking. It needs neither;
+it does what it always did and exits.
+
+**The pid comes from `ps`, never from the pgrep that answers `isRunning`.**
+Every helper process Claude starts repeats the profile's `--user-data-dir`, so
+the first pid pgrep offers is a renderer, and only the browser process answers
+to being shown. `isClaudeProcess` is what tells them apart. pgrep also leaves
+out its own ancestors, which Graft never notices — it runs as its own app — and
+anything run from inside a Claude notices immediately: that Claude is the one
+process pgrep will not report.
+
+**A bundle is not an instance.** `NSWorkspace.openApplication` with the default
+configuration reopens whichever instance of the bundle started first, measured
+with three copies of one app running and the oldest picked every time. So Open
+on Claude's own profile brought a grafted profile forward instead, since with
+any shortcut running every instance of `Claude.app` is somebody else's profile.
+`launch` passes `-n` for that reason, and passes no `--user-data-dir` at all for
+the main profile, whose only mark is that absence.
 
 **An update installs itself and says nothing.** Checked hourly and at launch
 once that much has passed, downloaded, installed and restarted with nobody

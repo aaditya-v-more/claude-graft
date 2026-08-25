@@ -2,7 +2,8 @@ import Foundation
 
 // Executable of a generated shortcut. It reads the profile description sitting
 // beside it in the bundle, re-establishes the links, and opens Claude on that
-// profile. Nothing here is interactive; the process exits immediately.
+// profile — or brings forward the Claude already on it. Nothing here is
+// interactive; the process exits as soon as it has handed over.
 
 let executable = URL(fileURLWithPath: CommandLine.arguments[0]).resolvingSymlinksInPath()
 let resources = executable            // .../Contents/MacOS/launcher

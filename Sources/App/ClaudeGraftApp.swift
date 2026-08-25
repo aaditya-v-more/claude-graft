@@ -103,6 +103,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Shared.usage.mayPromptUnasked = !Shared.startHidden
         Shared.usage.start(watching: Shared.store)
         Shared.updater.start()
+        // A shortcut goes on behaving like the Graft that built it until its
+        // launcher is replaced, and the update that replaced this app never
+        // touched them. Off the main thread: this copies binaries and runs
+        // codesign, once per shortcut left behind by an older version.
+        let shortcuts = Shared.store.shortcuts
+        DispatchQueue.global(qos: .utility).async {
+            Installer.refreshLaunchers(in: shortcuts)
+        }
         menuBar = MenuBarController(store: Shared.store,
                                     settings: Shared.settings,
                                     usage: Shared.usage,

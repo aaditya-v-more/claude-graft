@@ -147,6 +147,30 @@ do {
     let bundle = try! Installer.install(shortcut, sourceDir: main)
     check(fm.fileExists(atPath: bundle.appending(path: "Contents/MacOS/launcher").path),
           "the bundle carries a launcher")
+    check(Installer.builtBy(bundle) == Installer.graftVersion,
+          "stamped with the version of Graft that wrote it, which is how a stale one is spotted")
+    check(!Installer.refreshLauncher(for: shortcut),
+          "so a shortcut this version wrote is left alone")
+
+    // A shortcut left behind by an older Graft goes on behaving like that
+    // Graft — the Dock, Finder and Spotlight run the binary in the bundle and
+    // ask this app nothing — so the launcher inside it is replaced at launch.
+    do {
+        let plist = bundle.appending(path: "Contents/Info.plist")
+        let aged = (try! String(contentsOf: plist, encoding: .utf8))
+            .replacingOccurrences(of: Installer.graftVersion, with: "0.0.1")
+        try! aged.write(to: plist, atomically: true, encoding: .utf8)
+        try! Data("stale".utf8).write(to: bundle.appending(path: "Contents/MacOS/launcher"))
+
+        check(Installer.builtBy(bundle) == "0.0.1", "a bundle remembers which Graft wrote it")
+        check(Installer.refreshLauncher(for: shortcut), "and an older one is brought up to date")
+        check(Installer.builtBy(bundle) == Installer.graftVersion,
+              "restamped, so the next launch leaves it alone")
+        let refreshed = try! Data(contentsOf: bundle.appending(path: "Contents/MacOS/launcher"))
+        check(refreshed.count > 5, "carrying this version's launcher rather than the old one")
+        check(sourcePath(ofBundle: bundle) == main.path,
+              "and nothing else about the shortcut was rewritten")
+    }
     check(Installer.isGraftBundle(bundle), "the bundle is recognisable as ours")
     check(Installer.installedBundle(for: shortcut) == bundle, "it is found again afterwards")
     check(sourcePath(ofBundle: bundle) == main.path, "its description records the source profile")
@@ -552,6 +576,20 @@ do {
           "and a list longer than that")
     check(ChatConflict.message(sharers: ["Claude 2"]).contains("can lose messages"),
           "and it says what is actually at stake, not just who is open")
+}
+
+// A profile that is already open is not about to be opened: pressing Open on
+// it brings its own Claude forward, adds no second reader, and the Claude it
+// brings forward has been on those chats all along.
+do {
+    check(ChatConflict.sharersToAskAbout(profileIsOpen: false,
+                                         openNeighbours: ["Claude"]) == ["Claude"],
+          "opening a profile onto chats something else is reading is worth asking about")
+    check(ChatConflict.sharersToAskAbout(profileIsOpen: true,
+                                         openNeighbours: ["Claude"]).isEmpty,
+          "but a profile already open is only being brought forward, so nothing is asked")
+    check(ChatConflict.sharersToAskAbout(profileIsOpen: false, openNeighbours: []).isEmpty,
+          "and with nobody else on those chats there was never a question")
 }
 
 do {
@@ -1173,6 +1211,90 @@ do {
     check(!Graft.isDefaultInstance(
             "/Users/x/Library/Application Support/Claude/claude-code/2.1.237/claude.app/Contents/MacOS/claude -p hi"),
           "nor the bundled command line, whose path is lowercase")
+}
+
+// MARK: - Opening a profile that is already open
+
+section("Showing the Claude that is already there")
+
+do {
+    // Claude Desktop never takes Electron's single-instance lock, so a second
+    // launch on one --user-data-dir is two processes writing one chat store.
+    // Pressing Open twice was all it took, so a profile that is already open
+    // has to be shown rather than opened.
+    let two = support.appending(path: "Claude-2")
+    let running = "/Applications/Claude.app/Contents/MacOS/Claude --user-data-dir=\(two.path)"
+    check(Graft.carriesDataDir(running, two), "a Claude on this profile is recognised as being on it")
+    check(Graft.carriesDataDir(running + " --enable-logging", two),
+          "including when further arguments follow")
+
+    // Profile paths are prefixes of each other, and an unanchored match makes
+    // every shorter-named profile look like it is the one running.
+    let one = support.appending(path: "Claude")
+    check(!Graft.carriesDataDir(running, one),
+          "and a shorter profile whose path it starts with is not that profile")
+    check(!Graft.carriesDataDir("/Applications/Claude.app/Contents/MacOS/Claude", two),
+          "nor is a Claude carrying no profile at all")
+
+    // Only the browser process answers to being brought forward. Every helper
+    // Claude starts repeats the same --user-data-dir, which is why the pid
+    // cannot come from the pgrep that answers isRunning.
+    let helper = "/Applications/Claude.app/Contents/Frameworks/Claude Helper.app/Contents/MacOS/Claude Helper --type=renderer --user-data-dir=\(two.path)"
+    check(Graft.carriesDataDir(helper, two), "a helper carries its profile too")
+    check(!Graft.isClaudeProcess(helper), "but a helper is not the Claude to show")
+    check(Graft.isClaudeProcess(running), "the browser process is")
+    check(!Graft.isClaudeProcess(
+            "/Users/x/Library/Application Support/Claude/claude-code/2.1.237/claude.app/Contents/MacOS/claude -p hi"),
+          "and neither is the bundled command line")
+
+    // ps rather than pgrep, which leaves out its own ancestors: a Claude that
+    // started the process doing the asking is one pgrep will not report.
+    let mine = Graft.processes().first { $0.id == getpid() }
+    check(mine != nil, "the process list finds the process reading it")
+    check(mine?.command.isEmpty == false, "and pairs every pid with the command that started it")
+
+    check(Graft.processIdentifier(of: support.appending(path: "Claude-NeverLaunched")) == nil,
+          "a profile nothing is running on has no Claude to show")
+
+    // Claude launched the ordinary way carries no --user-data-dir at all, and
+    // that absence is the only mark the main profile has: naming it would
+    // start a Claude nothing afterwards recognises as the main one.
+    let mainArguments = Graft.launchArguments(for: Graft.mainProfile)
+    check(!mainArguments.contains { $0.contains("user-data-dir") },
+          "the main profile is launched with no profile named")
+    check(Graft.launchArguments(for: two).contains("--user-data-dir=\(two.path)"),
+          "and any other profile is launched with its own")
+    check(mainArguments.contains("-n"),
+          "always as a new instance, since LaunchServices reopens whichever started first")
+}
+
+do {
+    let sources = URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+        .appending(path: "Sources")
+    func read(_ name: String) -> String {
+        (try? String(contentsOf: sources.appending(path: name), encoding: .utf8)) ?? ""
+    }
+
+    // Handing Claude's own bundle to LaunchServices reopens whichever instance
+    // of it started first, and with a shortcut running that is a grafted
+    // profile — so Open on the main profile brought a graft forward instead.
+    for file in ["App/MainProfileDetail.swift", "App/MenuBarContent.swift"] {
+        check(!read(file).contains("openApplication(at: Graft.claudeApp"),
+              "\(file) does not ask LaunchServices to pick an instance of Claude")
+    }
+
+    // Everything that opens a profile goes through the rule, so there is one
+    // place that knows a running profile is shown rather than opened again.
+    let appSources = (try? fm.contentsOfDirectory(at: sources.appending(path: "App"),
+                                                  includingPropertiesForKeys: nil)) ?? []
+    var launchers: [String] = []
+    for file in appSources where file.pathExtension == "swift" {
+        guard let text = try? String(contentsOf: file, encoding: .utf8) else { continue }
+        if text.contains("Graft.launch(") { launchers.append(file.lastPathComponent) }
+    }
+    check(launchers.isEmpty, "and nothing in the app launches a Claude without asking who is there")
 }
 
 // MARK: - What the bar shows

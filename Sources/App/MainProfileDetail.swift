@@ -115,7 +115,7 @@ struct MainProfileDetail: View {
     private func open() {
         let neighbours = store.chatStoreNeighbours(of: nil)
         DispatchQueue.global(qos: .userInitiated).async {
-            let openNow = ChatConflict.openSharers(among: neighbours)
+            let openNow = ChatConflict.openSharers(of: Graft.mainProfile, among: neighbours)
             DispatchQueue.main.async {
                 if openNow.isEmpty {
                     launch()
@@ -127,9 +127,13 @@ struct MainProfileDetail: View {
         }
     }
 
+    /// Not `openApplication`, which is handed a bundle and picks an instance
+    /// of it for itself — and with a shortcut running, every instance of that
+    /// bundle is somebody else's profile.
     private func launch() {
-        NSWorkspace.shared.openApplication(at: Graft.claudeApp,
-                                           configuration: NSWorkspace.OpenConfiguration())
+        DispatchQueue.global(qos: .userInitiated).async {
+            Graft.open(profile: Graft.mainProfile)
+        }
     }
 
     private func refresh() {

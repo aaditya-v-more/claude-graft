@@ -259,7 +259,7 @@ struct ShortcutDetail: View {
         guard installedAt != nil else { return }
         let neighbours = store.chatStoreNeighbours(of: shortcut)
         DispatchQueue.global(qos: .userInitiated).async {
-            let openNow = ChatConflict.openSharers(among: neighbours)
+            let openNow = ChatConflict.openSharers(of: shortcut.profileDir, among: neighbours)
             DispatchQueue.main.async {
                 if openNow.isEmpty {
                     launch()

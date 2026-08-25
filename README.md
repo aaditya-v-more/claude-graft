@@ -92,6 +92,13 @@ conversation in both at once can lose messages. Opening one from Graft — the
 window or the menu bar, a shortcut or Claude itself — warns you when something
 else is already on those chats. Launching it from the Dock doesn't check.
 
+Opening a Claude that is already open brings that one forward instead of
+starting a second. Claude Desktop itself doesn't refuse a second copy on the
+same profile, and two copies of one profile is the worst version of the problem
+above — not two accounts sharing chats, but the very same files being written
+twice over. If you've closed the window and left it in the menu bar, opening it
+builds the window back, the way clicking a Dock icon does.
+
 `~/.claude` — settings, `CLAUDE.md`, skills, plugins, MCP servers, transcripts —
 is already shared by every instance, since it comes from `$HOME` rather than the
 profile.

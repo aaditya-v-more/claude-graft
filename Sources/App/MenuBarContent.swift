@@ -105,15 +105,27 @@ struct MenuBarContent: View {
     /// and this did not, for the same click.
     private func open(_ entry: UsageMonitor.Entry) {
         let shortcut = entry.shortcut.flatMap { store.shortcut($0) }
-        let bundle = shortcut.flatMap { Installer.installedBundle(for: $0) } ?? Graft.claudeApp
+        let bundle = shortcut.flatMap { Installer.installedBundle(for: $0) }
         let neighbours = store.chatStoreNeighbours(of: shortcut)
 
         DispatchQueue.global(qos: .userInitiated).async {
-            let openNow = ChatConflict.openSharers(among: neighbours)
+            let openNow = ChatConflict.openSharers(of: entry.profile, among: neighbours)
             DispatchQueue.main.async {
                 guard openNow.isEmpty || ChatConflict.askInPopover(sharers: openNow) else { return }
-                NSWorkspace.shared.openApplication(at: bundle,
-                                                   configuration: NSWorkspace.OpenConfiguration())
+                // A shortcut goes through its own launcher, which is what
+                // re-establishes the links before anything opens. Claude's own
+                // profile has no shortcut to go through, and cannot be opened
+                // by handing its bundle to LaunchServices either — that
+                // reopens whichever instance started first, which with a
+                // shortcut running is a grafted profile, not this one.
+                if let bundle {
+                    NSWorkspace.shared.openApplication(at: bundle,
+                                                       configuration: NSWorkspace.OpenConfiguration())
+                } else {
+                    DispatchQueue.global(qos: .userInitiated).async {
+                        Graft.open(profile: Graft.mainProfile)
+                    }
+                }
             }
         }
     }

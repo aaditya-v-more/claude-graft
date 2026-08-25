@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 
 /// Describes one grafted Claude Desktop profile: where its data lives, and
@@ -597,29 +598,139 @@ enum Graft {
         commandLines().contains(where: isDefaultInstance)
     }
 
-    /// The main binary of Claude itself: not a helper process, and not the
-    /// bundled command line, whose path is lowercase.
-    static func isDefaultInstance(_ command: String) -> Bool {
+    /// Claude itself rather than one of the processes it starts: not a helper,
+    /// and not the bundled command line, whose path is lowercase.
+    static func isClaudeProcess(_ command: String) -> Bool {
         command.contains("Claude.app/Contents/MacOS/Claude")
             && !command.contains("Helper")
-            && !command.contains("--user-data-dir=")
+    }
+
+    /// The main binary of Claude itself, on no profile in particular.
+    static func isDefaultInstance(_ command: String) -> Bool {
+        isClaudeProcess(command) && !command.contains("--user-data-dir=")
+    }
+
+    /// `dataDirPattern`'s anchoring, for a command line already in hand.
+    /// Without it one profile's path is a prefix of another's and every
+    /// shorter-named profile looks like it is running.
+    static func carriesDataDir(_ command: String, _ profile: URL) -> Bool {
+        let needle = "user-data-dir=\(profile.path)"
+        var rest = command[...]
+        while let found = rest.range(of: needle) {
+            if found.upperBound == command.endIndex || command[found.upperBound] == " " {
+                return true
+            }
+            rest = command[found.upperBound...]
+        }
+        return false
     }
 
     static func commandLines() -> [String] {
-        output("/bin/ps", ["-Ao", "command"])
+        processes().map(\.command)
+    }
+
+    /// Every process on the machine, paired with the pid that owns it.
+    ///
+    /// `ps` rather than `pgrep`, and not only for the pid: pgrep leaves out its
+    /// own ancestors, so a Claude that started the process doing the asking is
+    /// a Claude it will not report.
+    static func processes() -> [(id: pid_t, command: String)] {
+        output("/bin/ps", ["-Ao", "pid=,command="])
             .split(separator: "\n")
-            .map(String.init)
+            .compactMap { line in
+                let text = line.trimmingCharacters(in: .whitespaces)
+                guard let gap = text.firstIndex(of: " "),
+                      let id = pid_t(text[text.startIndex..<gap])
+                else { return nil }
+                return (id, String(text[text.index(after: gap)...]))
+            }
+    }
+
+    /// The pid of the Claude holding this profile, if one holds it.
+    ///
+    /// `isRunning` answers with a pgrep, which is all a yes or no needs but the
+    /// wrong tool here: every helper Claude starts carries the same
+    /// `--user-data-dir`, so the first pid pgrep offers is a renderer. Only the
+    /// browser process answers to being shown.
+    static func processIdentifier(of profile: URL) -> pid_t? {
+        let claudes = processes().filter { isClaudeProcess($0.command) }
+        if samePath(profile, mainProfile) {
+            return claudes.first { isDefaultInstance($0.command) }?.id
+        }
+        return claudes.first { carriesDataDir($0.command, profile) }?.id
+    }
+
+    /// Show the Claude that is already there, the way clicking a Dock icon
+    /// would. Two of them, because neither half does the other's job.
+    ///
+    /// The activation is what brings it forward: reopen on its own was
+    /// measured leaving the app exactly where it was in the stacking order,
+    /// three times out of three. The reopen is what gets a window back. Claude
+    /// answers Electron's `window-all-closed` with an empty handler, so closing
+    /// the last window leaves the process alive with nothing on screen, and its
+    /// `activate` handler — which is what a reopen fires — builds the main
+    /// window again when it finds none.
+    @discardableResult
+    static func reveal(pid: pid_t) -> Bool {
+        let reopen = NSAppleEventDescriptor(
+            eventClass: AEEventClass(kCoreEventClass),
+            eventID: AEEventID(kAEReopenApplication),
+            targetDescriptor: NSAppleEventDescriptor(processIdentifier: pid),
+            returnID: AEReturnID(kAutoGenerateReturnID),
+            transactionID: AETransactionID(kAnyTransactionID))
+        // No reply is waited for. The answer would arrive on a run loop a
+        // background queue does not have, and there is nothing in it worth
+        // holding a click for.
+        let delivered = (try? reopen.sendEvent(options: [.noReply], timeout: 5)) != nil
+        onMain { NSRunningApplication(processIdentifier: pid)?.activate(options: []) }
+        return delivered
+    }
+
+    /// Every caller here reaches `open` from a background queue, because
+    /// finding out who is running means reading `ps`. The activation is AppKit,
+    /// so it goes back.
+    static func onMain(_ work: @escaping () -> Void) {
+        if Thread.isMainThread { work() } else { DispatchQueue.main.async(execute: work) }
+    }
+
+    /// Always a new instance. LaunchServices left to pick for itself reopens
+    /// whichever instance of the bundle started first — measured, with three
+    /// running — and that is somebody else's profile.
+    static func launchArguments(for profile: URL) -> [String] {
+        var arguments = ["-n", "-a", claudeApp.path]
+        // The main profile is the one launched with no --user-data-dir at all,
+        // and that absence is the only mark it has. Naming it here would start
+        // a Claude that nothing afterwards recognises as the main one.
+        if !samePath(profile, mainProfile) {
+            arguments += ["--args", "--user-data-dir=\(profile.path)"]
+        }
+        return arguments
     }
 
     @discardableResult
     static func launch(profile: URL) -> Bool {
         let task = Process()
         task.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-        task.arguments = ["-n", "-a", claudeApp.path, "--args", "--user-data-dir=\(profile.path)"]
+        task.arguments = launchArguments(for: profile)
         task.standardOutput = FileHandle.nullDevice
         task.standardError = FileHandle.nullDevice
         do { try task.run() } catch { return false }
         return true
+    }
+
+    /// Opening a profile that is already open shows the Claude that is there.
+    ///
+    /// Claude Desktop never takes Electron's single-instance lock, so nothing
+    /// on its side refuses a second process on one `--user-data-dir`: both come
+    /// up and both write the same chat store, which is the one loss this app
+    /// warns about everywhere else. Pressing Open twice was all it took.
+    @discardableResult
+    static func open(profile: URL) -> Bool {
+        guard !isRunning(profile: profile) else {
+            guard let pid = processIdentifier(of: profile) else { return false }
+            return reveal(pid: pid)
+        }
+        return launch(profile: profile)
     }
 
     /// What a generated shortcut does when clicked.
@@ -627,11 +738,13 @@ enum Graft {
         let profile = URL(fileURLWithPath: config.profileDir)
         try? fm.createDirectory(at: profile, withIntermediateDirectories: true)
 
-        // While it is running its files are open; re-linking under a live
-        // instance would be unsafe, so only add a window.
-        if !isRunning(profile: profile) {
-            apply(config)
+        // While it is running its files are open, so re-linking is off the
+        // table and the Claude already on them is the whole answer.
+        guard !isRunning(profile: profile) else {
+            if let pid = processIdentifier(of: profile) { reveal(pid: pid) }
+            return
         }
+        apply(config)
         launch(profile: profile)
     }
 

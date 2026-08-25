@@ -148,6 +148,79 @@ enum Installer {
         return bundle
     }
 
+    /// Bring the launchers inside already-installed shortcuts up to date.
+    ///
+    /// A bundle carries the launcher it was built with, and nothing re-saves a
+    /// shortcut on its own, so an update to how a shortcut behaves reaches
+    /// nobody until each one is opened and saved by hand. The routes where that
+    /// matters most never touch this app at all: the Dock, Finder and Spotlight
+    /// run the binary in the bundle and ask nothing of Graft. So every stale
+    /// launcher is replaced at launch — the binary and the version stamp that
+    /// says which Graft wrote it, and nothing else. The name, the icon and the
+    /// profile it points at are the person's.
+    @discardableResult
+    static func refreshLaunchers(in shortcuts: [Shortcut]) -> Int {
+        shortcuts.reduce(0) { $0 + (refreshLauncher(for: $1) ? 1 : 0) }
+    }
+
+    static func refreshLauncher(for shortcut: Shortcut) -> Bool {
+        let version = graftVersion
+        guard let launcher = Bundle.main.url(forResource: "graft-launch", withExtension: nil),
+              let bundle = installedBundle(for: shortcut),
+              builtBy(bundle) != version
+        else { return false }
+
+        // Staged and swapped rather than removed and rewritten. This runs while
+        // Graft starts, which on a login is exactly when a shortcut may be
+        // starting too, and a shortcut that finds no executable where its
+        // launcher was does not open anything.
+        let binary = bundle.appending(path: "Contents/MacOS/launcher")
+        let staged = bundle.appending(path: "Contents/MacOS/launcher.staged")
+        do {
+            try? fm.removeItem(at: staged)
+            try fm.copyItem(at: launcher, to: staged)
+            try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: staged.path)
+            if fm.fileExists(atPath: binary.path) {
+                _ = try fm.replaceItemAt(binary, withItemAt: staged)
+            } else {
+                try fm.moveItem(at: staged, to: binary)
+            }
+            try stampVersion(version, into: bundle)
+        } catch {
+            try? fm.removeItem(at: staged)
+            return false
+        }
+        sign(bundle)
+        touch(bundle)
+        return true
+    }
+
+    /// The version of Graft that wrote this bundle, which is the only thing
+    /// that says whether its launcher is the current one.
+    static func builtBy(_ bundle: URL) -> String? {
+        guard isGraftBundle(bundle),
+              let data = try? Data(contentsOf: bundle.appending(path: "Contents/Info.plist")),
+              let plist = try? PropertyListSerialization.propertyList(from: data, format: nil)
+                as? [String: Any]
+        else { return nil }
+        return plist["CFBundleShortVersionString"] as? String
+    }
+
+    /// Only the two version keys are rewritten. Regenerating the whole file
+    /// would stamp the shortcut's current name into a bundle that may still be
+    /// sitting under its old one, waiting for a save that renames it.
+    private static func stampVersion(_ version: String, into bundle: URL) throws {
+        let url = bundle.appending(path: "Contents/Info.plist")
+        let data = try Data(contentsOf: url)
+        guard var plist = try PropertyListSerialization.propertyList(from: data, format: nil)
+                as? [String: Any] else { return }
+        plist["CFBundleShortVersionString"] = version
+        plist["CFBundleVersion"] = version
+        let updated = try PropertyListSerialization.data(fromPropertyList: plist,
+                                                         format: .xml, options: 0)
+        try updated.write(to: url)
+    }
+
     static func uninstall(_ shortcut: Shortcut) {
         guard let bundle = installedBundle(for: shortcut), isGraftBundle(bundle) else { return }
         try? fm.removeItem(at: bundle)

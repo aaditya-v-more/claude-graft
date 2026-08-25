@@ -36,10 +36,23 @@ enum ChatConflict {
             """
     }
 
-    /// Who among `neighbours` is running. One `pgrep` each, so never on the
-    /// main thread.
-    static func openSharers(among neighbours: [(name: String, profile: URL)]) -> [String] {
-        neighbours.filter { Graft.isRunning(profile: $0.profile) }.map(\.name)
+    /// Who among `neighbours` is running, and whether that is worth asking
+    /// about at all. One `pgrep` each, so never on the main thread.
+    static func openSharers(of profile: URL,
+                            among neighbours: [(name: String, profile: URL)]) -> [String] {
+        sharersToAskAbout(profileIsOpen: Graft.isRunning(profile: profile),
+                          openNeighbours: neighbours
+                            .filter { Graft.isRunning(profile: $0.profile) }
+                            .map(\.name))
+    }
+
+    /// A profile that is already open is not about to be opened: the Claude
+    /// sitting on those chats is only being brought forward, and it has been
+    /// reading them all along. Warning there describes a situation rather than
+    /// one the press is about to create, and it arrives attached to a button
+    /// that will not create one.
+    static func sharersToAskAbout(profileIsOpen: Bool, openNeighbours: [String]) -> [String] {
+        profileIsOpen ? [] : openNeighbours
     }
 
     /// The dropdown's version of the question.
