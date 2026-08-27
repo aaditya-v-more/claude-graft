@@ -148,8 +148,8 @@ struct ContentView: View {
         VStack(spacing: 0) {
             Divider()
             HStack(spacing: 0) {
-                FooterLink("Sponsor", icon: "heart", url: Links.sponsor,
-                           help: "Claude Graft is free. Sponsoring it on GitHub is what keeps it worked on.")
+                FooterLink("Support", icon: "heart", url: Links.support,
+                           help: "Claude Graft is free. A tip on Ko-fi is what keeps it worked on.")
                 Spacer(minLength: 8)
                 FooterLink("Source", icon: "chevron.left.forwardslash.chevron.right", url: Links.source,
                            help: Links.source.absoluteString)

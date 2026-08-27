@@ -938,17 +938,37 @@ do {
     check(!updater.contains("updater.checkForUpdates()"),
           "so Sparkle's own panel is never what a press puts on screen")
 
-    // Four files name the account now, not two: the app links to the site and
-    // the sponsor page as well, and those links are compiled into copies that
-    // will never be built again. GitHub redirects a renamed repository but
-    // gives Pages nothing, so half of these would go quietly dead.
+    // The app carries links of its own to the site and the source, compiled
+    // into copies that will never be built again. GitHub redirects a renamed
+    // repository but gives Pages nothing, so a rename that missed one of these
+    // would take it quietly dead.
     let links = read("Sources/App/Links.swift")
+    let site = read("docs/index.html")
+    let readme = read("README.md")
     check(links.contains("static let owner = \"\(owner)\""),
           "the app sends people to the same account the feed does")
-    check(read(".github/FUNDING.yml").contains("github: \(owner)"),
-          "and the repository's sponsor button points at that account too")
-    check(read("docs/index.html").contains("github.com/sponsors/\(owner)"),
-          "as does the site")
+    check(site.contains("github.com/\(owner)/claude-graft"),
+          "and so does the site")
+
+    // The tip jar is a second account under a second spelling. GitHub Sponsors
+    // cannot pay into an Indian account, so the money goes through Ko-fi, whose
+    // handle carries no hyphens — neither name can be built out of the other,
+    // which is why all four places are read rather than derived from one.
+    let kofi = "aadityavmore"
+    check(links.contains("static let kofiAccount = \"\(kofi)\"") && links.contains("https://ko-fi.com/"),
+          "the app's support link goes to the tip jar")
+    check(read(".github/FUNDING.yml").contains("ko_fi: \(kofi)"),
+          "and so does the button at the top of the repository")
+    check(site.contains("https://ko-fi.com/\(kofi)"),
+          "and the one on the site")
+    check(readme.contains("https://ko-fi.com/\(kofi)"),
+          "and the one in the README")
+
+    // A sponsor page nobody can pay into is worse than no link at all: it reads
+    // as an oversight rather than a decision, and it takes a press to find out
+    // that the money has nowhere to go.
+    check(![links, site, readme].contains(where: { $0.contains("github.com/sponsors") }),
+          "and nothing still offers the sponsor page that cannot take the money")
 
     // An enclosure without a signature is one every client refuses, and
     // generate_appcast omits it silently when the key does not match.

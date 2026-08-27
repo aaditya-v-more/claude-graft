@@ -1,4 +1,5 @@
-# Puts the Sponsor button at the top of the repository. It only appears once
-# GitHub Sponsors is live for the account named here; until then this file is
-# read and ignored rather than shown as broken.
-github: aaditya-v-more
+# Puts the funding button at the top of the repository. GitHub Sponsors is not
+# what it points at: Sponsors cannot pay into an Indian account, so the money
+# goes through Ko-fi, under a handle spelled without hyphens. The GitHub name
+# and this one are two separate spellings and neither derives from the other.
+ko_fi: aadityavmore

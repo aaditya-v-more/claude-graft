@@ -132,13 +132,13 @@ keeps where, the rules around borrowed credentials, and the several things that
 had to go wrong before this worked. Read it before changing anything that
 touches profiles, the keychain or the menu bar.
 
-## Sponsoring it
+## Supporting it
 
 Free, and staying that way — no licence to buy, no account to make, nothing
 measured and sent anywhere. If it saved you the trouble, there's a
-[sponsor page](https://github.com/sponsors/aaditya-v-more). New macOS releases
-break things and Claude Desktop moves its own furniture every few weeks, and
-that's what the money is for.
+[tip jar](https://ko-fi.com/aadityavmore). New macOS releases break things and
+Claude Desktop moves its own furniture every few weeks, and that's what the
+money is for.
 
 ## Licence
 

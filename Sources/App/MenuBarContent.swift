@@ -86,7 +86,7 @@ struct MenuBarContent: View {
                 }
                 .disabled(!updater.canCheck)
                 MenuButton("Open Claude Graft", action: openMainWindow)
-                MenuButton("Sponsor Claude Graft…") { Links.open(Links.sponsor) }
+                MenuButton("Support Claude Graft…") { Links.open(Links.support) }
                 MenuButton("Quit Claude Graft") { AppDelegate.quit() }
             }
             .padding(.horizontal, 8)

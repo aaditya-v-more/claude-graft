@@ -4,17 +4,23 @@ import SwiftUI
 
 /// The addresses this app sends people to.
 ///
-/// One account name, spelled once. The site, the source and the sponsor page
-/// all hang off it, and a build already installed keeps whatever it was
-/// compiled with — so a rename that touched two of the three would leave a
-/// dead link in every copy out in the world. The suite checks that this name
-/// and the one in `.github/FUNDING.yml` agree.
+/// One account name, spelled once. The site and the source both hang off it,
+/// and a build already installed keeps whatever it was compiled with — so a
+/// rename that touched one of the two would leave a dead link in every copy out
+/// in the world.
+///
+/// The tip jar is a second account somewhere else entirely, and it is spelled
+/// differently. GitHub Sponsors cannot pay into an Indian account, so the money
+/// goes through Ko-fi, whose handle carries no hyphens — nothing may derive one
+/// name from the other. The suite reads both spellings out of this file and
+/// checks the site, the README and `.github/FUNDING.yml` against them.
 enum Links {
     static let owner = "aaditya-v-more"
+    static let kofiAccount = "aadityavmore"
 
     static let site = URL(string: "https://\(owner).github.io/claude-graft/")!
     static let source = URL(string: "https://github.com/\(owner)/claude-graft")!
-    static let sponsor = URL(string: "https://github.com/sponsors/\(owner)")!
+    static let support = URL(string: "https://ko-fi.com/\(kofiAccount)")!
 
     static func open(_ url: URL) {
         NSWorkspace.shared.open(url)
