@@ -22,7 +22,7 @@ would have written by hand.
 
     ./build.sh                 app + launcher into build.noindex/, this arch only
     GRAFT_UNIVERSAL=1 ./build.sh   both arches, joined with lipo
-    ./test.sh                  277 checks, all in a throwaway directory
+    ./test.sh                  346 checks, all in a throwaway directory
     ./release.sh [--install]   tests, builds universal, draws the icon, signs, packages
 
 ## Invariants
@@ -301,6 +301,93 @@ the account it is signed into, so linking a whole store does nothing across two
 accounts — the link is made one level deeper, mapping this profile's
 `<account>/<org>` onto the source's active one.
 
+**A grafted profile cannot keep a Claude Code session, and no link will make
+it.** The command line has one login for the whole machine, so a session
+started from any profile is owned by that account rather than the profile's,
+stamped `ownerAccountUuid`/`ownerOrganizationUuid` on the `bridge-session` line
+of `~/.claude/projects/<encoded cwd>/<cliSessionId>.jsonl`. Claude Desktop
+writes a session record only for the account it is itself signed into, so a
+grafted profile shows the conversation in its window and writes nothing at all:
+on close it is gone from both profiles, leaving a transcript naming an owner
+neither one filed. It reads exactly like the other profile deleting it, which
+is how it was first reported.
+
+Measured five ways before it was believed. Linking the owner's account path
+into the grafted profile so the record had somewhere to land changed nothing;
+neither did closing the other Claude for the whole test, nor leaving the app
+open two minutes rather than thirty seconds. The record is never written. The
+absent directory was the rule showing through, not the cause, and the link that
+looked like the fix was reverted rather than shipped.
+
+What is Graft's to repair is the record, and the repair is to write it.
+`Graft.fileMissingSessionRecords` sweeps the transcripts for bridge lines,
+asks which profile the owner's account lives on now, and writes
+`local_<cliSessionId>.json` into that profile's `<ownerAccount>/<ownerOrg>` —
+where the session's own window and every profile grafted onto it lists it,
+a linked organization included. Every field comes out of the transcript, so
+nothing is invented: the id from the filename, the owner and organization
+from the bridge line, the title from the title line, the times from the first
+and last stamps. The bridge id is renamed on the way — `cse_…` in a
+transcript is `session_…` in a record, measured against a session that had
+both written down — and the name is fixed by the session, so a later pass
+can only ever find a record where an earlier one left it, and a delete in a
+sidebar writes a marker naming it the same way.
+
+Four things hold the sweep in. A transcript written moments ago waits out a
+quiet window first, a minute of it — but only while a Claude signed into the
+owner's account is actually running, because that is the only thing the wait
+is for. Such a window writes the record itself within moments of a session
+opening, measured at about a second, so a minute is far more than that wait
+needs; with no such Claude up there is nobody to wait for, and waiting anyway
+made closing a chat and reaching straight for the other profile the one move
+guaranteed to miss it. A sidebar is built once, at launch, and that launch is
+the very press being waited out. A record already on disk is never written
+over by a pass either way. What a pass files it keeps current: the
+sweep remembers the facts behind every record it wrote, in
+`ClaudeGraft/session-records.json`, and while the record on disk still holds
+exactly those bytes it is known to be one of ours to refresh as the
+transcript moves — a title landing late, a turn finishing. The moment the
+bytes stop matching, Claude has rewritten the record in its own shape, and
+the sweep retires its version for good, because a parsed transcript flattened
+over the host's record would lose everything the transcript cannot recover,
+its MCP server config for one. A session still being written grows past the
+quiet window and files later. And a transcript with no prompt in it is never
+filed at all — an open-and-close with nothing said never had a conversation
+to lose.
+
+**A record you cannot see is not a record somebody deleted.** A session taken
+out of a sidebar stays out, and there are two ways of knowing which one went.
+Graft names its records for their session, so the marker Claude leaves behind
+carries the session's own id — a deletion read rather than inferred, needing
+no memory of earlier passes at all. For a record Claude named itself, by an id
+no transcript carries, the sweep goes on its own memory of which store each
+record sat in: one gone from a store the pass actually read is one somebody
+deleted — and two things have to hold before a pass will say so.
+
+The store has to have been read. Every directory in the walk is taken with a
+`try?`, so a profile that has been deleted, or stashed behind a graft, or is
+waiting on a permission, comes back holding nothing, and reading that as a
+sidebar cleared by hand withdrew every session it held, for good, which is a
+thing no later pass undoes. Graft stashes organization folders itself, so its
+own graft was the surest way to trigger it. `StoreContents.stores` is the set
+of directories a walk really got into; a record in a store missing from it
+stays remembered exactly where it was.
+
+And the record has to be missing twice over. Claude re-files a session under a
+new record name as it runs — a record named for one session was found on this
+machine holding a session filed under another name an hour earlier — so there
+is a moment when the old name has gone and the new one has not landed, and a
+pass falling into it reads a deletion that never happened. `vanished` carries
+the sessions one pass found missing so the next can agree, and nothing missing
+is filed while that question is open: filing it would put the record back
+under this app's own name, the pass after would find it there, and a chat
+taken out of a sidebar would be quietly restored by the very thing meant to
+notice it going.
+
+The one guess left is a marker written before the first pass ever ran, which
+names a record no longer there and can only be read by timing — the session
+that had just gone quiet in the minute before the press.
+
 Claude launched the ordinary way carries **no `--user-data-dir` at all**, so the
 main profile is recognised by the absence of one. Profile paths are prefixes of
 each other, so every `pgrep` on `user-data-dir=` must be anchored with
@@ -376,6 +463,38 @@ back off 60/120/300/900/1800 seconds and a success clears the count; a
 `Retry-After` from the service wins and is the one wait a person pressing
 refresh cannot skip.
 
+The session-record sweep is on no timer at all. A record is read when a Claude
+starts and at no other moment — it builds its sidebar as it comes up — so the
+pass that matters is the one a shortcut runs on its way to opening one, in
+`Graft.run`, after the links and before the launch. It runs on the way past a
+profile that is already open too, which is the one case nothing else covers:
+with no timer, that press is not going to start anything, and without a pass
+on it, going looking for a chat that had not arrived yet was the surest way to
+leave it not arriving. Graft itself runs one when it starts and one when the
+dropdown opens, which is where the line about what was recovered is shown. The thirty-second timer this replaced filed records
+that nobody would read for hours, and the one thing it was really buying —
+being current when a profile opened — is bought better by the profile's own
+launch.
+
+That only works because a pass is cheap enough to stand in front of a window
+opening. Two hundred megabytes of transcript is read in about a fifth of a
+second: each line's bytes are walked once and every `"key":"value"` pair taken
+off it as it goes, rather than the line being searched again for each of a
+dozen fields, which took twelve seconds and made the sweep something that
+could only ever happen in the background. Strings are walked the way JSON
+writes them, escapes and all, since a value that ends early takes the rest of
+the line with it. What has been parsed is remembered against each file's size
+and modification time in `ClaudeGraft/transcript-cache.json`, so the pass a
+launcher actually pays is forty milliseconds — in memory alone that cache
+would be worth nothing to a launcher, which is a process that exits the moment
+it has handed over.
+
+One field is not read the way the rest are. An answer is written
+`{"parentUuid":…,"message":{…,"type":"message",…},"type":"assistant"}`, so the
+first `type` on the line belongs to the message nested inside it and the line's
+own comes last — taking the first, which is right for every other field, quietly
+put every recovered session back at the default model and effort.
+
 ## Verification state
 
 Working and checked end to end: shortcut creation, adopting an existing profile,
@@ -385,6 +504,30 @@ quit is cancelled, the window closes and `mainWindowOpen` goes to 0 with the
 process still alive; with `showInMenuBar` off the same quit ends it, so the app
 cannot become unquittable. Quit in the dropdown takes the second of those two
 paths.
+
+The session-record sweep has run for real on this machine: forty-six sessions
+that had closed without records — every test conversation plus months of
+history back to the migration — were filed into Claude-3's store in one pass,
+and Claude 3 launched on that store with the hand-written prototype record
+among them and left it exactly where it was put. The recovered sessions were
+then opened from Claude 3's sidebar by a person, and Claude 3 accepted them
+well enough to rewrite their records in its own shape seconds later — which
+is the takeover that retires a filed record, seen from both sides in one
+night. A live test closed the loop end to end: a session started from
+Claude 2 after the install filed itself on schedule, five minutes of quiet
+after it closed, and was in Claude 3's store the next time it opened. The
+first look missed it, inside that quiet window, which is what shrank the
+window to a minute and taught the sweep to keep its records current instead
+of freezing them at first write.
+
+The rewrite that moved filing into the launcher was checked against this
+machine's own history rather than against fixtures. The parser that walks
+bytes was run beside the one that searched strings over all 184 transcripts
+in `~/.claude/projects`, 199MB of them, and the facts came out identical for
+every single one — 79 sessions parsed, 105 correctly declined for having no
+bridge line — at 0.19 seconds against 11.85. A pass with nothing cached
+anywhere costs 536ms; a fresh process with the cache already on disk, which
+is what a launcher is, costs 42ms.
 
 Unproven: **Start Session** has never successfully opened a window. It POSTs one
 Haiku message with `max_tokens: 4` and Claude Code's system prompt, which these

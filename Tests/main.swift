@@ -1425,6 +1425,431 @@ do {
           "with nothing in the bar to go back to, a quit is a quit")
 }
 
+section("Session records")
+
+// A Claude Desktop signed into one account will not write the record for a
+// session the command line owns to another account, and the command line
+// holds one login for the whole machine — so a session started from a
+// grafted profile closes without a record and vanishes from every sidebar
+// while its transcript sits whole on disk. The sweep below writes the
+// missing record; everything in it comes out of the transcript.
+
+Graft.claudeProjectsOverride = root.appending(path: "claude-projects")
+let ownerAccount = "0a0a0a0a-0a0a-4a0a-8a0a-0a0a0a0a0a0a"
+let ownerOrg = "0b0b0b0b-0b0b-4b0b-8b0b-0b0b0b0b0b0b"
+let borrowerAccount = "0c0c0c0c-0c0c-4c0c-8c0c-0c0c0c0c0c0c"
+let borrowerOrg = "0d0d0d0d-0d0d-4d0d-8d0d-0d0d0d0d0d0d"
+
+/// One transcript, laid out the way the command line writes them: a bridge
+/// line naming the owner, a prompt, an answer, and a title line.
+func makeTranscript(session: String,
+                    bridge: String? = "cse_01BridgeSession0000",
+                    owner: String = ownerAccount,
+                    org: String = ownerOrg,
+                    title: String? = nil,
+                    spoke: Bool = true,
+                    first: String = "2026-08-29T17:00:00.000Z",
+                    last: String = "2026-08-29T17:00:10.000Z",
+                    extra: [String] = []) -> URL {
+    let dir = Graft.claudeProjects.appending(path: "-Users-test-work")
+    try! fm.createDirectory(at: dir, withIntermediateDirectories: true)
+    var lines: [String] = []
+    if let bridge {
+        lines.append("{\"type\":\"bridge-session\",\"sessionId\":\"\(session)\","
+                     + "\"bridgeSessionId\":\"\(bridge)\",\"lastSequenceNum\":0,"
+                     + "\"ownerAccountUuid\":\"\(owner)\",\"ownerOrganizationUuid\":\"\(org)\"}")
+    }
+    if spoke {
+        lines.append("{\"parentUuid\":null,\"isSidechain\":false,\"promptId\":\"prompt-one\","
+                     + "\"cwd\":\"/Users/test/work\",\"permissionMode\":\"auto\",\"gitBranch\":\"main\","
+                     + "\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":\"hello\"},"
+                     + "\"uuid\":\"u-1\",\"timestamp\":\"\(first)\"}")
+        lines.append("{\"parentUuid\":\"u-1\",\"isSidechain\":false,\"cwd\":\"/Users/test/work\","
+                     + "\"permissionMode\":\"auto\",\"gitBranch\":\"main\",\"type\":\"assistant\","
+                     + "\"message\":{\"id\":\"m-1\",\"model\":\"claude-opus-5\",\"content\":[{\"text\":\"hi\",\"type\":\"text\"}]},"
+                     + "\"uuid\":\"a-1\",\"timestamp\":\"\(last)\",\"effort\":\"max\"}")
+    } else {
+        // A session opened and closed with nothing said in it still leaves a
+        // transcript: a bridge line, a stamp, and no conversation at all.
+        lines.append("{\"cwd\":\"/Users/test/work\",\"permissionMode\":\"auto\","
+                     + "\"type\":\"file-history-summary\",\"timestamp\":\"\(last)\"}")
+    }
+    if let title {
+        lines.append("{\"type\":\"custom-title\",\"customTitle\":\"\(title)\",\"sessionId\":\"\(session)\"}")
+    }
+    lines += extra
+    let file = dir.appending(path: "\(session).jsonl")
+    try! lines.joined(separator: "\n").write(to: file, atomically: true, encoding: .utf8)
+    return file
+}
+
+do {
+    let facts = Graft.sessionFacts(inTranscriptAt: makeTranscript(session: "11111111-1111-4111-8111-111111111111",
+                                                                  title: "Test 4"),
+                                   cliSessionId: "11111111-1111-4111-8111-111111111111")
+    check(facts?.title == "Test 4", "the title comes from the title line")
+    check(facts?.ownerAccount == ownerAccount && facts?.ownerOrganization == ownerOrg,
+          "the owner and the organization come from the bridge line")
+    check(facts?.cwd == "/Users/test/work" && facts?.permissionMode == "auto",
+          "so do the working directory and the permission mode")
+    check(facts?.model == "claude-opus-5" && facts?.effort == "max",
+          "the model and the effort come from the answer")
+    check(facts?.bridgeIds == ["cse_01BridgeSession0000"],
+          "the bridge id is the one thing a record cannot live without")
+    check(facts?.branches == ["main"], "the branch the session ran on is written down")
+    if let facts {
+        check(facts.lastActivityAt - facts.createdAt == 10_000 && facts.createdAt > 1_700_000_000_000,
+              "the times are the transcript's first and last, in milliseconds")
+    }
+    check(facts?.prompts == 1, "one prompt is one turn")
+
+    // Tool results carry their prompt's id, so a session heavy with them is
+    // not a session of many turns.
+    let busy = Graft.sessionFacts(inTranscriptAt: makeTranscript(
+        session: "22222222-2222-4222-8222-222222222222",
+        extra: ["{\"parentUuid\":\"a-1\",\"isSidechain\":false,\"promptId\":\"prompt-one\","
+                + "\"cwd\":\"/Users/test/work\",\"type\":\"user\","
+                + "\"message\":{\"role\":\"user\",\"content\":[{\"tool_use_id\":\"t-1\",\"type\":\"tool_result\",\"content\":\"ok\"}]},"
+                + "\"uuid\":\"u-2\",\"timestamp\":\"2026-08-29T17:00:11.000Z\"}"]),
+        cliSessionId: "22222222-2222-4222-8222-222222222222")
+    check(busy?.prompts == 1, "tool results share their prompt's id and count as no turn of their own")
+    check(busy?.title == "New session", "a session never named is listed under the name Claude gives unnamed ones")
+
+    check(Graft.sessionFacts(inTranscriptAt: makeTranscript(session: "33333333-3333-4333-8333-333333333333",
+                                                             bridge: nil),
+                             cliSessionId: "33333333-3333-4333-8333-333333333333") == nil,
+          "a transcript the terminal ran has no bridge line, and nothing is missing from it")
+
+    if let facts {
+        let record = Graft.sessionRecord(for: facts)
+        check(record["sessionId"] as? String == "local_11111111-1111-4111-8111-111111111111",
+              "the record is named for its session, so a later pass can only find it in one place")
+        check((record["bridgeSessionIds"] as? [String]) == ["session_01BridgeSession0000"],
+              "the bridge id is renamed the way records spell it: cse_ becomes session_")
+        check(record["cliSessionId"] as? String == "11111111-1111-4111-8111-111111111111"
+              && record["isArchived"] as? Bool == false && record["titleSource"] as? String == "auto",
+              "the rest of the record says what Claude's own records say about a session")
+    }
+}
+
+do {
+    let facts = Graft.SessionFacts(cliSessionId: "s-1", bridgeIds: ["cse_x"],
+                                   ownerAccount: ownerAccount, ownerOrganization: ownerOrg,
+                                   title: "T", cwd: "/w", createdAt: 0, lastActivityAt: 1_000,
+                                   model: "m", effort: "low", permissionMode: "auto",
+                                   prompts: 1, branches: [])
+    let then = Date(timeIntervalSince1970: 1)
+    let later = then.addingTimeInterval(10 * 60)
+    let owner = URL(fileURLWithPath: "/tmp/nowhere")
+
+    check(Graft.sessionFiling(facts: nil, recorded: [], withdrawn: [], deletions: [],
+                              lastWrite: then, ownerProfile: owner, now: later, quietWindow: 300) == .notADesktopSession,
+          "a transcript with no bridge line is not missing anything")
+    check(Graft.sessionFiling(facts: facts, recorded: ["s-1"], withdrawn: [], deletions: [],
+                              lastWrite: then, ownerProfile: owner, now: later, quietWindow: 300) == .alreadyRecorded,
+          "a session some Claude already wrote a record for is left alone")
+    check(Graft.sessionFiling(facts: facts, recorded: [], withdrawn: ["s-1"], deletions: [],
+                              lastWrite: then, ownerProfile: owner, now: later, quietWindow: 300) == .withdrawn,
+          "a session deleted in a sidebar once is never brought back")
+    check(Graft.sessionFiling(facts: facts, recorded: [], withdrawn: [],
+                              deletions: [1_000 + 30_000],
+                              lastWrite: then, ownerProfile: owner, now: later, quietWindow: 300) == .withdrawn,
+          "a session that had just gone quiet before a deletion marker is the one the marker took")
+    check(Graft.sessionFiling(facts: facts, recorded: [], withdrawn: [],
+                              deletions: [1_000 + 10 * 60_000],
+                              lastWrite: then, ownerProfile: owner, now: later, quietWindow: 300) == .file,
+              "a marker long after the session closed is about some other session")
+    check(Graft.sessionFiling(facts: facts, recorded: [], withdrawn: [],
+                              deletions: [1_000 - 5 * 60_000],
+                              lastWrite: then, ownerProfile: owner, now: later, quietWindow: 300) == .file,
+          "and a marker from before the session existed says nothing about it")
+    check(Graft.sessionFiling(facts: facts, recorded: [], withdrawn: [], deletions: [],
+                              lastWrite: later, ownerProfile: owner, now: later, quietWindow: 300) == .tooRecent,
+          "a transcript written moments ago waits, in case Claude is about to write the record itself")
+    check(Graft.sessionFiling(facts: facts, recorded: [], withdrawn: [], deletions: [],
+                              lastWrite: later, ownerProfile: owner, ownerIsRunning: false,
+                              now: later, quietWindow: 300) == .file,
+          "but with no Claude up on that account there is nobody to wait for, and it files at once")
+    check(Graft.sessionFiling(facts: facts, recorded: [], withdrawn: [], deletions: [],
+                              lastWrite: then, ownerProfile: nil, now: later, quietWindow: 300) == .noOwnerProfile,
+          "a session whose owner lives on no profile here waits for one to appear")
+    check(Graft.sessionFiling(facts: facts, recorded: [], withdrawn: [], deletions: [],
+                              lastWrite: then, ownerProfile: owner, now: later, quietWindow: 300) == .file,
+          "with everything in place, the record is written")
+}
+
+do {
+    let early = Graft.SessionFacts(cliSessionId: "s-2", bridgeIds: ["cse_x"],
+                                  ownerAccount: ownerAccount, ownerOrganization: ownerOrg,
+                                  title: "T", cwd: "/w", createdAt: 0, lastActivityAt: 1_000,
+                                  model: "m", effort: "low", permissionMode: "auto",
+                                  prompts: 1, branches: [])
+    var later = early
+    later.title = "T, continued"
+
+    check(Graft.sessionUpdateDecision(authored: nil, facts: later, diskMatchesAuthored: true) == .leave,
+          "a record this app never wrote is not this app's to bring up to date")
+    check(Graft.sessionUpdateDecision(authored: early, facts: early, diskMatchesAuthored: true) == .leave,
+          "a record that already says what the transcript says is left as it is")
+    check(Graft.sessionUpdateDecision(authored: early, facts: later, diskMatchesAuthored: true) == .refresh,
+          "a record behind its transcript, still holding what this app wrote, is brought up")
+    check(Graft.sessionUpdateDecision(authored: early, facts: later, diskMatchesAuthored: false) == .takenOver,
+          "once something else has rewritten the record, this app never touches it again")
+}
+
+do {
+    // The world as the machine holds it: a profile on the owner's account,
+    // and a second profile grafted onto it, its organization directory a
+    // link into the first.
+    let home = makeProfile("Claude-3", account: ownerAccount, org: ownerOrg)
+    let second = makeProfile("Claude-2", account: borrowerAccount, org: borrowerOrg)
+    let homeOrg = home.appending(path: "claude-code-sessions")
+        .appending(path: ownerAccount).appending(path: ownerOrg)
+    let secondOrg = second.appending(path: "claude-code-sessions")
+        .appending(path: borrowerAccount).appending(path: borrowerOrg)
+    try! fm.removeItem(at: secondOrg)
+    try! fm.createSymbolicLink(atPath: secondOrg.path, withDestinationPath: homeOrg.path)
+
+    // Everything the sweep will be shown. The parser fixtures are gone, so
+    // what is here is only the story this pass has to get right.
+    try? fm.removeItem(at: Graft.claudeProjects)
+
+    // The lost session: owned by the account Claude-3 holds, started from
+    // the grafted profile, which is signed into another — so no Claude ever
+    // wrote its record.
+    let lostId = "44444444-4444-4444-8444-444444444444"
+    _ = makeTranscript(session: lostId, title: "Lost work")
+    let lostRecord = homeOrg.appending(path: "local_\(lostId).json")
+
+    // Its twin, deleted by hand before Graft ever ran: no record anywhere,
+    // and a marker carrying nothing but the moment of the press.
+    let twinId = "55555555-5555-4555-8555-555555555555"
+    let twin = makeTranscript(session: twinId, title: "Deleted by hand",
+                              first: "2026-08-29T16:40:00.000Z",
+                              last: "2026-08-29T16:40:10.000Z")
+    if let twinFacts = Graft.sessionFacts(inTranscriptAt: twin, cliSessionId: twinId) {
+        try! "\(Int(twinFacts.lastActivityAt + 30_000))"
+            .write(to: homeOrg.appending(path: "deleted_66666666-6666-4666-8666-666666666666"),
+                   atomically: true, encoding: .utf8)
+    }
+
+    // A session owned by the other account, whose record belongs on the far
+    // side of the graft link.
+    let borrowedId = "77777777-7777-4777-8777-777777777777"
+    _ = makeTranscript(session: borrowedId, owner: borrowerAccount, org: borrowerOrg,
+                       title: "From the other account")
+
+    // And a session whose owner no profile on this machine holds.
+    let strangerId = "88888888-8888-4888-8888-888888888888"
+    let strangerAccount = "99999999-9999-4999-8999-999999999999"
+    _ = makeTranscript(session: strangerId, owner: strangerAccount,
+                       org: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+                       title: "Stranger's session")
+
+    // A session opened and closed with nothing said in it: a bridge line, a
+    // stamp, and no conversation to lose.
+    let quietId = "10101010-1010-4101-8101-101010101010"
+    _ = makeTranscript(session: quietId, spoke: false)
+
+    let filing = [Graft.mainProfile, home, second]
+
+    // These transcripts were written a moment ago, and it makes no difference:
+    // no Claude on either owner's account is running, so nothing is about to
+    // write these records but this sweep, and there is nothing to wait for.
+    let first = Graft.fileMissingSessionRecords(filingInto: filing, now: Date())
+    check(Set(first.map(\.title)) == ["Lost work", "From the other account"],
+          "with no Claude up on the owner's account, a session that closed without a record gets one at once")
+    check(Graft.exists(lostRecord),
+          "the record lands in the owner's organization, where the session's own window and everything grafted onto it lists it")
+    let record = (try? Data(contentsOf: lostRecord))
+        .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+    check(record?["cliSessionId"] as? String == lostId
+          && record?["sessionId"] as? String == "local_\(lostId)",
+          "the record names its session both of the ways the records do")
+    check((record?["bridgeSessionIds"] as? [String]) == ["session_01BridgeSession0000"],
+          "the bridge id is spelled the way records spell it")
+    check(!Graft.exists(homeOrg.appending(path: "local_\(twinId).json")),
+          "the session deleted by hand before the first pass is not brought back")
+    check(Graft.exists(secondOrg.appending(path: "local_\(borrowedId).json")),
+          "a record filed through a graft lands where the link points, which is where both windows read")
+    check(!Graft.exists(homeOrg.appending(path: "local_\(quietId).json")),
+          "a session with nothing said in it gets no record")
+
+    // A pass that finds everything already in place files nothing.
+    check(Graft.fileMissingSessionRecords(filingInto: filing,
+                                          now: Date().addingTimeInterval(90)).isEmpty,
+          "a session already recorded is left alone, however many passes go by")
+
+    // The session carries on: another prompt, another answer, a new name.
+    // The record follows while it is still this app's to move.
+    _ = makeTranscript(session: lostId, title: "Lost work, continued",
+                       last: "2026-08-29T17:05:00.000Z",
+                       extra: ["{\"parentUuid\":\"a-1\",\"isSidechain\":false,\"promptId\":\"prompt-two\","
+                               + "\"cwd\":\"/Users/test/work\",\"type\":\"user\","
+                               + "\"message\":{\"role\":\"user\",\"content\":\"more\"},"
+                               + "\"uuid\":\"u-3\",\"timestamp\":\"2026-08-29T17:04:50.000Z\"}",
+                               "{\"parentUuid\":\"u-3\",\"isSidechain\":false,\"cwd\":\"/Users/test/work\","
+                               + "\"type\":\"assistant\",\"message\":{\"model\":\"claude-opus-5\"},"
+                               + "\"uuid\":\"a-2\",\"timestamp\":\"2026-08-29T17:05:00.000Z\"}"])
+    check(Graft.fileMissingSessionRecords(filingInto: filing,
+                                          now: Date().addingTimeInterval(120)).isEmpty,
+          "a transcript moving on is not a recovery, so nothing is reported as filed")
+    let carried = (try? Data(contentsOf: lostRecord))
+        .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+    check(carried?["title"] as? String == "Lost work, continued"
+          && carried?["completedTurns"] as? Int == 2,
+          "but the record follows its session: the new name and the second turn are in it")
+
+    // Claude takes the session back: the owner's window opened it, and its
+    // own record went down over the one this app filed. What a transcript
+    // cannot recover must not be flattened away.
+    try! ("{\"cliSessionId\":\"\(lostId)\",\"remoteMcpServersConfig\":"
+        + "[{\"name\":\"a server the transcript never heard of\"}],\"title\":\"Lost work\"}")
+        .write(to: lostRecord, atomically: true, encoding: .utf8)
+    _ = makeTranscript(session: lostId, title: "Lost work, carried further",
+                       last: "2026-08-29T17:10:00.000Z")
+    check(Graft.fileMissingSessionRecords(filingInto: filing,
+                                          now: Date().addingTimeInterval(180)).isEmpty,
+          "a record rewritten by Claude is left exactly as Claude wrote it")
+    check((try? String(contentsOf: lostRecord, encoding: .utf8))?
+              .contains("a server the transcript never heard of") == true,
+          "what the host wrote is still there word for word")
+    check(Graft.loadSessionRecordState().authored[lostId] == nil,
+          "and the sweep stops claiming the record as its own")
+
+    // Deleted in a sidebar: the record, removed by hand the way Claude
+    // removes one, marker and all.
+    try! fm.removeItem(at: homeOrg.appending(path: "local_\(borrowedId).json"))
+    try! "1788024768893"
+        .write(to: homeOrg.appending(path: "deleted_\(borrowedId)"), atomically: true, encoding: .utf8)
+    check(Graft.fileMissingSessionRecords(filingInto: filing,
+                                          now: Date().addingTimeInterval(240)).isEmpty,
+          "the sweep saw the record go, and does not put it back")
+    check(!Graft.exists(secondOrg.appending(path: "local_\(borrowedId).json")),
+          "the delete in the sidebar sticks, through the link and all")
+    let withdrawnState = Graft.loadSessionRecordState()
+    check(withdrawnState.withdrawn.contains(borrowedId),
+          "the withdrawal is written down, so no later pass forgets it")
+    check(withdrawnState.authored[borrowedId] == nil,
+          "and a withdrawn session's authored copy goes with it")
+
+    // The owner's account turns up on a new profile, and the session that
+    // had nowhere to go now goes there.
+    let late = makeProfile("Claude-4", account: strangerAccount,
+                           org: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")
+    let fifth = Graft.fileMissingSessionRecords(filingInto: filing + [late],
+                                                now: Date().addingTimeInterval(300))
+    check(Set(fifth.map(\.title)) == ["Stranger's session"],
+          "a session whose owner arrived on a later pass is filed when the profile holding the account appears")
+    check(!Graft.exists(homeOrg.appending(path: "local_\(twinId).json")),
+          "and the deletion marker holds its session back on every pass, not just the first")
+
+    // A state file from a version that kept no authored records still
+    // loads, claiming nothing as this app's to move.
+    let current = Graft.loadSessionRecordState()
+    try! JSONSerialization.data(withJSONObject: ["records": current.records,
+                                                 "withdrawn": current.withdrawn])
+        .write(to: Graft.sessionRecordStateFile, options: .atomic)
+    check(Graft.loadSessionRecordState().authored.isEmpty,
+          "a state file without an authored map loads with nothing claimed as authored")
+    check(Graft.fileMissingSessionRecords(filingInto: filing + [late],
+                                          now: Date().addingTimeInterval(360)).isEmpty,
+          "and a pass over that state touches nothing it does not own")
+    check((try? String(contentsOf: lostRecord, encoding: .utf8))?
+              .contains("a server the transcript never heard of") == true,
+          "the host's record is still there, passes later")
+}
+
+do {
+    // A store out of sight is not a store somebody emptied. Every directory
+    // in the walk is read with a `try?`, so a profile that has been deleted,
+    // or stashed behind a graft, or is waiting on a permission, comes back
+    // holding nothing at all — and reading that as a sidebar cleared by hand
+    // withdrew every session it held, forever. Graft stashes org folders
+    // itself, so its own graft was the surest way to trigger it.
+    try? fm.removeItem(at: Graft.claudeProjects)
+    try? fm.removeItem(at: Graft.sessionRecordStateFile)
+
+    let account = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+    let org = "cccccccc-cccc-4ccc-8ccc-cccccccccccc"
+    let only = makeProfile("Claude-5", account: account, org: org)
+    let onlyOrg = only.appending(path: "claude-code-sessions")
+        .appending(path: account).appending(path: org)
+    let id = "12121212-1212-4121-8121-121212121212"
+    _ = makeTranscript(session: id, owner: account, org: org, title: "Only copy")
+
+    let start = Date().addingTimeInterval(120)
+    check(Graft.fileMissingSessionRecords(filingInto: [only], now: start).count == 1,
+          "a session whose owner is here and whose record is not gets one")
+    check(Graft.exists(onlyOrg.appending(path: "local_\(id).json")),
+          "and it is on disk where the owner reads")
+
+    // The profile goes out of sight the way a deleted one does: gone from
+    // Application Support entirely, so the walk finds nothing of it.
+    let aside = root.appending(path: "Claude-5.aside")
+    try! fm.moveItem(at: only, to: aside)
+    _ = Graft.fileMissingSessionRecords(filingInto: [], now: start.addingTimeInterval(60))
+    check(Graft.loadSessionRecordState().withdrawn.isEmpty,
+          "a pass that could not look anywhere withdraws nothing")
+    try! fm.moveItem(at: aside, to: only)
+    _ = Graft.fileMissingSessionRecords(filingInto: [only], now: start.addingTimeInterval(120))
+    check(Graft.loadSessionRecordState().withdrawn.isEmpty,
+          "and the session is still the sweep's to keep once the store is back")
+
+    // Deleted by hand, with the store right there to be read: that is the
+    // absence the rule is actually about — once the pass after agrees. Claude
+    // re-files a session under a new record name as it runs, so there is a
+    // moment when the old name has gone and the new one has not landed, and a
+    // single pass cannot tell that from a delete.
+    try! fm.removeItem(at: onlyOrg.appending(path: "local_\(id).json"))
+    _ = Graft.fileMissingSessionRecords(filingInto: [only], now: start.addingTimeInterval(180))
+    check(Graft.loadSessionRecordState().withdrawn.isEmpty,
+          "one pass finding a record gone is a record being renamed, as often as not")
+    check(Graft.loadSessionRecordState().vanished == [id],
+          "so the pass notes it and leaves the next one something to agree with")
+    _ = Graft.fileMissingSessionRecords(filingInto: [only], now: start.addingTimeInterval(240))
+    check(Graft.loadSessionRecordState().withdrawn == [id],
+          "a record still gone the pass after is one somebody deleted")
+
+    // And a record that comes back under a new name is not a deletion at all.
+    try? fm.removeItem(at: Graft.sessionRecordStateFile)
+    _ = Graft.fileMissingSessionRecords(filingInto: [only], now: start.addingTimeInterval(300))
+    let renamed = onlyOrg.appending(path: "local_\(id).json")
+    let onDisk = try! Data(contentsOf: renamed)
+    try! fm.removeItem(at: renamed)
+    _ = Graft.fileMissingSessionRecords(filingInto: [only], now: start.addingTimeInterval(360))
+    try! onDisk.write(to: onlyOrg.appending(path: "local_99999999-9999-4999-8999-999999999999.json"))
+    _ = Graft.fileMissingSessionRecords(filingInto: [only], now: start.addingTimeInterval(420))
+    check(Graft.loadSessionRecordState().withdrawn.isEmpty,
+          "a session whose record turned up again under another name was never deleted")
+}
+
+do {
+    // Graft names its records for the session, so the marker Claude leaves
+    // when one is deleted names the session too. That is a deletion read
+    // rather than inferred, and it needs no memory of earlier passes.
+    try? fm.removeItem(at: Graft.claudeProjects)
+    try? fm.removeItem(at: Graft.sessionRecordStateFile)
+
+    let account = "dddddddd-dddd-4ddd-8ddd-dddddddddddd"
+    let org = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee"
+    let home = makeProfile("Claude-6", account: account, org: org)
+    let homeOrg = home.appending(path: "claude-code-sessions")
+        .appending(path: account).appending(path: org)
+    let id = "13131313-1313-4131-8131-131313131313"
+    _ = makeTranscript(session: id, owner: account, org: org, title: "Named by its session")
+    try! "1788024768893".write(to: homeOrg.appending(path: "deleted_\(id)"),
+                              atomically: true, encoding: .utf8)
+
+    let now = Date().addingTimeInterval(120)
+    check(Graft.fileMissingSessionRecords(filingInto: [home], now: now).isEmpty,
+          "a marker carrying the session's own name is a delete, first pass and all")
+    check(!Graft.exists(homeOrg.appending(path: "local_\(id).json")),
+          "so nothing is written for it")
+    check(Graft.loadSessionRecordState().withdrawn == [id],
+          "and it is written down, so the marker may be tidied away without the session coming back")
+}
+
 print("\n\(checks - failures)/\(checks) checks passed")
 if failures > 0 {
     print("\(failures) FAILED")

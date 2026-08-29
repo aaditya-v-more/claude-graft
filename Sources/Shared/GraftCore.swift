@@ -224,6 +224,857 @@ enum Graft {
         configJSON(of: profile)["lastKnownAccountUuid"] as? String
     }
 
+    // MARK: - Session records
+
+    /// Where the command line files one transcript per session, under one
+    /// directory per working directory. Redirected by the test suite, like
+    /// `applicationSupportOverride`.
+    static var claudeProjectsOverride: URL?
+
+    static var claudeProjects: URL {
+        claudeProjectsOverride
+            ?? fm.homeDirectoryForCurrentUser.appending(path: ".claude/projects")
+    }
+
+    /// What a transcript says about the session it holds. A record is what
+    /// lists a session; the transcript is the session. Everything a sidebar
+    /// can show comes out of the record, so every field of one has to be
+    /// pulled out of the other.
+    ///
+    /// Codable because the sweep writes down the facts behind every record
+    /// it files, which is how a later pass tells a record still its own from
+    /// one Claude has rewritten — and because a pass that had to read two
+    /// hundred megabytes of transcript to learn them should only ever do
+    /// that once.
+    struct SessionFacts: Codable, Equatable {
+        var cliSessionId: String
+        var bridgeIds: [String]
+        var ownerAccount: String
+        var ownerOrganization: String
+        var title: String
+        var cwd: String
+        /// Milliseconds since the epoch, which is what the records carry.
+        var createdAt: Double
+        var lastActivityAt: Double
+        var model: String
+        var effort: String
+        var permissionMode: String
+        /// One per distinct prompt, which is as close to "turns" as a
+        /// transcript gets. Claude's own records count only the turns that
+        /// finished, and disagree with this by the prompts still in flight;
+        /// the number is a badge, not a boundary.
+        var prompts: Int
+        var branches: [String]
+    }
+
+    /// Hands every `"key":"value"` pair in one line to `take`, in the order
+    /// they are written.
+    ///
+    /// One pass rather than a search for each field. A transcript runs to
+    /// megabytes and there are a dozen fields worth having, so searching it
+    /// once per field made finding them the slow part of a sweep — measured
+    /// at twelve seconds over two hundred megabytes, against one for this.
+    /// Bytes rather than characters for the same reason: nothing read here
+    /// needs to know what a grapheme is.
+    ///
+    /// Strings are walked the way JSON writes them, backslash escapes and
+    /// all. A value that ends early takes the rest of the line with it, so a
+    /// quote pasted into a conversation would otherwise turn its content
+    /// into keys.
+    private static func pairs(in bytes: [UInt8], from lower: Int, to upper: Int,
+                              take: (ArraySlice<UInt8>, ArraySlice<UInt8>) -> Void) {
+        let quote = UInt8(ascii: "\""), backslash = UInt8(ascii: "\\"), colon = UInt8(ascii: ":")
+
+        /// The index of the closing quote of the string opening at `i`, or
+        /// nil if the line runs out inside it.
+        func closingQuote(from i: Int) -> Int? {
+            var j = i + 1
+            while j < upper {
+                if bytes[j] == backslash { j += 2; continue }
+                if bytes[j] == quote { return j }
+                j += 1
+            }
+            return nil
+        }
+
+        var i = lower
+        while i < upper {
+            guard bytes[i] == quote else { i += 1; continue }
+            guard let keyEnd = closingQuote(from: i) else { return }
+            // A string with a colon after it is a key. Anything else is a
+            // value, and what is inside a value is none of this scan's
+            // business — skipping it whole is what keeps pasted text out.
+            guard keyEnd + 2 < upper, bytes[keyEnd + 1] == colon, bytes[keyEnd + 2] == quote
+            else { i = keyEnd + 1; continue }
+            guard let valueEnd = closingQuote(from: keyEnd + 2) else { return }
+            take(bytes[(i + 1)..<keyEnd], bytes[(keyEnd + 3)..<valueEnd])
+            i = valueEnd + 1
+        }
+    }
+
+    /// A pair's value as a string. The escaped case goes back through the
+    /// JSON reader rather than being unpicked by hand, because a title is
+    /// the one field here a person writes, and `é` in a sidebar is
+    /// worse than the cost of parsing six bytes.
+    private static func text(_ value: ArraySlice<UInt8>) -> String {
+        let backslash = UInt8(ascii: "\\")
+        guard value.contains(backslash) else { return String(decoding: value, as: UTF8.self) }
+        var quoted = [UInt8(ascii: "\"")]
+        quoted.append(contentsOf: value)
+        quoted.append(UInt8(ascii: "\""))
+        return (try? JSONSerialization.jsonObject(with: Data(quoted),
+                                                  options: [.fragmentsAllowed])) as? String
+            ?? String(decoding: value, as: UTF8.self)
+    }
+
+    private static func matches(_ key: ArraySlice<UInt8>, _ name: StaticString) -> Bool {
+        guard key.count == name.utf8CodeUnitCount else { return false }
+        var i = key.startIndex
+        for offset in 0..<name.utf8CodeUnitCount {
+            if key[i] != name.utf8Start[offset] { return false }
+            i += 1
+        }
+        return true
+    }
+
+    private static let fractionalISO: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
+    private static let wholeSecondISO = ISO8601DateFormatter()
+
+    /// `"2026-08-29T17:32:48.893Z"` as milliseconds since the epoch. Every
+    /// stamp transcripts have been seen carrying was fractional, but a whole
+    /// one is still a stamp.
+    private static func epochMilliseconds(_ stamp: String) -> Double? {
+        guard let date = fractionalISO.date(from: stamp) ?? wholeSecondISO.date(from: stamp)
+        else { return nil }
+        return (date.timeIntervalSince1970 * 1000).rounded()
+    }
+
+    /// Reads one transcript and pulls out what a record needs. Nil when no
+    /// bridge line is in it: that is a session the terminal ran on its own,
+    /// which was never going to be in a sidebar, so nothing is missing.
+    ///
+    /// The first value a key takes on a line is that line's, which holds for
+    /// every field read here but one. `type` does not: an answer is written
+    /// `{"parentUuid":…,"message":{…,"type":"message",…},"type":"assistant"}`,
+    /// so the first `type` on the line belongs to the message nested inside
+    /// it and the line's own comes last. A marker line — a bridge, a title —
+    /// opens with its own `type` and is read by that; an answer is recognised
+    /// by carrying `assistant` anywhere, which is the only rule the shape
+    /// above leaves standing.
+    static func sessionFacts(inTranscriptAt url: URL, cliSessionId: String) -> SessionFacts? {
+        guard let data = try? Data(contentsOf: url, options: [.mappedIfSafe]) else { return nil }
+        let bytes = [UInt8](data)
+        let newline = UInt8(ascii: "\n")
+
+        var bridgeIds: [String] = []
+        var ownerAccount = "", ownerOrganization = ""
+        var title: String?
+        var firstStamp: String?
+        var lastStamp: String?
+        // A session that got no answer back leaves no line carrying these,
+        // so they hold the last values the transcript ever mentioned rather
+        // than an honest read; the record still needs something in them.
+        var model = "claude-sonnet-5", effort = "medium", permissionMode = "auto", cwd = ""
+        var promptIds: Set<String> = []
+        var branches: [String] = []
+
+        var lineStart = 0
+        while lineStart < bytes.count {
+            var lineEnd = lineStart
+            while lineEnd < bytes.count, bytes[lineEnd] != newline { lineEnd += 1 }
+            defer { lineStart = lineEnd + 1 }
+            guard lineEnd > lineStart else { continue }
+
+            var type: String?
+            var assistant = false
+            var stamp: String?, lineCwd: String?, mode: String?, branch: String?
+            var promptId: String?, lineModel: String?, lineEffort: String?
+            var bridgeId: String?, account: String?, organization: String?, customTitle: String?
+
+            pairs(in: bytes, from: lineStart, to: lineEnd) { key, value in
+                func first(_ slot: inout String?) { if slot == nil { slot = text(value) } }
+                if matches(key, "type") {
+                    first(&type)
+                    if matches(value, "assistant") { assistant = true }
+                }
+                else if matches(key, "timestamp") { first(&stamp) }
+                else if matches(key, "cwd") { first(&lineCwd) }
+                else if matches(key, "permissionMode") { first(&mode) }
+                else if matches(key, "gitBranch") { first(&branch) }
+                else if matches(key, "promptId") { first(&promptId) }
+                else if matches(key, "model") { first(&lineModel) }
+                else if matches(key, "effort") { first(&lineEffort) }
+                else if matches(key, "bridgeSessionId") { first(&bridgeId) }
+                else if matches(key, "ownerAccountUuid") { first(&account) }
+                else if matches(key, "ownerOrganizationUuid") { first(&organization) }
+                else if matches(key, "customTitle") { first(&customTitle) }
+            }
+
+            if type == "bridge-session" {
+                if let bridgeId, !bridgeIds.contains(bridgeId) { bridgeIds.append(bridgeId) }
+                if ownerAccount.isEmpty {
+                    ownerAccount = account ?? ""
+                    ownerOrganization = organization ?? ""
+                }
+                continue
+            }
+            if type == "custom-title" {
+                // The last one wins: a session re-named keeps the newer name.
+                title = customTitle ?? title
+                continue
+            }
+            if let stamp {
+                if firstStamp == nil { firstStamp = stamp }
+                lastStamp = stamp
+            }
+            if assistant {
+                if let lineModel { model = lineModel }
+                if let lineEffort { effort = lineEffort }
+            }
+            if let lineCwd { cwd = lineCwd }
+            if let mode { permissionMode = mode }
+            if let branch, !branches.contains(branch) { branches.append(branch) }
+            if let promptId { promptIds.insert(promptId) }
+        }
+
+        guard !bridgeIds.isEmpty,
+              let first = firstStamp, let last = lastStamp,
+              let created = epochMilliseconds(first), let active = epochMilliseconds(last),
+              !ownerAccount.isEmpty, !ownerOrganization.isEmpty
+        else { return nil }
+
+        return SessionFacts(cliSessionId: cliSessionId,
+                            bridgeIds: bridgeIds,
+                            ownerAccount: ownerAccount,
+                            ownerOrganization: ownerOrganization,
+                            title: title ?? "New session",
+                            cwd: cwd,
+                            createdAt: created,
+                            lastActivityAt: active,
+                            model: model,
+                            effort: effort,
+                            permissionMode: permissionMode,
+                            prompts: promptIds.count,
+                            branches: branches)
+    }
+
+    /// The record that puts a session back in a sidebar, shaped like the
+    /// ones Claude Desktop writes for the sessions it owns.
+    ///
+    /// The bridge id is the one thing renamed on the way: the transcript
+    /// calls it `cse_…`, the record calls the same id `session_…` — measured
+    /// against a session that had both written down. The name is fixed by
+    /// the session too, `local_<cliSessionId>`, so a later pass can only
+    /// ever find the record where this one put it, and the marker a delete
+    /// leaves behind names the session by the same id.
+    static func sessionRecord(for facts: SessionFacts) -> [String: Any] {
+        var record: [String: Any] = [
+            "sessionId": "local_\(facts.cliSessionId)",
+            "cliSessionId": facts.cliSessionId,
+            "cwd": facts.cwd,
+            "originCwd": facts.cwd,
+            "lastFocusedAt": facts.lastActivityAt,
+            "createdAt": facts.createdAt,
+            "lastActivityAt": facts.lastActivityAt,
+            "model": facts.model,
+            "effort": facts.effort,
+            "isArchived": false,
+            "title": facts.title,
+            "titleSource": "auto",
+            "permissionMode": facts.permissionMode,
+            // A record written by the desktop carries its MCP server config
+            // here. Nothing the transcript holds can recover that, and an
+            // empty list is what a session sees when none is configured.
+            "remoteMcpServersConfig": [String](),
+            "chromePermissionMode": "skip_all_permission_checks",
+            "completedTurns": facts.prompts,
+            "lastSpawnRootDetected": false,
+            "bridgeSessionIds": facts.bridgeIds.map {
+                $0.hasPrefix("cse_") ? "session_" + $0.dropFirst(4) : $0
+            },
+            "remoteControlAutoEligible": true,
+            "alwaysAllowedReasons": [String](),
+            "sessionPermissionUpdates": [String](),
+            "classifierSummaryEnabled": true,
+            "reportFindingsCard": true,
+            "spawnSeed": [String: Any](),
+        ]
+        if !facts.branches.isEmpty { record["writtenBranches"] = facts.branches }
+        return record
+    }
+
+    /// Parsed records, keyed by file and re-read only when the file changes.
+    /// A sweep of several stores walks hundreds of these every time, and each
+    /// one is small; reading them all is what the budget is for, not the
+    /// parsing.
+    private static var recordCache: [String: (stamp: Date, size: Int, cliSessionId: String?)] = [:]
+    private static let recordCacheLock = NSLock()
+
+    /// One transcript's parse, remembered against the file it came from.
+    struct CachedTranscript: Codable {
+        var modified: Double
+        var size: Int
+        var facts: SessionFacts?
+    }
+
+    /// Parsed transcripts, kept on disk rather than only in memory.
+    ///
+    /// A shortcut files records on its way to opening Claude, and a launcher
+    /// is a process that exits the moment it has handed over — so a cache
+    /// that lived only in memory would be cold every single time, and cold
+    /// is two hundred megabytes of transcript standing between a double
+    /// click and a window. On disk it is paid once, by whoever pays it
+    /// first.
+    private static var transcriptCache: [String: CachedTranscript] = [:]
+    private static var transcriptCacheLoaded = false
+    private static var transcriptCacheDirty = false
+    private static let transcriptCacheLock = NSLock()
+
+    static var transcriptCacheFile: URL {
+        applicationSupport.appending(path: "ClaudeGraft/transcript-cache.json")
+    }
+
+    private static func loadTranscriptCache() {
+        guard !transcriptCacheLoaded else { return }
+        transcriptCacheLoaded = true
+        guard let data = try? Data(contentsOf: transcriptCacheFile),
+              let cache = try? JSONDecoder().decode([String: CachedTranscript].self, from: data)
+        else { return }
+        transcriptCache = cache
+    }
+
+    /// Writes the cache back, keeping only what this pass looked at, and
+    /// folding in anything another process learned meanwhile. Two Grafts can
+    /// be walking this at once — a launcher opening a shortcut while the menu
+    /// bar app runs a pass of its own — and the worst a lost entry costs is
+    /// one transcript parsed twice.
+    private static func saveTranscriptCache(visited: Set<String>) {
+        transcriptCacheLock.lock()
+        defer { transcriptCacheLock.unlock() }
+        guard transcriptCacheDirty else { return }
+        transcriptCacheDirty = false
+        transcriptCache = transcriptCache.filter { visited.contains($0.key) }
+        var merged = transcriptCache
+        if let data = try? Data(contentsOf: transcriptCacheFile),
+           let onDisk = try? JSONDecoder().decode([String: CachedTranscript].self, from: data) {
+            for (path, entry) in onDisk where merged[path] == nil && visited.contains(path) {
+                merged[path] = entry
+            }
+        }
+        guard let data = try? JSONEncoder().encode(merged) else { return }
+        try? fm.createDirectory(at: transcriptCacheFile.deletingLastPathComponent(),
+                                withIntermediateDirectories: true)
+        try? data.write(to: transcriptCacheFile, options: .atomic)
+    }
+
+    /// Every directory under Application Support holding a chat store —
+    /// including profiles this app was never told about, because the
+    /// question a sweep asks is whether any Claude anywhere is listing the
+    /// session, and a record in a profile outside every shortcut still means
+    /// one is.
+    static func sessionStoreProfiles() -> [URL] {
+        guard let names = try? fm.contentsOfDirectory(atPath: applicationSupport.path) else { return [] }
+        return names
+            .filter { !$0.hasPrefix(".") }
+            .map { applicationSupport.appending(path: $0) }
+            .filter { isDirectory($0.appending(path: "claude-code-sessions")) }
+    }
+
+    /// What one walk of the chat stores found.
+    struct StoreContents {
+        /// The session a record describes, against the organisation directory
+        /// the record sits in. The directory rather than the file name,
+        /// because knowing where a record was is what makes its absence
+        /// later mean something.
+        var records: [String: String] = [:]
+        /// The moment of every deletion marker.
+        var deletions: [Double] = []
+        /// What every deletion marker is named after. A record this app filed
+        /// is named for its session, so the marker Claude leaves when one is
+        /// deleted names the session too — which is the one identity a
+        /// deletion can be read by rather than inferred.
+        var deleted: Set<String> = []
+        /// Every organisation directory this walk actually managed to read.
+        /// A directory missing from here was not looked in, which is a
+        /// different thing from being looked in and found empty.
+        var stores: Set<String> = []
+    }
+
+    /// Everything the chat stores on the machine hold, in one walk.
+    /// Organization directories grafted by hand resolve through to where they
+    /// really sit, so a store two profiles share is only read once and a
+    /// record filed through a link counts the same as one filed beside it.
+    static func sessionStoreContents() -> StoreContents {
+        var contents = StoreContents()
+        var walked: Set<String> = []
+
+        for profile in sessionStoreProfiles() {
+            let store = profile.appending(path: "claude-code-sessions")
+            guard let accounts = try? fm.contentsOfDirectory(atPath: store.path) else { continue }
+            for account in accounts
+            where !account.hasPrefix(".") && !account.hasSuffix(stashSuffix) {
+                let accountDir = store.appending(path: account)
+                guard let orgs = try? fm.contentsOfDirectory(atPath: accountDir.path) else { continue }
+                for org in orgs
+                where !org.hasPrefix(".") && !org.hasSuffix(stashSuffix) {
+                    let orgDir = accountDir.appending(path: org)
+                    guard let names = try? fm.contentsOfDirectory(atPath: orgDir.path) else { continue }
+                    let resolved = orgDir.resolvingSymlinksInPath().path
+                    contents.stores.insert(resolved)
+                    for name in names {
+                        let file = orgDir.appending(path: name).resolvingSymlinksInPath()
+                        guard walked.insert(file.path).inserted else { continue }
+                        if name.hasPrefix("local_"), name.hasSuffix(".json") {
+                            if let session = cliSessionId(ofRecordAt: file) {
+                                contents.records[session] = resolved
+                            }
+                        } else if name.hasPrefix("deleted_") {
+                            contents.deleted.insert(String(name.dropFirst("deleted_".count)))
+                            if let text = try? String(contentsOf: file, encoding: .utf8),
+                               let when = Double(text.trimmingCharacters(in: .whitespacesAndNewlines)) {
+                                contents.deletions.append(when)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return contents
+    }
+
+    private static func cliSessionId(ofRecordAt url: URL) -> String? {
+        let attributes = try? fm.attributesOfItem(atPath: url.path)
+        let stamp = attributes?[.modificationDate] as? Date ?? .distantPast
+        let size = (attributes?[.size] as? Int) ?? 0
+
+        recordCacheLock.lock()
+        if let cached = recordCache[url.path], cached.stamp == stamp, cached.size == size {
+            recordCacheLock.unlock()
+            return cached.cliSessionId
+        }
+        recordCacheLock.unlock()
+
+        let cliSessionId = (try? Data(contentsOf: url))
+            .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+            .flatMap { $0["cliSessionId"] as? String }
+
+        recordCacheLock.lock()
+        recordCache[url.path] = (stamp, size, cliSessionId)
+        recordCacheLock.unlock()
+        return cliSessionId
+    }
+
+    /// What a sweep remembers between passes: where every record it has seen
+    /// was sitting, so one that is gone from a store this pass did read is
+    /// known to have been deleted by hand rather than merely out of sight;
+    /// every session withdrawn that way, so none of them is ever brought
+    /// back; and the facts behind every record it filed itself, so a record
+    /// still holding those exact bytes is known to be one of ours to keep
+    /// current.
+    struct SessionRecordState: Codable, Equatable {
+        var records: [String: String] = [:]
+        var withdrawn: [String] = []
+        var authored: [String: SessionFacts] = [:]
+        /// Records missing on the last pass and not yet missing on a second.
+        var vanished: [String] = []
+
+        init(records: [String: String] = [:],
+             withdrawn: [String] = [],
+             authored: [String: SessionFacts] = [:],
+             vanished: [String] = []) {
+            self.records = records
+            self.withdrawn = withdrawn
+            self.authored = authored
+            self.vanished = vanished
+        }
+
+        /// Every key is optional on the way in: a state file from a version
+        /// before one of them existed loads with the rest, claiming nothing
+        /// it does not say.
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            records = try container.decodeIfPresent([String: String].self, forKey: .records) ?? [:]
+            withdrawn = try container.decodeIfPresent([String].self, forKey: .withdrawn) ?? []
+            authored = try container.decodeIfPresent([String: SessionFacts].self, forKey: .authored) ?? [:]
+            vanished = try container.decodeIfPresent([String].self, forKey: .vanished) ?? []
+        }
+    }
+
+    static var sessionRecordStateFile: URL {
+        applicationSupport.appending(path: "ClaudeGraft/session-records.json")
+    }
+
+    static func loadSessionRecordState() -> SessionRecordState {
+        guard let data = try? Data(contentsOf: sessionRecordStateFile),
+              let state = try? JSONDecoder().decode(SessionRecordState.self, from: data)
+        else { return SessionRecordState() }
+        return state
+    }
+
+    static func saveSessionRecordState(_ state: SessionRecordState) {
+        guard let data = try? JSONEncoder().encode(state) else { return }
+        try? fm.createDirectory(at: sessionRecordStateFile.deletingLastPathComponent(),
+                                withIntermediateDirectories: true)
+        try? data.write(to: sessionRecordStateFile, options: .atomic)
+    }
+
+    /// What a pass makes of one transcript.
+    enum SessionFiling: Equatable {
+        case file
+        /// Claude wrote its own record, or an earlier pass wrote this one.
+        case alreadyRecorded
+        /// Deleted in a sidebar once, and not to be brought back.
+        case withdrawn
+        /// Written too recently to be sure Claude will not write the record
+        /// itself — the owner's own window always does, within moments.
+        case tooRecent
+        /// No profile on this machine holds the owner's account, so there is
+        /// nowhere the record would be read. Asked again next pass, because
+        /// accounts move between profiles.
+        case noOwnerProfile
+        /// Run from a terminal, or by a Claude without a bridge: never in a
+        /// sidebar, so nothing is missing.
+        case notADesktopSession
+    }
+
+    /// Whether a transcript still needs a record written for it.
+    static func sessionFiling(facts: SessionFacts?,
+                              recorded: Set<String>,
+                              withdrawn: Set<String>,
+                              deletions: [Double],
+                              lastWrite: Date,
+                              ownerProfile: URL?,
+                              ownerIsRunning: Bool = true,
+                              now: Date,
+                              quietWindow: TimeInterval) -> SessionFiling {
+        guard let facts else { return .notADesktopSession }
+        guard !recorded.contains(facts.cliSessionId) else { return .alreadyRecorded }
+        guard !withdrawn.contains(facts.cliSessionId) else { return .withdrawn }
+
+        // A marker left behind before the first pass names a record Claude
+        // wrote, by an id no transcript carries — so the only trace of which
+        // session went is timing: the one that had just gone quiet is the one
+        // that was on screen when the delete was pressed. A session still
+        // being written grows past the window and files later, so this can
+        // only hold back one whose final line fell inside it, and a marker
+        // with no session near it deletes nothing but itself. Every marker
+        // written since is read by name instead, which needs no guessing.
+        if deletions.contains(where: { facts.lastActivityAt > $0 - 60_000 && facts.lastActivityAt <= $0 }) {
+            return .withdrawn
+        }
+
+        // The wait is for one thing only: the Claude signed into the owner's
+        // account writing the record itself, which it does within a second of
+        // a session opening. No such Claude running is nobody about to write
+        // it, and waiting then is waiting for something that is not coming —
+        // which is what made closing a chat and reaching straight for the
+        // other profile the one move guaranteed to miss it, every time, since
+        // a sidebar is built once at launch and that launch is the press.
+        if ownerIsRunning {
+            guard now.timeIntervalSince(lastWrite) >= quietWindow else { return .tooRecent }
+        }
+        guard ownerProfile != nil else { return .noOwnerProfile }
+        return .file
+    }
+
+    /// What a pass does with a record that already exists on disk.
+    enum SessionUpdate: Equatable {
+        /// Nothing to do: the record is not one this app wrote, or it already
+        /// says what the transcript says.
+        case leave
+        /// The transcript has moved past the record, which still holds what
+        /// this app last wrote — so the record is brought up to date.
+        case refresh
+        /// Something else has rewritten the record — Claude's own hand,
+        /// always richer than a parsed transcript — and this app never
+        /// touches it again.
+        case takenOver
+    }
+
+    /// Whether a record this app filed gets rewritten as its transcript moves
+    /// on. A record only stays this app's while it holds byte for byte what
+    /// the last pass wrote there: Claude Desktop rewrites the records of the
+    /// sessions it takes over — measured coming down over a filed record
+    /// within seconds of the session being opened in the owner's window —
+    /// and flattening one of those back into a parsed version would throw
+    /// away everything a transcript cannot recover.
+    static func sessionUpdateDecision(authored: SessionFacts?,
+                                      facts: SessionFacts,
+                                      diskMatchesAuthored: Bool) -> SessionUpdate {
+        guard let authored, authored != facts else { return .leave }
+        return diskMatchesAuthored ? .refresh : .takenOver
+    }
+
+    /// The profile a session's owner account lives on now. Accounts move
+    /// between profiles — a migration, a sign-in — so it is asked for
+    /// rather than assumed; the profile holding the account is where the
+    /// record belongs, and where every profile grafted onto it reads.
+    static func ownerProfile(for facts: SessionFacts, among profiles: [URL]) -> URL? {
+        var seen: Set<String> = []
+        for profile in profiles {
+            guard seen.insert(profile.resolvingSymlinksInPath().path).inserted else { continue }
+            if account(of: profile) == facts.ownerAccount { return profile }
+        }
+        return nil
+    }
+
+    /// Writes a record for every session whose transcript survived without
+    /// one, keeps the ones it wrote current while their transcripts move,
+    /// and hands back what it filed so the caller can say so.
+    ///
+    /// A Claude Desktop signed into one account will not write the record
+    /// for a session owned by another, and the command line keeps one login
+    /// for the whole machine — so every session started from a grafted
+    /// profile has been closing without a record and vanishing from every
+    /// sidebar while its transcript sat whole on disk. Filing the record
+    /// where the owner's account lives puts it back in front of the session
+    /// and everything grafted onto it; deleting it from a sidebar is
+    /// remembered, so a recovery is a one-way thing nobody has to hold down.
+    ///
+    /// A session is held back until its transcript has been quiet for
+    /// `quietWindow`, a minute by default. The owner's own window writes its
+    /// record within moments of a session opening — measured at about a
+    /// second — so a minute is far more than that wait needs, and anything
+    /// still moving gets kept current by a later pass rather than frozen at
+    /// the first write.
+    ///
+    /// `filingInto` is what the caller knows about; every profile with a chat
+    /// store is added to it, because a launcher knows its own shortcut and
+    /// its source and nothing else, and the account that owns a session may
+    /// be sitting on neither.
+    @discardableResult
+    static func fileMissingSessionRecords(filingInto profiles: [URL],
+                                          now: Date = Date(),
+                                          quietWindow: TimeInterval = 60) -> [SessionFacts] {
+        var state = loadSessionRecordState()
+        let contents = sessionStoreContents()
+        let candidates = profiles + sessionStoreProfiles()
+
+        let recorded = Set(contents.records.keys)
+        var withdrawn = Set(state.withdrawn)
+        let vanished = Set(state.vanished)
+        var missing: Set<String> = []
+
+        // A record gone from a store this pass did read was deleted by hand,
+        // and two things have to hold before a pass will say so.
+        //
+        // The store has to have been read. Every directory in the walk is
+        // taken with a `try?`, so a profile merely out of sight — stashed
+        // behind a graft, deleted, waiting on a permission — comes back
+        // holding nothing, and reading that as a sidebar emptied by hand
+        // withdrew every session it held. Graft stashes organization folders
+        // itself, which made its own graft the surest way to do it.
+        //
+        // And the record has to be missing twice over. Claude re-files a
+        // session under a new record name as it goes — one was seen holding a
+        // session that had been filed under a different name an hour before —
+        // so there is a moment when the old name is gone and the new one is
+        // not yet there. A pass landing in it reads a deletion. Withdrawing
+        // is forever; being sure of it costs one more pass.
+        for (session, store) in state.records
+        where store.hasPrefix("/") && contents.stores.contains(store)
+            && !recorded.contains(session) {
+            if vanished.contains(session) {
+                withdrawn.insert(session)
+                state.authored.removeValue(forKey: session)
+            } else {
+                missing.insert(session)
+            }
+        }
+
+        // Where a record was is remembered until it is seen again or given up
+        // on, which is what leaves the next pass something to agree with. A
+        // state file written before records were remembered by directory named
+        // the file instead; those entries go on sight, since every record
+        // still on disk is learned again right here.
+        var remembered = state.records.filter { $0.value.hasPrefix("/") }
+        for (session, store) in contents.records { remembered[session] = store }
+        for session in withdrawn { remembered.removeValue(forKey: session) }
+        state.records = remembered
+        state.vanished = missing.sorted()
+
+        var filed: [SessionFacts] = []
+        var visited: Set<String> = []
+        // One `pgrep` per profile per pass, not one per transcript.
+        var runningProfiles: [String: Bool] = [:]
+        func running(_ profile: URL) -> Bool {
+            if let known = runningProfiles[profile.path] { return known }
+            let answer = isRunning(profile: profile)
+            runningProfiles[profile.path] = answer
+            return answer
+        }
+        guard let projects = try? fm.contentsOfDirectory(atPath: claudeProjects.path) else {
+            state.withdrawn = withdrawn.sorted()
+            saveSessionRecordState(state)
+            return filed
+        }
+
+        for project in projects {
+            let dir = claudeProjects.appending(path: project)
+            for name in (try? fm.contentsOfDirectory(atPath: dir.path)) ?? [] {
+                guard name.hasSuffix(".jsonl") else { continue }
+                let transcript = dir.appending(path: name)
+                visited.insert(transcript.path)
+                let attributes = try? fm.attributesOfItem(atPath: transcript.path)
+                let lastWrite = attributes?[.modificationDate] as? Date ?? .distantPast
+
+                let facts = transcriptFacts(at: transcript,
+                                            cliSessionId: String(name.dropLast(".jsonl".count)))
+                guard let facts else { continue }
+                // A session opened and closed with nothing said in it never
+                // had a conversation to lose; listing it would put an empty
+                // chat in front of every sidebar for the asking.
+                guard facts.prompts > 0 else { continue }
+                // The records this app files are named for their session, so
+                // a marker naming one names the session outright. Nothing to
+                // infer, and nothing for an unreadable store to confuse.
+                if contents.deleted.contains(facts.cliSessionId) {
+                    withdrawn.insert(facts.cliSessionId)
+                    state.authored.removeValue(forKey: facts.cliSessionId)
+                }
+                guard !withdrawn.contains(facts.cliSessionId) else { continue }
+                // A record that went missing this very pass is a question the
+                // next pass answers. Filing one now would answer it wrong:
+                // the record comes back under this app's name, the pass after
+                // finds it there, and a chat taken out of a sidebar is quietly
+                // put back by the thing that was meant to notice it going.
+                guard !missing.contains(facts.cliSessionId) else { continue }
+                let owner = ownerProfile(for: facts, among: candidates)
+
+                if recorded.contains(facts.cliSessionId) {
+                    // A record on disk that this app did not write belongs
+                    // to whoever did. One still holding byte for byte what a
+                    // pass filed here is this app's to keep current, and the
+                    // transcript moving on past it is the moment to do so.
+                    if let owner, let authored = state.authored[facts.cliSessionId] {
+                        switch sessionUpdateDecision(authored: authored,
+                                                     facts: facts,
+                                                     diskMatchesAuthored:
+                                                        recordOnDisk(matches: authored,
+                                                                     at: recordFile(for: facts, in: owner))) {
+                        case .leave:
+                            break
+                        case .takenOver:
+                            state.authored.removeValue(forKey: facts.cliSessionId)
+                        case .refresh:
+                            if rewriteSessionRecord(for: facts, into: owner) {
+                                state.authored[facts.cliSessionId] = facts
+                            }
+                        }
+                    }
+                    continue
+                }
+
+                guard let owner,
+                      case .file = sessionFiling(facts: facts,
+                                                 recorded: recorded,
+                                                 withdrawn: withdrawn,
+                                                 deletions: contents.deletions,
+                                                 lastWrite: lastWrite,
+                                                 ownerProfile: owner,
+                                                 ownerIsRunning: running(owner),
+                                                 now: now,
+                                                 quietWindow: quietWindow)
+                else { continue }
+
+                if writeSessionRecord(for: facts, into: owner) {
+                    filed.append(facts)
+                    state.records[facts.cliSessionId] = recordFile(for: facts, in: owner)
+                        .deletingLastPathComponent().path
+                    state.authored[facts.cliSessionId] = facts
+                }
+            }
+        }
+
+        state.withdrawn = withdrawn.sorted()
+        saveSessionRecordState(state)
+        saveTranscriptCache(visited: visited)
+        return filed
+    }
+
+    private static func transcriptFacts(at url: URL, cliSessionId: String) -> SessionFacts? {
+        let attributes = try? fm.attributesOfItem(atPath: url.path)
+        let stamp = (attributes?[.modificationDate] as? Date ?? .distantPast).timeIntervalSince1970
+        let size = (attributes?[.size] as? Int) ?? 0
+
+        transcriptCacheLock.lock()
+        loadTranscriptCache()
+        if let cached = transcriptCache[url.path], cached.modified == stamp, cached.size == size {
+            transcriptCacheLock.unlock()
+            return cached.facts
+        }
+        transcriptCacheLock.unlock()
+
+        let facts = sessionFacts(inTranscriptAt: url, cliSessionId: cliSessionId)
+        transcriptCacheLock.lock()
+        transcriptCache[url.path] = CachedTranscript(modified: stamp, size: size, facts: facts)
+        transcriptCacheDirty = true
+        transcriptCacheLock.unlock()
+        return facts
+    }
+
+    /// The bytes a set of facts files as a record. Written with sorted keys
+    /// and no formatting, so the same facts always produce the same bytes —
+    /// which is how a later pass tells a record still its own from one that
+    /// something else has rewritten.
+    private static func sessionRecordData(for facts: SessionFacts) -> Data? {
+        try? JSONSerialization.data(withJSONObject: sessionRecord(for: facts),
+                                    options: [.sortedKeys])
+    }
+
+    /// Where a session's record lives, resolved through any graft link on
+    /// the way, because where a link points is where both windows read.
+    private static func recordFile(for facts: SessionFacts, in profile: URL) -> URL {
+        profile
+            .appending(path: "claude-code-sessions")
+            .appending(path: facts.ownerAccount)
+            .appending(path: facts.ownerOrganization)
+            .resolvingSymlinksInPath()
+            .appending(path: "local_\(facts.cliSessionId).json")
+    }
+
+    /// Whether the record on disk is still the one this app wrote. Claude
+    /// writes its own shape over a record it takes an interest in, so this
+    /// is the line between keeping a record current and flattening one.
+    private static func recordOnDisk(matches facts: SessionFacts, at file: URL) -> Bool {
+        guard let onDisk = try? Data(contentsOf: file),
+              let authored = sessionRecordData(for: facts)
+        else { return false }
+        return onDisk == authored
+    }
+
+    /// Puts one record where the session's owner will list it.
+    static func writeSessionRecord(for facts: SessionFacts, into profile: URL) -> Bool {
+        let file = recordFile(for: facts, in: profile)
+        guard !exists(file), let data = sessionRecordData(for: facts) else { return false }
+        do {
+            try fm.createDirectory(at: file.deletingLastPathComponent(),
+                                   withIntermediateDirectories: true)
+            try data.write(to: file, options: .atomic)
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    /// Brings a record this app owns up to date with its transcript. The
+    /// caller has already established that the record on disk is the one
+    /// this app wrote; nothing else may be overwritten with a parsed version.
+    static func rewriteSessionRecord(for facts: SessionFacts, into profile: URL) -> Bool {
+        let file = recordFile(for: facts, in: profile)
+        guard let data = sessionRecordData(for: facts) else { return false }
+        do {
+            try data.write(to: file, options: .atomic)
+            return true
+        } catch {
+            return false
+        }
+    }
+
     // MARK: - Plan usage
 
     /// How much of a plan's two windows has been spent, as Claude records it in
@@ -728,23 +1579,48 @@ enum Graft {
     static func open(profile: URL) -> Bool {
         guard !isRunning(profile: profile) else {
             guard let pid = processIdentifier(of: profile) else { return false }
-            return reveal(pid: pid)
+            let shown = reveal(pid: pid)
+            fileMissingSessionRecords(filingInto: [profile, mainProfile])
+            return shown
         }
+        fileMissingSessionRecords(filingInto: [profile, mainProfile])
         return launch(profile: profile)
     }
+
+    /// Records are filed on the way in because that is the only moment they
+    /// are read: Claude builds its sidebar as it starts, so one landing a
+    /// second later waits for the next launch to be seen. That is why this
+    /// sits ahead of `launch` and behind the running check — a Claude already
+    /// up read its store when it started and is not about to read it again.
 
     /// What a generated shortcut does when clicked.
     static func run(_ config: GraftConfig) {
         let profile = URL(fileURLWithPath: config.profileDir)
         try? fm.createDirectory(at: profile, withIntermediateDirectories: true)
 
+        let filing = [profile, mainProfile]
+            + (config.sourceDir.flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0) }
+                .map { [$0] } ?? [])
+
         // While it is running its files are open, so re-linking is off the
         // table and the Claude already on them is the whole answer.
+        //
+        // Records are still filed on the way past, after the window is up. A
+        // profile that is already open is the one case where nothing else
+        // will do it: the sweep has no timer, and this press is not going to
+        // start anything. Without this, going looking for a chat that had not
+        // arrived yet was the one act guaranteed to leave it not arriving —
+        // the press that should have fetched it did nothing at all, and the
+        // session waited on a launch that had already happened.
         guard !isRunning(profile: profile) else {
             if let pid = processIdentifier(of: profile) { reveal(pid: pid) }
+            fileMissingSessionRecords(filingInto: filing)
             return
         }
         apply(config)
+        // After the links, so a record filed through a graft lands where the
+        // link now points rather than where it pointed last time.
+        fileMissingSessionRecords(filingInto: filing)
         launch(profile: profile)
     }
 

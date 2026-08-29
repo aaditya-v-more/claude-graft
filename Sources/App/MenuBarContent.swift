@@ -8,6 +8,7 @@ struct MenuBarContent: View {
     @EnvironmentObject private var settings: AppSettings
     @EnvironmentObject private var usage: UsageMonitor
     @ObservedObject private var updater = Shared.updater
+    @ObservedObject private var sessionRecords = Shared.sessionRecords
 
     /// Passed in: this view is hosted by an NSPopover, outside any scene, so
     /// the openWindow environment action is not available here.
@@ -53,6 +54,22 @@ struct MenuBarContent: View {
                 .help("Reads each account's limits from Anthropic. macOS asks once for keychain access.")
                 .padding(.horizontal, 14)
                 .padding(.bottom, 8)
+            }
+
+            if sessionRecords.recovered.count == 1, let title = sessionRecords.recovered.first {
+                Text("Recovered “\(title)”, which had closed without a record")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 14)
+                    .padding(.bottom, 8)
+            } else if !sessionRecords.recovered.isEmpty {
+                Text("Recovered \(sessionRecords.recovered.count) sessions that closed without records")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 14)
+                    .padding(.bottom, 8)
             }
 
             if let version = updater.availableVersion {

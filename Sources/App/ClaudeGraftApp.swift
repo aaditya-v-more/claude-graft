@@ -48,6 +48,7 @@ enum Shared {
     static let settings = AppSettings()
     static let usage = UsageMonitor()
     static let updater = Updater()
+    static let sessionRecords = SessionRecords()
 }
 
 struct SettingsView: View {
@@ -103,6 +104,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Shared.usage.mayPromptUnasked = !Shared.startHidden
         Shared.usage.start(watching: Shared.store)
         Shared.updater.start()
+        // No prompts, no windows: filing records is a thing the menu bar
+        // does on its own whether anyone is looking or not. Once, here —
+        // the pass that matters runs in a shortcut's launcher, on its way
+        // to opening the Claude that will read what it files.
+        Shared.sessionRecords.sweep(Shared.store)
         // A shortcut goes on behaving like the Graft that built it until its
         // launcher is replaced, and the update that replaced this app never
         // touched them. Off the main thread: this copies binaries and runs

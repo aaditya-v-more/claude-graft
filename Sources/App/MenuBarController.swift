@@ -105,6 +105,9 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
         // every open would be another call to the endpoint.
         usage.mayPromptUnasked = true
         usage.refresh(store, prompting: .onceIfShut, freshness: .recent)
+        // Cheap once the transcripts have been read once, and the dropdown is
+        // where the line about what was recovered is shown.
+        Shared.sessionRecords.sweep(store)
         let content = MenuBarContent(openMainWindow: { [weak self] in
             self?.popover.performClose(nil)
             self?.openMainWindow()
