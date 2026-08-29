@@ -718,6 +718,30 @@ do {
     })
     check(monitor.headline == 77, "the headline comes from the figures a refresh read off disk")
 
+    // One account, one figure. The two windows used to read the history file
+    // for themselves while the menu bar showed what the endpoint had just said,
+    // and the file is only written while that Claude runs — so a profile left
+    // closed for days had the window reporting a week that had since reset,
+    // beside a bar reporting the week actually in progress.
+    check(monitor.entry(for: listed)?.usage?.fiveHour == 77,
+          "the monitor answers for one profile by path")
+    check(monitor.entry(for: support.appending(path: "Claude-Absent")) == nil,
+          "and says nothing about a profile it does not carry")
+
+    let views = URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+        .appending(path: "Sources/App")
+    for view in ["ShortcutDetail.swift", "MainProfileDetail.swift"] {
+        let source = (try? String(contentsOf: views.appending(path: view), encoding: .utf8)) ?? ""
+        check(source.contains("UsageMonitor"),
+              "\(view) is fed by the monitor the menu bar reads")
+        check(!source.contains("Graft.usage("),
+              "\(view) does not go back to the history file behind it")
+        check(source.contains("usage.invalidate("),
+              "\(view) drops the reading its own Start Session has just made wrong")
+    }
+
     // A stale figure says nothing about the window that is running now.
     writeUsage(listed, [(now - 8 * 60 * 60 * 1000, 99, 99)])
     let second = UsageMonitor()

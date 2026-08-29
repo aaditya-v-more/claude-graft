@@ -7,8 +7,10 @@ import SwiftUI
 /// Graft borrows from, not something it created.
 struct MainProfileDetail: View {
     @EnvironmentObject private var store: ShortcutStore
+    /// The figures come from here rather than from Claude's own history file,
+    /// so the window and the menu bar cannot disagree about one account.
+    @EnvironmentObject private var usage: UsageMonitor
     @State private var isRunning = false
-    @State private var usage: Graft.Usage?
     @State private var startingSession = false
     @State private var error: String?
     @State private var sharersOpen: [String] = []
@@ -62,12 +64,9 @@ struct MainProfileDetail: View {
             }
 
             Section {
-                UsageSummary(usage: usage)
+                UsageSummary(entry: plan)
             } header: {
-                SectionHeader(title: "Plan usage", info: """
-                    Recorded by Claude itself while it runs. The reset times are \
-                    worked out from its own history rather than reported directly.
-                    """)
+                SectionHeader(title: "Plan usage", info: UsageSummary.explanation(for: plan))
             }
         }
         .formStyle(.grouped)
@@ -91,7 +90,13 @@ struct MainProfileDetail: View {
             .padding(14)
             .background(.bar)
         }
-        .onAppear { refresh() }
+        .onAppear {
+            refresh()
+            // Selecting a profile is someone looking at its figures, which is the
+            // rung below a press: current within the minute, and allowed to ask
+            // for keychain access once if that is what stands in the way.
+            usage.refresh(store, prompting: .onceIfShut, freshness: .recent)
+        }
         .onReceive(clock) { _ in refresh() }
         .confirmationDialog(ChatConflict.title,
                             isPresented: $askAboutSharers,
@@ -136,14 +141,12 @@ struct MainProfileDetail: View {
         }
     }
 
+    private var plan: UsageMonitor.Entry? { usage.entry(for: Graft.mainProfile) }
+
     private func refresh() {
         DispatchQueue.global(qos: .utility).async {
             let running = Graft.isRunning(profile: Graft.mainProfile)
-            let plan = Graft.usage(of: Graft.mainProfile)
-            DispatchQueue.main.async {
-                isRunning = running
-                usage = plan
-            }
+            DispatchQueue.main.async { isRunning = running }
         }
     }
 
@@ -151,11 +154,16 @@ struct MainProfileDetail: View {
         guard !startingSession else { return }
         startingSession = true
         DispatchQueue.global(qos: .userInitiated).async {
-            let failure = SessionStarter.start(profile: Graft.mainProfile, interactive: true)
+            let profile = Graft.mainProfile
+            let failure = SessionStarter.start(profile: profile, interactive: true)
+            // The window this just opened is exactly what the stored reading
+            // predates, so it is dropped rather than waited out.
+            usage.invalidate(profile)
             DispatchQueue.main.async {
                 startingSession = false
                 error = failure?.errorDescription
                 refresh()
+                usage.refresh(store, interactive: true)
             }
         }
     }

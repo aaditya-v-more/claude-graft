@@ -157,6 +157,20 @@ final class UsageMonitor: ObservableObject {
 
     var headline: Int? { headlineEntry?.usage?.fiveHour }
 
+    /// What the last pass found for one profile, for a view that shows a single
+    /// account rather than all of them.
+    ///
+    /// The window used to read `plan-usage-history.json` for itself while the
+    /// menu bar showed what the endpoint had just said, so one account was
+    /// reported from two sources that do not agree. The file is only written
+    /// while that Claude runs, so a profile closed since Tuesday had Tuesday's
+    /// figures in the window and today's in the bar — and Tuesday's were from
+    /// before a weekly reset, which is how the window came to show 92% of a
+    /// week that was actually 30% spent.
+    func entry(for profile: URL) -> Entry? {
+        entries.first { $0.profile.path == profile.path }
+    }
+
     /// Idempotent: the window and the menu bar item both ask for it, and only
     /// one of the two may ever appear.
     func start(watching store: ShortcutStore, every seconds: TimeInterval = 30) {

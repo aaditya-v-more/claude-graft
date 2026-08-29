@@ -260,6 +260,18 @@ renamed — repositories redirect, Pages does not. `Resources/Info.plist` and th
 checks they agree, because a rename that touched one would leave the feed
 advertising downloads nobody can fetch.
 
+**One account, one figure.** The window read `plan-usage-history.json` for
+itself while the menu bar showed what the endpoint had just answered, so one
+account was reported from two sources that do not agree. That file is only
+written while that Claude runs, so a profile closed for days had the window
+showing figures from before a weekly reset — 92% of a week the bar correctly
+had at 30%, side by side on one screen. Both detail views take
+`UsageMonitor.entry(for:)` now, which is live where live is available and falls
+back to the same file underneath; the suite fails if `Graft.usage(` reappears
+in either of them. Their Start Session buttons `invalidate` too — that rule was
+written for the dropdown alone, and the moment a window showed the monitor's
+figure it needed it for the same reason.
+
 **Profile folders are validated.** One plain component inside Application
 Support, never `Claude`, never a path. Without this, typing `Claude` into the
 folder field pointed a shortcut at Claude's own profile.

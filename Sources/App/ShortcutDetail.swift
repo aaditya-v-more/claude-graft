@@ -4,6 +4,9 @@ import SwiftUI
 
 struct ShortcutDetail: View {
     @EnvironmentObject private var store: ShortcutStore
+    /// The figures come from here rather than from this profile's own history
+    /// file, so the window and the menu bar cannot disagree about one account.
+    @EnvironmentObject private var usage: UsageMonitor
     @Binding var shortcut: Shortcut
     let requestDelete: () -> Void
 
@@ -16,7 +19,6 @@ struct ShortcutDetail: View {
     @State private var installedAt: URL?
     @State private var isRunning = false
     @State private var profileExists = false
-    @State private var usage: Graft.Usage?
     @State private var startingSession = false
 
     /// Other instances found open on the same chat store when Open was pressed.
@@ -102,9 +104,9 @@ struct ShortcutDetail: View {
             }
 
             Section {
-                UsageSummary(usage: usage)
+                UsageSummary(entry: plan)
             } header: {
-                SectionHeader(title: "Plan usage", info: usageExplanation)
+                SectionHeader(title: "Plan usage", info: UsageSummary.explanation(for: plan))
             }
         }
         .formStyle(.grouped)
@@ -140,7 +142,13 @@ struct ShortcutDetail: View {
         } message: {
             Text(ChatConflict.message(sharers: sharersOpen))
         }
-        .onAppear { refresh() }
+        .onAppear {
+            refresh()
+            // Selecting a profile is someone looking at its figures, which is the
+            // rung below a press: current within the minute, and allowed to ask
+            // for keychain access once if that is what stands in the way.
+            usage.refresh(store, prompting: .onceIfShut, freshness: .recent)
+        }
         .onReceive(clock) { _ in refresh() }
         .alert(errorTitle, isPresented: .constant(error != nil)) {
             Button("OK") { error = nil }
@@ -172,32 +180,7 @@ struct ShortcutDetail: View {
         }
     }
 
-    private var usageExplanation: String {
-        guard let usage else {
-            return """
-                Claude records how much of each window it has spent while it runs. \
-                Open this profile once and the numbers appear.
-                """
-        }
-        if usage.isStale {
-            return """
-                Recorded while this profile was last open, which was long enough ago \
-                that the five-hour window has since reset.
-                """
-        }
-        return """
-            Recorded by this profile at \(Self.time.string(from: usage.sampled)). It \
-            only updates while that Claude is running, and the reset times are worked \
-            out from its own history.
-            """
-    }
-
-    private static let time: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.timeStyle = .short
-        formatter.dateStyle = .none
-        return formatter
-    }()
+    private var plan: UsageMonitor.Entry? { usage.entry(for: shortcut.profileDir) }
 
     private var isDraft: Bool {
         installedAt == nil && !profileExists && shortcut.installedName == nil
@@ -226,12 +209,10 @@ struct ShortcutDetail: View {
             let bundle = Installer.installedBundle(for: target)
             let running = Graft.isRunning(profile: target.profileDir)
             let hasProfile = FileManager.default.fileExists(atPath: target.profileDir.path)
-            let plan = Graft.usage(of: target.profileDir)
             DispatchQueue.main.async {
                 installedAt = bundle
                 isRunning = running
                 profileExists = hasProfile
-                usage = plan
             }
         }
     }
@@ -242,6 +223,9 @@ struct ShortcutDetail: View {
         let profile = shortcut.profileDir
         DispatchQueue.global(qos: .userInitiated).async {
             let failure = SessionStarter.start(profile: profile, interactive: true)
+            // The window this just opened is exactly what the stored reading
+            // predates, so it is dropped rather than waited out.
+            usage.invalidate(profile)
             DispatchQueue.main.async {
                 startingSession = false
                 if let failure {
@@ -249,6 +233,7 @@ struct ShortcutDetail: View {
                     error = failure.errorDescription
                 }
                 refresh()
+                usage.refresh(store, interactive: true)
             }
         }
     }
@@ -279,19 +264,68 @@ struct ShortcutDetail: View {
 }
 
 /// The two bars plus a note when there is nothing to show yet.
+///
+/// Fed from `UsageMonitor`, never from disk, so the figure a window shows is
+/// the one the menu bar is showing for the same account.
 struct UsageSummary: View {
-    let usage: Graft.Usage?
+    let entry: UsageMonitor.Entry?
+
+    /// A live figure was taken just now, so only one read off disk can be old
+    /// enough to be worth warning about.
+    private var dimmed: Bool {
+        guard let entry, let usage = entry.usage else { return false }
+        return !entry.isLive && usage.isStale
+    }
 
     var body: some View {
-        if let usage {
+        if let usage = entry?.usage {
             UsageBar(label: "5 hours", percent: usage.fiveHour,
-                     resets: usage.fiveHourReset, dimmed: usage.isStale)
+                     resets: usage.fiveHourReset, dimmed: dimmed)
             UsageBar(label: "Week", percent: usage.week,
-                     resets: usage.weekReset, dimmed: usage.isStale)
+                     resets: usage.weekReset, dimmed: dimmed)
         } else {
             Text("No usage reported yet")
                 .font(.callout)
                 .foregroundStyle(.secondary)
         }
     }
+
+    /// Which of the two sources the figure came from. They answer differently
+    /// enough to be worth naming: the endpoint is current whether or not that
+    /// Claude is running, the file is as old as the last time it ran.
+    static func explanation(for entry: UsageMonitor.Entry?) -> String {
+        guard let entry, let usage = entry.usage else {
+            return """
+                Claude records how much of each window it has spent while it runs, \
+                and the account itself is asked directly once its login is readable. \
+                Neither has answered yet.
+                """
+        }
+        if entry.isLive {
+            return """
+                Asked of this account directly, using the login it already holds — \
+                the same figure the menu bar is showing. It stays current whether or \
+                not that Claude is running.
+                """
+        }
+        if usage.isStale {
+            return """
+                Recorded while this profile was last open, which was long enough ago \
+                that the five-hour window has since reset. Turn on live usage from the \
+                menu bar to have the account asked instead.
+                """
+        }
+        return """
+            Recorded by this profile at \(time.string(from: usage.sampled)). It only \
+            updates while that Claude is running, and the reset times are worked out \
+            from its own history.
+            """
+    }
+
+    private static let time: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.timeStyle = .short
+        formatter.dateStyle = .none
+        return formatter
+    }()
 }
