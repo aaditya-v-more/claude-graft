@@ -152,6 +152,37 @@ grep -q "ClaudeGraft-$VERSION.zip" "$ROOT/docs/appcast.xml" \
     || { echo "the appcast does not mention $VERSION." >&2; exit 1; }
 echo "appcast has a signed entry for $VERSION"
 
+# The version is written down twice, and the second one is a different
+# repository. Nothing here pushes to it — this script builds and packages, and
+# a person publishes — but the cask was the half nobody remembered, and it sat
+# at 1.0.6 while the feed served 1.0.10. Prepared here, with the checksum taken
+# from the disk image this run actually built, so publishing it is a push
+# rather than an edit made by hand against a number read off a screen.
+TAP_REPO="https://github.com/aaditya-v-more/homebrew-claude-graft.git"
+TAP="$DIST/homebrew-claude-graft"
+CASK="$TAP/Casks/claude-graft.rb"
+DMG_SHA="$(shasum -a 256 "$DMG" | awk '{print $1}')"
+TAP_READY=""
+if git clone -q "$TAP_REPO" "$TAP" 2>/dev/null; then
+    # What the cask said before this run. Anything other than the release
+    # before this one means a previous release never reached the tap, which is
+    # worth hearing about even though this run is about to correct it.
+    WAS="$(sed -n 's/^  version "\(.*\)"$/\1/p' "$CASK")"
+    /usr/bin/sed -i "" \
+        -e "s|^  version \".*\"$|  version \"$VERSION\"|" \
+        -e "s|^  sha256 \".*\"$|  sha256 \"$DMG_SHA\"|" "$CASK"
+
+    grep -q "version \"$VERSION\"" "$CASK" && grep -q "sha256 \"$DMG_SHA\"" "$CASK" \
+        || { echo "the cask in $TAP was not rewritten for $VERSION." >&2; exit 1; }
+
+    git -C "$TAP" commit -q -am "Point the cask at $VERSION"
+    TAP_READY="yes"
+    echo "cask updated to $VERSION in $TAP (was $WAS)"
+else
+    echo "could not reach the tap; the cask must be updated by hand:" >&2
+    echo "  version \"$VERSION\"  sha256 \"$DMG_SHA\"" >&2
+fi
+
 if [ "${1:-}" = "--install" ]; then
     rm -rf "/Applications/Claude Graft.app"
     ditto "$APP" "/Applications/Claude Graft.app"
@@ -164,10 +195,13 @@ To publish $TAG:
   git add docs/appcast.xml && git commit -m "Release $VERSION"
   git tag -a $TAG -m "Claude Graft $VERSION"
   git push origin main --tags
-  gh release create $TAG "$ZIP" --title "Claude Graft $VERSION" --notes-file -
+  gh release create $TAG "$ZIP" "$DMG" --title "Claude Graft $VERSION" --notes-file -
+  git -C "$TAP" push origin HEAD
 
 The appcast must be pushed for the feed to serve it, and the release must exist
-for the URL inside it to resolve. Do both before telling anyone.
+for the URL inside it to resolve. Do both before telling anyone. The cask push
+is the third: it is a separate repository, it is what `brew install` reads, and
+it is the one that was forgotten for four releases running.
 
 Then check the feed actually rebuilt. A push does not reliably queue a Pages
 build — one has already errored here, and another never started — and a feed
