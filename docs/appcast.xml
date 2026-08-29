@@ -3,6 +3,15 @@
     <channel>
         <title>Claude Graft</title>
         <item>
+            <title>1.0.10</title>
+            <pubDate>Sun, 30 Aug 2026 02:37:52 +0530</pubDate>
+            <link>https://github.com/aaditya-v-more/claude-graft</link>
+            <sparkle:version>1.0.10</sparkle:version>
+            <sparkle:shortVersionString>1.0.10</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+            <enclosure url="https://github.com/aaditya-v-more/claude-graft/releases/download/v1.0.10/ClaudeGraft-1.0.10.zip" length="3330819" type="application/octet-stream" sparkle:edSignature="tu1+fm9W3NOtkr7Z872S8Sd+sdNSqrzz84hV4yvdYpaXKkFUnjRv5x8cJxqduPluzMwUWRWmfutZItRPvNYKAQ=="/>
+        </item>
+        <item>
             <title>1.0.9</title>
             <pubDate>Sat, 29 Aug 2026 22:27:43 +0530</pubDate>
             <link>https://github.com/aaditya-v-more/claude-graft</link>
