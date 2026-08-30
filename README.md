@@ -99,6 +99,19 @@ above — not two accounts sharing chats, but the very same files being written
 twice over. If you've closed the window and left it in the menu bar, opening it
 builds the window back, the way clicking a Dock icon does.
 
+Borrowed chats can be read from the profile that borrowed them, but not changed.
+Archive one of the source account's conversations from a grafted Claude and it
+leaves that window's sidebar and comes back on the next launch: Claude Desktop
+writes a conversation's record only for the account it is signed into, so the
+archive is never saved anywhere. Archive it from the Claude that owns the
+account and it sticks everywhere, that profile included.
+
+Which account owns a conversation is not decided by the window you start it in.
+Claude Code keeps one login for the whole machine, and whichever account that is
+gets stamped on every session, whichever Claude it was typed into — so a chat
+begun in a second profile still belongs to the account the command line is
+signed in as, and only that account's Claude can archive or rename it.
+
 `~/.claude` — settings, `CLAUDE.md`, skills, plugins, MCP servers, transcripts —
 is already shared by every instance, since it comes from `$HOME` rather than the
 profile.

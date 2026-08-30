@@ -22,7 +22,7 @@ would have written by hand.
 
     ./build.sh                 app + launcher into build.noindex/, this arch only
     GRAFT_UNIVERSAL=1 ./build.sh   both arches, joined with lipo
-    ./test.sh                  346 checks, all in a throwaway directory
+    ./test.sh                  372 checks, all in a throwaway directory
     ./release.sh [--install]   tests, builds universal, draws the icon, signs, packages
 
 ## Invariants
@@ -339,6 +339,55 @@ open two minutes rather than thirty seconds. The record is never written. The
 absent directory was the rule showing through, not the cause, and the link that
 looked like the fix was reverted rather than shipped.
 
+**Ownership is written in one place, and the command line is what puts it
+there.** A record carries no account field at all — its account is the
+directory it sits in — so the only thing on disk saying who a conversation
+belongs to is the `ownerAccountUuid` on its `bridge-session` line. Nor is that
+line written once at the start: one session here had twelve of them, the last
+at the very end of the file, each with a fresh `bridgeSessionId` and every one
+naming the same owner.
+
+Which owner is not the profile's, however much it looks like it should be.
+Claude Desktop keeps a copy of Claude Code inside every profile —
+`<profile>/claude-code/<version>/claude.app`, which is what it spawns for a
+bridged session — and hands it that profile's own token in
+`CLAUDE_CODE_OAUTH_TOKEN`, alongside `CLAUDE_CODE_ENTRYPOINT=claude-desktop`.
+Read that and you would expect each profile to own what it starts. It does not:
+a session started in a grafted profile, with no other profile running, came
+back stamped with the source account. Identity comes from the machine login —
+`oauthAccount` in `~/.claude.json`, behind one keychain item under
+`Claude Code-credentials` — and every copy of Claude Code shares it, the ones
+inside profiles and the standalone one on `PATH` alike. The token pays for the
+inference; it does not say whose the conversation is.
+
+So which account owns a chat is settled by whoever `claude` was logged in as
+when it started, and by nothing about the window it was typed into. Changing
+the stamp afterwards does not carry the ownership with it either: one session
+was rewritten to name the grafted profile's account, with an untouched session
+beside it as a control, and the grafted profile still would not archive it.
+
+**That rule governs every write to a record, not only the first one.** Archiving
+a borrowed conversation from the grafted side takes it out of that window's
+sidebar and puts nothing on disk, so the record still reads
+`isArchived: false` and the chat is back the next time the profile starts. It
+was reported as archived conversations unarchiving themselves, which is what it
+looks like from the sidebar and is a different thing entirely from the sweep
+refiling them — the two were only told apart by watching the store while it
+happened. Every write to both profiles' stores was logged across the window: two
+conversations archived from the owner's profile were on disk within a second,
+`isArchived: true`; two archived from the grafted profile produced no write
+anywhere at all, their records untouched since the night before. The grafted
+profile then archived a conversation belonging to its own account — one begun
+back when the command line was signed in as that account — and that one stuck,
+which is what says this is ownership and not the link, the store, or a write
+that failed.
+
+Nothing here can repair it. What a sweep files is a record that was never
+written; an archive that was never written leaves nothing behind to find, so
+there is no counterpart to `fileMissingSessionRecords` to be had. Chat state on
+the grafted side — archiving above all — belongs to whichever profile holds the
+account, and that is worth saying in the README rather than working around.
+
 What is Graft's to repair is the record, and the repair is to write it.
 `Graft.fileMissingSessionRecords` sweeps the transcripts for bridge lines,
 asks which profile the owner's account lives on now, and writes
@@ -407,6 +456,49 @@ notice it going.
 The one guess left is a marker written before the first pass ever ran, which
 names a record no longer there and can only be read by timing — the session
 that had just gone quiet in the minute before the press.
+
+**And a record you cannot see is not a record nobody filed.** That reading was
+applied on the way out and not on the way in, so a store the walk could not get
+into withdrew nothing — the rule above — and was then filed into as though it
+were empty, which is the same mistake pointing the other way and the more
+expensive of the two. Everything in an unreadable store looks like a session
+that closed without a record, and a record written fresh says
+`isArchived: false`, so a conversation archived by hand comes back into the
+sidebar. Graft stashes organization folders itself, so its own graft was again
+the surest way to trigger it. Reproduced with one folder stashed and a single
+pass run over it: the whole history refiled, the organization folder rebuilt
+over the top, and the stash left with nowhere to go — a second copy of every
+chat, none of them archived, and the profile's real store orphaned beside it. `outOfSight` is the clause for
+a session Graft has a record remembered for, `mayFileRecords` for the store
+itself, and its two halves are the whole distinction: a folder that is there
+must be one this pass actually read, and a folder that is not there must not
+have a stash sitting beside it. A folder that is simply absent is still filed
+into, since that is how a profile gets its first record.
+
+**A conversation carried on is not a conversation lost.** Claude gives a
+conversation a new command line session as it goes — a compaction, a resume —
+and the record names the ones it grew out of in `priorCliSessionIds`. Those
+earlier transcripts stay on disk, whole, with no record naming them, which is
+precisely what a session that closed without one looks like. Filing them put
+the same conversation in the sidebar twice, same title and same folder, the
+second copy carrying none of what had been done to the first — so archiving the
+conversation left its earlier half sitting there in plain sight. Five such
+records were on this machine, against three conversations. `StoreContents.superseded`
+is what a record says it has taken over, and nothing in it is ever filed.
+
+**A Claude this app did not make is read, never written to.** Every profile in
+Application Support holding a chat store is worth reading, because the question
+a sweep asks is whether any Claude anywhere is already listing the session, and
+a record in a profile outside every shortcut still means one is. Writing is a
+different question with a different answer, and the two were one list: the
+owner's account matching was enough to have records filed into a profile Graft
+had never heard of, in somebody else's sidebar, under names of Graft's
+choosing. `recordFilingProfiles` is the filing list — what the caller named,
+Claude's own profile, and the folders in `ClaudeGraft/shortcuts.json`, which is
+the only thing on the machine that says which profiles are this app's doing. A
+launcher reads that list too; it knows its own profile and its source and
+nothing else, and the widening it needs is to Graft's other profiles, not to
+everybody's.
 
 Claude launched the ordinary way carries **no `--user-data-dir` at all**, so the
 main profile is recognised by the absence of one. Profile paths are prefixes of

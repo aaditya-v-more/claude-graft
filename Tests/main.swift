@@ -1850,6 +1850,250 @@ do {
           "and it is written down, so the marker may be tidied away without the session coming back")
 }
 
+do {
+    // A store this pass could not read is not a store with nothing in it.
+    // Everything sitting in one looks unfiled from outside, and a record
+    // written fresh says the session is not archived — so a graft that
+    // stashed a store had the sweep on the way past file its whole history
+    // back, and every conversation archived by hand that day was in the
+    // sidebar again by the afternoon.
+    try? fm.removeItem(at: Graft.claudeProjects)
+    try? fm.removeItem(at: Graft.sessionRecordStateFile)
+
+    let account = "f1f1f1f1-f1f1-4f1f-8f1f-f1f1f1f1f1f1"
+    let org = "f2f2f2f2-f2f2-4f2f-8f2f-f2f2f2f2f2f2"
+    let home = makeProfile("Claude-7", account: account, org: org)
+    let homeOrg = home.appending(path: "claude-code-sessions")
+        .appending(path: account).appending(path: org)
+    let id = "14141414-1414-4141-8141-141414141414"
+    _ = makeTranscript(session: id, owner: account, org: org, title: "Archived by hand")
+
+    let start = Date().addingTimeInterval(120)
+    check(Graft.fileMissingSessionRecords(filingInto: [home], now: start).count == 1,
+          "a session that closed without a record gets one")
+    let record = homeOrg.appending(path: "local_\(id).json")
+
+    // Archiving it is Claude writing the flag into the record this pass filed.
+    var archived = (try! JSONSerialization.jsonObject(with: try! Data(contentsOf: record))) as! [String: Any]
+    archived["isArchived"] = true
+    try! JSONSerialization.data(withJSONObject: archived).write(to: record)
+
+    // And then the store goes behind a graft, which is this app stashing the
+    // organization folder under a hidden name of its own.
+    let stash = homeOrg.deletingLastPathComponent()
+        .appending(path: ".\(org)\(Graft.stashSuffix)")
+    try! fm.moveItem(at: homeOrg, to: stash)
+
+    check(Graft.fileMissingSessionRecords(filingInto: [home],
+                                          now: start.addingTimeInterval(60)).isEmpty,
+          "a pass that could not read the store files nothing back into it")
+    check(!Graft.exists(homeOrg),
+          "and does not build the organization folder back over the top of the stash")
+
+    // Not `try!`: a pass that rebuilt the folder leaves the stash with
+    // nowhere to go, and the checks below are a better account of what went
+    // wrong than a trap on the way there.
+    try? fm.moveItem(at: stash, to: homeOrg)
+    check(Graft.fileMissingSessionRecords(filingInto: [home],
+                                          now: start.addingTimeInterval(120)).isEmpty,
+          "the store coming back into sight brings nothing with it either")
+    let after = (try? Data(contentsOf: record))
+        .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+    check(after?["isArchived"] as? Bool == true,
+          "so a conversation archived by hand is still archived")
+    check(((try? fm.contentsOfDirectory(atPath: homeOrg.path)) ?? []).count == 1,
+          "and the profile has one record for it rather than two")
+
+    check(!Graft.mayFileRecords(inOrganisation: homeOrg, storesRead: []),
+          "an organization folder no walk got into is not one to write records into")
+    check(Graft.mayFileRecords(inOrganisation: homeOrg,
+                               storesRead: [homeOrg.resolvingSymlinksInPath().path]),
+          "one the walk read is")
+    let never = homeOrg.deletingLastPathComponent().appending(path: "f3f3f3f3-f3f3-4f3f-8f3f-f3f3f3f3f3f3")
+    check(Graft.mayFileRecords(inOrganisation: never, storesRead: []),
+          "and a folder that is simply not there yet is how a profile gets its first record")
+}
+
+do {
+    // Every profile holding a chat store is read, because a record in one
+    // means some Claude is already listing the session. Writing is a
+    // different question with a different answer: a Claude profile this app
+    // did not make belongs to whatever did make it, and filing into it puts
+    // chats in somebody else's sidebar under names of this app's choosing.
+    try? fm.removeItem(at: Graft.claudeProjects)
+    try? fm.removeItem(at: Graft.sessionRecordStateFile)
+    let list = Graft.applicationSupport
+        .appending(path: "ClaudeGraft")
+        .appending(path: "shortcuts.json")
+    try? fm.removeItem(at: list)
+
+    let account = "f4f4f4f4-f4f4-4f4f-8f4f-f4f4f4f4f4f4"
+    let org = "f5f5f5f5-f5f5-4f5f-8f5f-f5f5f5f5f5f5"
+    let stranger = makeProfile("Claude-Somebody-Else", account: account, org: org)
+    let strangerOrg = stranger.appending(path: "claude-code-sessions")
+        .appending(path: account).appending(path: org)
+    let id = "15151515-1515-4151-8151-151515151515"
+    _ = makeTranscript(session: id, owner: account, org: org, title: "Somebody else's")
+
+    let start = Date().addingTimeInterval(120)
+    check(Graft.fileMissingSessionRecords(filingInto: [Graft.mainProfile], now: start).isEmpty,
+          "a session whose owner lives only on a profile this app never made is left where it is")
+    check(((try? fm.contentsOfDirectory(atPath: strangerOrg.path)) ?? []).isEmpty,
+          "and nothing of this app's is written into that profile")
+
+    // A launcher knows its own profile, its source and nothing else, so the
+    // list the window keeps is how a session owned by another of this app's
+    // profiles is still filed by one.
+    try! JSONSerialization
+        .data(withJSONObject: [["id": UUID().uuidString,
+                                "name": "Somebody Else",
+                                "folder": "Claude-Somebody-Else"]])
+        .write(to: list)
+    check(Graft.fileMissingSessionRecords(filingInto: [Graft.mainProfile],
+                                          now: start.addingTimeInterval(60)).count == 1,
+          "the same profile is filed into once it is one of this app's own")
+    check(Graft.recordFilingProfiles(named: []).contains { Graft.samePath($0, Graft.mainProfile) },
+          "Claude's own profile is always one a record may be filed into")
+    try? fm.removeItem(at: list)
+    check(!Graft.recordFilingProfiles(named: []).contains { Graft.samePath($0, stranger) },
+          "and a profile named in no list of this app's is not")
+}
+
+do {
+    // A conversation carried on past a compaction gets a new command line
+    // session, and the record names the ones it grew out of. Those older
+    // transcripts sit on disk whole with no record naming them, which is
+    // exactly what a session that closed without one looks like — so the
+    // sweep filed them, and the sidebar showed the same conversation twice:
+    // once as the person left it, once fresh and unarchived.
+    try? fm.removeItem(at: Graft.claudeProjects)
+    try? fm.removeItem(at: Graft.sessionRecordStateFile)
+
+    let account = "f6f6f6f6-f6f6-4f6f-8f6f-f6f6f6f6f6f6"
+    let org = "f7f7f7f7-f7f7-4f7f-8f7f-f7f7f7f7f7f7"
+    let home = makeProfile("Claude-8", account: account, org: org)
+    let homeOrg = home.appending(path: "claude-code-sessions")
+        .appending(path: account).appending(path: org)
+
+    let earlier = "16161616-1616-4161-8161-161616161616"
+    let carriedOn = "17171717-1717-4171-8171-171717171717"
+    _ = makeTranscript(session: earlier, owner: account, org: org, title: "Long conversation")
+    _ = makeTranscript(session: carriedOn, owner: account, org: org, title: "Long conversation")
+
+    // Claude's own record for the conversation as it stands now, naming the
+    // session it carried on from — and archived, the way a person left it.
+    let record: [String: Any] = ["sessionId": "local_18181818-1818-4181-8181-181818181818",
+                                 "cliSessionId": carriedOn,
+                                 "priorCliSessionIds": [earlier],
+                                 "title": "Long conversation",
+                                 "isArchived": true]
+    try! JSONSerialization.data(withJSONObject: record)
+        .write(to: homeOrg.appending(path: "local_18181818-1818-4181-8181-181818181818.json"))
+
+    let now = Date().addingTimeInterval(120)
+    check(Graft.fileMissingSessionRecords(filingInto: [home], now: now).isEmpty,
+          "the transcript a conversation grew out of is not a session anybody lost")
+    check(!Graft.exists(homeOrg.appending(path: "local_\(earlier).json")),
+          "so the conversation is listed once, as its own record has it, and not again beside itself")
+
+    let both = Graft.sessions(ofRecordAt: homeOrg.appending(path: "local_18181818-1818-4181-8181-181818181818.json"))
+    check(both.cliSessionId == carriedOn && both.prior == [earlier],
+          "a record says which session it holds now and which it has taken over")
+}
+
+do {
+    // Archiving is a record write, and every route a pass can take past an
+    // archived record has to leave the flag where it found it. These are the
+    // four shapes an archived record turns up in.
+    try? fm.removeItem(at: Graft.claudeProjects)
+    try? fm.removeItem(at: Graft.sessionRecordStateFile)
+
+    let account = "f8f8f8f8-f8f8-4f8f-8f8f-f8f8f8f8f8f8"
+    let org = "f9f9f9f9-f9f9-4f9f-8f9f-f9f9f9f9f9f9"
+    let home = makeProfile("Claude-9", account: account, org: org)
+    let homeOrg = home.appending(path: "claude-code-sessions")
+        .appending(path: account).appending(path: org)
+    var clock = Date().addingTimeInterval(120)
+    func pass() -> [Graft.SessionFacts] {
+        clock = clock.addingTimeInterval(120)
+        return Graft.fileMissingSessionRecords(filingInto: [home], now: clock)
+    }
+    /// Claude archiving a record in place: the flag flipped, everything else
+    /// left as it was.
+    func archive(_ file: URL) {
+        guard var record = (try? Data(contentsOf: file))
+            .flatMap({ try? JSONSerialization.jsonObject(with: $0) as? [String: Any] })
+        else { return check(false, "there was a record at \(file.lastPathComponent) to archive") }
+        record["isArchived"] = true
+        try! JSONSerialization.data(withJSONObject: record).write(to: file, options: .atomic)
+    }
+    func archived(_ file: URL) -> Bool {
+        (try? Data(contentsOf: file))
+            .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+            .flatMap { $0["isArchived"] as? Bool } ?? false
+    }
+
+    // One: a record this app filed, archived by hand, with nothing else
+    // happening. The pass after has no reason to touch it and does not.
+    let quiet = "19191919-1919-4191-8191-191919191919"
+    _ = makeTranscript(session: quiet, owner: account, org: org, title: "Archived and left alone")
+    check(pass().count == 1, "a session that closed without a record gets one")
+    let quietRecord = homeOrg.appending(path: "local_\(quiet).json")
+    archive(quietRecord)
+    check(pass().isEmpty && archived(quietRecord),
+          "a record archived by hand is still archived after a pass that files nothing")
+
+    // Two: the same, but the transcript moves on afterwards — which is the
+    // one thing that sends a pass back to a record it wrote. The flag says
+    // Claude has been here since, so the record stops being this app's.
+    let moving = "1a1a1a1a-1a1a-41a1-81a1-1a1a1a1a1a1a"
+    _ = makeTranscript(session: moving, owner: account, org: org, title: "Still being written")
+    _ = pass()
+    let movingRecord = homeOrg.appending(path: "local_\(moving).json")
+    check(Graft.loadSessionRecordState().authored[moving] != nil,
+          "a record this app filed is one it knows it wrote")
+    archive(movingRecord)
+    _ = makeTranscript(session: moving, owner: account, org: org, title: "Still being written",
+                       last: "2026-08-29T19:30:00.000Z")
+    check(pass().isEmpty && archived(movingRecord),
+          "and a transcript moving on past an archived record does not unarchive it")
+    check(Graft.loadSessionRecordState().authored[moving] == nil,
+          "the pass gives up its claim instead, the record having been rewritten by another hand")
+
+    // Three: Claude takes the session over and re-files it under a name of
+    // its own, archived. The name this app used is gone, and nothing brings
+    // it back — the session is recorded, under the id the record carries.
+    let renamed = "1b1b1b1b-1b1b-41b1-81b1-1b1b1b1b1b1b"
+    _ = makeTranscript(session: renamed, owner: account, org: org, title: "Taken over")
+    _ = pass()
+    let mine = homeOrg.appending(path: "local_\(renamed).json")
+    var host = (try! JSONSerialization.jsonObject(with: try! Data(contentsOf: mine))) as! [String: Any]
+    host["sessionId"] = "local_1c1c1c1c-1c1c-41c1-81c1-1c1c1c1c1c1c"
+    host["isArchived"] = true
+    let theirs = homeOrg.appending(path: "local_1c1c1c1c-1c1c-41c1-81c1-1c1c1c1c1c1c.json")
+    try! fm.removeItem(at: mine)
+    try! JSONSerialization.data(withJSONObject: host).write(to: theirs)
+    _ = makeTranscript(session: renamed, owner: account, org: org, title: "Taken over",
+                       last: "2026-08-29T20:00:00.000Z")
+    check(pass().isEmpty, "a session re-filed under Claude's own name is not a session missing a record")
+    check(!Graft.exists(mine) && archived(theirs),
+          "so the name this app used stays gone, and the archived record keeps its flag")
+
+    // Four: an archived record caught mid-write, which parses as nothing at
+    // all. One pass cannot tell that from a delete and does not guess.
+    let half = "1d1d1d1d-1d1d-41d1-81d1-1d1d1d1d1d1d"
+    _ = makeTranscript(session: half, owner: account, org: org, title: "Caught mid-write")
+    _ = pass()
+    let halfRecord = homeOrg.appending(path: "local_\(half).json")
+    archive(halfRecord)
+    let whole = try! Data(contentsOf: halfRecord)
+    try! Data("{\"cliSess".utf8).write(to: halfRecord, options: .atomic)
+    check(pass().isEmpty, "a record that will not parse is not a record to be written again")
+    try! whole.write(to: halfRecord, options: .atomic)
+    check(pass().isEmpty && archived(halfRecord),
+          "and once it reads again it is the archived record it always was")
+}
+
 print("\n\(checks - failures)/\(checks) checks passed")
 if failures > 0 {
     print("\(failures) FAILED")

@@ -511,7 +511,7 @@ enum Graft {
     /// A sweep of several stores walks hundreds of these every time, and each
     /// one is small; reading them all is what the budget is for, not the
     /// parsing.
-    private static var recordCache: [String: (stamp: Date, size: Int, cliSessionId: String?)] = [:]
+    private static var recordCache: [String: (stamp: Date, size: Int, sessions: RecordSessions)] = [:]
     private static let recordCacheLock = NSLock()
 
     /// One transcript's parse, remembered against the file it came from.
@@ -584,6 +584,52 @@ enum Graft {
             .filter { isDirectory($0.appending(path: "claude-code-sessions")) }
     }
 
+    /// The folder of every shortcut this app has made, read out of the list
+    /// the window keeps.
+    ///
+    /// A launcher knows its own profile, its source and nothing else, so the
+    /// sweep it runs needs telling where the rest of this app's profiles are
+    /// — and that list is the only thing on the machine that says which of
+    /// the Claude profiles sitting in Application Support are this app's
+    /// doing. It is read rather than decoded into `Shortcut`, which lives in
+    /// the app and never reaches a launcher.
+    static func shortcutProfiles() -> [URL] {
+        let file = applicationSupport
+            .appending(path: "ClaudeGraft")
+            .appending(path: "shortcuts.json")
+        guard let data = try? Data(contentsOf: file),
+              let list = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]]
+        else { return [] }
+        return list
+            .compactMap { $0["folder"] as? String }
+            .filter { validateFolder($0) == nil }
+            .map { applicationSupport.appending(path: $0) }
+    }
+
+    /// The profiles a sweep may write a record into: whatever the caller
+    /// named, Claude's own, and the ones this app made.
+    ///
+    /// Every profile with a chat store is worth *reading* — the question a
+    /// sweep asks is whether any Claude anywhere is already listing the
+    /// session, and a record in a profile outside every shortcut still means
+    /// one is. Writing is a different question with a different answer. A
+    /// Claude profile this app did not make belongs to whatever did make it:
+    /// filing into it puts chats in somebody else's sidebar, under names of
+    /// this app's choosing, in a store nothing here is keeping straight. The
+    /// two lists were one list, so the account that owned a session was
+    /// enough to have records written into a profile this app had never
+    /// heard of.
+    ///
+    /// The caller's own list comes first, and it is first for the same reason
+    /// it exists: with one account on two profiles, the one about to build a
+    /// sidebar is the one that named itself.
+    static func recordFilingProfiles(named: [URL]) -> [URL] {
+        var seen: Set<String> = []
+        return (named + [mainProfile] + shortcutProfiles()).filter {
+            seen.insert($0.resolvingSymlinksInPath().path).inserted
+        }
+    }
+
     /// What one walk of the chat stores found.
     struct StoreContents {
         /// The session a record describes, against the organisation directory
@@ -602,6 +648,12 @@ enum Graft {
         /// A directory missing from here was not looked in, which is a
         /// different thing from being looked in and found empty.
         var stores: Set<String> = []
+        /// Every session a record says it has carried on from. Claude gives a
+        /// conversation a new command line session as it goes, and the
+        /// transcript of the old one stays on disk, whole, with no record
+        /// naming it — which is exactly what a session that closed without a
+        /// record looks like from here.
+        var superseded: Set<String> = []
     }
 
     /// Everything the chat stores on the machine hold, in one walk.
@@ -629,9 +681,11 @@ enum Graft {
                         let file = orgDir.appending(path: name).resolvingSymlinksInPath()
                         guard walked.insert(file.path).inserted else { continue }
                         if name.hasPrefix("local_"), name.hasSuffix(".json") {
-                            if let session = cliSessionId(ofRecordAt: file) {
+                            let sessions = sessions(ofRecordAt: file)
+                            if let session = sessions.cliSessionId {
                                 contents.records[session] = resolved
                             }
+                            contents.superseded.formUnion(sessions.prior)
                         } else if name.hasPrefix("deleted_") {
                             contents.deleted.insert(String(name.dropFirst("deleted_".count)))
                             if let text = try? String(contentsOf: file, encoding: .utf8),
@@ -646,7 +700,17 @@ enum Graft {
         return contents
     }
 
-    private static func cliSessionId(ofRecordAt url: URL) -> String? {
+    /// Which command line sessions one record speaks for.
+    struct RecordSessions: Equatable {
+        /// The session it holds now.
+        var cliSessionId: String?
+        /// The sessions it grew out of. A conversation carried on past a
+        /// compaction, or resumed, gets a new command line session and the
+        /// record keeps the old ids here.
+        var prior: [String] = []
+    }
+
+    static func sessions(ofRecordAt url: URL) -> RecordSessions {
         let attributes = try? fm.attributesOfItem(atPath: url.path)
         let stamp = attributes?[.modificationDate] as? Date ?? .distantPast
         let size = (attributes?[.size] as? Int) ?? 0
@@ -654,18 +718,19 @@ enum Graft {
         recordCacheLock.lock()
         if let cached = recordCache[url.path], cached.stamp == stamp, cached.size == size {
             recordCacheLock.unlock()
-            return cached.cliSessionId
+            return cached.sessions
         }
         recordCacheLock.unlock()
 
-        let cliSessionId = (try? Data(contentsOf: url))
+        let record = (try? Data(contentsOf: url))
             .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
-            .flatMap { $0["cliSessionId"] as? String }
+        let sessions = RecordSessions(cliSessionId: record?["cliSessionId"] as? String,
+                                      prior: (record?["priorCliSessionIds"] as? [String]) ?? [])
 
         recordCacheLock.lock()
-        recordCache[url.path] = (stamp, size, cliSessionId)
+        recordCache[url.path] = (stamp, size, sessions)
         recordCacheLock.unlock()
-        return cliSessionId
+        return sessions
     }
 
     /// What a sweep remembers between passes: where every record it has seen
@@ -809,6 +874,28 @@ enum Graft {
         return diskMatchesAuthored ? .refresh : .takenOver
     }
 
+    /// Whether a record may be written into an organisation folder.
+    ///
+    /// A folder this pass could not read is not a folder with nothing in it.
+    /// It is stashed behind a graft, or waiting on a permission, or gone for
+    /// the moment while Claude renames something over it — and from outside,
+    /// every session it holds looks like a session nobody ever filed. Writing
+    /// those records again gives the profile a second copy of a history it
+    /// already has, and a record written fresh says `isArchived: false`, so a
+    /// chat put out of sight by hand comes back into the sidebar. Reported as
+    /// archived conversations unarchiving themselves, and reproduced by
+    /// stashing one organization folder and running a single pass: four
+    /// sessions refiled, the folder rebuilt over the top of the stash, and
+    /// the archived one back with its flag cleared.
+    ///
+    /// A folder that is simply not there yet is a different thing and is
+    /// filed into, since that is how a profile gets its first record — unless
+    /// this app stashed it itself, which is the one absence it can recognise.
+    static func mayFileRecords(inOrganisation dir: URL, storesRead: Set<String>) -> Bool {
+        guard exists(dir) else { return !exists(stashURL(for: dir)) }
+        return storesRead.contains(dir.resolvingSymlinksInPath().path)
+    }
+
     /// The profile a session's owner account lives on now. Accounts move
     /// between profiles — a migration, a sign-in — so it is asked for
     /// rather than assumed; the profile holding the account is where the
@@ -852,12 +939,17 @@ enum Graft {
                                           quietWindow: TimeInterval = 60) -> [SessionFacts] {
         var state = loadSessionRecordState()
         let contents = sessionStoreContents()
-        let candidates = profiles + sessionStoreProfiles()
+        let candidates = recordFilingProfiles(named: profiles)
 
         let recorded = Set(contents.records.keys)
         var withdrawn = Set(state.withdrawn)
         let vanished = Set(state.vanished)
         var missing: Set<String> = []
+        // Sessions whose record is remembered in a store this pass never got
+        // into. They are not gone and they are not missing; they are out of
+        // sight, and the record still sitting there is the one the profile
+        // reads — archived, renamed, whatever has been done to it since.
+        var outOfSight: Set<String> = []
 
         // A record gone from a store this pass did read was deleted by hand,
         // and two things have to hold before a pass will say so.
@@ -875,9 +967,17 @@ enum Graft {
         // so there is a moment when the old name is gone and the new one is
         // not yet there. A pass landing in it reads a deletion. Withdrawing
         // is forever; being sure of it costs one more pass.
-        for (session, store) in state.records
-        where store.hasPrefix("/") && contents.stores.contains(store)
-            && !recorded.contains(session) {
+        //
+        // The same reading has to hold on the way in. A store that was not
+        // read tells a pass nothing about what is in it, so the sessions it
+        // holds are left exactly as they are — neither withdrawn, which was
+        // already the rule, nor filed all over again, which was not.
+        for (session, store) in state.records where store.hasPrefix("/") {
+            guard contents.stores.contains(store) else {
+                outOfSight.insert(session)
+                continue
+            }
+            guard !recorded.contains(session) else { continue }
             if vanished.contains(session) {
                 withdrawn.insert(session)
                 state.authored.removeValue(forKey: session)
@@ -943,6 +1043,18 @@ enum Graft {
                 // finds it there, and a chat taken out of a sidebar is quietly
                 // put back by the thing that was meant to notice it going.
                 guard !missing.contains(facts.cliSessionId) else { continue }
+                // And a record in a store this pass could not open is a
+                // record, not an absence. The session is listed already; the
+                // pass just cannot see it from here.
+                guard !outOfSight.contains(facts.cliSessionId) else { continue }
+                // A conversation that carried on under a new command line
+                // session is one the sidebar lists under the id it carried on
+                // as. Its earlier transcript keeps sitting there with nobody's
+                // record naming it, so filing it puts the same conversation in
+                // the sidebar a second time — with the same title, the same
+                // folder, and none of what was done to the first, archiving
+                // included.
+                guard !contents.superseded.contains(facts.cliSessionId) else { continue }
                 let owner = ownerProfile(for: facts, among: candidates)
 
                 if recorded.contains(facts.cliSessionId) {
@@ -981,10 +1093,18 @@ enum Graft {
                                                  quietWindow: quietWindow)
                 else { continue }
 
+                // Nothing above knows what the store the record is headed for
+                // looked like, only what this session's own history says. A
+                // profile with its store stashed away has no sessions on
+                // record at all as far as a walk can tell, and a first pass
+                // has nothing remembered to contradict it.
+                let destination = recordFile(for: facts, in: owner).deletingLastPathComponent()
+                guard mayFileRecords(inOrganisation: destination,
+                                     storesRead: contents.stores) else { continue }
+
                 if writeSessionRecord(for: facts, into: owner) {
                     filed.append(facts)
-                    state.records[facts.cliSessionId] = recordFile(for: facts, in: owner)
-                        .deletingLastPathComponent().path
+                    state.records[facts.cliSessionId] = destination.path
                     state.authored[facts.cliSessionId] = facts
                 }
             }
