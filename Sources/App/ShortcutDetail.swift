@@ -300,12 +300,7 @@ struct ShortcutDetail: View {
 struct UsageSummary: View {
     let entry: UsageMonitor.Entry?
 
-    /// A live figure was taken just now, so only one read off disk can be old
-    /// enough to be worth warning about.
-    private var dimmed: Bool {
-        guard let entry, let usage = entry.usage else { return false }
-        return !entry.isLive && usage.isStale
-    }
+    private var dimmed: Bool { entry?.isDimmed ?? false }
 
     var body: some View {
         if let usage = entry?.usage {

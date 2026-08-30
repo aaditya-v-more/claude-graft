@@ -3,7 +3,7 @@ import Foundation
 
 /// Describes one grafted Claude Desktop profile: where its data lives, and
 /// which other profile — if any — it borrows its Claude Code chats from.
-struct GraftConfig: Codable {
+struct GraftConfig: Codable, Equatable {
     /// Absolute path of the `--user-data-dir` this shortcut launches with.
     var profileDir: String
     /// Absolute path of the profile to inherit from. `nil` keeps chats separate.
@@ -688,6 +688,10 @@ enum Graft {
             .filter { isDirectory($0.appending(path: "claude-code-sessions")) }
     }
 
+    static var shortcutsFile: URL {
+        applicationSupport.appending(path: "ClaudeGraft/shortcuts.json")
+    }
+
     /// The folder of every shortcut this app has made, read out of the list
     /// the window keeps.
     ///
@@ -698,10 +702,7 @@ enum Graft {
     /// doing. It is read rather than decoded into `Shortcut`, which lives in
     /// the app and never reaches a launcher.
     static func shortcutProfiles() -> [URL] {
-        let file = applicationSupport
-            .appending(path: "ClaudeGraft")
-            .appending(path: "shortcuts.json")
-        guard let data = try? Data(contentsOf: file),
+        guard let data = try? Data(contentsOf: shortcutsFile),
               let list = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]]
         else { return [] }
         return list
@@ -1120,6 +1121,15 @@ enum Graft {
         // read tells a pass nothing about what is in it, so the sessions it
         // holds are left exactly as they are — neither withdrawn, which was
         // already the rule, nor filed all over again, which was not.
+        var storeAnswers: [String: (stashed: Bool, present: Bool)] = [:]
+        func answers(for store: String) -> (stashed: Bool, present: Bool) {
+            if let known = storeAnswers[store] { return known }
+            let url = URL(fileURLWithPath: store)
+            let answer = (stashed: isStashedAway(url), present: exists(url))
+            storeAnswers[store] = answer
+            return answer
+        }
+
         for (session, store) in state.records where store.hasPrefix("/") {
             // A store with a stash beside it is one this app emptied itself. A
             // mirror's first pass moves the profile's own chats to the hidden
@@ -1129,7 +1139,7 @@ enum Graft {
             // this on the way in and it has to be asked on the way out too:
             // withdrawing is forever, and this is how 150 sessions across two
             // profiles were withdrawn in a single pass.
-            guard !isStashedAway(URL(fileURLWithPath: store)) else {
+            guard !answers(for: store).stashed else {
                 outOfSight.insert(session)
                 stashedStores.insert(store)
                 continue
@@ -1145,7 +1155,7 @@ enum Graft {
             // the same call for a mirror, and for the same reason: forgetting
             // is what lets the session look new and land where the account
             // lives now.
-            guard exists(URL(fileURLWithPath: store)) else {
+            guard answers(for: store).present else {
                 forgotten.insert(session)
                 goneStores.insert(store)
                 Diagnostics.note("sweep.forget", [
@@ -1200,18 +1210,34 @@ enum Graft {
             return filed
         }
 
+        let transcripts: [(dir: URL, names: [String])] = projects.map { project in
+            let dir = claudeProjects.appending(path: project)
+            let names = ((try? fm.contentsOfDirectory(atPath: dir.path)) ?? [])
+                .filter { $0.hasSuffix(".jsonl") }
+            return (dir, names)
+        }
+
         // Markers this app cannot read by name, which are the only ones worth
         // guessing about. A marker naming a session with a transcript is
         // matched outright further down.
-        let named = transcriptSessionIds(in: projects)
+        let named = Set(transcripts.flatMap { $0.names }
+            .map { String($0.dropLast(".jsonl".count)) })
         let guessableDeletions = contents.deletions
             .filter { !named.contains($0.key) }
             .map(\.value)
 
-        for project in projects {
-            let dir = claudeProjects.appending(path: project)
-            for name in (try? fm.contentsOfDirectory(atPath: dir.path)) ?? [] {
-                guard name.hasSuffix(".jsonl") else { continue }
+        // Every session on this machine is stamped with one of a handful of
+        // accounts, and answering this reads a config.json per candidate.
+        var owners: [String: URL?] = [:]
+        func owner(of facts: SessionFacts) -> URL? {
+            if let known = owners[facts.ownerAccount] { return known }
+            let answer = ownerProfile(for: facts, among: candidates)
+            owners[facts.ownerAccount] = answer
+            return answer
+        }
+
+        for (dir, names) in transcripts {
+            for name in names {
                 let transcript = dir.appending(path: name)
                 visited.insert(transcript.path)
                 let attributes = try? fm.attributesOfItem(atPath: transcript.path)
@@ -1253,7 +1279,7 @@ enum Graft {
                 // folder, and none of what was done to the first, archiving
                 // included.
                 guard !contents.superseded.contains(facts.cliSessionId) else { continue }
-                let owner = ownerProfile(for: facts, among: candidates)
+                let owner = owner(of: facts)
 
                 if recorded.contains(facts.cliSessionId) {
                     // A record on disk that this app did not write belongs
@@ -1346,20 +1372,6 @@ enum Graft {
         return filed
     }
 
-    /// Every command line session this machine has a transcript for. Names
-    /// alone, so it costs a directory listing rather than a parse.
-    private static func transcriptSessionIds(in projects: [String]) -> Set<String> {
-        var ids: Set<String> = []
-        for project in projects {
-            let dir = claudeProjects.appending(path: project)
-            for name in (try? fm.contentsOfDirectory(atPath: dir.path)) ?? []
-            where name.hasSuffix(".jsonl") {
-                ids.insert(String(name.dropLast(".jsonl".count)))
-            }
-        }
-        return ids
-    }
-
     private static func transcriptFacts(at url: URL, cliSessionId: String) -> SessionFacts? {
         let attributes = try? fm.attributesOfItem(atPath: url.path)
         let stamp = (attributes?[.modificationDate] as? Date ?? .distantPast).timeIntervalSince1970
@@ -1448,9 +1460,11 @@ enum Graft {
     /// and they are different processes every time.
     static func digest(_ data: Data) -> String {
         var hash: UInt64 = 0xcbf2_9ce4_8422_2325
-        for byte in data {
-            hash ^= UInt64(byte)
-            hash = hash &* 0x100_0000_01b3
+        data.withUnsafeBytes { bytes in
+            for byte in bytes {
+                hash ^= UInt64(byte)
+                hash = hash &* 0x100_0000_01b3
+            }
         }
         return String(hash, radix: 16)
     }
@@ -1685,28 +1699,22 @@ enum Graft {
 
             switch action {
             case .nothing:
-                break
-            case .copyToOther:
-                guard let here, put(here.data, other, name) else { break }
-                baseline[name] = here.digest
+                // Where a name held identically by both sides first earns a
+                // baseline. `mirrorDecision` answers this only when the two
+                // digests are equal, so either side names it.
+                if let digest = here?.digest { baseline[name] = digest }
+            case .copyToOther, .copyToOne:
+                let source = action == .copyToOther ? here : there
+                let destination = action == .copyToOther ? other : one
+                guard let source, put(source.data, destination, name) else { break }
+                baseline[name] = source.digest
                 moved += 1
-            case .copyToOne:
-                guard let there, put(there.data, one, name) else { break }
-                baseline[name] = there.digest
-                moved += 1
-            case .removeFromOne:
-                guard drop(one, name) else { break }
-                baseline.removeValue(forKey: name)
-                moved += 1
-            case .removeFromOther:
-                guard drop(other, name) else { break }
+            case .removeFromOne, .removeFromOther:
+                guard drop(action == .removeFromOne ? one : other, name) else { break }
                 baseline.removeValue(forKey: name)
                 moved += 1
             case .conflict:
                 break
-            }
-            if action == .nothing, let digest = here?.digest ?? there?.digest {
-                baseline[name] = digest
             }
         }
 
@@ -2125,6 +2133,10 @@ enum Graft {
         guard !stale.isEmpty else { return }
         Diagnostics.note("mirror.forget",
                          ["profile": profile.lastPathComponent, "pairs": stale.count])
+        dropPairs(stale)
+    }
+
+    private static func dropPairs(_ stale: Set<String>) {
         var state = loadMirrorState()
         state.pairs = state.pairs.filter { !stale.contains($0.key) }
         saveMirrorState(state)
@@ -2145,17 +2157,15 @@ enum Graft {
     /// worth keeping.
     static func forgetStalePairs(under store: URL, keeping folders: [URL]) {
         let kept = Set(folders.map { $0.resolvingSymlinksInPath().path })
-        let stale = mirrorPairs(under: store).filter { key in
+        let stale = Set(mirrorPairs(under: store).filter { key in
             !key.components(separatedBy: pairSeparator).contains(where: kept.contains)
-        }
+        })
         guard !stale.isEmpty else { return }
         Diagnostics.note("mirror.stale", [
             "store": store.path, "keeping": kept.sorted(), "dropped": stale.count,
             "because": "the profile writes somewhere else now, so these name nobody's folder",
         ])
-        var state = loadMirrorState()
-        state.pairs = state.pairs.filter { !stale.contains($0.key) }
-        saveMirrorState(state)
+        dropPairs(stale)
     }
 
     /// Take a mirrored profile back off the shared set, and lose nothing on
@@ -2500,7 +2510,7 @@ enum Graft {
     }
 
     @discardableResult
-    static func launch(profile: URL) -> Bool {
+    private static func launch(profile: URL) -> Bool {
         let task = Process()
         task.executableURL = URL(fileURLWithPath: "/usr/bin/open")
         task.arguments = launchArguments(for: profile)
@@ -2508,6 +2518,24 @@ enum Graft {
         task.standardError = FileHandle.nullDevice
         do { try task.run() } catch { return false }
         return true
+    }
+
+    /// Mirror, file, then write down what the pass left behind.
+    ///
+    /// The three go together and in this order. Mirroring runs first because a
+    /// record arriving that way has to be on disk before the sweep decides
+    /// whether anyone has filed one. The report runs last because it is the
+    /// file somebody reads after an incident, and a pass that leaves it
+    /// describing the previous one is a pass that cannot be reconstructed —
+    /// which is what pressing Open used to do, having been given the first two
+    /// steps and not the third.
+    @discardableResult
+    static func squareUp(filingInto profiles: [URL],
+                         checkingRunning: Bool = true) -> [SessionFacts] {
+        mirrorKnownPairs()
+        let filed = fileMissingSessionRecords(filingInto: profiles)
+        writeStateReport(checkingRunning: checkingRunning)
+        return filed
     }
 
     /// Opening a profile that is already open shows the Claude that is there.
@@ -2533,12 +2561,10 @@ enum Graft {
         guard !isRunning(profile: profile) else {
             var shown = false
             if let pid = processIdentifier(of: profile) { shown = reveal(pid: pid) }
-            mirrorKnownPairs()
-            fileMissingSessionRecords(filingInto: [profile, mainProfile])
+            squareUp(filingInto: [profile, mainProfile])
             return shown
         }
-        mirrorKnownPairs()
-        fileMissingSessionRecords(filingInto: [profile, mainProfile])
+        squareUp(filingInto: [profile, mainProfile])
         return launch(profile: profile)
     }
 
@@ -2551,8 +2577,6 @@ enum Graft {
             "profile": profile.lastPathComponent,
             "source": config.sourceDir ?? "",
         ])
-        defer { writeStateReport(checkingRunning: false) }
-
         let filing = [profile, mainProfile]
             + (config.sourceDir.flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0) }
                 .map { [$0] } ?? [])
@@ -2569,8 +2593,7 @@ enum Graft {
         // session waited on a launch that had already happened.
         guard !isRunning(profile: profile) else {
             if let pid = processIdentifier(of: profile) { reveal(pid: pid) }
-            mirrorKnownPairs()
-            fileMissingSessionRecords(filingInto: filing)
+            squareUp(filingInto: filing, checkingRunning: false)
             return
         }
         apply(config)
@@ -2579,8 +2602,7 @@ enum Graft {
         // runs here for the same reason and one more: this profile may be the
         // source somebody else borrows from, and opening it is the only
         // moment their changes have to reach the sidebar about to be built.
-        mirrorKnownPairs()
-        fileMissingSessionRecords(filingInto: filing)
+        squareUp(filingInto: filing, checkingRunning: false)
         launch(profile: profile)
     }
 

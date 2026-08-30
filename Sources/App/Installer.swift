@@ -201,9 +201,7 @@ enum Installer {
                                  sourceDir: sourceDir?.path)
         let current = (try? Data(contentsOf: file))
             .flatMap { try? JSONDecoder().decode(GraftConfig.self, from: $0) }
-        guard current?.profileDir != wanted.profileDir
-                || current?.sourceDir != wanted.sourceDir
-        else { return false }
+        guard current != wanted else { return false }
 
         guard let data = try? JSONEncoder().encode(wanted),
               (try? data.write(to: file, options: .atomic)) != nil

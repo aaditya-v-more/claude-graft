@@ -80,8 +80,7 @@ func isIntact(_ foreign: URL) -> Bool {
 /// point of the tests that use it, since a shortcut out in the world still has
 /// one and has to be able to migrate off it.
 func linkTheOldWay(_ folder: URL, to target: URL) {
-    let stash = folder.deletingLastPathComponent()
-        .appending(path: "." + folder.lastPathComponent + Graft.stashSuffix)
+    let stash = Graft.stashURL(for: folder)
     if Graft.exists(folder) { try! fm.moveItem(at: folder, to: stash) }
     try! fm.createSymbolicLink(at: folder, withDestinationURL: target)
 }

@@ -141,7 +141,7 @@ description file they carry, never by name.
 
 ```
 ./build.sh     the app, into build.noindex/
-./test.sh      488 checks, all in a throwaway directory
+./test.sh      520 checks, all in a throwaway directory
 ./release.sh   tests, builds universal, signs, packages
 ```
 

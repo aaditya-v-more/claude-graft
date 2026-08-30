@@ -229,12 +229,12 @@ struct UsageRow: View {
                 UsageBar(label: "5 hours",
                          percent: usage.fiveHour,
                          resets: usage.fiveHourReset,
-                         dimmed: !entry.isLive && usage.isStale)
+                         dimmed: entry.isDimmed)
                 UsageBar(label: "Week",
                          percent: usage.week,
                          resets: usage.weekReset,
-                         dimmed: !entry.isLive && usage.isStale)
-                if !entry.isLive, usage.isStale {
+                         dimmed: entry.isDimmed)
+                if entry.isDimmed {
                     Text("Last seen \(Self.relative.localizedString(for: usage.sampled, relativeTo: Date()))")
                         .font(.caption)
                         .foregroundStyle(.tertiary)

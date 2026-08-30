@@ -82,9 +82,8 @@ enum Diagnostics {
     /// One generation kept. The interesting window is the last few passes, and
     /// an unbounded log in Application Support is its own bug report.
     private static func rotateIfLarge() {
-        let attributes = try? Graft.fm.attributesOfItem(atPath: file.path)
-        let size = (attributes?[.size] as? Int) ?? 0
-        guard size > sizeLimit else { return }
+        var info = stat()
+        guard lstat(file.path, &info) == 0, info.st_size > sizeLimit else { return }
         let previous = file.deletingLastPathComponent().appending(path: "diagnostics.log.1")
         try? Graft.fm.removeItem(at: previous)
         try? Graft.fm.moveItem(at: file, to: previous)
@@ -194,6 +193,8 @@ extension Graft {
             return names.filter { $0.hasPrefix("local_") && $0.hasSuffix(".json") }.count
         }
 
+        let shortcuts = Set(shortcutProfiles().map(\.path))
+
         return sessionStoreProfiles().sorted { $0.path < $1.path }.map { profile in
             var folders: [FolderReport] = []
             for store in chatStores {
@@ -218,11 +219,11 @@ extension Graft {
                     }
                 }
             }
-            let shortcuts = Set(shortcutProfiles().map(\.path))
+            let config = readableConfigJSON(of: profile)
             return ProfileReport(
                 name: profile.lastPathComponent,
-                account: account(of: profile),
-                configReadable: readableConfigJSON(of: profile) != nil,
+                account: config?["lastKnownAccountUuid"] as? String,
+                configReadable: config != nil,
                 device: deviceIdentifier(of: profile),
                 isShortcut: shortcuts.contains(profile.path),
                 running: checkingRunning && isRunning(profile: profile),
@@ -237,10 +238,11 @@ extension Graft {
     /// sync to each other, a sidebar that emptied overnight — and the gap
     /// between the symptom and the cause has been the expensive part every
     /// time.
-    static func stateFindings(_ report: [ProfileReport]) -> [String] {
+    static func stateFindings(_ report: [ProfileReport],
+                              login: (account: String, organization: String)?) -> [String] {
         var findings: [String] = []
 
-        if let login = commandLineLogin() {
+        if let login {
             let holder = report.first { $0.account == login.account }?.name
             for profile in report where profile.account != nil && profile.account != login.account {
                 findings.append("""
@@ -298,14 +300,15 @@ extension Graft {
     /// read what a given arrangement of folders produces.
     static func stateReportText(checkingRunning: Bool = true) -> String {
         let report = stateReport(checkingRunning: checkingRunning)
-        let findings = stateFindings(report)
+        let login = commandLineLogin()
+        let findings = stateFindings(report, login: login)
         var lines: [String] = []
 
         lines.append("Claude Graft — state of the chat stores")
         lines.append("read \(ISO8601DateFormatter().string(from: Date())) by \(Diagnostics.who)")
         lines.append("")
 
-        if let login = commandLineLogin() {
+        if let login {
             let holder = report.first { $0.account == login.account }?.name ?? "no profile here"
             lines.append("Command line login (~/.claude.json)")
             lines.append("  account       \(login.account)  — held by \(holder)")
@@ -364,7 +367,7 @@ extension Graft {
                     },
                 ] as [String: Any]
             },
-            "login": commandLineLogin()?.account ?? "",
+            "login": login?.account ?? "",
             "findings": findings,
         ])
         return lines.joined(separator: "\n") + "\n"

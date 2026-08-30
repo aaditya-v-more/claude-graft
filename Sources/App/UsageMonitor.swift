@@ -24,6 +24,13 @@ final class UsageMonitor: ObservableObject {
         /// True when the figures came from the API rather than from disk.
         var isLive = false
         var plan: String?
+
+        /// A live figure was taken just now, so only one read off disk can be
+        /// old enough to be worth warning about.
+        var isDimmed: Bool {
+            guard let usage else { return false }
+            return !isLive && usage.isStale
+        }
     }
 
     @Published private(set) var entries: [Entry] = []

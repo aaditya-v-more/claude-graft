@@ -37,9 +37,7 @@ struct Shortcut: Codable, Identifiable, Hashable {
 final class ShortcutStore: ObservableObject {
     @Published var shortcuts: [Shortcut] = [] { didSet { save() } }
 
-    private let file: URL = Graft.applicationSupport
-        .appending(path: "ClaudeGraft")
-        .appending(path: "shortcuts.json")
+    private let file: URL = Graft.shortcutsFile
 
     init() {
         if let data = try? Data(contentsOf: file),
@@ -72,9 +70,10 @@ final class ShortcutStore: ObservableObject {
         guard let shortcut = shortcut(id) else { return nil }
         Installer.uninstall(shortcut)
 
+        let sharedWithAnother = shortcuts.contains { $0.id != id && $0.folder == shortcut.folder }
+
         var problem: String?
         if deletingProfile {
-            let sharedWithAnother = shortcuts.contains { $0.id != id && $0.folder == shortcut.folder }
             if sharedWithAnother {
                 problem = "The profile folder was kept: another shortcut still uses it."
             } else {
@@ -88,7 +87,7 @@ final class ShortcutStore: ObservableObject {
         // made it goes on syncing whenever any other profile opens. The copies
         // stay — they are chats, and the person kept the folder — but the two
         // folders stop being squared up against each other.
-        if !shortcuts.contains(where: { $0.id != id && $0.folder == shortcut.folder }) {
+        if !sharedWithAnother {
             Graft.forgetMirrors(of: shortcut.profileDir)
         }
         shortcuts.removeAll { $0.id == id }

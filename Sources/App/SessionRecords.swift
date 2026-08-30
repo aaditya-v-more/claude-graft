@@ -40,16 +40,9 @@ final class SessionRecords: ObservableObject {
         }
 
         DispatchQueue.global(qos: .utility).async { [weak self] in
-            // Ahead of the filing for the reason `Graft.run` puts it there:
-            // a record that arrives by mirror should be on disk before the
-            // sweep decides whether anyone has filed one. This is also the
-            // only pass that covers Claude opened straight from the Dock,
-            // which runs no launcher and asks Graft nothing.
-            Graft.mirrorKnownPairs()
-            let filed = Graft.fileMissingSessionRecords(filingInto: filing)
-            // After the pass rather than before it, so the snapshot describes
-            // what the stores were left in rather than what they started as.
-            Graft.writeStateReport()
+            // The only pass that covers Claude opened straight from the
+            // Dock, which runs no launcher and asks Graft nothing.
+            let filed = Graft.squareUp(filingInto: filing)
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.inFlight = false
