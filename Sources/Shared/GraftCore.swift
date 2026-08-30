@@ -74,8 +74,15 @@ enum Graft {
         "ssh_configs.json",
     ]
 
-    /// Chat history lives in these two, keyed by <accountUuid>/<orgUuid>.
+    /// Chat history lives in these two, keyed by <accountUuid>/<orgUuid> —
+    /// except where a store spells those two shorter, which `counterpartDirectory`
+    /// is the rule for.
     static let chatStores = ["claude-code-sessions", "local-agent-mode-sessions"]
+
+    /// Sits beside the account directories in a chat store without being one.
+    /// It is keyed by organization, so a walk that took it for an account
+    /// reported its organization folders as chat stores of their own.
+    static let nonAccountStoreItems: Set<String> = ["skills-plugin"]
 
     /// Keys copied out of config.json. The rest of that file is this profile's
     /// own credentials, so it is never linked.
@@ -104,6 +111,28 @@ enum Graft {
     static func stashURL(for url: URL) -> URL {
         url.deletingLastPathComponent()
             .appending(path: "." + url.lastPathComponent + stashSuffix)
+    }
+
+    /// `<store>/<account>/<org>` is three components, which is how far above an
+    /// organization folder this app can have put something away.
+    static let chatStoreDepth = 3
+
+    /// Whether this app has stashed a folder, or any folder it sits inside.
+    ///
+    /// There are two shapes and `stashedCounterpart` has always known both: a
+    /// cross-account graft stashes the organization folder itself, and two
+    /// profiles on one account stash the whole store above it, leaving the same
+    /// folder one level further down. Everything that asked only about the
+    /// sibling saw a store put away whole as a profile that had never held
+    /// anything — and filed a whole history into the empty folder standing in
+    /// its place, unarchived, with the real one orphaned beside it.
+    static func isStashedAway(_ folder: URL) -> Bool {
+        var here = folder.standardizedFileURL
+        for _ in 0..<chatStoreDepth {
+            if exists(stashURL(for: here)) { return true }
+            here = here.deletingLastPathComponent()
+        }
+        return false
     }
 
     /// Move a profile's own file or folder aside rather than destroying it.
@@ -147,9 +176,10 @@ enum Graft {
               !isSymlink(stashed), !isSymlink(live)
         else {
             // Two files: the profile overwrote the stashed one itself, so the
-            // live copy supersedes it. A stashed directory against a live file
-            // is neither, and is left alone rather than guessed at.
-            if !isDirectory(stashed) { try? fm.removeItem(at: stashed) }
+            // live copy supersedes it. Anything else is a directory against a
+            // file, which is not a pair this can reason about either way round,
+            // and is left alone rather than guessed at.
+            if !isDirectory(stashed), !isDirectory(live) { try? fm.removeItem(at: stashed) }
             return
         }
 
@@ -211,13 +241,46 @@ enum Graft {
 
     /// Most recently touched child directory, used to resolve the active
     /// organization inside an account directory.
+    ///
+    /// A directory, and the test is not decoration. Claude writes
+    /// `<org>.profile-origin.json` as a plain file beside the organization
+    /// folders and writes it as the organization is created, so for a moment it
+    /// is the newest thing there — and handing that name back as an
+    /// organization stashed the profile's own copy of the file and built a
+    /// directory where it had been.
     static func newestChild(of dir: URL) -> String? {
         guard let names = try? fm.contentsOfDirectory(atPath: dir.path) else { return nil }
         return names
             .filter { !$0.hasPrefix(".") && !$0.hasSuffix(stashSuffix) }
+            .filter { isDirectory(dir.appending(path: $0)) }
             .map { (name: $0, date: modified(dir.appending(path: $0))) }
             .sorted { $0.date > $1.date }
             .first?.name
+    }
+
+    /// The directory `parent` keeps `name`'s contents in.
+    ///
+    /// `<accountUuid>/<orgUuid>` is the shape, except where it is not. A
+    /// profile in local mode was measured naming both halves by their first
+    /// eight characters — `local-agent-mode-sessions/ed417e0f/00000000` against
+    /// `claude-code-sessions/ed417e0f-5edd-…/00000000-0000-…`, the same account
+    /// and the same organization in the same profile. Asking such a store for
+    /// the full uuid finds nothing at all, and a graft that read that as an
+    /// empty store put the borrowing profile's whole history away.
+    ///
+    /// A shortened name is taken only when one of the two is a prefix of the
+    /// other, the shorter is at least eight characters, and it is the only
+    /// directory there that fits. Nothing here may put one account's chats into
+    /// another's folder, which is the mistake `readableConfigJSON` exists to
+    /// prevent; ambiguity gives back nil and the caller falls back to the name
+    /// it was given.
+    static func counterpartDirectory(in parent: URL, for name: String) -> String? {
+        if isDirectory(parent.appending(path: name)) { return name }
+        let candidates = ((try? fm.contentsOfDirectory(atPath: parent.path)) ?? [])
+            .filter { !$0.hasPrefix(".") && !$0.hasSuffix(stashSuffix) }
+            .filter { min($0.count, name.count) >= 8 && ($0.hasPrefix(name) || name.hasPrefix($0)) }
+            .filter { isDirectory(parent.appending(path: $0)) }
+        return candidates.count == 1 ? candidates.first : nil
     }
 
     static func modified(_ url: URL) -> Date {
@@ -539,6 +602,17 @@ enum Graft {
     private static var recordCache: [String: (stamp: Date, size: Int, sessions: RecordSessions)] = [:]
     private static let recordCacheLock = NSLock()
 
+    /// Drop what a walk did not find. Claude re-files a session under a new
+    /// record name as it goes, so a cache keyed by path grows by one entry
+    /// every time it does — and the menu bar app runs for weeks and walks the
+    /// stores on every dropdown. A launcher would never notice; the app that
+    /// is always running is the one that pays.
+    private static func forgetRecordsOutsideOf(_ walked: Set<String>) {
+        recordCacheLock.lock()
+        defer { recordCacheLock.unlock() }
+        recordCache = recordCache.filter { walked.contains($0.key) }
+    }
+
     /// One transcript's parse, remembered against the file it came from.
     struct CachedTranscript: Codable {
         var modified: Double
@@ -601,10 +675,15 @@ enum Graft {
     /// question a sweep asks is whether any Claude anywhere is listing the
     /// session, and a record in a profile outside every shortcut still means
     /// one is.
+    ///
+    /// Sorted, because a walk of them decides which of two mirrored copies of
+    /// one record gets written down as the place it lives, and a report read
+    /// after the fact is worth nothing if that flips between passes.
     static func sessionStoreProfiles() -> [URL] {
         guard let names = try? fm.contentsOfDirectory(atPath: applicationSupport.path) else { return [] }
         return names
             .filter { !$0.hasPrefix(".") }
+            .sorted()
             .map { applicationSupport.appending(path: $0) }
             .filter { isDirectory($0.appending(path: "claude-code-sessions")) }
     }
@@ -662,8 +741,11 @@ enum Graft {
         /// because knowing where a record was is what makes its absence
         /// later mean something.
         var records: [String: String] = [:]
-        /// The moment of every deletion marker.
-        var deletions: [Double] = []
+        /// The moment of every deletion marker, against the name it carries.
+        /// Named rather than counted because a marker naming a session this
+        /// machine has a transcript for is read outright, and only the rest are
+        /// left to be guessed at by when they were written.
+        var deletions: [String: Double] = [:]
         /// What every deletion marker is named after. A record this app filed
         /// is named for its session, so the marker Claude leaves when one is
         /// deleted names the session too — which is the one identity a
@@ -692,36 +774,45 @@ enum Graft {
         for profile in sessionStoreProfiles() {
             let store = profile.appending(path: "claude-code-sessions")
             guard let accounts = try? fm.contentsOfDirectory(atPath: store.path) else { continue }
-            for account in accounts
-            where !account.hasPrefix(".") && !account.hasSuffix(stashSuffix) {
+            for account in accounts.sorted()
+            where !account.hasPrefix(".") && !account.hasSuffix(stashSuffix)
+                && !nonAccountStoreItems.contains(account) {
                 let accountDir = store.appending(path: account)
                 guard let orgs = try? fm.contentsOfDirectory(atPath: accountDir.path) else { continue }
-                for org in orgs
+                for org in orgs.sorted()
                 where !org.hasPrefix(".") && !org.hasSuffix(stashSuffix) {
                     let orgDir = accountDir.appending(path: org)
                     guard let names = try? fm.contentsOfDirectory(atPath: orgDir.path) else { continue }
                     let resolved = orgDir.resolvingSymlinksInPath().path
                     contents.stores.insert(resolved)
-                    for name in names {
+                    for name in names.sorted() {
                         let file = orgDir.appending(path: name).resolvingSymlinksInPath()
                         guard walked.insert(file.path).inserted else { continue }
                         if name.hasPrefix("local_"), name.hasSuffix(".json") {
                             let sessions = sessions(ofRecordAt: file)
-                            if let session = sessions.cliSessionId {
+                            // The first store to hold it keeps it. A mirrored
+                            // record sits in two, and letting the last one win
+                            // left the place a session was filed changing from
+                            // pass to pass in the one file written to be read
+                            // afterwards.
+                            if let session = sessions.cliSessionId,
+                               contents.records[session] == nil {
                                 contents.records[session] = resolved
                             }
                             contents.superseded.formUnion(sessions.prior)
                         } else if name.hasPrefix("deleted_") {
-                            contents.deleted.insert(String(name.dropFirst("deleted_".count)))
+                            let marker = String(name.dropFirst("deleted_".count))
+                            contents.deleted.insert(marker)
                             if let text = try? String(contentsOf: file, encoding: .utf8),
                                let when = Double(text.trimmingCharacters(in: .whitespacesAndNewlines)) {
-                                contents.deletions.append(when)
+                                contents.deletions[marker] = when
                             }
                         }
                     }
                 }
             }
         }
+        forgetRecordsOutsideOf(walked)
         return contents
     }
 
@@ -845,14 +936,20 @@ enum Graft {
         guard !recorded.contains(facts.cliSessionId) else { return .alreadyRecorded }
         guard !withdrawn.contains(facts.cliSessionId) else { return .withdrawn }
 
-        // A marker left behind before the first pass names a record Claude
-        // wrote, by an id no transcript carries — so the only trace of which
-        // session went is timing: the one that had just gone quiet is the one
-        // that was on screen when the delete was pressed. A session still
-        // being written grows past the window and files later, so this can
-        // only hold back one whose final line fell inside it, and a marker
-        // with no session near it deletes nothing but itself. Every marker
-        // written since is read by name instead, which needs no guessing.
+        // A marker naming a record Claude wrote names it by an id no transcript
+        // carries, so the only trace of which session went is timing: the one
+        // that had just gone quiet is the one that was on screen when the
+        // delete was pressed. A session still being written grows past the
+        // window and files later, so this can only hold back one whose final
+        // line fell inside it.
+        //
+        // Only those markers reach here. `deletions` used to carry every marker
+        // on the machine, including the ones this app can read outright by
+        // name, and they accumulate and are never pruned — so one deletion went
+        // on suppressing whatever else had happened to go quiet in the minute
+        // before it, for as long as the marker existed. The caller keeps back
+        // any marker naming a session it has a transcript for; those are read
+        // by name below, which needs no guessing at all.
         if deletions.contains(where: { facts.lastActivityAt > $0 - 60_000 && facts.lastActivityAt <= $0 }) {
             return .withdrawn
         }
@@ -916,8 +1013,18 @@ enum Graft {
     /// A folder that is simply not there yet is a different thing and is
     /// filed into, since that is how a profile gets its first record — unless
     /// this app stashed it itself, which is the one absence it can recognise.
+    ///
+    /// The absence has to be asked about all the way up. A cross-account graft
+    /// stashes the organization folder and leaves a sibling beside it; two
+    /// profiles on one account stash the whole store, and then there is no
+    /// sibling to find because there is no folder left to stand next to. Asking
+    /// only about the sibling caught the first shape and waved the second one
+    /// through, so a same-account graft was followed by the sweep rebuilding
+    /// `<account>/<org>` inside the emptied store and filing the whole history
+    /// into it — every chat a second time, none of them archived, and the real
+    /// store orphaned in the stash. `isStashedAway` is both shapes.
     static func mayFileRecords(inOrganisation dir: URL, storesRead: Set<String>) -> Bool {
-        guard exists(dir) else { return !exists(stashURL(for: dir)) }
+        guard exists(dir) else { return !isStashedAway(dir) }
         return storesRead.contains(dir.resolvingSymlinksInPath().path)
     }
 
@@ -987,6 +1094,10 @@ enum Graft {
         // whole diagnosis and a number says nothing.
         var stashedStores: Set<String> = []
         var unreadStores: Set<String> = []
+        // Sessions remembered at a folder that has stopped existing, which is
+        // a pair to drop rather than a fact to act on.
+        var forgotten: Set<String> = []
+        var goneStores: Set<String> = []
 
         // A record gone from a store this pass did read was deleted by hand,
         // and two things have to hold before a pass will say so.
@@ -1018,9 +1129,29 @@ enum Graft {
             // this on the way in and it has to be asked on the way out too:
             // withdrawing is forever, and this is how 150 sessions across two
             // profiles were withdrawn in a single pass.
-            guard !exists(stashURL(for: URL(fileURLWithPath: store))) else {
+            guard !isStashedAway(URL(fileURLWithPath: store)) else {
                 outOfSight.insert(session)
                 stashedStores.insert(store)
+                continue
+            }
+            // A folder that is not there, with nothing stashed anywhere above
+            // it to say this app put it away, is a folder nobody writes to any
+            // more: the profile was deleted, or signing in again moved
+            // <account>/<org> out from under the pair. Remembering it leaves
+            // the session out of sight on every pass from here on, so it is
+            // never filed anywhere again — the transcript whole on disk and the
+            // chat in nobody's sidebar, with no finding naming it because the
+            // folder it names cannot be reported on. `forgetStalePairs` makes
+            // the same call for a mirror, and for the same reason: forgetting
+            // is what lets the session look new and land where the account
+            // lives now.
+            guard exists(URL(fileURLWithPath: store)) else {
+                forgotten.insert(session)
+                goneStores.insert(store)
+                Diagnostics.note("sweep.forget", [
+                    "session": session, "store": store,
+                    "because": "the folder is gone and nothing here stashed it",
+                ])
                 continue
             }
             guard contents.stores.contains(store) else {
@@ -1045,7 +1176,8 @@ enum Graft {
         // state file written before records were remembered by directory named
         // the file instead; those entries go on sight, since every record
         // still on disk is learned again right here.
-        var remembered = state.records.filter { $0.value.hasPrefix("/") }
+        var remembered = state.records
+            .filter { $0.value.hasPrefix("/") && !forgotten.contains($0.key) }
         for (session, store) in contents.records { remembered[session] = store }
         for session in withdrawn { remembered.removeValue(forKey: session) }
         state.records = remembered
@@ -1067,6 +1199,14 @@ enum Graft {
             Diagnostics.note("sweep.end", ["filed": 0, "because": "no transcripts to read"])
             return filed
         }
+
+        // Markers this app cannot read by name, which are the only ones worth
+        // guessing about. A marker naming a session with a transcript is
+        // matched outright further down.
+        let named = transcriptSessionIds(in: projects)
+        let guessableDeletions = contents.deletions
+            .filter { !named.contains($0.key) }
+            .map(\.value)
 
         for project in projects {
             let dir = claudeProjects.appending(path: project)
@@ -1143,7 +1283,7 @@ enum Graft {
                       case .file = sessionFiling(facts: facts,
                                                  recorded: recorded,
                                                  withdrawn: withdrawn,
-                                                 deletions: contents.deletions,
+                                                 deletions: guessableDeletions,
                                                  lastWrite: lastWrite,
                                                  ownerProfile: owner,
                                                  ownerIsRunning: running(owner),
@@ -1185,17 +1325,39 @@ enum Graft {
         }
 
         state.withdrawn = withdrawn.sorted()
+        // The loop above withdrew every session a marker names, which happens
+        // after the record memory was squared up — so without this those keep
+        // an entry naming a folder their record has already gone from, and the
+        // two passes it then takes to rediscover them as missing inflate the
+        // very counts a diagnosis is read off.
+        for session in withdrawn { state.records.removeValue(forKey: session) }
         saveSessionRecordState(state)
         Diagnostics.note("sweep.end", [
             "filed": filed.count,
             "withdrawn": withdrawn.count,
             "missingThisPass": missing.count,
             "outOfSight": outOfSight.count,
+            "forgotten": forgotten.count,
             "storesStashed": stashedStores.sorted(),
             "storesUnread": unreadStores.sorted(),
+            "storesGone": goneStores.sorted(),
         ])
         saveTranscriptCache(visited: visited)
         return filed
+    }
+
+    /// Every command line session this machine has a transcript for. Names
+    /// alone, so it costs a directory listing rather than a parse.
+    private static func transcriptSessionIds(in projects: [String]) -> Set<String> {
+        var ids: Set<String> = []
+        for project in projects {
+            let dir = claudeProjects.appending(path: project)
+            for name in (try? fm.contentsOfDirectory(atPath: dir.path)) ?? []
+            where name.hasSuffix(".jsonl") {
+                ids.insert(String(name.dropLast(".jsonl".count)))
+            }
+        }
+        return ids
     }
 
     private static func transcriptFacts(at url: URL, cliSessionId: String) -> SessionFacts? {
@@ -1492,6 +1654,14 @@ enum Graft {
         func put(_ data: Data, _ folder: URL, _ name: String) -> Bool {
             (try? data.write(to: folder.appending(path: name), options: .atomic)) != nil
         }
+        /// A removal that did not happen must not be written down as one. The
+        /// baseline was dropped whether or not the file went, so a removal the
+        /// filesystem refused left a name on one side, absent on the other,
+        /// with no baseline — which is a new chat, and the next pass copied the
+        /// deleted conversation straight back to the side it was deleted from.
+        func drop(_ folder: URL, _ name: String) -> Bool {
+            (try? fm.removeItem(at: folder.appending(path: name))) != nil
+        }
 
         let names = Set(oneNames.filter(isMirrored)).union(otherNames.filter(isMirrored))
         for name in names.sorted() {
@@ -1525,11 +1695,11 @@ enum Graft {
                 baseline[name] = there.digest
                 moved += 1
             case .removeFromOne:
-                try? fm.removeItem(at: one.appending(path: name))
+                guard drop(one, name) else { break }
                 baseline.removeValue(forKey: name)
                 moved += 1
             case .removeFromOther:
-                try? fm.removeItem(at: other.appending(path: name))
+                guard drop(other, name) else { break }
                 baseline.removeValue(forKey: name)
                 moved += 1
             case .conflict:
@@ -1540,7 +1710,11 @@ enum Graft {
             }
         }
 
-        state.pairs[key] = baseline
+        // A name neither side holds any more is never visited by the loop
+        // above, so its entry sat in the baseline for good — growing the state
+        // file, and standing ready to read the name coming back on one side
+        // alone as a deletion to carry across.
+        state.pairs[key] = baseline.filter { names.contains($0.key) }
         saveMirrorState(state)
         return moved
     }
@@ -1787,55 +1961,122 @@ enum Graft {
             let dst = profile.appending(path: store)
             guard isDirectory(src) else { continue }
 
-            // One account on both sides: every organization it has is shared,
-            // so every organization is mirrored. A link would have taken the
-            // whole store, so the whole store is what goes to the stash.
-            guard let ownAccount, ownAccount != sourceAccount else {
-                let account = ownAccount ?? sourceAccount
-                // Read before the store is opened, and held for every
-                // organization under it: the first pass stashes the store as a
-                // whole, so asking again after the first organization has been
-                // paired would say no to seeding all the rest.
-                let firstPass = mirrorPairs(under: dst).isEmpty
-                openForMirror(dst, firstPass: firstPass)
-                for org in (try? fm.contentsOfDirectory(atPath: src.appending(path: account).path)) ?? []
-                where !org.hasPrefix(".") && !org.hasSuffix(stashSuffix) {
-                    let mine = dst.appending(path: account).appending(path: org)
-                    // The path is made here, where the profile is known to be
-                    // a real one being configured, rather than in the
-                    // keeping-in-step pass, which must not build a deleted
-                    // profile back up around a folder it wanted to write into.
-                    // Without this the pass found no parent and did nothing,
-                    // which is a same-account graft that mirrored not one file.
-                    openForMirror(mine, firstPass: false)
-                    if firstPass { seedOwnChats(into: mine, store: dst) }
-                    mirrorChatFolders(mine, src.appending(path: account).appending(path: org))
-                }
-                continue
+            if let ownAccount, ownAccount != sourceAccount {
+                mirrorAcrossAccounts(from: src, account: sourceAccount,
+                                     into: dst, account: ownAccount)
+            } else {
+                mirrorWithinOneAccount(from: src, into: dst,
+                                       account: ownAccount ?? sourceAccount)
             }
-
-            guard let sourceOrg = newestChild(of: src.appending(path: sourceAccount)) else { continue }
-            guard let ownOrg = newestChild(of: dst.appending(path: ownAccount))
-                    ?? newestChild(of: src.appending(path: ownAccount)) else { continue }
-
-            // A store-wide link, from when these two were on one account.
-            if isSymlink(dst) { openForMirror(dst, firstPass: false) }
-            let mine = dst.appending(path: ownAccount).appending(path: ownOrg)
-            try? fm.createDirectory(at: mine.deletingLastPathComponent(),
-                                    withIntermediateDirectories: true)
-            forgetStalePairs(under: dst, keeping: mine)
-            let firstPass = mirrorPairs(under: mine).isEmpty
-            openForMirror(mine, firstPass: firstPass)
-            if firstPass { seedOwnChats(into: mine, store: dst) }
-            mirrorChatFolders(mine, src.appending(path: sourceAccount).appending(path: sourceOrg))
 
             // Keyed by organization rather than account, and not a sidebar, so
             // it stays a link.
+            //
+            // After both branches rather than inside one of them. It sat behind
+            // the same-account branch's `continue`, so two profiles on one
+            // account never shared it while two on different accounts did — and
+            // it cannot simply move to the top either, since a same-account
+            // graft puts the whole store away and builds it back, taking any
+            // link made first to the stash with everything else.
             let skills = src.appending(path: "skills-plugin")
             if isDirectory(skills) {
                 relink(target: skills, at: dst.appending(path: "skills-plugin"))
             }
         }
+    }
+
+    /// One account on both sides: every organization it has is shared, so every
+    /// organization is mirrored. A link would have taken the whole store, so the
+    /// whole store is what goes to the stash.
+    private static func mirrorWithinOneAccount(from src: URL, into dst: URL, account: String) {
+        // Read the source before anything of this profile's is moved.
+        //
+        // Opening the destination first was a store emptied on the strength of
+        // a source that turned out to have nothing under this account —
+        // `<account>` spelled shorter, holding only `skills-plugin`, or signed
+        // in as somebody else. The profile's whole history went to the stash,
+        // an empty folder stood where it had been, and no pair was written
+        // down, so every launch after did it again.
+        guard let sourceAccountDir = counterpartDirectory(in: src, for: account) else {
+            Diagnostics.note("mirror.nothingToShare", [
+                "source": src.path, "account": account,
+                "because": "the source holds no folder for this account",
+            ])
+            return
+        }
+        let theirAccount = src.appending(path: sourceAccountDir)
+        let orgs = ((try? fm.contentsOfDirectory(atPath: theirAccount.path)) ?? [])
+            .filter { !$0.hasPrefix(".") && !$0.hasSuffix(stashSuffix) }
+            .filter { isDirectory(theirAccount.appending(path: $0)) }
+            .sorted()
+        guard !orgs.isEmpty else {
+            Diagnostics.note("mirror.nothingToShare", [
+                "source": theirAccount.path, "account": account,
+                "because": "the source holds no organization folder under this account",
+            ])
+            return
+        }
+
+        // The destination names the account the way the destination names it,
+        // which is not always the way the source does.
+        let ownAccountDir = counterpartDirectory(in: dst, for: account) ?? account
+        let mine = orgs.map { org in
+            dst.appending(path: ownAccountDir)
+                .appending(path: counterpartDirectory(
+                    in: dst.appending(path: ownAccountDir), for: org) ?? org)
+        }
+        forgetStalePairs(under: dst, keeping: mine)
+
+        // Read before the store is opened, and held for every organization
+        // under it: the first pass stashes the store as a whole, so asking
+        // again after the first organization has been paired would say no to
+        // seeding all the rest.
+        let firstPass = mirrorPairs(under: dst).isEmpty
+        openForMirror(dst, firstPass: firstPass)
+        for (org, folder) in zip(orgs, mine) {
+            // The path is made here, where the profile is known to be a real one
+            // being configured, rather than in the keeping-in-step pass, which
+            // must not build a deleted profile back up around a folder it wanted
+            // to write into. Without this the pass found no parent and did
+            // nothing, which is a same-account graft that mirrored not one file.
+            openForMirror(folder, firstPass: false)
+            if firstPass { seedOwnChats(into: folder, store: dst) }
+            mirrorChatFolders(folder, theirAccount.appending(path: org))
+        }
+    }
+
+    /// Two accounts: this profile's own `<account>/<org>` is paired with the
+    /// source's active one, because that is where each side's Claude reads.
+    private static func mirrorAcrossAccounts(from src: URL, account sourceAccount: String,
+                                             into dst: URL, account ownAccount: String) {
+        guard let sourceAccountDir = counterpartDirectory(in: src, for: sourceAccount),
+              let sourceOrg = newestChild(of: src.appending(path: sourceAccountDir))
+        else {
+            Diagnostics.note("mirror.nothingToShare", [
+                "source": src.path, "account": sourceAccount,
+                "because": "the source holds no organization folder under this account",
+            ])
+            return
+        }
+        let ownAccountDir = counterpartDirectory(in: dst, for: ownAccount) ?? ownAccount
+        // The source is asked second, and asked about its own spelling of this
+        // profile's account: a profile with no organization folder of its own
+        // yet may still have one sitting in the store it is borrowing from.
+        let orgHeldBySource = counterpartDirectory(in: src, for: ownAccount)
+            .flatMap { newestChild(of: src.appending(path: $0)) }
+        guard let ownOrg = newestChild(of: dst.appending(path: ownAccountDir))
+                ?? orgHeldBySource else { return }
+
+        // A store-wide link, from when these two were on one account.
+        if isSymlink(dst) { openForMirror(dst, firstPass: false) }
+        let mine = dst.appending(path: ownAccountDir).appending(path: ownOrg)
+        try? fm.createDirectory(at: mine.deletingLastPathComponent(),
+                                withIntermediateDirectories: true)
+        forgetStalePairs(under: dst, keeping: [mine])
+        let firstPass = mirrorPairs(under: mine).isEmpty
+        openForMirror(mine, firstPass: firstPass)
+        if firstPass { seedOwnChats(into: mine, store: dst) }
+        mirrorChatFolders(mine, src.appending(path: sourceAccountDir).appending(path: sourceOrg))
     }
 
     /// Theme and locale sit in config.json beside this profile's credentials,
@@ -1898,14 +2139,18 @@ enum Graft {
     /// from every launcher — and a folder nobody writes to is one that looks
     /// emptied, which is carried to the profile the chats were borrowed from as
     /// a deletion. The pair for the folder actually in use is left alone.
-    static func forgetStalePairs(under store: URL, keeping folder: URL) {
-        let kept = folder.resolvingSymlinksInPath().path
+    ///
+    /// A set rather than one folder, because two profiles on one account mirror
+    /// every organization the account has and no single one of them is the pair
+    /// worth keeping.
+    static func forgetStalePairs(under store: URL, keeping folders: [URL]) {
+        let kept = Set(folders.map { $0.resolvingSymlinksInPath().path })
         let stale = mirrorPairs(under: store).filter { key in
-            !key.components(separatedBy: pairSeparator).contains(kept)
+            !key.components(separatedBy: pairSeparator).contains(where: kept.contains)
         }
         guard !stale.isEmpty else { return }
         Diagnostics.note("mirror.stale", [
-            "store": store.path, "keeping": kept, "dropped": stale.count,
+            "store": store.path, "keeping": kept.sorted(), "dropped": stale.count,
             "because": "the profile writes somewhere else now, so these name nobody's folder",
         ])
         var state = loadMirrorState()
@@ -2271,11 +2516,23 @@ enum Graft {
     /// on its side refuses a second process on one `--user-data-dir`: both come
     /// up and both write the same chat store, which is the one loss this app
     /// warns about everywhere else. Pressing Open twice was all it took.
+    ///
+    /// Records are filed on the way in because that is the only moment they are
+    /// read: Claude builds its sidebar as it starts, so one landing a second
+    /// later waits for the next launch to be seen. That is why the filing sits
+    /// ahead of `launch` and behind the running check — a Claude already up
+    /// read its store when it started and is not about to read it again.
+    ///
+    /// And why a pid that cannot be found does not skip it. `isRunning` asks
+    /// pgrep while `processIdentifier` reads `ps` for the browser process
+    /// alone, so the two can disagree — and returning there passed over the one
+    /// case nothing else covers, since a press on a profile already open is not
+    /// going to start anything and there is no timer behind it.
     @discardableResult
     static func open(profile: URL) -> Bool {
         guard !isRunning(profile: profile) else {
-            guard let pid = processIdentifier(of: profile) else { return false }
-            let shown = reveal(pid: pid)
+            var shown = false
+            if let pid = processIdentifier(of: profile) { shown = reveal(pid: pid) }
             mirrorKnownPairs()
             fileMissingSessionRecords(filingInto: [profile, mainProfile])
             return shown
@@ -2284,12 +2541,6 @@ enum Graft {
         fileMissingSessionRecords(filingInto: [profile, mainProfile])
         return launch(profile: profile)
     }
-
-    /// Records are filed on the way in because that is the only moment they
-    /// are read: Claude builds its sidebar as it starts, so one landing a
-    /// second later waits for the next launch to be seen. That is why this
-    /// sits ahead of `launch` and behind the running check — a Claude already
-    /// up read its store when it started and is not about to read it again.
 
     /// What a generated shortcut does when clicked.
     static func run(_ config: GraftConfig) {

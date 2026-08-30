@@ -52,7 +52,13 @@ final class ShortcutStore: ObservableObject {
         try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(),
                                                  withIntermediateDirectories: true)
         guard let data = try? JSONEncoder().encode(shortcuts) else { return }
-        try? data.write(to: file)
+        // Atomic, like every other state file here, and for a reason the others
+        // do not have: this is the only one read by other processes. Every
+        // launcher reads it to learn which profiles are this app's doing, and a
+        // plain write truncates before it fills, so a read landing in between
+        // gets a file that will not parse and a pass that files into fewer
+        // profiles than it should.
+        try? data.write(to: file, options: .atomic)
     }
 
     func shortcut(_ id: UUID) -> Shortcut? { shortcuts.first { $0.id == id } }

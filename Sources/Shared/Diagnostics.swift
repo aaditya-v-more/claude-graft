@@ -199,7 +199,7 @@ extension Graft {
             for store in chatStores {
                 let storeDir = profile.appending(path: store)
                 for account in ((try? fm.contentsOfDirectory(atPath: storeDir.path)) ?? []).sorted()
-                where !account.hasPrefix(".") {
+                where !account.hasPrefix(".") && !nonAccountStoreItems.contains(account) {
                     let accountDir = storeDir.appending(path: account)
                     guard isDirectory(accountDir) else { continue }
                     for org in ((try? fm.contentsOfDirectory(atPath: accountDir.path)) ?? []).sorted()

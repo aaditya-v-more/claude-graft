@@ -2737,7 +2737,7 @@ do {
     state.pairs[Graft.pairKey(now, theirs)] = ["local_2.json": "cafe"]
     Graft.saveMirrorState(state)
 
-    Graft.forgetStalePairs(under: store, keeping: now)
+    Graft.forgetStalePairs(under: store, keeping: [now])
     let left = Graft.loadMirrorState().pairs
     check(left[Graft.pairKey(now, theirs)] != nil,
           "the pair for the folder the profile actually writes to is left alone")
@@ -2782,6 +2782,410 @@ do {
 
     try? fm.removeItem(at: profile)
 }
+
+// MARK: - A store put away whole
+
+section("A store put away whole")
+
+do {
+    // There are two shapes of stash and only one of them leaves a sibling. A
+    // cross-account graft puts the organization folder away and the sibling
+    // sits beside it; two profiles on one account put the whole store away, and
+    // then there is no folder left for a sibling to stand next to. Everything
+    // that asked only about the sibling waved the second shape through.
+    let profile = support.appending(path: "Claude-Whole-Store")
+    let org = profile.appending(path: "claude-code-sessions/WWWW/ORG-W")
+    try? fm.removeItem(at: profile)
+    try! fm.createDirectory(at: org, withIntermediateDirectories: true)
+
+    check(!Graft.isStashedAway(org),
+          "a folder with nothing put away above it is not a folder this app stashed")
+
+    let sibling = org.deletingLastPathComponent().appending(path: ".ORG-W.graft-own")
+    try! fm.createDirectory(at: sibling, withIntermediateDirectories: true)
+    check(Graft.isStashedAway(org),
+          "a stash beside the organization folder is the shape a cross-account graft leaves")
+    try! fm.removeItem(at: sibling)
+
+    // Exactly what `openForMirror` does to a store on a same-account first pass.
+    try! fm.moveItem(at: profile.appending(path: "claude-code-sessions"),
+                     to: profile.appending(path: ".claude-code-sessions.graft-own"))
+    try! fm.createDirectory(at: profile.appending(path: "claude-code-sessions"),
+                            withIntermediateDirectories: true)
+    check(Graft.isStashedAway(org),
+          "and a store put away whole is the shape a same-account graft leaves, two levels up")
+    check(!Graft.mayFileRecords(inOrganisation: org, storesRead: []),
+          "so nothing is filed into the folder standing in its place")
+
+    try? fm.removeItem(at: profile)
+}
+
+do {
+    // The same thing again, as a whole pass rather than one rule: the store put
+    // away, a transcript on disk with nobody's record naming it, and a sweep
+    // that used to answer that by rebuilding the folder and filing the lot into
+    // it — every chat a second time, none of them archived, the real store
+    // orphaned in the stash beside it.
+    let account = "1e1e1e1e-1e1e-4e1e-8e1e-1e1e1e1e1e1e"
+    let org = "1f1f1f1f-1f1f-4f1f-8f1f-1f1f1f1f1f1f"
+    let session = "1a1a1a1a-1a1a-4a1a-8a1a-1a1a1a1a1a1a"
+    let profile = makeProfile("Claude-Refiled", account: account, org: org, chats: ["mine"])
+    makeTranscript(session: session, owner: account, org: org, title: "Borrowed")
+
+    let store = profile.appending(path: "claude-code-sessions")
+    try! fm.moveItem(at: store, to: profile.appending(path: ".claude-code-sessions.graft-own"))
+    try! fm.createDirectory(at: store, withIntermediateDirectories: true)
+
+    Graft.fileMissingSessionRecords(filingInto: [profile], now: Date())
+    check(!Graft.exists(store.appending(path: account).appending(path: org)),
+          "a sweep does not build an organization folder back up inside a store this app emptied")
+    check(Graft.exists(profile.appending(path: ".claude-code-sessions.graft-own")
+                        .appending(path: account).appending(path: org)
+                        .appending(path: "local_mine.json")),
+          "and the profile's real history stays where the graft put it")
+
+    try? fm.removeItem(at: profile)
+    try? fm.removeItem(at: Graft.claudeProjects.appending(path: "-Users-test-work")
+                        .appending(path: "\(session).jsonl"))
+}
+
+// MARK: - A source with nothing under the account
+
+section("A source with nothing to share")
+
+do {
+    // The store went to the stash before the source was consulted, so a source
+    // that turned out to hold nothing under this account left the borrowing
+    // profile's whole history hidden behind an empty folder — and wrote down no
+    // pair, so every launch after did it again.
+    try? fm.removeItem(at: Graft.mirrorStateFile)
+    let account = "2a2a2a2a-2a2a-4a2a-8a2a-2a2a2a2a2a2a"
+    let source = makeProfile("Claude-Empty-Source", account: account, org: "ORG-S", chats: ["theirs"])
+    let borrower = makeProfile("Claude-Empty-Borrower", account: account, org: "ORG-B", chats: ["own-1", "own-2"])
+
+    // One store the source can share and one it cannot: the account directory
+    // under `local-agent-mode-sessions` is spelled some other way entirely.
+    let agent = source.appending(path: "local-agent-mode-sessions")
+    try! fm.removeItem(at: agent.appending(path: account))
+    try! fm.createDirectory(at: agent.appending(path: "somebody-else/ORG-X"),
+                            withIntermediateDirectories: true)
+
+    Graft.graft(from: source, into: borrower)
+    Graft.graft(from: source, into: borrower)
+
+    let mine = borrower.appending(path: "local-agent-mode-sessions")
+        .appending(path: account).appending(path: "ORG-B")
+    check(Graft.exists(mine.appending(path: "local_own-1.json"))
+          && Graft.exists(mine.appending(path: "local_own-2.json")),
+          "a source holding nothing under this account leaves the profile's own chats where they are")
+    check(!Graft.exists(borrower.appending(path: ".local-agent-mode-sessions.graft-own")),
+          "and nothing of the profile's goes to the stash on the strength of a share that cannot happen")
+    check(Graft.exists(borrower.appending(path: "claude-code-sessions")
+                        .appending(path: account).appending(path: "ORG-S")
+                        .appending(path: "local_theirs.json")),
+          "while the store the source can share is shared as usual")
+
+    try? fm.removeItem(at: source)
+    try? fm.removeItem(at: borrower)
+    try? fm.removeItem(at: Graft.mirrorStateFile)
+}
+
+do {
+    // `<accountUuid>/<orgUuid>` is the shape, except where it is not: a profile
+    // in local mode was measured naming both halves by their first eight
+    // characters, in one store and not the other, for the same account.
+    try? fm.removeItem(at: Graft.mirrorStateFile)
+    let account = "ed417e0f-5edd-45dd-9a81-a9925b2c57dc"
+    let source = support.appending(path: "Claude-Short-Source")
+    let borrower = support.appending(path: "Claude-Short-Borrower")
+    for (profile, chat) in [(source, "theirs"), (borrower, "own")] {
+        try? fm.removeItem(at: profile)
+        let dir = profile.appending(path: "local-agent-mode-sessions/ed417e0f/00000000")
+        try! fm.createDirectory(at: dir, withIntermediateDirectories: true)
+        try! "{}".write(to: dir.appending(path: "local_\(chat).json"), atomically: true, encoding: .utf8)
+        try! JSONSerialization.data(withJSONObject: ["lastKnownAccountUuid": account])
+            .write(to: profile.appending(path: "config.json"))
+    }
+
+    check(Graft.counterpartDirectory(in: source.appending(path: "local-agent-mode-sessions"),
+                                     for: account) == "ed417e0f",
+          "a store spelling an account short is still that account's store")
+    check(Graft.counterpartDirectory(in: source.appending(path: "local-agent-mode-sessions"),
+                                     for: "ffffffff-5edd-45dd-9a81-a9925b2c57dc") == nil,
+          "and an account no directory there begins with is not in it at all")
+
+    Graft.graft(from: source, into: borrower)
+    let mine = borrower.appending(path: "local-agent-mode-sessions/ed417e0f/00000000")
+    check(Graft.exists(mine.appending(path: "local_own.json")),
+          "a graft between two such profiles keeps what the borrower already had")
+    check(Graft.exists(mine.appending(path: "local_theirs.json")),
+          "and merges the source's chats into the folder the borrower actually reads")
+
+    try? fm.removeItem(at: source)
+    try? fm.removeItem(at: borrower)
+    try? fm.removeItem(at: Graft.mirrorStateFile)
+}
+
+do {
+    // Claude writes `<org>.profile-origin.json` beside the organization folders
+    // as an organization is created, so for a moment it is the newest thing in
+    // the account directory — and it was handed back as one.
+    let account = support.appending(path: "Claude-Origin/claude-code-sessions/OOOO")
+    try? fm.removeItem(at: support.appending(path: "Claude-Origin"))
+    try! fm.createDirectory(at: account.appending(path: "ORG-O"), withIntermediateDirectories: true)
+    try! "{\"mode\":\"local\"}".write(to: account.appending(path: "ORG-O.profile-origin.json"),
+                                      atomically: true, encoding: .utf8)
+    check(Graft.newestChild(of: account) == "ORG-O",
+          "the newest child of an account directory is a directory, whatever else was written later")
+    try? fm.removeItem(at: support.appending(path: "Claude-Origin"))
+}
+
+do {
+    // It sat behind the same-account branch's early exit, so two profiles on
+    // one account never shared it while two on different accounts did.
+    try? fm.removeItem(at: Graft.mirrorStateFile)
+    let account = "3a3a3a3a-3a3a-4a3a-8a3a-3a3a3a3a3a3a"
+    let source = makeProfile("Claude-Skills-Source", account: account, org: "ORG-K", chats: ["k"])
+    let borrower = makeProfile("Claude-Skills-Borrower", account: account, org: "ORG-K")
+    try! fm.createDirectory(at: source.appending(path: "claude-code-sessions/skills-plugin/ORG-K"),
+                            withIntermediateDirectories: true)
+
+    Graft.graft(from: source, into: borrower)
+    check(Graft.isSymlink(borrower.appending(path: "claude-code-sessions/skills-plugin")),
+          "two profiles on one account share the plugin folder, as two on different accounts always did")
+    check(Graft.exists(borrower.appending(path: "claude-code-sessions")
+                        .appending(path: account).appending(path: "ORG-K")
+                        .appending(path: "local_k.json")),
+          "and the link is made after the store is opened, so it does not go to the stash with everything else")
+
+    try? fm.removeItem(at: source)
+    try? fm.removeItem(at: borrower)
+    try? fm.removeItem(at: Graft.mirrorStateFile)
+}
+
+// MARK: - Reading an absence
+
+section("Reading an absence")
+
+do {
+    // A folder that is not there, with nothing stashed above it, is a folder
+    // nobody writes to: the profile was deleted, or signing in again moved
+    // <account>/<org>. Remembering it left the session out of sight on every
+    // pass from then on — the transcript whole on disk and the chat in nobody's
+    // sidebar, with no finding naming it either.
+    let account = "4a4a4a4a-4a4a-4a4a-8a4a-4a4a4a4a4a4a"
+    let org = "4b4b4b4b-4b4b-4b4b-8b4b-4b4b4b4b4b4b"
+    let session = "4c4c4c4c-4c4c-4c4c-8c4c-4c4c4c4c4c4c"
+    let was = makeProfile("Claude-Was-Here", account: account, org: org)
+    makeTranscript(session: session, owner: account, org: org, title: "Moved on")
+
+    Graft.fileMissingSessionRecords(filingInto: [was], now: Date())
+    let filed = was.appending(path: "claude-code-sessions").appending(path: account)
+        .appending(path: org).appending(path: "local_\(session).json")
+    check(Graft.exists(filed), "a first pass files the record where the account lives")
+    check(Graft.loadSessionRecordState().records[session] != nil,
+          "and remembers which folder it put it in")
+
+    // The profile goes, and the account turns up on another one.
+    try? fm.removeItem(at: was)
+    let now = makeProfile("Claude-Is-Here", account: account, org: org)
+    Graft.fileMissingSessionRecords(filingInto: [now], now: Date())
+    check(Graft.exists(now.appending(path: "claude-code-sessions").appending(path: account)
+                        .appending(path: org).appending(path: "local_\(session).json")),
+          "a record remembered at a folder that has gone is forgotten, so the session is filed where the account is now")
+    check(!Graft.loadSessionRecordState().withdrawn.contains(session),
+          "and forgetting where it was is not the same as deciding somebody deleted it")
+
+    try? fm.removeItem(at: now)
+    try? fm.removeItem(at: Graft.claudeProjects.appending(path: "-Users-test-work")
+                        .appending(path: "\(session).jsonl"))
+}
+
+do {
+    // The timing guess is for markers this app cannot read by name — a record
+    // Claude wrote, under an id no transcript carries. It used to see every
+    // marker on the machine, and they accumulate, so one deletion went on
+    // suppressing whatever else had gone quiet in the minute before it.
+    let account = "5a5a5a5a-5a5a-4a5a-8a5a-5a5a5a5a5a5a"
+    let org = "5b5b5b5b-5b5b-4b5b-8b5b-5b5b5b5b5b5b"
+    let deleted = "5c5c5c5c-5c5c-4c5c-8c5c-5c5c5c5c5c5c"
+    let neighbour = "5d5d5d5d-5d5d-4d5d-8d5d-5d5d5d5d5d5d"
+    let profile = makeProfile("Claude-Marker", account: account, org: org)
+    makeTranscript(session: deleted, owner: account, org: org, title: "The one deleted",
+                   first: "2026-08-29T18:00:00.000Z", last: "2026-08-29T18:00:10.000Z")
+    makeTranscript(session: neighbour, owner: account, org: org, title: "The one beside it",
+                   first: "2026-08-29T17:59:40.000Z", last: "2026-08-29T17:59:50.000Z")
+
+    // A marker naming the session outright, written twenty seconds after the
+    // other one went quiet — which is well inside the window the guess uses.
+    let store = profile.appending(path: "claude-code-sessions")
+        .appending(path: account).appending(path: org)
+    let when = Graft.sessionFacts(inTranscriptAt: Graft.claudeProjects
+                                    .appending(path: "-Users-test-work")
+                                    .appending(path: "\(deleted).jsonl"),
+                                  cliSessionId: deleted)!.lastActivityAt
+    try! "\(when)".write(to: store.appending(path: "deleted_\(deleted)"),
+                         atomically: true, encoding: .utf8)
+
+    Graft.fileMissingSessionRecords(filingInto: [profile], now: Date())
+    check(!Graft.exists(store.appending(path: "local_\(deleted).json")),
+          "a marker naming a session is read by name, and that session is not filed again")
+    check(Graft.exists(store.appending(path: "local_\(neighbour).json")),
+          "and it takes nothing else that happened to go quiet beside it")
+    check(Graft.loadSessionRecordState().records[deleted] == nil,
+          "a session withdrawn by a marker stops being remembered at the folder its record has gone from")
+
+    try? fm.removeItem(at: profile)
+    for session in [deleted, neighbour] {
+        try? fm.removeItem(at: Graft.claudeProjects.appending(path: "-Users-test-work")
+                            .appending(path: "\(session).jsonl"))
+    }
+}
+
+do {
+    // A plugin folder sits beside the account directories without being one. A
+    // walk that took it for an account reported its organization folders as
+    // chat stores of their own.
+    let profile = makeProfile("Claude-Plugin-Walk", account: "6a6a6a6a", org: "6b6b6b6b", chats: ["p"])
+    try! fm.createDirectory(at: profile.appending(path: "claude-code-sessions/skills-plugin/6b6b6b6b"),
+                            withIntermediateDirectories: true)
+    let read = Graft.sessionStoreContents().stores.filter { $0.hasPrefix(profile.path + "/") }
+    check(read.count == 1, "a walk of the chat stores counts the account directories and not the plugin folder")
+    try? fm.removeItem(at: profile)
+}
+
+// MARK: - What the mirror writes down
+
+section("What the mirror writes down")
+
+do {
+    // The baseline is what makes an absence mean something, so it may only say
+    // what the filesystem actually did. A removal was written down whether or
+    // not it happened, and a removal that failed left a name on one side with
+    // no baseline — which reads as a new chat, and put the deleted
+    // conversation straight back where it had been deleted from.
+    try? fm.removeItem(at: Graft.mirrorStateFile)
+    let one = support.appending(path: "Refused/one")
+    let other = support.appending(path: "Refused/other")
+    for dir in [one, other] {
+        try? fm.removeItem(at: dir)
+        try! fm.createDirectory(at: dir, withIntermediateDirectories: true)
+    }
+    for name in ["local_a.json", "local_b.json"] {
+        try! "chat \(name)".write(to: one.appending(path: name), atomically: true, encoding: .utf8)
+    }
+    Graft.mirrorChatFolders(one, other)
+
+    try! fm.removeItem(at: other.appending(path: "local_a.json"))
+    try! fm.setAttributes([.posixPermissions: 0o555], ofItemAtPath: one.path)
+    Graft.mirrorChatFolders(one, other)
+    try! fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: one.path)
+
+    check(Graft.loadMirrorState().pairs[Graft.pairKey(one, other)]?["local_a.json"] != nil,
+          "a removal the filesystem refused is not written down as one")
+
+    Graft.mirrorChatFolders(one, other)
+    check(!Graft.exists(one.appending(path: "local_a.json")),
+          "so the next pass carries the deletion across rather than undoing it")
+    check(!Graft.exists(other.appending(path: "local_a.json")),
+          "and the chat stays deleted on the side it was deleted from")
+
+    for dir in [one, other] { try? fm.removeItem(at: dir) }
+    try? fm.removeItem(at: support.appending(path: "Refused"))
+    try? fm.removeItem(at: Graft.mirrorStateFile)
+}
+
+do {
+    // A name neither side holds any more is never visited by a pass, so its
+    // entry sat in the baseline for good — growing the file, and standing ready
+    // to read the name coming back on one side alone as a deletion.
+    try? fm.removeItem(at: Graft.mirrorStateFile)
+    let one = support.appending(path: "Gone/one")
+    let other = support.appending(path: "Gone/other")
+    for dir in [one, other] {
+        try? fm.removeItem(at: dir)
+        try! fm.createDirectory(at: dir, withIntermediateDirectories: true)
+    }
+    for name in ["local_a.json", "local_b.json", "local_c.json"] {
+        try! "chat \(name)".write(to: one.appending(path: name), atomically: true, encoding: .utf8)
+    }
+    Graft.mirrorChatFolders(one, other)
+
+    for dir in [one, other] { try! fm.removeItem(at: dir.appending(path: "local_a.json")) }
+    Graft.mirrorChatFolders(one, other)
+    let baseline = Graft.loadMirrorState().pairs[Graft.pairKey(one, other)] ?? [:]
+    check(baseline.keys.sorted() == ["local_b.json", "local_c.json"],
+          "a name gone from both sides is dropped from the baseline rather than kept for ever")
+
+    // And what that entry used to do if the name ever came back.
+    try! "chat local_a.json".write(to: one.appending(path: "local_a.json"),
+                                   atomically: true, encoding: .utf8)
+    Graft.mirrorChatFolders(one, other)
+    check(Graft.exists(other.appending(path: "local_a.json")),
+          "so a chat filed under that name again is a new chat, not a deletion to carry across")
+
+    for dir in [one, other] { try? fm.removeItem(at: dir) }
+    try? fm.removeItem(at: support.appending(path: "Gone"))
+    try? fm.removeItem(at: Graft.mirrorStateFile)
+}
+
+do {
+    // Two profiles on one account mirror every organization the account has, so
+    // no single folder is the pair worth keeping.
+    try? fm.removeItem(at: Graft.mirrorStateFile)
+    let store = support.appending(path: "Claude-Many/claude-code-sessions")
+    let first = store.appending(path: "ACC-M/ORG-1")
+    let second = store.appending(path: "ACC-M/ORG-2")
+    let stale = store.appending(path: "ACC-M/ORG-OLD")
+    let theirs = support.appending(path: "Claude-Many-Src/claude-code-sessions/S/S-ORG")
+    for dir in [first, second, stale, theirs] {
+        try! fm.createDirectory(at: dir, withIntermediateDirectories: true)
+    }
+    var state = Graft.MirrorState()
+    for folder in [first, second, stale] {
+        state.pairs[Graft.pairKey(folder, theirs)] = ["local_1.json": "beef"]
+    }
+    Graft.saveMirrorState(state)
+
+    Graft.forgetStalePairs(under: store, keeping: [first, second])
+    let left = Graft.loadMirrorState().pairs
+    check(left[Graft.pairKey(first, theirs)] != nil && left[Graft.pairKey(second, theirs)] != nil,
+          "every organization still being mirrored keeps its pair")
+    check(left[Graft.pairKey(stale, theirs)] == nil,
+          "and only the one naming a folder nobody writes to is dropped")
+
+    try? fm.removeItem(at: support.appending(path: "Claude-Many"))
+    try? fm.removeItem(at: support.appending(path: "Claude-Many-Src"))
+    try? fm.removeItem(at: Graft.mirrorStateFile)
+}
+
+do {
+    // Folding a stash back in is for a pair this can reason about. Two files
+    // are one, and the live copy supersedes the stashed one; a directory
+    // against a file is not, either way round, and guessing at it threw the
+    // stashed one away.
+    let profile = support.appending(path: "Claude-Odd-Stash")
+    try? fm.removeItem(at: profile)
+    try! fm.createDirectory(at: profile.appending(path: "claude_desktop_config.json"),
+                            withIntermediateDirectories: true)
+    let stash = profile.appending(path: ".claude_desktop_config.json.graft-own")
+    try! "the profile's own".write(to: stash, atomically: true, encoding: .utf8)
+
+    let source = support.appending(path: "Claude-Odd-Source")
+    try? fm.removeItem(at: source)
+    try! fm.createDirectory(at: source, withIntermediateDirectories: true)
+    try! "the source's".write(to: source.appending(path: "claude_desktop_config.json"),
+                              atomically: true, encoding: .utf8)
+    Graft.relink(target: source.appending(path: "claude_desktop_config.json"),
+                 at: profile.appending(path: "claude_desktop_config.json"))
+
+    check((try? String(contentsOf: stash, encoding: .utf8)) == "the profile's own",
+          "a stashed file against a live directory is left alone rather than guessed at")
+
+    try? fm.removeItem(at: profile)
+    try? fm.removeItem(at: source)
+}
+
 
 // MARK: - What the state report says
 

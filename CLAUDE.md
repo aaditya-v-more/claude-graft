@@ -129,7 +129,28 @@ and the baseline is forgotten rather than acted on: the survivors then look new
 and the empty side is filled again, which is the opposite mistake and the
 harmless one. A chat put back is a nuisance; a chat taken away for good is not.
 `forgetStalePairs` is the other half, dropping the pair that names where a
-profile's chats used to live before any launcher can square it up.
+profile's chats used to live before any launcher can square it up. It takes the
+set of folders still being mirrored rather than one of them, because two
+profiles on one account mirror every organization the account has and no single
+one is the pair worth keeping — which is why that branch went without it.
+
+**The baseline says what the filesystem did, never what a pass meant to do.**
+Copying has always been written down only when the write landed; removing was
+written down either way, so a removal the filesystem refused left a name on one
+side with no baseline behind it — which is a new chat, and the next pass copied
+the deleted conversation straight back to the side it had been deleted from. A
+name gone from both sides is dropped too: the loop only visits what one of them
+holds, so such an entry sat there for good, growing the file and standing ready
+to read that name coming back on one side alone as a deletion to carry across.
+
+**Nothing goes to the stash before the source has been read.** The
+same-account branch opened the destination first and consulted the source
+second, so a source that turned out to hold nothing under this account — spelled
+shorter, holding only `skills-plugin`, signed in as somebody else — put the
+borrowing profile's whole history away and left an empty folder standing in its
+place. No pair was written down either, so `firstPass` was true again and every
+launch after did it again. What the source has is worked out first, and a source
+with nothing to share leaves the destination exactly as it was.
 
 **And the same emptiness must not be read as a deletion by the sweep.** The
 stash leaves a real, readable, empty folder behind, so `contents.stores` holds
@@ -439,6 +460,35 @@ the account it is signed into, so linking a whole store does nothing across two
 accounts — the link is made one level deeper, mapping this profile's
 `<account>/<org>` onto the source's active one.
 
+**Except that a store does not always spell those two in full.** A profile in
+local mode was measured naming both halves by their first eight characters —
+`local-agent-mode-sessions/ed417e0f/00000000` against
+`claude-code-sessions/ed417e0f-5edd-…/00000000-0000-…`, the same account and the
+same organization in the same profile, one store each way. Such a profile
+carries `<org>.profile-origin.json` saying `{"mode":"local"}`, which is the only
+thing that marks it out, and asking a store like that for the full uuid finds
+nothing at all. `counterpartDirectory` is the rule: an exact name, or the one
+directory there whose name is a prefix of what was asked for — at least eight
+characters of it, and only where there is exactly one, since nothing may put one
+account's chats into another's folder. Anything ambiguous comes back nil and the
+caller falls back to the name it was given.
+
+**`<org>.profile-origin.json` is a plain file sitting beside the organization
+folders,** written as the organization is created, which makes it for a moment
+the newest thing in the account directory. `newestChild` returned it as an
+organization, and the graft that followed stashed the profile's own copy of the
+file and built a directory where it had been. Every walk of an account
+directory asks `isDirectory`.
+
+**`skills-plugin` sits beside the account directories without being one.** It
+is keyed by organization, so a walk that took it for an account reported its
+organization folders as chat stores. `nonAccountStoreItems` names it, and both
+the sweep's walk and the state report skip it. Grafting links it, on either
+path — it used to be linked only across accounts, having been written after the
+same-account branch's early exit — and the link is made after the store is
+opened, since a same-account graft puts the whole store away and builds it back
+and would take the link to the stash with everything else.
+
 **A profile will not write a record into a folder that resolves outside
 itself, and the graft link is exactly such a folder.** This is the rule the
 whole session sweep was built to work around, and it was misread for months as
@@ -612,6 +662,40 @@ itself, and its two halves are the whole distinction: a folder that is there
 must be one this pass actually read, and a folder that is not there must not
 have a stash sitting beside it. A folder that is simply absent is still filed
 into, since that is how a profile gets its first record.
+
+**A stash is not always a sibling, and asking only for the sibling caught half
+of them.** There are two shapes and `stashedCounterpart` has known both since
+the day merging was written: a cross-account graft puts the organization folder
+away and leaves `.<org>.graft-own` beside it, while two profiles on one account
+put the whole store away and the same records end up one level further down.
+`mayFileRecords` only ever asked about the sibling — and after a same-account
+graft there is no folder left for a sibling to stand next to, so the absence
+read as a profile that had never filed anything and the sweep rebuilt
+`<account>/<org>` inside the emptied store and refiled the lot, unarchived,
+with the real store orphaned in the stash beside it. Which is the same incident
+as the paragraph above, reached by the half of the case its fix did not cover.
+`isStashedAway` asks about every folder up to the store, and everything that
+reasons about an absent folder goes through it.
+
+**A record remembered where nothing exists any more is a pair to drop, not a
+fact to act on.** `state.records` was only ever added to, so a folder that
+stopped existing — the profile deleted, or a sign-in moving `<account>/<org>` —
+went on being remembered for ever, and a session remembered there is out of
+sight on every pass from then on. Out of sight blocks filing, so the chat was
+in nobody's sidebar with its transcript whole on disk, and no finding named it
+either, since a report cannot describe a folder that is not there. Forgetting
+is what `forgetStalePairs` does for a mirror and for the same reason: the
+session then looks new and lands where the account lives now. Told apart from
+the unreadable case by `exists`, and only after `isStashedAway` has said this
+app did not put it away itself.
+
+**The timing guess is for the markers that cannot be read any other way.** A
+marker naming a record Claude wrote carries an id no transcript has, so the
+only trace of which session went is which one had just gone quiet. That guess
+used to see every marker on the machine, including the ones named for a session
+outright — and markers accumulate and are never pruned, so one deletion went on
+suppressing whatever else had happened to go quiet in the minute before it, for
+as long as the marker existed. Only markers naming no transcript reach it now.
 
 **A conversation carried on is not a conversation lost.** Claude gives a
 conversation a new command line session as it goes — a compaction, a resume —
