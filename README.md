@@ -137,11 +137,74 @@ profile that's running or that another shortcut still points at. Graft also
 refuses to touch any app it didn't create — it identifies its own by the
 description file they carry, never by name.
 
+## How it works
+
+Every shortcut is a real app bundle with its own Claude profile. Settings are
+shared by symlink; chats are shared by copying.
+
+```mermaid
+flowchart LR
+    subgraph SRC["Claude 1 — account A"]
+        A1["config.json<br/>extensions<br/>window state"]
+        A2["chats<br/>A / org"]
+    end
+    subgraph DST["Claude 2 — account B"]
+        B1["config.json<br/>extensions<br/>window state"]
+        B2["chats<br/>B / org"]
+        B3[".graft-own<br/>what B brought"]
+    end
+    B1 -.->|symlink| A1
+    B2 <-->|copies, both ways| A2
+    B3 -.->|seeded once| B2
+
+    classDef link stroke:#2563eb,stroke-width:2px
+    classDef copy stroke:#16a34a,stroke-width:2px
+    class A1,B1 link
+    class A2,B2,B3 copy
+```
+
+Copies rather than links because Claude Desktop will not write a conversation's
+record into a folder that resolves outside its own profile. Through a link a
+borrowed chat can be read and never archived, renamed or deleted.
+
+Pressing a shortcut runs its own launcher, which squares the storage up before
+any window exists.
+
+```mermaid
+flowchart TD
+    P([Shortcut pressed]) --> R{"Claude already<br/>on this profile?"}
+    R -->|yes| F([Bring that one forward])
+    R -->|no| L["Point the settings links at the source"]
+    L --> M["Carry chat changes both ways"]
+    M --> S["File records for sessions<br/>that closed without one"]
+    S --> O([Launch Claude])
+```
+
+The first launch stashes the profile's own chats and copies them straight back
+into the shared set, so both sidebars end up holding both histories. The stash
+is what makes going back exact.
+
+```mermaid
+flowchart LR
+    O["Its own chats"] -->|first launch| ST[".graft-own"]
+    ST -->|copied back in| MG["Shared folder<br/>both histories"]
+    SRC["Source's chats"] -->|copied in| MG
+    MG -->|back to its own chats| K["Keeps what the stash names,<br/>hands the rest over"]
+
+    classDef keep stroke:#16a34a,stroke-width:2px
+    classDef merge stroke:#2563eb,stroke-width:2px
+    class ST,K keep
+    class MG merge
+```
+
+Merging is the one thing here that cannot be undone: what a profile brings stays
+in the profile it was merged into.
+
 ## Building it
 
 ```
 ./build.sh     the app, into build.noindex/
-./test.sh      520 checks, all in a throwaway directory
+./test.sh      542 checks, all in a throwaway directory
 ./release.sh   tests, builds universal, signs, packages
 ```
 
