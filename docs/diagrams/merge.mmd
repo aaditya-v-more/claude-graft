@@ -1,0 +1,10 @@
+flowchart LR
+    O("Its own chats") -- "first launch" --> ST(".graft-own")
+    ST -- "copied back in" --> MG("Shared folder<br/>both histories")
+    SRC("Source's chats") -- "copied in" --> MG
+    MG -- "back to its own chats" --> K("Keeps what the stash names,<br/>hands the rest over")
+
+    classDef stash stroke:#3FA46A,stroke-width:1.6px
+    classDef merged stroke:#5B8DEF,stroke-width:1.6px
+    class ST,K stash
+    class MG merged

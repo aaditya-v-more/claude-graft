@@ -1,0 +1,26 @@
+flowchart TB
+    subgraph DST["Claude 2 · account B"]
+        direction LR
+        B1("config.json · extensions<br/>window state")
+        B2("records<br/>B / org")
+        B3(".graft-own<br/>what B brought")
+    end
+    subgraph SRC["Claude 1 · account A"]
+        direction LR
+        A1("config.json · extensions<br/>window state")
+        A2("records<br/>A / org")
+    end
+    T("~/.claude/projects — the transcripts<br/>no account in the path, one set for the machine")
+
+    B3 -. "seeded once" .-> B2
+    B1 -. "symlink" .-> A1
+    B2 <== "copies, both ways" ==> A2
+    B2 -.-> T
+    A2 -.-> T
+
+    classDef link stroke:#5B8DEF,stroke-width:1.6px
+    classDef copy stroke:#3FA46A,stroke-width:1.6px
+    classDef shared stroke:#8C959F,stroke-width:1.4px,stroke-dasharray:5 4
+    class A1,B1 link
+    class A2,B2,B3 copy
+    class T shared

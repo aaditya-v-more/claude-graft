@@ -1,0 +1,12 @@
+flowchart LR
+    P(["Shortcut pressed"]) --> R{"Claude already<br/>on this profile?"}
+    R -- "yes" --> F(["Bring that one forward"])
+    R -- "no" --> L("Point the settings<br/>links at the source")
+    L --> M("Carry chat changes<br/>both ways")
+    M --> S("File records for sessions<br/>that closed without one")
+    S --> O(["Launch Claude"])
+
+    classDef done stroke:#3FA46A,stroke-width:1.6px
+    classDef step stroke:#5B8DEF,stroke-width:1.6px
+    class F,O done
+    class L,M,S step

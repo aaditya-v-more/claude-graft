@@ -149,34 +149,10 @@ So sharing maps one profile's `account/org` onto the other's, one level below
 the store, because a Claude only ever reads the account folder matching its own
 login. Settings are shared by symlink; records are shared by copying.
 
-```mermaid
-flowchart TB
-    subgraph DST["Claude 2 — account B"]
-        direction LR
-        B1["config.json · extensions<br/>window state"]
-        B2["records<br/>B / org"]
-        B3[".graft-own<br/>what B brought"]
-    end
-    subgraph SRC["Claude 1 — account A"]
-        direction LR
-        A1["config.json · extensions<br/>window state"]
-        A2["records<br/>A / org"]
-    end
-    T["~/.claude/projects — the transcripts<br/>no account in the path, one set for the machine"]
-
-    B3 -.->|seeded once| B2
-    B1 -.->|symlink| A1
-    B2 <-->|copies, both ways| A2
-    B2 -.-> T
-    A2 -.-> T
-
-    classDef link stroke:#2563eb,stroke-width:2px
-    classDef copy stroke:#16a34a,stroke-width:2px
-    classDef shared stroke:#8a929c,stroke-width:2px,stroke-dasharray:4 3
-    class A1,B1 link
-    class A2,B2,B3 copy
-    class T shared
-```
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/layout-dark.svg">
+  <img alt="Claude 2 and Claude 1 side by side. Claude 2's settings are a symlink to Claude 1's, their record folders hold copies carried both ways, and a hidden .graft-own folder seeds Claude 2's own chats into the shared set once. Both profiles read one set of transcripts in ~/.claude/projects, which has no account in its path." src="docs/assets/layout-light.svg" width="760">
+</picture>
 
 Records are copied rather than linked because Claude Desktop will not write one
 into a folder that resolves outside its own profile. Through a link a borrowed
@@ -185,32 +161,19 @@ chat can be read and never archived, renamed or deleted.
 Pressing a shortcut runs its own launcher, which squares the storage up before
 any window exists.
 
-```mermaid
-flowchart TD
-    P([Shortcut pressed]) --> R{"Claude already<br/>on this profile?"}
-    R -->|yes| F([Bring that one forward])
-    R -->|no| L["Point the settings links at the source"]
-    L --> M["Carry chat changes both ways"]
-    M --> S["File records for sessions<br/>that closed without one"]
-    S --> O([Launch Claude])
-```
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/launch-dark.svg">
+  <img alt="Pressing a shortcut: if a Claude is already on that profile it is brought forward, otherwise the settings links are pointed at the source, chat changes are carried both ways, records are filed for sessions that closed without one, and then Claude launches." src="docs/assets/launch-light.svg" width="760">
+</picture>
 
 The first launch stashes the profile's own chats and copies them straight back
 into the shared set, so both sidebars end up holding both histories. The stash
 is what makes going back exact.
 
-```mermaid
-flowchart LR
-    O["Its own chats"] -->|first launch| ST[".graft-own"]
-    ST -->|copied back in| MG["Shared folder<br/>both histories"]
-    SRC["Source's chats"] -->|copied in| MG
-    MG -->|back to its own chats| K["Keeps what the stash names,<br/>hands the rest over"]
-
-    classDef keep stroke:#16a34a,stroke-width:2px
-    classDef merge stroke:#2563eb,stroke-width:2px
-    class ST,K keep
-    class MG merge
-```
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/merge-dark.svg">
+  <img alt="A profile's own chats go to .graft-own on the first launch and are copied straight back into a shared folder alongside the source's chats. Going back to its own chats keeps what the stash names and hands the rest over." src="docs/assets/merge-light.svg" width="760">
+</picture>
 
 Merging is the one thing here that cannot be undone: what a profile brings stays
 in the profile it was merged into.
@@ -221,6 +184,8 @@ in the profile it was merged into.
 ./build.sh     the app, into build.noindex/
 ./test.sh      542 checks, all in a throwaway directory
 ./release.sh   tests, builds universal, signs, packages
+
+Tools/render-diagrams.sh   the README's diagrams, into docs/assets
 ```
 
 Swift toolchain from Xcode, no project file, no dependencies to install —
