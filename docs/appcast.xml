@@ -3,6 +3,49 @@
     <channel>
         <title>Claude Graft</title>
         <item>
+            <title>1.1.0</title>
+            <pubDate>Mon, 31 Aug 2026 00:14:36 +0530</pubDate>
+            <link>https://github.com/aaditya-v-more/claude-graft</link>
+            <sparkle:version>1.1.0</sparkle:version>
+            <sparkle:shortVersionString>1.1.0</sparkle:shortVersionString>
+            <sparkle:minimumAutoupdateVersion>1.1.0</sparkle:minimumAutoupdateVersion>
+            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+            <description><![CDATA[<h2>Sharing a history now merges it</h2>
+
+<p>Until now, pointing one profile at another's chats replaced its own. Your
+conversations went into a hidden folder beside them and the other profile's
+stood in their place, and a profile sharing chats this way could not archive,
+rename or delete any of them — Claude will not write a record into a folder
+that lives outside the profile.</p>
+
+<p>From this version the folder is real and the two histories are merged, so
+both sidebars hold both sets and a shared profile behaves like a profile
+again.</p>
+
+<h3>Worth reading before you install this one</h3>
+
+<p><strong>Merging cannot be undone.</strong> The first launch after updating
+copies each sharing profile's conversations into the profile it borrows from.
+Sending it back to its own chats afterwards gives back everything it started
+with, but the copies stay where they were merged.</p>
+
+<p><strong>Take a copy first if that matters to you.</strong> Every profile
+lives in <code>~/Library/Application Support</code>; copying the
+<code>Claude</code> folders somewhere safe is the whole backup, and it takes a
+minute.</p>
+
+<p>Nothing is thrown away on the way. What each profile brought to the merge is
+kept in a hidden folder beside its chats, which is what going back reads from.
+And if a conversation does go missing, it is almost always still on disk: the
+transcripts are in <code>~/.claude/projects</code>, and Graft files a record
+back for any session that lost one.</p>
+
+<p>This is the only update that will ask. Later ones install themselves
+quietly, the way they always have.</p>
+]]></description>
+            <enclosure url="https://github.com/aaditya-v-more/claude-graft/releases/download/v1.1.0/ClaudeGraft-1.1.0.zip" length="3616122" type="application/octet-stream" sparkle:edSignature="ASAbGIgMfznHaWMQn8AjocLjy+zTI8x/L+gs2P/pjq6EeE4sJeqSy7/pb7Uf36p/8iynmRys4niWP0FN87I2DA=="/>
+        </item>
+        <item>
             <title>1.0.11</title>
             <pubDate>Sun, 30 Aug 2026 11:10:29 +0530</pubDate>
             <link>https://github.com/aaditya-v-more/claude-graft</link>
