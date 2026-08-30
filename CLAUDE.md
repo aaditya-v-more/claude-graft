@@ -167,9 +167,54 @@ the borrowing and nobody else — so archive a chat in the borrowing profile,
 open the source, and the source is not the one running `apply`. `mirrorKnownPairs`
 reads the pairs back out of the file instead, which is also all a launcher
 needs to know. That file is read by every launcher, though, so a pair left in
-it outlives the graft that made it: ungrafting, deleting the profile and
-deleting the shortcut all call `forgetMirrors`, or two folders go on being
-squared up for a graft that no longer exists.
+it outlives the graft that made it: deleting the profile and deleting the
+shortcut both call `forgetMirrors`, and undoing a graft drops the pairs it
+settled, or two folders go on being squared up for a graft that no longer
+exists.
+
+**A pair has two halves and only one of them is undoing anything.** Every
+question a graft asks of that file — is this a first pass, what should stop
+being mirrored, which copies come back out — is about the borrowing half, and
+asking `mirrorPairs(under:)` answers for both. `apply` calls `ungraft` on any
+profile with no source of its own, which is every launch of the profile others
+borrow from, and undoing a graft took every pair with a half underneath it. The
+lender read its own folder as the borrowed one; a lender keeps no stash, so the
+clause that holds back what a profile brought had nothing to name; and a merge
+leaves both sides holding the same bytes, so the test for which copies to take
+out matched all of them. Opening the source emptied the shared history out of
+the sidebar it was about to build, forgot the pairs on the way past, and left
+the borrower's next launch reading as a first pass — which stashes. Both
+sidebars, on every launch, for as long as the shortcut existed, and the only
+thing on screen to notice was a sidebar with one chat in it.
+
+`mirrorPairs(borrowedBy:)` is the rule, and the roles come from the order the
+key was written in: `mirrorChatFolders` is only ever called with the profile's
+own folder ahead of the one it is borrowing from, and after a merge nothing on
+disk tells a lender from a borrower. `forgetStalePairs` asks the same way, and
+takes the pairs this pass is mirroring rather than a list of folders to find a
+half in, since a source that moves leaves a pair as dead as a destination that
+moves and only the destination half was ever checked.
+
+**A first pass that finds a stash already there is a second one.** `stash` folds
+a stash it finds back into the live folder before moving the lot aside — right
+for a link the profile has written a real file over, wrong for a mirror, where
+the live folder holds the merge and the stash is the only thing that says which
+of those records the profile brought. Fold them together and that is gone for
+good: this machine's stash went 155, 158, 159 while the count was the only
+symptom. `dropBorrowedCopies` takes out what the source is holding byte for byte
+that the stash does not already name, so the stash goes on naming exactly what
+was brought and the borrowed copies come back on the pass that follows.
+
+It runs only on a folder that resolves inside the profile. A shortcut left on
+the shape an older version made has its own chats in the stash and a link where
+they used to be, so the folder's contents are the source's own files and every
+one of them matches the source byte for byte because it *is* the source —
+deleting the lender's whole history and calling it tidying up. The link is not
+always the folder either: a released version sharing one account linked the
+entire store, so the organization folder under it is a real directory reached
+through a symlinked parent and `isSymlink` answers no. Both shapes are the rule
+the rest of this app is built on, which is whether the folder resolves inside
+the profile at all.
 
 **Credentials are borrowed, never taken.** Only the access token is decrypted,
 never the refresh token: Anthropic rotates those and using one signs Claude

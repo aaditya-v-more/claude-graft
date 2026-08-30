@@ -1511,25 +1511,61 @@ enum Graft {
         one.resolvingSymlinksInPath().path + pairSeparator + other.resolvingSymlinksInPath().path
     }
 
-    /// The two folders a key names, or nil for anything that is not one.
-    static func pairFolders(_ key: String) -> (one: URL, other: URL)? {
+    /// The two halves of a key, in the roles they were written in.
+    ///
+    /// A pair is always written with the borrowing folder first, because
+    /// `mirrorChatFolders` is only ever called with the profile's own folder
+    /// ahead of the one it is borrowing from. That order is the only record of
+    /// which side is which: after a merge both folders hold the same bytes,
+    /// and nothing on disk tells a lender from a borrower.
+    static func pairHalves(_ key: String) -> (borrower: String, source: String)? {
         let halves = key.components(separatedBy: pairSeparator)
         guard halves.count == 2, halves.allSatisfy({ $0.hasPrefix("/") }) else { return nil }
-        return (URL(fileURLWithPath: halves[0]), URL(fileURLWithPath: halves[1]))
+        return (borrower: halves[0], source: halves[1])
     }
 
-    /// Every pair with a half at or inside this folder.
+    /// The two folders a key names, or nil for anything that is not one.
+    static func pairFolders(_ key: String) -> (one: URL, other: URL)? {
+        guard let halves = pairHalves(key) else { return nil }
+        return (URL(fileURLWithPath: halves.borrower), URL(fileURLWithPath: halves.source))
+    }
+
+    /// Every pair with a half at or inside this folder, whichever half it is.
+    /// For the cases where both roles are equally finished: a profile deleted,
+    /// a shortcut deleted. Undoing a graft is not one of them.
+    static func mirrorPairs(under folder: URL) -> [String] {
+        mirrorPairs(matching: folder, borrowingHalfOnly: false)
+    }
+
+    /// Every pair this folder borrows through: the half its own Claude reads
+    /// and writes, never the half it is lending to somebody else.
     ///
     /// Which is also the question "has mirroring been set up here before" —
     /// asked of the state file rather than of the stash, because a profile
     /// that had nothing to put away leaves no stash behind and would
     /// otherwise look new for ever, and looking new for ever means the pass
     /// after the first one stashes away everything the first one mirrored in.
-    static func mirrorPairs(under folder: URL) -> [String] {
+    ///
+    /// A source sits under a pair as surely as a borrower does, and every
+    /// question a graft asks — is this a first pass, what should stop being
+    /// mirrored, which copies come back out — is about the borrowing half
+    /// alone. Asked of `mirrorPairs(under:)` instead, opening the profile
+    /// others borrow from ran that profile's own `ungraft` over their pairs:
+    /// it took its folder to be the borrowed one, and since a lender has no
+    /// stash to say what it owns, every record the merge had put there was
+    /// removed. It then forgot the pairs, so the borrower's next launch read
+    /// as a first pass and stashed the merge away. Both sidebars emptied, on
+    /// every launch, for as long as the shortcut existed.
+    static func mirrorPairs(borrowedBy folder: URL) -> [String] {
+        mirrorPairs(matching: folder, borrowingHalfOnly: true)
+    }
+
+    private static func mirrorPairs(matching folder: URL, borrowingHalfOnly: Bool) -> [String] {
         let path = folder.resolvingSymlinksInPath().path
         return loadMirrorState().pairs.keys.filter { key in
-            key.components(separatedBy: pairSeparator)
-                .contains { $0 == path || $0.hasPrefix(path + "/") }
+            guard let roles = pairHalves(key) else { return false }
+            let sides = borrowingHalfOnly ? [roles.borrower] : [roles.borrower, roles.source]
+            return sides.contains { $0 == path || $0.hasPrefix(path + "/") }
         }.sorted()
     }
 
@@ -1900,6 +1936,62 @@ enum Graft {
         try? fm.createDirectory(at: folder, withIntermediateDirectories: true)
     }
 
+    /// Take the borrowed copies back out of a folder about to be stashed a
+    /// second time.
+    ///
+    /// A first pass that finds a stash already in place is a second one: the
+    /// pair that would have said so was dropped — a source deleted, a folder
+    /// moved, a lender running its own `ungraft` over somebody else's pairs —
+    /// while the merge it set up is still sitting in the folder. `stash` folds
+    /// a stash it finds back into the live folder before moving the lot aside,
+    /// which is right for a link the profile has written a real file over and
+    /// wrong here: it would put the borrowed records into the stash beside the
+    /// profile's own and leave nothing saying which of the merged records were
+    /// whose. That is how one machine's stash grew from 155 to 159, a launch at
+    /// a time, and the count is all anybody would ever have noticed.
+    ///
+    /// A record the source is holding byte for byte that the stash does not
+    /// name is a borrowed one — the same test `unmirrorChatStores` removes a
+    /// copy on, for the same reason: bytes that match are bytes nobody loses,
+    /// and these come straight back in on the pass that follows. A genuine
+    /// first pass has no stash to find and nothing to do here.
+    ///
+    /// Only ever inside the profile. A shortcut left on the shape an older
+    /// version made — its own chats in the stash and a link where they used to
+    /// be — has a folder whose contents are the source's own files, and every
+    /// one of them matches the source byte for byte because it *is* the
+    /// source: this would delete the lender's whole history and call it
+    /// tidying up. The link is not always the folder itself, either. A
+    /// released version sharing one account linked the entire store, so the
+    /// organization folder under it is a real directory reached through a
+    /// symlinked parent, and asking `isSymlink` about it answers no. What both
+    /// shapes have in common is the rule the rest of this app is built on: the
+    /// folder resolves outside the profile. `openForMirror` unpicks the link
+    /// a moment later, and there is nothing to weigh until it has.
+    @discardableResult
+    static func dropBorrowedCopies(from folder: URL, sharing source: URL, store: URL) -> Int {
+        let profile = store.deletingLastPathComponent().resolvingSymlinksInPath().path + "/"
+        guard folder.resolvingSymlinksInPath().path.hasPrefix(profile) else { return 0 }
+        guard let own = stashedCounterpart(of: folder, store: store) else { return 0 }
+        var dropped = 0
+        for name in (try? fm.contentsOfDirectory(atPath: folder.path)) ?? [] where isMirrored(name) {
+            let here = folder.appending(path: name)
+            guard !exists(own.appending(path: name)),
+                  let mine = try? Data(contentsOf: here),
+                  let theirs = try? Data(contentsOf: source.appending(path: name)),
+                  mine == theirs,
+                  (try? fm.removeItem(at: here)) != nil
+            else { continue }
+            dropped += 1
+        }
+        guard dropped > 0 else { return 0 }
+        Diagnostics.note("mirror.reborrowed", [
+            "folder": folder.path, "dropped": dropped,
+            "because": "a stash already names what this profile brought, so these were borrowed",
+        ])
+        return dropped
+    }
+
     /// Put the profile's own chats into the shared set, so a graft merges the
     /// two histories instead of replacing one with the other.
     ///
@@ -2033,15 +2125,22 @@ enum Graft {
                 .appending(path: counterpartDirectory(
                     in: dst.appending(path: ownAccountDir), for: org) ?? org)
         }
-        forgetStalePairs(under: dst, keeping: mine)
+        let theirs = orgs.map { theirAccount.appending(path: $0) }
+        forgetStalePairs(under: dst,
+                         keeping: zip(mine, theirs).map { (mine: $0, theirs: $1) })
 
         // Read before the store is opened, and held for every organization
         // under it: the first pass stashes the store as a whole, so asking
         // again after the first organization has been paired would say no to
         // seeding all the rest.
-        let firstPass = mirrorPairs(under: dst).isEmpty
+        let firstPass = mirrorPairs(borrowedBy: dst).isEmpty
+        if firstPass {
+            for (folder, source) in zip(mine, theirs) {
+                dropBorrowedCopies(from: folder, sharing: source, store: dst)
+            }
+        }
         openForMirror(dst, firstPass: firstPass)
-        for (org, folder) in zip(orgs, mine) {
+        for (folder, source) in zip(mine, theirs) {
             // The path is made here, where the profile is known to be a real one
             // being configured, rather than in the keeping-in-step pass, which
             // must not build a deleted profile back up around a folder it wanted
@@ -2049,7 +2148,7 @@ enum Graft {
             // nothing, which is a same-account graft that mirrored not one file.
             openForMirror(folder, firstPass: false)
             if firstPass { seedOwnChats(into: folder, store: dst) }
-            mirrorChatFolders(folder, theirAccount.appending(path: org))
+            mirrorChatFolders(folder, source)
         }
     }
 
@@ -2078,13 +2177,15 @@ enum Graft {
         // A store-wide link, from when these two were on one account.
         if isSymlink(dst) { openForMirror(dst, firstPass: false) }
         let mine = dst.appending(path: ownAccountDir).appending(path: ownOrg)
+        let theirs = src.appending(path: sourceAccountDir).appending(path: sourceOrg)
         try? fm.createDirectory(at: mine.deletingLastPathComponent(),
                                 withIntermediateDirectories: true)
-        forgetStalePairs(under: dst, keeping: [mine])
-        let firstPass = mirrorPairs(under: mine).isEmpty
+        forgetStalePairs(under: dst, keeping: [(mine: mine, theirs: theirs)])
+        let firstPass = mirrorPairs(borrowedBy: mine).isEmpty
+        if firstPass { dropBorrowedCopies(from: mine, sharing: theirs, store: dst) }
         openForMirror(mine, firstPass: firstPass)
         if firstPass { seedOwnChats(into: mine, store: dst) }
-        mirrorChatFolders(mine, src.appending(path: sourceAccountDir).appending(path: sourceOrg))
+        mirrorChatFolders(mine, theirs)
     }
 
     /// Theme and locale sit in config.json beside this profile's credentials,
@@ -2142,28 +2243,35 @@ enum Graft {
         saveMirrorState(state)
     }
 
-    /// Drop the pairs under a store that name a folder the profile has stopped
-    /// writing to.
+    /// Drop the pairs this store borrows through that name a folder nobody
+    /// writes to any more.
     ///
     /// Where a profile's chats live is `<account>/<org>`, and signing in again
-    /// can move both. The pair an earlier pass wrote down then names a folder
-    /// nobody reads any more, while `mirrorKnownPairs` goes on squaring it up
-    /// from every launcher — and a folder nobody writes to is one that looks
-    /// emptied, which is carried to the profile the chats were borrowed from as
-    /// a deletion. The pair for the folder actually in use is left alone.
+    /// can move both — on either side. The pair an earlier pass wrote down then
+    /// names a folder nobody reads, while `mirrorKnownPairs` goes on squaring it
+    /// up from every launcher: a folder nobody writes to is one that looks
+    /// emptied, which is carried to the other profile as a deletion, and one
+    /// that gets written to is one `newestChild` can pick up again as the
+    /// organization to share. The pairs this pass is actually mirroring are the
+    /// ones left alone, which is why it is given them whole rather than a list
+    /// of folders to find a half in — a pair survives only by being one of them.
     ///
-    /// A set rather than one folder, because two profiles on one account mirror
+    /// A set rather than one pair, because two profiles on one account mirror
     /// every organization the account has and no single one of them is the pair
     /// worth keeping.
-    static func forgetStalePairs(under store: URL, keeping folders: [URL]) {
-        let kept = Set(folders.map { $0.resolvingSymlinksInPath().path })
-        let stale = Set(mirrorPairs(under: store).filter { key in
-            !key.components(separatedBy: pairSeparator).contains(where: kept.contains)
-        })
+    ///
+    /// Borrowed pairs alone. What this store lends to somebody else is that
+    /// profile's mirror, and its own launch is what keeps it current; dropping
+    /// it here reads as a first pass over there.
+    static func forgetStalePairs(under store: URL, keeping live: [(mine: URL, theirs: URL)]) {
+        let kept = Set(live.map { pairKey($0.mine, $0.theirs) })
+        let stale = Set(mirrorPairs(borrowedBy: store).filter { !kept.contains($0) })
         guard !stale.isEmpty else { return }
         Diagnostics.note("mirror.stale", [
-            "store": store.path, "keeping": kept.sorted(), "dropped": stale.count,
-            "because": "the profile writes somewhere else now, so these name nobody's folder",
+            "store": store.path,
+            "keeping": kept.map { pairHalves($0).map { "\($0.borrower) -> \($0.source)" } ?? $0 }.sorted(),
+            "dropped": stale.count,
+            "because": "these name a folder one side has stopped writing to",
         ])
         dropPairs(stale)
     }
@@ -2192,16 +2300,20 @@ enum Graft {
     /// from and keep nothing back.
     @discardableResult
     static func unmirrorChatStores(_ profile: URL) -> Int {
-        let keys = mirrorPairs(under: profile)
+        // The pairs this profile borrows through, never the ones it lends. A
+        // lender picking up a borrower's pair reads its own folder as the
+        // borrowed one, finds no stash to say what it owns, and hands its
+        // whole history over — which is what opening the source profile did on
+        // every launch. `apply` calls `ungraft` on any profile with no source
+        // of its own, so being nobody's borrower is the ordinary case here and
+        // the ordinary answer is to do nothing at all.
+        let keys = mirrorPairs(borrowedBy: profile)
         guard !keys.isEmpty else { return 0 }
-        let inside = profile.resolvingSymlinksInPath().path + "/"
         var removed = 0
 
         for key in keys {
             guard let pair = pairFolders(key) else { continue }
-            guard let mine = [pair.one, pair.other].first(where: { $0.path.hasPrefix(inside) })
-            else { continue }
-            let theirs = samePath(mine, pair.one) ? pair.other : pair.one
+            let (mine, theirs) = (pair.one, pair.other)
 
             mirrorChatFolders(pair.one, pair.other)
 
@@ -2230,7 +2342,12 @@ enum Graft {
                 removed += 1
             }
         }
-        forgetMirrors(of: profile)
+        // Only the pairs this pass settled. `forgetMirrors` drops every pair
+        // with a half under the profile, and the ones it lends are somebody
+        // else's mirror: a borrower whose pair has been dropped reads its next
+        // launch as a first pass, stashes the merged folder, and the stash
+        // stops naming what that profile brought to the merge.
+        dropPairs(Set(keys))
         Diagnostics.note("unmirror", [
             "profile": profile.lastPathComponent, "pairs": keys.count, "copiesRemoved": removed,
         ])

@@ -2312,6 +2312,18 @@ do {
     check(Graft.exists(ownOrg.appending(path: "local_kept.json")),
           "and the profile has its own copy of what it was borrowing")
 
+    // The upgrade's whole promise. A released version put the profile's own
+    // chats in the stash and left a link standing in for them, so the sidebar
+    // showed the source's history instead of its own. Converting has to fetch
+    // them back out and merge the two, or upgrading reads as a history that
+    // never came back.
+    check(chatsVisible(to: old) == ["local_kept.json", "local_mine.json"],
+          "the chats the link stood in for are fetched back out of the stash and merged in")
+    check(Graft.exists(srcOrg.appending(path: "local_mine.json")),
+          "and reach the profile it borrows from, which the link never let them do")
+    check(Graft.exists(stash.appending(path: "local_mine.json")),
+          "while the stash goes on naming them, so going back is still exact")
+
     // Sent back to its own chats, it stops being mirrored — the pair lives in
     // a file every launcher reads, so left there it would go on being squared
     // up by whichever profile opened next.
@@ -2396,6 +2408,85 @@ do {
     Graft.apply(GraftConfig(profileDir: keeper.path, sourceDir: nil))
     check(chatsVisible(to: keeper) == ["local_ours.json"],
           "and a second pass over an ungrafted profile changes nothing")
+}
+
+do {
+    // Opening the profile that lends. `apply` calls `ungraft` on anything with
+    // no source of its own, so this runs every time that shortcut is pressed —
+    // and undoing a graft used to mean every pair with a half under the
+    // profile, which is every pair somebody else borrows from it. The lender
+    // read its own folder as the borrowed one; a lender keeps no stash, so
+    // nothing was held back; and a merge leaves both sides holding the same
+    // bytes, so the test for what to take out matched all of it. One press,
+    // the whole shared history gone from the sidebar being built.
+    try? fm.removeItem(at: Graft.mirrorStateFile)
+    let lender = makeProfile("Claude-Lends", account: "LENDS", org: "LENDSORG", chats: ["theirs"])
+    let borrower = makeProfile("Claude-Borrows", account: "BORROWS", org: "BORROWSORG", chats: ["ours"])
+    let both = ["local_ours.json", "local_theirs.json"]
+
+    Graft.apply(GraftConfig(profileDir: borrower.path, sourceDir: lender.path))
+    check(chatsVisible(to: lender) == both,
+          "sharing a history leaves both sets of chats in the profile lent from")
+
+    Graft.apply(GraftConfig(profileDir: lender.path, sourceDir: nil))
+    check(chatsVisible(to: lender) == both,
+          "and opening that profile leaves them there rather than stripping the merge back out")
+    check(chatsVisible(to: borrower) == both,
+          "with the profile that borrowed them untouched as well")
+    check(!Graft.loadMirrorState().pairs.isEmpty,
+          "the pair belongs to the profile doing the borrowing, so the lender does not forget it")
+
+    // Which is what the borrower's next launch turns on. A pair that has been
+    // forgotten reads as a first pass, and a first pass stashes.
+    let stash = borrower.appending(path: "claude-code-sessions")
+        .appending(path: "BORROWS").appending(path: ".BORROWSORG\(Graft.stashSuffix)")
+    Graft.apply(GraftConfig(profileDir: borrower.path, sourceDir: lender.path))
+    check(!Graft.exists(stash.appending(path: "local_theirs.json")),
+          "so the launch after is not a first pass and the stash goes on naming what was brought")
+    check(chatsVisible(to: borrower) == both, "and both histories are still where they were")
+
+    // The lender going back to its own chats is not a thing it can do: it never
+    // borrowed. Going back is the borrower's, and it still works.
+    Graft.apply(GraftConfig(profileDir: borrower.path, sourceDir: nil))
+    check(chatsVisible(to: borrower) == ["local_ours.json"],
+          "the profile that did borrow still gets back exactly what it brought")
+}
+
+do {
+    // A pair dropped while the merge it set up is still sitting in the folder —
+    // a source deleted, an organization moved, an older Graft ungrafting the
+    // lender. The launch after looks like a first pass, and a first pass
+    // stashes: `stash` folds a stash it finds back into the live folder before
+    // moving the lot aside, so the borrowed records would go in beside the
+    // profile's own and nothing would be left saying which were whose. That is
+    // a stash growing from 155 to 159 a launch at a time, and the count is all
+    // anybody would have seen.
+    try? fm.removeItem(at: Graft.mirrorStateFile)
+    let src = makeProfile("Claude-Refold-Src", account: "RFSRC", org: "RFORG", chats: ["theirs"])
+    let own = makeProfile("Claude-Refold", account: "RFOWN", org: "RFOWNORG", chats: ["ours"])
+    let config = GraftConfig(profileDir: own.path, sourceDir: src.path)
+    let stash = own.appending(path: "claude-code-sessions")
+        .appending(path: "RFOWN").appending(path: ".RFOWNORG\(Graft.stashSuffix)")
+
+    Graft.apply(config)
+    check(Graft.exists(stash.appending(path: "local_ours.json"))
+          && !Graft.exists(stash.appending(path: "local_theirs.json")),
+          "a first pass writes down what the profile brought to the merge and nothing else")
+
+    try? fm.removeItem(at: Graft.mirrorStateFile)
+    Graft.apply(config)
+    check(!Graft.exists(stash.appending(path: "local_theirs.json")),
+          "and a second first pass does not fold the borrowed chats in beside them")
+    check(Graft.exists(stash.appending(path: "local_ours.json")),
+          "while what the profile did bring is still named there")
+    check(chatsVisible(to: own) == ["local_ours.json", "local_theirs.json"],
+          "with both histories back in the folder the person actually reads")
+
+    // Which is the whole reason the stash is kept: hand the borrowed ones over,
+    // keep the ones it came with.
+    Graft.apply(GraftConfig(profileDir: own.path, sourceDir: nil))
+    check(chatsVisible(to: own) == ["local_ours.json"],
+          "so going back is still exact rather than a guess at which record belonged to whom")
 }
 
 do {
@@ -2736,7 +2827,7 @@ do {
     state.pairs[Graft.pairKey(now, theirs)] = ["local_2.json": "cafe"]
     Graft.saveMirrorState(state)
 
-    Graft.forgetStalePairs(under: store, keeping: [now])
+    Graft.forgetStalePairs(under: store, keeping: [(mine: now, theirs: theirs)])
     let left = Graft.loadMirrorState().pairs
     check(left[Graft.pairKey(now, theirs)] != nil,
           "the pair for the folder the profile actually writes to is left alone")
@@ -3146,7 +3237,8 @@ do {
     }
     Graft.saveMirrorState(state)
 
-    Graft.forgetStalePairs(under: store, keeping: [first, second])
+    Graft.forgetStalePairs(under: store,
+                           keeping: [(mine: first, theirs: theirs), (mine: second, theirs: theirs)])
     let left = Graft.loadMirrorState().pairs
     check(left[Graft.pairKey(first, theirs)] != nil && left[Graft.pairKey(second, theirs)] != nil,
           "every organization still being mirrored keeps its pair")
@@ -3155,6 +3247,61 @@ do {
 
     try? fm.removeItem(at: support.appending(path: "Claude-Many"))
     try? fm.removeItem(at: support.appending(path: "Claude-Many-Src"))
+    try? fm.removeItem(at: Graft.mirrorStateFile)
+}
+
+do {
+    // A store lends as well as borrows. The pairs it lends are somebody else's
+    // mirror, kept current by that profile's own launch, and dropping one here
+    // reads as a first pass over there.
+    try? fm.removeItem(at: Graft.mirrorStateFile)
+    let store = support.appending(path: "Claude-Lent/claude-code-sessions")
+    let mine = store.appending(path: "ACC-L/ORG-L")
+    let theirs = support.appending(path: "Claude-Lent-Src/claude-code-sessions/S/S-ORG")
+    let moved = support.appending(path: "Claude-Lent-Src/claude-code-sessions/S/S-ORG-NEW")
+    let guest = support.appending(path: "Claude-Lent-Guest/claude-code-sessions/G/G-ORG")
+    for dir in [mine, theirs, moved, guest] {
+        try! fm.createDirectory(at: dir, withIntermediateDirectories: true)
+    }
+    var state = Graft.MirrorState()
+    state.pairs[Graft.pairKey(mine, theirs)] = ["local_1.json": "beef"]
+    state.pairs[Graft.pairKey(guest, mine)] = ["local_2.json": "cafe"]
+    Graft.saveMirrorState(state)
+
+    check(Graft.pairHalves(Graft.pairKey(mine, theirs))?.borrower
+            == mine.resolvingSymlinksInPath().path,
+          "a pair is written with the borrowing folder first, which is the only record of which is which")
+    check(Graft.mirrorPairs(borrowedBy: mine).count == 1,
+          "so a folder is found by the half it borrows through")
+    check(Graft.mirrorPairs(borrowedBy: theirs).isEmpty,
+          "and the folder lent from borrows through nothing, however many pairs name it")
+    check(Graft.mirrorPairs(under: theirs).count == 1,
+          "though it is still under one, for the cases where both roles are equally finished")
+
+    Graft.forgetStalePairs(under: store, keeping: [(mine: mine, theirs: theirs)])
+    check(Graft.loadMirrorState().pairs[Graft.pairKey(mine, theirs)] != nil,
+          "the pair this store borrows through is kept, being the one this pass is mirroring")
+
+    // A source that moved leaves a pair as stale as a destination that moved,
+    // and only the destination half was ever looked at.
+    Graft.forgetStalePairs(under: store, keeping: [(mine: mine, theirs: moved)])
+    check(Graft.loadMirrorState().pairs[Graft.pairKey(mine, theirs)] == nil,
+          "so a pair naming the organization the source has stopped writing to is dropped as well")
+
+    // And this profile signing in again moves the folder it lends from, which
+    // says nothing about the guest borrowing through it: that pair is the
+    // guest's mirror, its own launch is what squares it up, and dropping it
+    // here is a first pass over there — the folder stashed, the merge fetched
+    // back, the record of what the guest owns folded in with it.
+    let elsewhere = store.appending(path: "ACC-L/ORG-NEW")
+    try! fm.createDirectory(at: elsewhere, withIntermediateDirectories: true)
+    Graft.forgetStalePairs(under: store, keeping: [(mine: elsewhere, theirs: moved)])
+    check(Graft.loadMirrorState().pairs[Graft.pairKey(guest, mine)] != nil,
+          "a pair this store only lends to is left to the profile that borrows through it")
+
+    for name in ["Claude-Lent", "Claude-Lent-Src", "Claude-Lent-Guest"] {
+        try? fm.removeItem(at: support.appending(path: name))
+    }
     try? fm.removeItem(at: Graft.mirrorStateFile)
 }
 
