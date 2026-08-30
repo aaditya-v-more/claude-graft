@@ -139,33 +139,48 @@ description file they carry, never by name.
 
 ## How it works
 
-Every shortcut is a real app bundle with its own Claude profile. Settings are
-shared by symlink; chats are shared by copying.
+Every chat is stored twice. The transcript holds the messages, lives in
+`~/.claude/projects`, has no account anywhere in its path, and is shared by
+every Claude on the machine. The record is the sidebar row — title, times,
+archived flag — and its account is not a field inside it but the folder it sits
+in.
+
+So sharing maps one profile's `account/org` onto the other's, one level below
+the store, because a Claude only ever reads the account folder matching its own
+login. Settings are shared by symlink; records are shared by copying.
 
 ```mermaid
-flowchart LR
-    subgraph SRC["Claude 1 — account A"]
-        A1["config.json<br/>extensions<br/>window state"]
-        A2["chats<br/>A / org"]
-    end
+flowchart TB
     subgraph DST["Claude 2 — account B"]
-        B1["config.json<br/>extensions<br/>window state"]
-        B2["chats<br/>B / org"]
+        direction LR
+        B1["config.json · extensions<br/>window state"]
+        B2["records<br/>B / org"]
         B3[".graft-own<br/>what B brought"]
     end
+    subgraph SRC["Claude 1 — account A"]
+        direction LR
+        A1["config.json · extensions<br/>window state"]
+        A2["records<br/>A / org"]
+    end
+    T["~/.claude/projects — the transcripts<br/>no account in the path, one set for the machine"]
+
+    B3 -.->|seeded once| B2
     B1 -.->|symlink| A1
     B2 <-->|copies, both ways| A2
-    B3 -.->|seeded once| B2
+    B2 -.-> T
+    A2 -.-> T
 
     classDef link stroke:#2563eb,stroke-width:2px
     classDef copy stroke:#16a34a,stroke-width:2px
+    classDef shared stroke:#8a929c,stroke-width:2px,stroke-dasharray:4 3
     class A1,B1 link
     class A2,B2,B3 copy
+    class T shared
 ```
 
-Copies rather than links because Claude Desktop will not write a conversation's
-record into a folder that resolves outside its own profile. Through a link a
-borrowed chat can be read and never archived, renamed or deleted.
+Records are copied rather than linked because Claude Desktop will not write one
+into a folder that resolves outside its own profile. Through a link a borrowed
+chat can be read and never archived, renamed or deleted.
 
 Pressing a shortcut runs its own launcher, which squares the storage up before
 any window exists.
