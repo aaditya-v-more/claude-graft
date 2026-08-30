@@ -1,12 +1,12 @@
-flowchart TB
+flowchart LR
     subgraph DST["Claude 2 · account B"]
-        direction LR
+        direction TB
         B1("config.json · extensions<br/>window state")
-        B2("records<br/>B / org")
         B3(".graft-own<br/>what B brought")
+        B2("records<br/>B / org")
     end
     subgraph SRC["Claude 1 · account A"]
-        direction LR
+        direction TB
         A1("config.json · extensions<br/>window state")
         A2("records<br/>A / org")
     end
