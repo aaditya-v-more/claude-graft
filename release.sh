@@ -200,7 +200,7 @@ To publish $TAG:
 
 The appcast must be pushed for the feed to serve it, and the release must exist
 for the URL inside it to resolve. Do both before telling anyone. The cask push
-is the third: it is a separate repository, it is what `brew install` reads, and
+is the third: it is a separate repository, it is what \`brew install\` reads, and
 it is the one that was forgotten for four releases running.
 
 Then check the feed actually rebuilt. A push does not reliably queue a Pages
