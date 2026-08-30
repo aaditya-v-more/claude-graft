@@ -15,6 +15,15 @@ APP="$ROOT/build.noindex/Claude Graft.app"
 VERSION="$(tr -d '[:space:]' < "$ROOT/VERSION")"
 TAG="v$VERSION"
 
+# The first version whose upgrade has to be agreed to rather than installed
+# while nobody is looking, because it rearranges chats on disk in a way that
+# cannot be undone. Sparkle prompts anyone below this and updates anyone at or
+# above it silently, so it is a floor rather than a mark on one release: every
+# entry from here on carries it. Drop it from a later 1.1.x and that release
+# installs itself on a 1.0.x machine, skipping the very question 1.1.0 exists
+# to ask — the same person, the same merge, no dialog.
+CONFIRM_BELOW="1.1.0"
+
 echo "Claude Graft $VERSION"
 
 # Releasing the same version twice leaves two different binaries answering to
@@ -83,6 +92,19 @@ ZIP="$DIST/sparkle/ClaudeGraft-$VERSION.zip"
 ditto -c -k --keepParent "$APP" "$ZIP"
 echo "packaged $ZIP"
 
+# generate_appcast reads release notes from a file named after the archive, and
+# embeds them when they carry no DOCTYPE or body tags. An update that stops to
+# ask has to have something to say in the dialog it puts up, so the release the
+# floor is set at must bring its own note; every other release may.
+NOTES="$ROOT/docs/release-notes/$VERSION.html"
+if [ -f "$NOTES" ]; then
+    cp "$NOTES" "$DIST/sparkle/ClaudeGraft-$VERSION.html"
+    echo "release notes from docs/release-notes/$VERSION.html"
+elif [ "$VERSION" = "$CONFIRM_BELOW" ]; then
+    echo "$VERSION is the version that stops to ask, and docs/release-notes/$VERSION.html is missing." >&2
+    exit 1
+fi
+
 # The zip is for Sparkle, which unpacks it correctly. People get a disk image.
 # A zip has to be unarchived, and an unarchiver that drops the framework's
 # symlinks or extended attributes leaves a bundle whose seal no longer matches
@@ -119,9 +141,11 @@ mkdir -p "$ROOT/docs"
 # Without seeding it with the live feed, this run would rewrite the file from
 # the one new zip and every earlier version would vanish along with its URL.
 BEFORE=0
+ASKED_BEFORE=0
 if [ -f "$ROOT/docs/appcast.xml" ]; then
     cp "$ROOT/docs/appcast.xml" "$DIST/sparkle/appcast.xml"
     BEFORE="$(grep -c "<item>" "$ROOT/docs/appcast.xml" || true)"
+    ASKED_BEFORE="$(grep -c "sparkle:minimumAutoupdateVersion" "$ROOT/docs/appcast.xml" || true)"
 fi
 
 # --maximum-versions 0 keeps every entry. The default prunes to a handful per
@@ -142,6 +166,27 @@ fi
 AFTER="$(grep -c "<item>" "$ROOT/docs/appcast.xml" || true)"
 [ "$AFTER" -eq "$((BEFORE + 1))" ] \
     || { echo "the appcast should have gone $BEFORE -> $((BEFORE + 1)), went $BEFORE -> $AFTER." >&2; exit 1; }
+
+# generate_appcast has no option for the floor, so it goes in afterwards. Safe
+# to write by hand because nothing here signs the appcast itself — the
+# signatures in it are over the archives, and adding an element beside them
+# leaves every one of those untouched.
+awk -v v="$VERSION" -v floor="$CONFIRM_BELOW" '
+    { print }
+    $0 ~ "<sparkle:shortVersionString>" v "</sparkle:shortVersionString>" {
+        print "            <sparkle:minimumAutoupdateVersion>" floor "</sparkle:minimumAutoupdateVersion>"
+    }
+' "$ROOT/docs/appcast.xml" > "$ROOT/docs/appcast.xml.new"
+mv "$ROOT/docs/appcast.xml.new" "$ROOT/docs/appcast.xml"
+
+# One more than before, counted the same way the items are and for the same
+# reason. This catches the floor failing to go into the new entry, and it
+# catches generate_appcast dropping it from an older one on a later run — an
+# entry that lost it is an entry that installs itself on a 1.0.x machine
+# without asking, which is silent and would be found by nobody.
+ASKED_AFTER="$(grep -c "sparkle:minimumAutoupdateVersion" "$ROOT/docs/appcast.xml" || true)"
+[ "$ASKED_AFTER" -eq "$((ASKED_BEFORE + 1))" ] \
+    || { echo "entries asking before they install should have gone $ASKED_BEFORE -> $((ASKED_BEFORE + 1)), went $ASKED_BEFORE -> $ASKED_AFTER." >&2; exit 1; }
 
 # generate_appcast drops the signature silently when the key it finds does not
 # match SUPublicEDKey, and an unsigned enclosure is one every client refuses.

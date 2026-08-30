@@ -447,6 +447,42 @@ starts, which happened twice before it was understood. `willInstallUpdateOnQuit`
 also calls the immediate handler: Sparkle would otherwise wait for a quit that a
 menu bar app may not see for weeks.
 
+**One update asks, and the asking lives in the feed rather than the code.**
+Every release installs itself without a word, which is the rule above and still
+the rule. 1.1.0 is the exception: it merges two chat histories into one and that
+cannot be undone, so it is not a thing to do to somebody who was not consulted.
+`sparkle:minimumAutoupdateVersion` is what says so — Sparkle prompts anybody
+below that version and installs silently for anybody at or above it, and its own
+header is plain about the first half: "if the requirement is not met, the user is
+always prompted to install the update."
+
+Which makes it a floor and not a mark on one release. Set it to 1.1.0 on every
+entry from 1.1.0 onwards and the behaviour is exactly "ask once, quiet
+afterwards": a machine already on 1.1.0 meets the requirement and updates
+silently for ever, while one still on 1.0.x is asked until it crosses. Leave it
+off a later 1.1.x and that release installs itself on a 1.0.x machine and skips
+the question 1.1.0 exists to ask — same person, same merge, no dialog.
+`release.sh` counts the entries carrying it the way it counts the items, one
+more each run, which catches both the new entry missing it and
+`generate_appcast` dropping it from an old one on a later pass. It is written in
+after generation because there is no option for it, which is safe only because
+nothing signs the appcast itself: the signatures in it are over the archives.
+
+No 1.0.x release was needed to arm any of this. The floor is read by the Sparkle
+already inside every build that has ever shipped, so a 1.0.0 machine that has
+never been opened since honours it too. What a 1.0.x release could have bought is
+the dialog arriving in front rather than behind — for a menu bar app Sparkle
+shows a scheduled update alert immediately but, in its own words, "behind other
+running applications" — and that is a delay, not a silent merge, which is the
+half that matters.
+
+The release the floor names has to bring a note, and `release.sh` refuses to
+build it otherwise: it is the one release that puts a dialog in front of
+somebody, and a dialog with nothing in it is worse than no dialog. Notes live in
+`docs/release-notes/<version>.html` and are copied beside the archive, which is
+where `generate_appcast` looks for them; carrying no DOCTYPE or body tags is what
+makes them embed rather than become a link to somewhere that has to stay up.
+
 **The feed keeps every release it has ever carried.** `generate_appcast` prunes
 to a handful of entries per branch point unless told otherwise, so each release
 silently dropped the oldest — 1.0.0 and 1.0.1 had already gone before anyone
