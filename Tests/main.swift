@@ -74,6 +74,18 @@ func isIntact(_ foreign: URL) -> Bool {
     return (try? String(contentsOf: binary, encoding: .utf8)) == "not ours"
 }
 
+/// The shape every released version left on disk when it shared chats: the
+/// profile's own set moved to the hidden sibling, and a link where they were.
+/// Built by hand because nothing in this app makes one any more — which is the
+/// point of the tests that use it, since a shortcut out in the world still has
+/// one and has to be able to migrate off it.
+func linkTheOldWay(_ folder: URL, to target: URL) {
+    let stash = folder.deletingLastPathComponent()
+        .appending(path: "." + folder.lastPathComponent + Graft.stashSuffix)
+    if Graft.exists(folder) { try! fm.moveItem(at: folder, to: stash) }
+    try! fm.createSymbolicLink(at: folder, withDestinationURL: target)
+}
+
 func chatsVisible(to profile: URL) -> [String] {
     let store = profile.appending(path: "claude-code-sessions")
     guard let accounts = try? fm.contentsOfDirectory(atPath: store.path) else { return [] }
@@ -229,7 +241,10 @@ do {
     // Different account: the link has to go one level deeper.
     let work = makeProfile("Claude-Work", account: "BBBB", org: "ORG-B", chats: ["mine"])
     Graft.graft(from: main, into: work)
-    check(chatsVisible(to: work) == ["local_shared.json"], "it reads the source account's chats")
+    check(chatsVisible(to: work) == ["local_mine.json", "local_shared.json"],
+          "sharing a history merges the two rather than standing one in for the other")
+    check(chatsVisible(to: main) == ["local_mine.json", "local_shared.json"],
+          "and the profile lent from ends up holding both of them too")
 
     let ownFolder = work.appending(path: "claude-code-sessions/BBBB/.ORG-B.graft-own")
     check(fm.fileExists(atPath: ownFolder.appending(path: "local_mine.json").path),
@@ -248,19 +263,22 @@ do {
           "the per-organization blocklist is never linked")
 
     Graft.graft(from: main, into: work)
-    check(chatsVisible(to: work) == ["local_shared.json"], "grafting twice changes nothing")
+    check(chatsVisible(to: work) == ["local_mine.json", "local_shared.json"],
+          "grafting twice changes nothing")
 
     Graft.ungraft(work)
     check(chatsVisible(to: work) == ["local_mine.json"], "ungrafting gives back its own chats")
     check(!Graft.isSymlink(work.appending(path: "claude_desktop_config.json")),
           "and drops the links")
 
-    // Same account: sharing the whole store is enough.
+    // Same account: every organization it has is shared.
     let twin = makeProfile("Claude-Twin", account: "AAAA", org: "ORG-A")
     Graft.graft(from: main, into: twin)
-    check(Graft.isSymlink(twin.appending(path: "claude-code-sessions")),
-          "the same account shares the whole store")
-    check(chatsVisible(to: twin) == ["local_shared.json"], "and sees the same chats")
+    check(!Graft.isSymlink(twin.appending(path: "claude-code-sessions"))
+            && Graft.isDirectory(twin.appending(path: "claude-code-sessions")),
+          "the same account shares the whole store, as folders rather than a link")
+    check(chatsVisible(to: twin) == ["local_mine.json", "local_shared.json"],
+          "and sees everything that profile holds, merges it was lent included")
 
     for profile in [main, work, twin] { try? fm.removeItem(at: profile) }
 }
@@ -296,8 +314,10 @@ do {
     Graft.graft(from: main, into: work)
     Graft.ungraft(work)
 
-    check(chatsVisible(to: work) == ["local_mine.json", "local_written_since.json"],
-          "a chat written after the graft survives the next one, and so does one from before it")
+    check(chatsVisible(to: work) == ["local_mine.json"],
+          "what the profile owned before the graft is what it gets back")
+    check(Graft.exists(main.appending(path: "claude-code-sessions/AAAA/ORG-A/local_written_since.json")),
+          "and a chat it wrote while borrowing is handed over rather than lost")
     check((try? String(contentsOf: settings, encoding: .utf8)) == "own settings, edited since",
           "an edit made after the graft is what comes back, not the copy it replaced")
 
@@ -318,9 +338,11 @@ do {
 
     Graft.ungraft(work)
     check(!Graft.exists(work.appending(path: "claude-code-sessions/BBBB/.ORG-B.graft-own")),
-          "ungrafting folds the stash back in rather than abandoning it beside the link")
-    check(chatsVisible(to: work) == ["local_mine.json", "local_written_since.json"],
-          "so the profile is handed both halves of what it owns")
+          "ungrafting folds the stash back in rather than abandoning it beside the copies")
+    check(chatsVisible(to: work) == ["local_mine.json"],
+          "so the profile is handed back what it owned")
+    check(Graft.exists(main.appending(path: "claude-code-sessions/AAAA/ORG-A/local_written_since.json")),
+          "and what it wrote while borrowing went to the profile it borrowed from")
 
     for profile in [main, work] { try? fm.removeItem(at: profile) }
 }
@@ -349,7 +371,7 @@ do {
     let fresh = support.appending(path: "Claude-Fresh")
     try! fm.createDirectory(at: fresh, withIntermediateDirectories: true)
     Graft.graft(from: main, into: fresh)
-    check(Graft.isSymlink(fresh.appending(path: "claude-code-sessions")),
+    check(chatsVisible(to: fresh) == ["local_shared.json"],
           "a profile with no config yet still shares the whole store")
 
     for profile in [main, work, fresh] { try? fm.removeItem(at: profile) }
@@ -2092,6 +2114,770 @@ do {
     try! whole.write(to: halfRecord, options: .atomic)
     check(pass().isEmpty && archived(halfRecord),
           "and once it reads again it is the archived record it always was")
+}
+
+section("Mirrored chat folders")
+
+do {
+    // A record on one side and not the other is either one just written or one
+    // just deleted, and on disk those are the same thing. What tells them
+    // apart is whether the last pass saw it on both — so the baseline is the
+    // whole rule, and getting it backwards either loses a new chat or brings a
+    // deleted one back.
+    check(Graft.digest(Data("a chat record".utf8)) == Graft.digest(Data("a chat record".utf8)),
+          "the same bytes digest the same way twice")
+    check(Graft.digest(Data("a chat record".utf8)) != Graft.digest(Data("a chat recorD".utf8)),
+          "and one byte apart digests differently")
+
+    check(Graft.mirrorDecision(one: "x", other: "x", baseline: "x") == .nothing,
+          "two folders holding the same record have nothing to do")
+    check(Graft.mirrorDecision(one: nil, other: nil, baseline: "x") == .nothing,
+          "and a record gone from both is gone")
+
+    check(Graft.mirrorDecision(one: "x", other: nil, baseline: nil) == .copyToOther,
+          "a record the last pass never saw is a new one, and it crosses over")
+    check(Graft.mirrorDecision(one: nil, other: "x", baseline: nil) == .copyToOne,
+          "whichever side wrote it")
+
+    check(Graft.mirrorDecision(one: "x", other: nil, baseline: "x") == .removeFromOne,
+          "a record both sides held, now gone from one, was deleted rather than never written")
+    check(Graft.mirrorDecision(one: nil, other: "x", baseline: "x") == .removeFromOther,
+          "and the deletion carries across rather than the record coming back")
+
+    check(Graft.mirrorDecision(one: "y", other: "x", baseline: "x") == .copyToOther,
+          "the side that moved away from what both held is the side that changed")
+    check(Graft.mirrorDecision(one: "x", other: "y", baseline: "x") == .copyToOne,
+          "read either way round")
+
+    check(Graft.mirrorDecision(one: "y", other: "z", baseline: "x") == .conflict,
+          "two sides that both moved is not a question this can answer")
+    check(Graft.mirrorDecision(one: "y", other: "z", baseline: nil) == .conflict,
+          "nor is one with nothing remembered behind it")
+    check(Graft.mirrorDecision(one: "y", other: nil, baseline: "x") == .conflict,
+          "and a record edited on one side while the other deleted it is the same question")
+
+    // The state file loads from a version that never wrote it, claiming
+    // nothing, the way the session record state does.
+    try? fm.removeItem(at: Graft.mirrorStateFile)
+    check(Graft.loadMirrorState() == Graft.MirrorState(),
+          "with no state file yet, a pass starts remembering nothing")
+    var state = Graft.MirrorState()
+    state.pairs["a\u{0000}b"] = ["local_1.json": "beef"]
+    Graft.saveMirrorState(state)
+    check(Graft.loadMirrorState() == state,
+          "and what one pass wrote down is what the next one reads back")
+    try! Data("{}".utf8).write(to: Graft.mirrorStateFile)
+    check(Graft.loadMirrorState() == Graft.MirrorState(),
+          "a state file from before any of this existed loads as a pass with nothing remembered")
+    try? fm.removeItem(at: Graft.mirrorStateFile)
+}
+
+do {
+    // A bundle written by a version that still had the choice carries a
+    // `mirrorChats` key. Decoding ignores what it does not know, so nothing
+    // has to be rewritten for one to migrate — it just stops being asked.
+    let old = try! JSONDecoder().decode(GraftConfig.self,
+        from: Data("{\"profileDir\":\"/tmp/p\",\"sourceDir\":\"/tmp/s\",\"mirrorChats\":false}".utf8))
+    check(old.profileDir == "/tmp/p" && old.sourceDir == "/tmp/s",
+          "a shortcut written while linking was still an option reads back without complaint")
+
+    try? fm.removeItem(at: Graft.mirrorStateFile)
+    let source = makeProfile("Claude-Src", account: "SRCACC", org: "SRCORG", chats: ["one", "two"])
+    let borrower = makeProfile("Claude-Mirror", account: "OWNACC", org: "OWNORG")
+    let srcOrg = source.appending(path: "claude-code-sessions")
+        .appending(path: "SRCACC").appending(path: "SRCORG")
+    let ownOrg = borrower.appending(path: "claude-code-sessions")
+        .appending(path: "OWNACC").appending(path: "OWNORG")
+
+    // What a released version left on disk: the profile's own chats in the
+    // stash and a link where they used to be. Built by hand because nothing
+    // in this app makes one any more, which is the point of the test.
+    let ownStash = ownOrg.deletingLastPathComponent().appending(path: ".OWNORG.graft-own")
+    try! fm.createDirectory(at: ownStash, withIntermediateDirectories: true)
+    try! "{}".write(to: ownStash.appending(path: "local_mine.json"),
+                    atomically: true, encoding: .utf8)
+    try! fm.removeItem(at: ownOrg)
+    try! fm.createSymbolicLink(at: ownOrg, withDestinationURL: srcOrg)
+    check(Graft.isSymlink(ownOrg), "the profile starts out with a link where its chats go")
+
+    Graft.apply(GraftConfig(profileDir: borrower.path, sourceDir: source.path))
+    check(!Graft.isSymlink(ownOrg) && Graft.isDirectory(ownOrg),
+          "converting takes the link away and leaves a folder the profile can write into")
+    check(Graft.exists(ownOrg.appending(path: "local_one.json"))
+          && Graft.exists(ownOrg.appending(path: "local_two.json")),
+          "and the first pass fills it with the chats it was borrowing")
+    check(Graft.exists(srcOrg.appending(path: "local_one.json")),
+          "the source keeps its own, since a copy was made rather than a move")
+
+    // The whole point: the borrowing profile writes, and the change crosses.
+    try! Data("{\"isArchived\":true}".utf8)
+        .write(to: ownOrg.appending(path: "local_one.json"))
+    Graft.mirrorChatFolders(ownOrg, srcOrg)
+    check((try? String(contentsOf: srcOrg.appending(path: "local_one.json"), encoding: .utf8))
+            == "{\"isArchived\":true}",
+          "a record the borrowing profile rewrote reaches the source")
+
+    // And the other way, which is how it sees anything new.
+    try! Data("{\"title\":\"three\"}".utf8)
+        .write(to: srcOrg.appending(path: "local_three.json"))
+    Graft.mirrorChatFolders(ownOrg, srcOrg)
+    check(Graft.exists(ownOrg.appending(path: "local_three.json")),
+          "a chat started on the source turns up in the profile borrowing from it")
+
+    // A delete is not an absence to be filled back in.
+    try! fm.removeItem(at: ownOrg.appending(path: "local_two.json"))
+    Graft.mirrorChatFolders(ownOrg, srcOrg)
+    check(!Graft.exists(srcOrg.appending(path: "local_two.json")),
+          "a chat deleted on one side is deleted on the other, not copied back")
+    Graft.mirrorChatFolders(ownOrg, srcOrg)
+    check(!Graft.exists(ownOrg.appending(path: "local_two.json")),
+          "and it stays deleted through the pass after")
+
+    // Both sides moved. The record that says it moved later is the one kept.
+    try! Data("{\"lastActivityAt\":100}".utf8).write(to: ownOrg.appending(path: "local_one.json"))
+    try! Data("{\"lastActivityAt\":200}".utf8).write(to: srcOrg.appending(path: "local_one.json"))
+    Graft.mirrorChatFolders(ownOrg, srcOrg)
+    check((try? String(contentsOf: ownOrg.appending(path: "local_one.json"), encoding: .utf8))
+            == "{\"lastActivityAt\":200}",
+          "with both sides rewritten, the record that moved more recently wins")
+
+    // Everything else in the folder is the profile's own business.
+    try! Data("{}".utf8).write(to: ownOrg.appending(path: "scheduled-tasks.json"))
+    Graft.mirrorChatFolders(ownOrg, srcOrg)
+    check(!Graft.exists(srcOrg.appending(path: "scheduled-tasks.json")),
+          "a file that is not a record or a marker is left where its profile put it")
+
+    // A folder that cannot be listed is not an empty one, and here reading it
+    // as empty would delete every record on the other side.
+    let unreadable = borrower.appending(path: "not-a-folder")
+    try! Data("{}".utf8).write(to: unreadable)
+    let before = ((try? fm.contentsOfDirectory(atPath: srcOrg.path)) ?? []).count
+    check(Graft.mirrorChatFolders(unreadable, srcOrg) == 0,
+          "a pass that could not read one side does nothing at all")
+    check(((try? fm.contentsOfDirectory(atPath: srcOrg.path)) ?? []).count == before,
+          "so the side it could read is left exactly as it was")
+}
+
+do {
+    // Archive a chat in the profile that borrowed it, then open the profile it
+    // was borrowed from. The second one is not running `apply` — it has no
+    // source of its own — so unless a pass goes looking for every pair this
+    // app knows about, the change sits there and the sidebar being built never
+    // sees it. That is the whole workflow the mirror exists for.
+    try? fm.removeItem(at: Graft.mirrorStateFile)
+    let host = makeProfile("Claude-Host", account: "HOSTACC", org: "HOSTORG", chats: ["shared"])
+    let guest = makeProfile("Claude-Guest", account: "GUESTACC", org: "GUESTORG")
+    let hostOrg = host.appending(path: "claude-code-sessions")
+        .appending(path: "HOSTACC").appending(path: "HOSTORG")
+    let guestOrg = guest.appending(path: "claude-code-sessions")
+        .appending(path: "GUESTACC").appending(path: "GUESTORG")
+
+    Graft.apply(GraftConfig(profileDir: guest.path, sourceDir: host.path))
+    check(Graft.exists(guestOrg.appending(path: "local_shared.json")),
+          "the borrowing profile starts with a copy of the chat")
+
+    // The borrowing profile archives it, the way a Claude with a real folder
+    // now can.
+    try! Data("{\"isArchived\":true}".utf8)
+        .write(to: guestOrg.appending(path: "local_shared.json"))
+
+    // And the source is opened. Nothing hands it the pair; it works it out
+    // from what earlier passes wrote down.
+    check(Graft.mirrorKnownPairs() > 0,
+          "opening the source puts every pair this app knows about back in step")
+    check((try? String(contentsOf: hostOrg.appending(path: "local_shared.json"), encoding: .utf8))
+            == "{\"isArchived\":true}",
+          "so the archive made in the borrowing profile is there when the source builds its sidebar")
+    check(Graft.mirrorKnownPairs() == 0,
+          "and a pass with nothing left to carry moves nothing")
+}
+
+do {
+    // Everything an earlier version can leave behind, converted.
+    try? fm.removeItem(at: Graft.mirrorStateFile)
+    let src = makeProfile("Claude-Legacy-Src", account: "LSRC", org: "LORG", chats: ["kept"])
+    let old = makeProfile("Claude-Legacy", account: "LOWN", org: "LOWNORG", chats: ["mine"])
+    let srcOrg = src.appending(path: "claude-code-sessions").appending(path: "LSRC").appending(path: "LORG")
+    let ownOrg = old.appending(path: "claude-code-sessions").appending(path: "LOWN").appending(path: "LOWNORG")
+    let stash = ownOrg.deletingLastPathComponent()
+        .appending(path: ".LOWNORG\(Graft.stashSuffix)")
+
+    // Grafted the old way, which stashes what the profile had.
+    linkTheOldWay(ownOrg, to: srcOrg)
+    check(Graft.isSymlink(ownOrg) && Graft.exists(stash),
+          "a released version leaves a link with the profile's own chats stashed beside it")
+
+    Graft.apply(GraftConfig(profileDir: old.path, sourceDir: src.path))
+    check(!Graft.isSymlink(ownOrg) && Graft.exists(stash),
+          "converting takes the link and leaves the stash exactly where it was")
+    check(Graft.exists(ownOrg.appending(path: "local_kept.json")),
+          "and the profile has its own copy of what it was borrowing")
+
+    // Sent back to its own chats, it stops being mirrored — the pair lives in
+    // a file every launcher reads, so left there it would go on being squared
+    // up by whichever profile opened next.
+    check(!Graft.loadMirrorState().pairs.isEmpty, "while grafted, the pair is remembered")
+    Graft.apply(GraftConfig(profileDir: old.path, sourceDir: nil))
+    check(Graft.loadMirrorState().pairs.isEmpty,
+          "going back to its own chats is the end of the mirroring, not a pair left running")
+    try! Data("{\"isArchived\":true}".utf8).write(to: srcOrg.appending(path: "local_kept.json"))
+    Graft.mirrorKnownPairs()
+    check((try? String(contentsOf: srcOrg.appending(path: "local_kept.json"), encoding: .utf8))
+            == "{\"isArchived\":true}",
+          "and nothing reaches across the two afterwards")
+
+    // A profile somebody deleted must not be built back up by a pass whose
+    // only job is keeping two sidebars in step.
+    try? fm.removeItem(at: Graft.mirrorStateFile)
+    let doomed = makeProfile("Claude-Doomed", account: "DACC", org: "DORG")
+    let doomedOrg = doomed.appending(path: "claude-code-sessions")
+        .appending(path: "DACC").appending(path: "DORG")
+    Graft.mirrorChatFolders(doomedOrg, srcOrg)
+    check(!Graft.loadMirrorState().pairs.isEmpty, "a pair mirrors while both profiles are there")
+    try! fm.removeItem(at: doomed)
+    check(Graft.mirrorChatFolders(doomedOrg, srcOrg) == 0,
+          "a pass over a profile that has been deleted carries nothing")
+    check(!Graft.exists(doomed),
+          "and does not put the deleted profile back to have somewhere to write")
+}
+
+section("Going back to its own chats")
+do {
+    // A mirrored folder is a real one full of copies, so unlike a link it
+    // cannot simply be dropped. What the profile owned before the graft, what
+    // it did during it, and what it was only ever borrowing all have to end up
+    // somewhere, and each of the three somewhere different.
+    try? fm.removeItem(at: Graft.mirrorStateFile)
+    let lender = makeProfile("Claude-Lender", account: "LEND", org: "LENDORG", chats: ["theirs"])
+    let keeper = makeProfile("Claude-Keeper", account: "KEEP", org: "KEEPORG", chats: ["ours"])
+    let lentOrg = lender.appending(path: "claude-code-sessions")
+        .appending(path: "LEND").appending(path: "LENDORG")
+    let keptOrg = keeper.appending(path: "claude-code-sessions")
+        .appending(path: "KEEP").appending(path: "KEEPORG")
+
+    Graft.apply(GraftConfig(profileDir: keeper.path, sourceDir: lender.path))
+    check(chatsVisible(to: keeper) == ["local_ours.json", "local_theirs.json"],
+          "sharing a history shows both sets of chats rather than only the borrowed one")
+    check(chatsVisible(to: lender) == ["local_ours.json", "local_theirs.json"],
+          "and the profile lent from is left holding both of them as well")
+
+    // The stash still has to hold what the profile brought, even though the
+    // same records are now in the shared set: it is the only thing that says
+    // which of the merged records were this profile's, and going back has to
+    // be exact rather than a guess at which record belonged to whom.
+    let stash = keptOrg.deletingLastPathComponent().appending(path: ".KEEPORG\(Graft.stashSuffix)")
+    check(Graft.exists(stash.appending(path: "local_ours.json")),
+          "what the profile brought to the merge is written down as well as shared")
+
+    // Now it behaves like a profile: a chat started, one archived, and one of
+    // its own archived too — which the stash holds an older copy of.
+    try? Data("{\"title\":\"during\"}".utf8).write(to: keptOrg.appending(path: "local_during.json"))
+    try? Data("{\"isArchived\":true}".utf8).write(to: keptOrg.appending(path: "local_theirs.json"))
+    try? Data("{\"isArchived\":true}".utf8).write(to: keptOrg.appending(path: "local_ours.json"))
+
+    Graft.apply(GraftConfig(profileDir: keeper.path, sourceDir: nil))
+    check(chatsVisible(to: keeper) == ["local_ours.json"],
+          "going back to its own chats gives back exactly what it started with")
+    check((try? String(contentsOf: keptOrg.appending(path: "local_ours.json"), encoding: .utf8))
+            == "{\"isArchived\":true}",
+          "and gives it back as it was left, rather than as the stash remembers it")
+    check(!Graft.exists(stash),
+          "with nothing left in it, the stash goes rather than arming the next graft")
+    check(Graft.exists(lentOrg.appending(path: "local_during.json")),
+          "a chat started while mirroring is handed over before the copies are taken out")
+    check((try? String(contentsOf: lentOrg.appending(path: "local_theirs.json"), encoding: .utf8))
+            == "{\"isArchived\":true}",
+          "and so is an archive it made, which is the whole reason for copying")
+    check(Graft.loadMirrorState().pairs.isEmpty,
+          "the pair is dropped, so nothing squares the two up afterwards")
+    check(Graft.exists(lentOrg.appending(path: "local_ours.json")),
+          "what was merged in stays with the profile it was merged into, which is the price of sharing")
+
+    // Twice over is a thing a launcher does on every run.
+    Graft.apply(GraftConfig(profileDir: keeper.path, sourceDir: nil))
+    check(chatsVisible(to: keeper) == ["local_ours.json"],
+          "and a second pass over an ungrafted profile changes nothing")
+}
+
+do {
+    // The pass that must never happen: `apply` runs on every launch, so a
+    // second one that put the borrowed chats away as though they were the
+    // profile's own would empty the sidebar and fetch it all again, for ever.
+    try? fm.removeItem(at: Graft.mirrorStateFile)
+    let src = makeProfile("Claude-Twice-Src", account: "TSRC", org: "TORG", chats: ["one"])
+    let twice = makeProfile("Claude-Twice", account: "TOWN", org: "TOWNORG", chats: ["own"])
+    let config = GraftConfig(profileDir: twice.path, sourceDir: src.path)
+    let ownOrg = twice.appending(path: "claude-code-sessions")
+        .appending(path: "TOWN").appending(path: "TOWNORG")
+    let stash = ownOrg.deletingLastPathComponent().appending(path: ".TOWNORG\(Graft.stashSuffix)")
+
+    Graft.apply(config)
+    Graft.apply(config)
+    Graft.apply(config)
+    check(chatsVisible(to: twice) == ["local_one.json", "local_own.json"],
+          "launching a mirrored shortcut again leaves the merged set where it is")
+    check(Graft.exists(stash.appending(path: "local_own.json")),
+          "the record of what the profile brought stays put rather than being folded back in")
+    check(!Graft.exists(stash.appending(path: "local_one.json")),
+          "nothing borrowed is stashed away by the pass after the first")
+
+    // The other half of that rule, and the one the stash arms: seeding the
+    // profile's own chats into the shared set runs on the first pass alone.
+    // Running it on every launch would fetch back every merged chat the person
+    // had since deleted, which is the same endless loop pointed the other way.
+    try? fm.removeItem(at: ownOrg.appending(path: "local_own.json"))
+    try? fm.removeItem(at: src.appending(path: "claude-code-sessions")
+        .appending(path: "TSRC").appending(path: "TORG")
+        .appending(path: "local_own.json"))
+    Graft.apply(config)
+    check(chatsVisible(to: twice) == ["local_one.json"],
+          "a merged chat deleted afterwards is not fetched back out of the stash")
+}
+
+do {
+    // A source somebody deleted, or a folder that could not be read. Nothing
+    // was handed over, so nothing may be taken away.
+    try? fm.removeItem(at: Graft.mirrorStateFile)
+    let gone = makeProfile("Claude-Gone", account: "GONE", org: "GONEORG", chats: ["borrowed"])
+    let orphan = makeProfile("Claude-Orphan", account: "ORPH", org: "ORPHORG")
+    Graft.apply(GraftConfig(profileDir: orphan.path, sourceDir: gone.path))
+    check(chatsVisible(to: orphan) == ["local_borrowed.json"], "the profile has its copy")
+
+    try? fm.removeItem(at: gone)
+    Graft.apply(GraftConfig(profileDir: orphan.path, sourceDir: nil))
+    check(chatsVisible(to: orphan) == ["local_borrowed.json"],
+          "with the source gone there is nowhere to hand the copies back, so they stay")
+    check(Graft.loadMirrorState().pairs.isEmpty,
+          "the pair still goes, since there is nothing left to keep in step")
+}
+
+do {
+    // Going back to its own chats is the only way off, so it has to carry
+    // everything: a record the profile wrote while it was borrowing belongs to
+    // the profile it borrowed from, and a copy taken away before that handover
+    // is a chat in nobody's sidebar.
+    try? fm.removeItem(at: Graft.mirrorStateFile)
+    let host = makeProfile("Claude-Back-Src", account: "BSRC", org: "BORG", chats: ["shared"])
+    let guest = makeProfile("Claude-Back", account: "BOWN", org: "BOWNORG", chats: ["private"])
+    let guestOrg = guest.appending(path: "claude-code-sessions")
+        .appending(path: "BOWN").appending(path: "BOWNORG")
+    let hostOrg = host.appending(path: "claude-code-sessions")
+        .appending(path: "BSRC").appending(path: "BORG")
+
+    Graft.apply(GraftConfig(profileDir: guest.path, sourceDir: host.path))
+    try? Data("{\"title\":\"late\"}".utf8).write(to: guestOrg.appending(path: "local_late.json"))
+
+    Graft.apply(GraftConfig(profileDir: guest.path, sourceDir: nil))
+    check(Graft.exists(hostOrg.appending(path: "local_late.json")),
+          "going back hands over what the profile wrote while it was borrowing")
+    check(Graft.loadMirrorState().pairs.isEmpty, "with the pair dropped on the way past")
+    check(!Graft.isSymlink(guestOrg) && Graft.isDirectory(guestOrg),
+          "and nothing anywhere puts a link back, since there is no link left to put")
+    check(chatsVisible(to: guest) == ["local_private.json"],
+          "so its own chats are what it comes back to")
+}
+
+do {
+    // Both profiles on one account. A link takes the whole store rather than
+    // one organization inside it, so that is what a mirror has to stand in
+    // for — and the folder it writes into is one nothing had made yet, which
+    // is a same-account graft that mirrored not a single file.
+    try? fm.removeItem(at: Graft.mirrorStateFile)
+    let first = makeProfile("Claude-Same-A", account: "SAME", org: "SAMEORG", chats: ["shared"])
+    let second = makeProfile("Claude-Same-B", account: "SAME", org: "SAMEORG", chats: ["alone"])
+    let secondOrg = second.appending(path: "claude-code-sessions")
+        .appending(path: "SAME").appending(path: "SAMEORG")
+    let firstOrg = first.appending(path: "claude-code-sessions")
+        .appending(path: "SAME").appending(path: "SAMEORG")
+
+    Graft.apply(GraftConfig(profileDir: second.path, sourceDir: first.path))
+    check(chatsVisible(to: second) == ["local_alone.json", "local_shared.json"],
+          "two profiles on one account merge the whole store, organization by organization")
+    check(chatsVisible(to: first) == ["local_alone.json", "local_shared.json"],
+          "and what the borrowing profile had is written down and shared rather than only put away")
+
+    try? Data("{\"isArchived\":true}".utf8).write(to: secondOrg.appending(path: "local_shared.json"))
+    Graft.mirrorKnownPairs()
+    check((try? String(contentsOf: firstOrg.appending(path: "local_shared.json"), encoding: .utf8))
+            == "{\"isArchived\":true}",
+          "an archive made on one side reaches the other")
+
+    Graft.apply(GraftConfig(profileDir: second.path, sourceDir: nil))
+    check(chatsVisible(to: second) == ["local_alone.json"],
+          "and going back to its own chats brings a whole store out of the stash")
+}
+
+do {
+    // The other side holding the name is not the other side holding the chat.
+    // A source that cannot be written to — read-only, or simply full — takes
+    // none of the last pass, and a copy dropped because a stale version of it
+    // happened to sit over there is a chat lost for a reason nobody could see.
+    try? fm.removeItem(at: Graft.mirrorStateFile)
+    let readonly = makeProfile("Claude-RO-Src", account: "ROSRC", org: "ROORG", chats: ["one", "two"])
+    let writer = makeProfile("Claude-RO", account: "ROOWN", org: "ROOWNORG")
+    let theirs = readonly.appending(path: "claude-code-sessions")
+        .appending(path: "ROSRC").appending(path: "ROORG")
+    let mine = writer.appending(path: "claude-code-sessions")
+        .appending(path: "ROOWN").appending(path: "ROOWNORG")
+    Graft.apply(GraftConfig(profileDir: writer.path, sourceDir: readonly.path))
+
+    // Archived here, and the handover cannot land.
+    try? Data("{\"isArchived\":true}".utf8).write(to: mine.appending(path: "local_one.json"))
+    for store in Graft.chatStores {
+        let dir = readonly.appending(path: store).appending(path: "ROSRC").appending(path: "ROORG")
+        try? fm.setAttributes([.posixPermissions: 0o555], ofItemAtPath: dir.path)
+    }
+    Graft.apply(GraftConfig(profileDir: writer.path, sourceDir: nil))
+    check((try? String(contentsOf: mine.appending(path: "local_one.json"), encoding: .utf8))
+            == "{\"isArchived\":true}",
+          "a record the other side could not be given stays where the profile wrote it")
+    check((try? String(contentsOf: theirs.appending(path: "local_one.json"), encoding: .utf8)) == "{}",
+          "and the stale copy over there is left as it was rather than counted as a handover")
+    check(!Graft.exists(mine.appending(path: "local_two.json")),
+          "while a record the other side really does hold, byte for byte, is taken out")
+    for store in Graft.chatStores {
+        let dir = readonly.appending(path: store).appending(path: "ROSRC").appending(path: "ROORG")
+        try? fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: dir.path)
+    }
+}
+
+do {
+    // Two shortcuts on one account, grafted by a released version, which links
+    // the whole store rather than one organization inside it. Converting has
+    // to stand in for that link and going back has to undo it, and the store
+    // is a level above everything the ungraft walk was looking at.
+    try? fm.removeItem(at: Graft.mirrorStateFile)
+    let elder = makeProfile("Claude-One-A", account: "ONE", org: "ONEORG", chats: ["shared"])
+    let junior = makeProfile("Claude-One-B", account: "ONE", org: "ONEORG", chats: ["alone"])
+    let store = junior.appending(path: "claude-code-sessions")
+    let stash = junior.appending(path: ".claude-code-sessions\(Graft.stashSuffix)")
+
+    linkTheOldWay(store, to: elder.appending(path: "claude-code-sessions"))
+    check(Graft.isSymlink(store) && Graft.exists(stash),
+          "a released version on one account links the whole store and stashes the whole store")
+
+    Graft.apply(GraftConfig(profileDir: junior.path, sourceDir: elder.path))
+    check(!Graft.isSymlink(store) && chatsVisible(to: junior) == ["local_alone.json", "local_shared.json"],
+          "converting takes that link too, and merges the stashed store back in with the source's")
+    check(Graft.exists(stash), "with the profile's own store still put away beside it")
+
+    Graft.apply(GraftConfig(profileDir: junior.path, sourceDir: nil))
+    check(chatsVisible(to: junior) == ["local_alone.json"],
+          "and going back gives it the store it had before any of this")
+}
+
+do {
+    // The source deleted out from under a profile that was copying from it.
+    // The copies are all that is left of those chats, so they stay: whatever
+    // else going back to its own chats means, it does not mean being the
+    // second thing to delete them.
+    try? fm.removeItem(at: Graft.mirrorStateFile)
+    let doomed = makeProfile("Claude-Vanish-Src", account: "VANSRC", org: "VANORG", chats: ["theirs"])
+    let survivor = makeProfile("Claude-Vanish", account: "VANOWN", org: "VANOWNORG", chats: ["ours"])
+    Graft.apply(GraftConfig(profileDir: survivor.path, sourceDir: doomed.path))
+    try! Graft.deleteProfile(doomed)
+    check(Graft.loadMirrorState().pairs.isEmpty,
+          "deleting the source ends the pair from its own side")
+
+    Graft.apply(GraftConfig(profileDir: survivor.path, sourceDir: nil))
+    check(chatsVisible(to: survivor).sorted() == ["local_ours.json", "local_theirs.json"],
+          "and the profile keeps both what it owned and what it copied, having nowhere to hand it back")
+}
+
+do {
+    // Deleting the shortcut but keeping the profile. Nothing runs its launcher
+    // again, so nothing is left to undo the mirroring for it, and a pair that
+    // outlives its shortcut goes on being squared up by whichever profile
+    // opens next — for ever, and without anything on screen saying so.
+    try? fm.removeItem(at: Graft.mirrorStateFile)
+    let src = makeProfile("Claude-Bye-Src", account: "BYSRC", org: "BYORG", chats: ["one"])
+    _ = makeProfile("Claude-Bye", account: "BYOWN", org: "BYOWNORG")
+    let shortcut = Shortcut(name: "Bye", folder: "Claude-Bye", source: .own)
+    _ = try! Installer.install(shortcut, sourceDir: src)
+    check(!Graft.loadMirrorState().pairs.isEmpty, "an installed mirrored shortcut leaves a pair")
+
+    let store = ShortcutStore()
+    store.shortcuts = [shortcut]
+    store.delete(shortcut.id)
+    check(Graft.loadMirrorState().pairs.isEmpty,
+          "deleting the shortcut stops the two folders being squared up")
+    check(chatsVisible(to: support.appending(path: "Claude-Bye")) == ["local_one.json"],
+          "and the chats it had are left exactly where they are, since the folder was kept")
+}
+
+do {
+    section("Keeping a bundle in step with the list")
+
+    // What a shortcut does is written down twice, and the bundle is the copy
+    // that runs: the Dock, Finder and Spotlight start the binary inside it and
+    // ask Graft nothing. On this machine the two disagreed — the list said a
+    // profile was back on its own chats while the bundle still named a source
+    // — so opening it from the Dock grafted it again and put every one of the
+    // profile's own chats in the stash a first mirror pass fills.
+    try? fm.removeItem(at: Graft.mirrorStateFile)
+    let src = makeProfile("Claude-Saved-Src", account: "VSRC", org: "VORG", chats: ["one"])
+    let profile = makeProfile("Claude-Saved", account: "VOWN", org: "VOWNORG")
+    let shortcut = Shortcut(name: "Saved", folder: "Claude-Saved", source: .own)
+    let bundle = try! Installer.install(shortcut, sourceDir: src)
+    let configFile = bundle.appending(path: "Contents/Resources/graft.json")
+
+    let written = try! JSONDecoder().decode(GraftConfig.self,
+                                            from: Data(contentsOf: configFile))
+    check(written.sourceDir == src.path, "an installed shortcut names its source in its bundle")
+    check(chatsVisible(to: profile) == ["local_one.json"],
+          "and the profile it describes has a copy of the source's chats")
+
+    // The disagreement, made by hand the way a direct edit to the list makes
+    // it: the bundle still borrowing, the list saying it stopped.
+    check(!Installer.refreshConfig(for: shortcut, sourceDir: src),
+          "a bundle that already agrees with the list is left alone")
+    check(Installer.refreshConfig(for: shortcut, sourceDir: nil),
+          "one that disagrees is brought back into line")
+
+    let after = try! JSONDecoder().decode(GraftConfig.self,
+                                          from: Data(contentsOf: configFile))
+    check(after.sourceDir == nil,
+          "so a shortcut put back on its own chats stops borrowing from the Dock too")
+    check(after.profileDir == shortcut.profileDir.path,
+          "and the profile it opens is untouched")
+
+    // A bundle can fall out of step at any version, and it was the current one
+    // that did, so this cannot be gated on the version the way the launcher is.
+    try! Data("not json".utf8).write(to: configFile)
+    check(Installer.refreshConfig(for: shortcut, sourceDir: nil),
+          "a graft.json that will not parse is rewritten rather than trusted")
+    Installer.uninstall(shortcut)
+}
+
+do {
+    // Deleting the profile is the other way out of a pair: nothing is left to
+    // settle, and a pair naming a folder that is gone would go on being tried
+    // by every launcher that ran.
+    try? fm.removeItem(at: Graft.mirrorStateFile)
+    let src = makeProfile("Claude-Doom-Src", account: "DSRC", org: "DSORG", chats: ["one"])
+    let doomed = makeProfile("Claude-Doom", account: "DOWN", org: "DOWNORG")
+    Graft.apply(GraftConfig(profileDir: doomed.path, sourceDir: src.path))
+    check(!Graft.loadMirrorState().pairs.isEmpty, "the pair is remembered while the profile is there")
+    try! Graft.deleteProfile(doomed)
+    check(Graft.loadMirrorState().pairs.isEmpty, "deleting the profile takes its pairs with it")
+}
+
+// MARK: - A folder this app emptied
+
+section("A folder this app emptied")
+
+do {
+    // The loss this section exists for. A mirror's first pass moves the
+    // profile's own chats to the hidden sibling and leaves a real, readable,
+    // empty folder in their place, and nothing downstream could tell that apart
+    // from a person clearing their sidebar. Two things acted on it at once: the
+    // pass that keeps two folders in step deleted every record from the profile
+    // the chats had been borrowed from, and the sweep withdrew the lot for good.
+    try? fm.removeItem(at: Graft.mirrorStateFile)
+    let one = support.appending(path: "Emptied-One")
+    let other = support.appending(path: "Emptied-Other")
+    for dir in [one, other] {
+        try? fm.removeItem(at: dir)
+        try! fm.createDirectory(at: dir, withIntermediateDirectories: true)
+    }
+    for name in ["local_a.json", "local_b.json", "local_c.json"] {
+        try! "chat \(name)".write(to: other.appending(path: name), atomically: true, encoding: .utf8)
+    }
+
+    Graft.mirrorChatFolders(one, other)
+    check(Graft.exists(one.appending(path: "local_b.json")),
+          "a first pass gives the empty side the records the other holds")
+    check(Graft.loadMirrorState().pairs[Graft.pairKey(one, other)]?.count == 3,
+          "and writes down what the two of them agreed on")
+
+    // The stash, as `openForMirror` performs it: everything out at once, a real
+    // empty folder left standing in its place.
+    for name in ["local_a.json", "local_b.json", "local_c.json"] {
+        try! fm.removeItem(at: one.appending(path: name))
+    }
+    Graft.mirrorChatFolders(one, other)
+    check(Graft.exists(other.appending(path: "local_a.json"))
+          && Graft.exists(other.appending(path: "local_b.json"))
+          && Graft.exists(other.appending(path: "local_c.json")),
+          "a side emptied all at once is a folder that was moved, not a sidebar someone cleared")
+    check(Graft.exists(one.appending(path: "local_a.json")),
+          "so the emptied side is filled again rather than the full one emptied")
+
+    // And the guard must not swallow the deletions the pass was written for.
+    // Taken with `try?`, since a broken guard leaves nothing here to remove and
+    // the checks below are how that should be reported, not a trap that takes
+    // the rest of the suite down with it.
+    try? fm.removeItem(at: one.appending(path: "local_b.json"))
+    Graft.mirrorChatFolders(one, other)
+    check(!Graft.exists(other.appending(path: "local_b.json")),
+          "one chat deleted out of three still carries across")
+    check(Graft.exists(other.appending(path: "local_a.json"))
+          && Graft.exists(other.appending(path: "local_c.json")),
+          "and takes none of the others with it")
+
+    for dir in [one, other] { try? fm.removeItem(at: dir) }
+    try? fm.removeItem(at: Graft.mirrorStateFile)
+}
+
+do {
+    // Where a profile's chats live is `<account>/<org>`, and signing in again
+    // can move both. The pair an earlier pass wrote down then names a folder
+    // nobody writes to, which is a folder that looks emptied, which is the
+    // deletion above arriving by another road.
+    try? fm.removeItem(at: Graft.mirrorStateFile)
+    let store = support.appending(path: "Claude-Moved/claude-code-sessions")
+    let was = store.appending(path: "OLD-ACCOUNT/OLD-ORG")
+    let now = store.appending(path: "NEW-ACCOUNT/NEW-ORG")
+    let theirs = support.appending(path: "Claude-Moved-Src/claude-code-sessions/S/S-ORG")
+    for dir in [was, now, theirs] {
+        try! fm.createDirectory(at: dir, withIntermediateDirectories: true)
+    }
+    var state = Graft.MirrorState()
+    state.pairs[Graft.pairKey(was, theirs)] = ["local_1.json": "beef"]
+    state.pairs[Graft.pairKey(now, theirs)] = ["local_2.json": "cafe"]
+    Graft.saveMirrorState(state)
+
+    Graft.forgetStalePairs(under: store, keeping: now)
+    let left = Graft.loadMirrorState().pairs
+    check(left[Graft.pairKey(now, theirs)] != nil,
+          "the pair for the folder the profile actually writes to is left alone")
+    check(left[Graft.pairKey(was, theirs)] == nil,
+          "and the one naming where its chats used to live is dropped before it can be squared up")
+
+    try? fm.removeItem(at: support.appending(path: "Claude-Moved"))
+    try? fm.removeItem(at: support.appending(path: "Claude-Moved-Src"))
+    try? fm.removeItem(at: Graft.mirrorStateFile)
+}
+
+do {
+    // The other half of the same emptying, and the half that made it permanent.
+    // The store is real, readable, and holds nothing, so a sweep read every
+    // record remembered there as a chat deleted by hand. `mayFileRecords` has
+    // asked about the stash on the way in all along; withdrawing is forever, so
+    // it has to be asked on the way out too.
+    let profile = support.appending(path: "Claude-Emptied")
+    let store = profile.appending(path: "claude-code-sessions/EEEE/ORG-E")
+    try? fm.removeItem(at: profile)
+    try! fm.createDirectory(at: store, withIntermediateDirectories: true)
+    try! fm.createDirectory(at: store.deletingLastPathComponent().appending(path: ".ORG-E.graft-own"),
+                            withIntermediateDirectories: true)
+
+    // A pass has already found it missing once, so the next one withdraws it.
+    Graft.saveSessionRecordState(Graft.SessionRecordState(records: ["e-1": store.path],
+                                                          vanished: ["e-1"]))
+    Graft.fileMissingSessionRecords(filingInto: [profile], now: Date())
+    check(!Graft.loadSessionRecordState().withdrawn.contains("e-1"),
+          "a store with a stash beside it is one this app emptied, so nothing in it is withdrawn")
+    check(Graft.loadSessionRecordState().records["e-1"] == store.path,
+          "and where the record was is still remembered, for when the stash comes back")
+
+    // With the stash gone the folder is the profile's own again, and an empty
+    // one really is a sidebar someone cleared.
+    try! fm.removeItem(at: store.deletingLastPathComponent().appending(path: ".ORG-E.graft-own"))
+    Graft.saveSessionRecordState(Graft.SessionRecordState(records: ["e-1": store.path],
+                                                          vanished: ["e-1"]))
+    Graft.fileMissingSessionRecords(filingInto: [profile], now: Date())
+    check(Graft.loadSessionRecordState().withdrawn.contains("e-1"),
+          "with no stash beside it, a record twice missing from a store that was read is one somebody deleted")
+
+    try? fm.removeItem(at: profile)
+}
+
+// MARK: - What the state report says
+
+do {
+    section("Reading the state of the stores")
+
+    let login = support.appending(path: "claude.json")
+    Graft.claudeConfigFileOverride = login
+    defer { Graft.claudeConfigFileOverride = nil }
+
+    // The command line keeps one login for the whole machine, and it is the
+    // reason a chat typed into one profile turns up in another's sidebar.
+    // Every report leads with it because every report is read by somebody who
+    // has just watched that happen and concluded the profiles are syncing.
+    let owner = "AAAAAAAA-0000-0000-0000-000000000001"
+    let borrower = "BBBBBBBB-0000-0000-0000-000000000002"
+    let org = "CCCCCCCC-0000-0000-0000-000000000003"
+    try! JSONSerialization.data(withJSONObject: [
+        "oauthAccount": ["accountUuid": owner, "organizationUuid": org],
+    ]).write(to: login)
+
+    check(Graft.commandLineLogin()?.account == owner,
+          "the account every session on this machine is stamped with is read off the command line")
+
+    let held = makeProfile("Report-Owner", account: owner, org: org, chats: ["r-1"])
+    let other = makeProfile("Report-Borrower", account: borrower, org: org, chats: ["r-2"])
+
+    let text = Graft.stateReportText(checkingRunning: false)
+    check(text.contains("held by Report-Owner"),
+          "and the report says which profile is holding it")
+    check(text.contains("Report-Borrower is signed into BBBBBBBB"),
+          "a profile signed into something else is named")
+    check(text.contains("not two profiles syncing"),
+          "and the report says outright that one shared login is not two profiles syncing")
+
+    // The half-finished ungraft: a stash still holding what the profile owns
+    // beside a folder holding almost nothing. Nothing was destroyed and
+    // nothing looks wrong from inside the app, but the sidebar is short.
+    let store = other.appending(path: "claude-code-sessions")
+        .appending(path: borrower).appending(path: org)
+    let stash = store.deletingLastPathComponent().appending(path: ".\(org).graft-own")
+    try! fm.createDirectory(at: stash, withIntermediateDirectories: true)
+    for chat in ["r-3", "r-4", "r-5"] {
+        try! "{}".write(to: stash.appending(path: "local_\(chat).json"),
+                        atomically: true, encoding: .utf8)
+    }
+
+    let short = Graft.stateReportText(checkingRunning: false)
+    check(short.contains("3 stashed beside it"),
+          "a stash beside a folder is counted rather than passed over")
+    check(short.contains("the sidebar is short by 3"),
+          "and a stash holding more than the folder reads as a graft undone without handing them back")
+
+    // A device is a profile, so chats made under a previous one are shown as
+    // coming from somewhere else however plainly they belong to the account.
+    try! Data("QUFBQS1CQkJC".utf8).write(to: other.appending(path: "ant-did"))
+    check(Graft.deviceIdentifier(of: other) == "AAAA-BBBB",
+          "the device a profile registered as is read back from its own file")
+    check(Graft.deviceIdentifier(of: held) == nil,
+          "and a profile that has never registered one has none rather than a guess")
+
+    try? fm.removeItem(at: held)
+    try? fm.removeItem(at: other)
+    try? fm.removeItem(at: login)
+}
+
+// MARK: - The log itself
+
+do {
+    section("Writing down what a pass did")
+
+    try? fm.removeItem(at: Diagnostics.file)
+    Diagnostics.who = "suite"
+    Diagnostics.note("first", ["folder": support, "count": 2])
+    Diagnostics.note("second", ["ok": true])
+
+    let lines = ((try? String(contentsOf: Diagnostics.file, encoding: .utf8)) ?? "")
+        .split(separator: "\n")
+    check(lines.count == 2, "one line per event, so a log half-written by a killed pass still reads")
+
+    let first = (try? JSONSerialization.jsonObject(with: Data(lines[0].utf8))) as? [String: Any]
+    check(first?["event"] as? String == "first", "each line names its event")
+    check(first?["who"] as? String == "suite",
+          "and which process wrote it, since a launcher and the app run the same passes")
+    check(first?["folder"] as? String == support.path,
+          "a URL is written as its path rather than costing the whole line")
+
+    // A field JSONSerialization refuses would otherwise take the event with
+    // it, and the events worth having are the ones written mid-incident.
+    Diagnostics.note("third", ["when": Date(), "what": URL(fileURLWithPath: "/tmp/x")])
+    let all = ((try? String(contentsOf: Diagnostics.file, encoding: .utf8)) ?? "")
+        .split(separator: "\n")
+    check(all.count == 3, "an event carrying something unserialisable is still written")
+
+    try? fm.removeItem(at: Diagnostics.file)
+    Diagnostics.who = ProcessInfo.processInfo.processName
 }
 
 print("\n\(checks - failures)/\(checks) checks passed")

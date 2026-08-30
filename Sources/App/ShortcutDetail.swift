@@ -84,6 +84,12 @@ struct ShortcutDetail: View {
                         Text(store.label(for: source)).tag(source)
                     }
                 }
+                if shortcut.source != .own {
+                    Text(mergeNote)
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             } header: {
                 SectionHeader(title: "Chats", info: sourceExplanation)
             }
@@ -173,11 +179,35 @@ struct ShortcutDetail: View {
         default:
             let name = store.label(for: shortcut.source)
             return """
-                Opens \(name)'s Claude Code chats, connectors, extensions and window \
-                state. Logins stay separate, so this shortcut can sign into a \
-                different account.
+                Merges this profile's Claude Code chats with \(name)'s, and shares \
+                its connectors, extensions and window state. Logins stay separate, \
+                so this shortcut can sign into a different account.
                 """
         }
+    }
+
+    /// Named rather than described, because the consequence worth reading twice
+    /// is the one about the other profile, and "the other profile" is not what
+    /// anybody calls it.
+    private var mergeNote: String {
+        let name = store.label(for: shortcut.source)
+        return """
+            The two histories are merged rather than swapped. This profile keeps \
+            the chats it already had and gains \(name)'s, and both sidebars end up \
+            showing the combined set. Graft carries changes both ways each time \
+            either Claude is opened, which is what lets this profile archive, \
+            rename and delete them at all.
+
+            Sharing goes both ways, so this profile's existing chats are copied \
+            into \(name) as well. Switching back to its own chats returns this \
+            profile to exactly what it had, but the copies already in \(name) stay \
+            there — merging a history is not something Graft can take back.
+
+            Only the small record files are copied; the messages themselves \
+            already live in ~/.claude and are shared either way. Archive the same \
+            conversation differently in both between two openings and the one \
+            touched last wins.
+            """
     }
 
     private var plan: UsageMonitor.Entry? { usage.entry(for: shortcut.profileDir) }

@@ -11,6 +11,7 @@ mkdir -p "$BUILD"
 swiftc -swift-version 5 \
     -target "$(uname -m)-apple-macos${MACOS_DEPLOYMENT_TARGET:-13.0}" \
     "$ROOT/Sources/Shared/GraftCore.swift" \
+    "$ROOT/Sources/Shared/Diagnostics.swift" \
     "$ROOT/Sources/App/Model.swift" \
     "$ROOT/Sources/App/ChatConflict.swift" \
     "$ROOT/Sources/App/Installer.swift" \
@@ -27,6 +28,7 @@ swiftc -swift-version 5 \
 swiftc -swift-version 5 \
     -target "$(uname -m)-apple-macos${MACOS_DEPLOYMENT_TARGET:-13.0}" \
     "$ROOT/Sources/Shared/GraftCore.swift" \
+    "$ROOT/Sources/Shared/Diagnostics.swift" \
     "$ROOT/Sources/Launcher/main.swift" \
     -o "$BUILD/graft-launch"
 

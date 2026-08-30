@@ -99,18 +99,27 @@ above — not two accounts sharing chats, but the very same files being written
 twice over. If you've closed the window and left it in the menu bar, opening it
 builds the window back, the way clicking a Dock icon does.
 
-Borrowed chats can be read from the profile that borrowed them, but not changed.
-Archive one of the source account's conversations from a grafted Claude and it
-leaves that window's sidebar and comes back on the next launch: Claude Desktop
-writes a conversation's record only for the account it is signed into, so the
-archive is never saved anywhere. Archive it from the Claude that owns the
-account and it sticks everywhere, that profile included.
+A profile that borrows chats gets its own copy of them rather than a link to
+them. Claude Desktop will not write a conversation's record into a folder that
+resolves outside its own profile, and a link to another profile's chat store is
+exactly such a folder — so through a link a borrowed conversation can be read
+and never changed. Archiving one takes it out of that window's sidebar and
+saves nothing anywhere, so it is back on the next launch. Renaming and starring
+go through the same write.
 
-Which account owns a conversation is not decided by the window you start it in.
-Claude Code keeps one login for the whole machine, and whichever account that is
-gets stamped on every session, whichever Claude it was typed into — so a chat
-begun in a second profile still belongs to the account the command line is
-signed in as, and only that account's Claude can archive or rename it.
+A copy is a folder Claude will write into, so all of that works, and Graft
+carries the changes both ways each time either Claude is opened. Sharing merges
+the two histories rather than swapping one for the other: the profile keeps the
+chats it already had and gains the source's, and both sidebars end up showing
+the combined set. Archive the same conversation differently in both between two
+openings and the one touched last wins. Only the small record files are copied
+— the messages themselves live in `~/.claude` and are shared either way.
+
+Because it goes both ways, the borrowing profile's existing chats are copied
+into the source as well. Switching a shortcut back to its own chats hands
+everything over and leaves that profile with exactly what it had before, down
+to anything it archived along the way — but the copies already in the source
+stay there. Merging two histories is the one thing here that cannot be undone.
 
 `~/.claude` — settings, `CLAUDE.md`, skills, plugins, MCP servers, transcripts —
 is already shared by every instance, since it comes from `$HOME` rather than the
@@ -132,7 +141,7 @@ description file they carry, never by name.
 
 ```
 ./build.sh     the app, into build.noindex/
-./test.sh      246 checks, all in a throwaway directory
+./test.sh      488 checks, all in a throwaway directory
 ./release.sh   tests, builds universal, signs, packages
 ```
 

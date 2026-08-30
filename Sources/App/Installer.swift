@@ -112,6 +112,8 @@ enum Installer {
             stale.name = previousName
             if let old = installedBundle(for: stale) { try? fm.removeItem(at: old) }
         }
+        let config = GraftConfig(profileDir: shortcut.profileDir.path,
+                                 sourceDir: sourceDir?.path)
         let contents = bundle.appending(path: "Contents")
         let macos = contents.appending(path: "MacOS")
         let resources = contents.appending(path: "Resources")
@@ -125,7 +127,6 @@ enum Installer {
             try fm.copyItem(at: launcher, to: binary)
             try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: binary.path)
 
-            let config = GraftConfig(profileDir: shortcut.profileDir.path, sourceDir: sourceDir?.path)
             let data = try JSONEncoder().encode(config)
             try data.write(to: resources.appending(path: "graft.json"))
 
@@ -141,9 +142,13 @@ enum Installer {
         touch(bundle)
 
         // Apply straight away when nothing holds the profile open; otherwise
-        // the shortcut picks it up the next time it launches.
+        // the shortcut picks it up the next time it launches. The very
+        // description the bundle was given rather than a second one built to
+        // match: what runs now and what runs from the Dock later cannot drift
+        // if there is only one of them, and their drifting is the thing
+        // `refreshConfig` exists to repair after the fact.
         if !Graft.isRunning(profile: shortcut.profileDir) {
-            Graft.apply(GraftConfig(profileDir: shortcut.profileDir.path, sourceDir: sourceDir?.path))
+            Graft.apply(config)
         }
         return bundle
     }
@@ -159,8 +164,54 @@ enum Installer {
     /// says which Graft wrote it, and nothing else. The name, the icon and the
     /// profile it points at are the person's.
     @discardableResult
-    static func refreshLaunchers(in shortcuts: [Shortcut]) -> Int {
-        shortcuts.reduce(0) { $0 + (refreshLauncher(for: $1) ? 1 : 0) }
+    static func refreshLaunchers(in shortcuts: [(shortcut: Shortcut, sourceDir: URL?)]) -> Int {
+        shortcuts.reduce(0) {
+            let launcher = refreshLauncher(for: $1.shortcut)
+            let config = refreshConfig(for: $1.shortcut, sourceDir: $1.sourceDir)
+            return $0 + (launcher || config ? 1 : 0)
+        }
+    }
+
+    /// Bring a bundle's `graft.json` back into line with the list.
+    ///
+    /// What a shortcut does is written down twice: in `shortcuts.json`, which
+    /// the window edits, and in the bundle's own `graft.json`, which is what
+    /// actually runs. The Dock, Finder and Spotlight start the binary in the
+    /// bundle and ask Graft nothing, so where the two disagree the bundle wins
+    /// and the window is describing a shortcut that does not exist.
+    ///
+    /// They disagreed on this machine. The list said a profile was back on its
+    /// own chats; the bundle still named a source and asked for copies. Opening
+    /// it from the Dock therefore grafted it again, and the first mirror pass
+    /// put all 152 of the profile's own chats into the stash where a first pass
+    /// puts them — leaving a sidebar holding one record, a stash holding the
+    /// rest, and nothing anywhere saying why.
+    ///
+    /// Unlike the launcher this is not gated on the version, because a bundle
+    /// can fall out of step with the list at any version, and it was the
+    /// current one that did. Only the two paths are written: the name, the icon
+    /// and the version stamp are somebody else's business, and rewriting the
+    /// plist here would stamp a renamed shortcut's new name into a bundle still
+    /// sitting under the old one.
+    @discardableResult
+    static func refreshConfig(for shortcut: Shortcut, sourceDir: URL?) -> Bool {
+        guard let bundle = installedBundle(for: shortcut) else { return false }
+        let file = bundle.appending(path: "Contents/Resources/graft.json")
+        let wanted = GraftConfig(profileDir: shortcut.profileDir.path,
+                                 sourceDir: sourceDir?.path)
+        let current = (try? Data(contentsOf: file))
+            .flatMap { try? JSONDecoder().decode(GraftConfig.self, from: $0) }
+        guard current?.profileDir != wanted.profileDir
+                || current?.sourceDir != wanted.sourceDir
+        else { return false }
+
+        guard let data = try? JSONEncoder().encode(wanted),
+              (try? data.write(to: file, options: .atomic)) != nil
+        else { return false }
+        // The bundle is signed, and writing into it breaks that.
+        sign(bundle)
+        touch(bundle)
+        return true
     }
 
     static func refreshLauncher(for shortcut: Shortcut) -> Bool {

@@ -15,7 +15,6 @@ struct Shortcut: Codable, Identifiable, Hashable {
     var source: Source = .main
     /// Name the bundle was last installed under, so a rename can clean up.
     var installedName: String?
-
     init(name: String, folder: String? = nil, source: Source = .main) {
         self.name = name
         self.folder = folder ?? Shortcut.folderName(for: name)
@@ -78,6 +77,14 @@ final class ShortcutStore: ObservableObject {
             }
         }
 
+        // Nothing runs this shortcut's launcher again, so nothing is left to
+        // undo its mirroring for it, and a pair outliving the shortcut that
+        // made it goes on syncing whenever any other profile opens. The copies
+        // stay — they are chats, and the person kept the folder — but the two
+        // folders stop being squared up against each other.
+        if !shortcuts.contains(where: { $0.id != id && $0.folder == shortcut.folder }) {
+            Graft.forgetMirrors(of: shortcut.profileDir)
+        }
         shortcuts.removeAll { $0.id == id }
 
         // Anything that borrowed from it would silently fall back to its own

@@ -22,7 +22,7 @@ would have written by hand.
 
     ./build.sh                 app + launcher into build.noindex/, this arch only
     GRAFT_UNIVERSAL=1 ./build.sh   both arches, joined with lipo
-    ./test.sh                  372 checks, all in a throwaway directory
+    ./test.sh                  488 checks, all in a throwaway directory
     ./release.sh [--install]   tests, builds universal, draws the icon, signs, packages
 
 ## Invariants
@@ -53,6 +53,102 @@ that will not parse is one caught mid-rename, and treating that as "no account,
 so the same account as the source" linked an entire store away. `readableConfigJSON`
 tells the two apart; nothing may write that file, or decide where a profile's
 chats go, without asking it.
+
+**A mirrored folder holds both histories, and the stash says which was whose.**
+Copying is the way round the rule below — a real folder is one a profile will
+write a record into, a link is not — and it works by giving the profile its own
+copy of the source's chats and carrying changes both ways. Sharing a history
+merges the two rather than standing one in for the other, so the profile's own
+chats go into that folder as well and both sidebars end up holding the union.
+
+What keeps that reversible is the stash. On the first pass the profile's own
+chats still go to the hidden `.<name>.graft-own` sibling a link would have moved
+them to, and `seedOwnChats` copies them straight back into the shared set — the
+stash keeping the copy that says which of the merged records this profile
+brought, the folder getting the copy the person actually reads. Where its own
+copy went depends on how the two are signed in, so `stashedCounterpart` looks
+for both shapes: a cross-account graft stashes the organization folder itself,
+two profiles on one account stash the whole store above it, and the same records
+are then one level further down.
+
+`unmirrorChatStores` is where that record is spent. A record goes only when the
+other side holds the same bytes, which after the handover pass describes the
+profile's own chats exactly as well as the borrowed ones — so the ones the stash
+names are kept rather than removed, or going back would hand this profile's
+whole history to the one it borrowed from and keep nothing back. Kept rather
+than removed and fetched out of the stash afterwards, too, so that a chat of its
+own the profile archived while the graft was up stays archived: restoring the
+stashed copy over it would put the conversation back unarchived, which is the
+symptom this app gets reported for most.
+
+Seeding runs on the first pass alone, and it is the same clause that stops the
+second launch stashing away everything the first one mirrored in. On every
+launch it would fetch back every merged chat the person had since deleted,
+which is that endless loop pointed the other way.
+
+What is merged into the source stays there. Nothing here takes a chat out of the
+profile holding it, so going back leaves those copies where they are, and the
+merge is the one thing this app does that it cannot undo. That belongs in the
+window rather than in a comment, and `ShortcutDetail.mergeNote` is where it is
+said.
+
+Which pass is the first one is asked of `mirrored-chats.json` and never of the
+stash. `apply` runs on every launch, so a profile that had nothing to put away
+— and therefore left no stash — would look new for ever, and looking new for
+ever means the second launch stashes away everything the first one mirrored in
+and fetches it all back. `openForMirror` is the rule, `firstPass` the clause.
+
+**Going back is a handover, not a delete.** A link can simply be dropped; a
+folder full of copies cannot, so `unmirrorChatStores` runs one last pass to
+carry everything the profile did while it was mirroring — a chat started, one
+archived, one deleted — over to the profile it borrowed from, and only then
+takes the copies out. Going back to its own chats is the one way out that has
+to do this, and `ungraft` is the only caller for that reason.
+
+Which copies go is not a guess and does not trust that pass: a record is
+removed only when the other side is holding the same bytes at that moment. A
+source that has been deleted, a folder that could not be read, a disk with no
+room — each leaves every copy where it is rather than taking a chat away on the
+strength of a handover that did not happen.
+
+**A folder that lost everything at once was moved, not cleared.** This is the
+worst thing that has happened to this app, and it happened to a real machine
+with real chats on it. Signing in again moves where a profile's chats live —
+`<account>/<org>`, both halves — so the pair an earlier pass wrote down went on
+naming a folder nobody wrote to any more, while `mirrorChatStores` computed a
+new one, found no pair under it, and read that as a first pass. `openForMirror`
+duly stashed the live mirrored set as though it were the profile's own chats.
+The next `mirrorChatFolders` then saw one side holding none of the 150 names its
+baseline described and carried all 150 across as deletions — into the profile
+the chats had been borrowed from, which is where the only copy lived. One
+sign-in, both sidebars, no warning.
+
+So a side holding none of the names the baseline describes, while the other
+still holds them, is a folder that was stashed, replaced or emptied wholesale,
+and the baseline is forgotten rather than acted on: the survivors then look new
+and the empty side is filled again, which is the opposite mistake and the
+harmless one. A chat put back is a nuisance; a chat taken away for good is not.
+`forgetStalePairs` is the other half, dropping the pair that names where a
+profile's chats used to live before any launcher can square it up.
+
+**And the same emptiness must not be read as a deletion by the sweep.** The
+stash leaves a real, readable, empty folder behind, so `contents.stores` holds
+it, every record remembered there is missing, and two passes make that
+permanent — 150 sessions across two profiles withdrawn in one afternoon, which
+is a thing no later pass undoes. `mayFileRecords` had asked whether a stash sat
+beside a folder on the way *in* since the day it was written; the withdrawal
+pass never asked it on the way out. Both directions ask it now. Withdrawing is
+forever, and forever deserves the cheaper mistake.
+
+**The pairs are the keys of the state file, and every way out drops them.** A
+shortcut being opened squares up its own pair, which covers the profile doing
+the borrowing and nobody else — so archive a chat in the borrowing profile,
+open the source, and the source is not the one running `apply`. `mirrorKnownPairs`
+reads the pairs back out of the file instead, which is also all a launcher
+needs to know. That file is read by every launcher, though, so a pair left in
+it outlives the graft that made it: ungrafting, deleting the profile and
+deleting the shortcut all call `forgetMirrors`, or two folders go on being
+squared up for a graft that no longer exists.
 
 **Credentials are borrowed, never taken.** Only the access token is decrypted,
 never the refresh token: Anthropic rotates those and using one signs Claude
@@ -201,6 +297,28 @@ brought forward has been reading those chats all along, so the warning would
 describe a situation rather than one the press is about to create — and it
 would arrive attached to a button that creates nothing.
 
+**What the bundle says is what happens, so the list is not the record.** A
+shortcut is written down twice: in `shortcuts.json`, which the window edits,
+and in the bundle's own `graft.json`, which is what actually runs. The Dock,
+Finder and Spotlight start the binary in the bundle and ask Graft nothing, so
+where the two disagree the bundle wins and the window is quietly describing a
+shortcut that does not exist.
+
+They disagreed on this machine. The list had a profile back on its own chats
+while the bundle still named a source, so opening it from the Dock grafted it
+again, and the first mirror pass put all 152 of that profile's own chats into
+the stash where a first pass puts them — a sidebar holding one record, a stash
+holding the rest, and nothing anywhere saying why. `Installer.refreshConfig` is
+the repair, run over every shortcut at launch beside `refreshLaunchers`.
+
+It is not gated on the version the way the launcher is, because a bundle can
+fall out of step with the list at any version and it was the current one that
+did. Only the two paths are rewritten: the name, the icon and the version stamp
+are somebody else's business, and rewriting the plist here would stamp a
+renamed shortcut's new name into a bundle still sitting under its old one.
+Writing into a signed bundle breaks the signature, so it is signed again on the
+way out.
+
 `reveal` sends two things because neither does the other's job. Claude answers
 `window-all-closed` with an empty handler, so closing the last window leaves the
 process alive with nothing on screen; its `activate` handler builds the main
@@ -321,19 +439,35 @@ the account it is signed into, so linking a whole store does nothing across two
 accounts — the link is made one level deeper, mapping this profile's
 `<account>/<org>` onto the source's active one.
 
-**A grafted profile cannot keep a Claude Code session, and no link will make
-it.** The command line has one login for the whole machine, so a session
-started from any profile is owned by that account rather than the profile's,
-stamped `ownerAccountUuid`/`ownerOrganizationUuid` on the `bridge-session` line
-of `~/.claude/projects/<encoded cwd>/<cliSessionId>.jsonl`. Claude Desktop
-writes a session record only for the account it is itself signed into, so a
-grafted profile shows the conversation in its window and writes nothing at all:
-on close it is gone from both profiles, leaving a transcript naming an owner
-neither one filed. It reads exactly like the other profile deleting it, which
-is how it was first reported.
+**A profile will not write a record into a folder that resolves outside
+itself, and the graft link is exactly such a folder.** This is the rule the
+whole session sweep was built to work around, and it was misread for months as
+being about accounts. A grafted profile shows a conversation in its window and
+writes nothing at all: on close the session is gone from both profiles, leaving
+a transcript nobody filed a record for. It reads exactly like the other profile
+deleting it, which is how it was first reported.
 
-Measured five ways before it was believed. Linking the owner's account path
-into the grafted profile so the record had somewhere to land changed nothing;
+The account has nothing to do with it. Measured directly: a profile signed into
+one account, given a real organization folder of its own, created a session,
+wrote its record, and archived it — and that session was stamped
+`ownerAccountUuid` of the *other* account on the `bridge-session` line of
+`~/.claude/projects/<encoded cwd>/<cliSessionId>.jsonl`. Same profile, same
+account, same machine login, with the folder linked instead of real: nothing
+written, ever. The one variable that moves is whether the directory the record
+would land in resolves inside the profile.
+
+Every earlier reading follows from that. Rewriting the owner stamp to name the
+grafted profile's account changed nothing, because the stamp is not consulted —
+it is the command line's note of who it was, not a permission. Sessions a
+profile owned before it was grafted have records; sessions it started after do
+not. A profile outside every shortcut, with a real store, writes its records
+without trouble. And the reason the source profile always worked is that its
+own folder is the real one.
+
+Measured five ways before the behaviour was believed, and every one of those
+five had a link in place, which is how the cause stayed hidden behind the
+account for so long. Linking the owner's account path into the grafted profile
+so the record had somewhere to land changed nothing — it was another link;
 neither did closing the other Claude for the whole test, nor leaving the app
 open two minutes rather than thirty seconds. The record is never written. The
 absent directory was the rule showing through, not the cause, and the link that
@@ -360,13 +494,16 @@ back stamped with the source account. Identity comes from the machine login —
 inside profiles and the standalone one on `PATH` alike. The token pays for the
 inference; it does not say whose the conversation is.
 
-So which account owns a chat is settled by whoever `claude` was logged in as
-when it started, and by nothing about the window it was typed into. Changing
-the stamp afterwards does not carry the ownership with it either: one session
-was rewritten to name the grafted profile's account, with an untouched session
-beside it as a control, and the grafted profile still would not archive it.
+So which account a chat is stamped with is settled by whoever `claude` was
+logged in as when it started, and by nothing about the window it was typed
+into. What the stamp does not do is decide who may write the record: one
+session was rewritten to name the grafted profile's account, with an untouched
+session beside it as a control, and the grafted profile still would not archive
+it — while the same profile, given a real folder, archived a session stamped
+with the other account without complaint. The stamp is the command line's note
+of who it was. Nothing reads it back.
 
-**That rule governs every write to a record, not only the first one.** Archiving
+**The same rule governs every write to a record, not only the first one.** Archiving
 a borrowed conversation from the grafted side takes it out of that window's
 sidebar and puts nothing on disk, so the record still reads
 `isArchived: false` and the chat is back the next time the profile starts. It
@@ -377,10 +514,11 @@ happened. Every write to both profiles' stores was logged across the window: two
 conversations archived from the owner's profile were on disk within a second,
 `isArchived: true`; two archived from the grafted profile produced no write
 anywhere at all, their records untouched since the night before. The grafted
-profile then archived a conversation belonging to its own account — one begun
-back when the command line was signed in as that account — and that one stuck,
-which is what says this is ownership and not the link, the store, or a write
-that failed.
+profile was then given its organization folder back as a real directory,
+started a chat, and archived it, and that one stuck — the record written by the
+profile itself, in its own shape, for a session stamped with the other
+account's uuid. One variable moved between the two halves of that test, and it
+was not the account.
 
 Nothing here can repair it. What a sweep files is a record that was never
 written; an archive that was never written leaves nothing behind to find, so
@@ -606,6 +744,41 @@ One field is not read the way the rest are. An answer is written
 first `type` on the line belongs to the message nested inside it and the line's
 own comes last — taking the first, which is right for every other field, quietly
 put every recovered session back at the default model and effort.
+
+## Diagnosing it afterwards
+
+Every rule above turns on telling two indistinguishable situations apart: a
+folder read and found empty against one that could not be read; a stash holding
+a duplicate against a stash holding the only copy; a record missing because
+somebody deleted it against one missing because it is out of sight. Get one
+wrong and the symptom arrives hours later naming none of it — chats gone from a
+sidebar, a history back with its archive flags cleared, two profiles that look
+like they are syncing. Both of the worst incidents here were understood only
+because somebody happened to be watching the store while it happened, which is
+not a technique.
+
+So each pass writes down what it saw. `Diagnostics.note` appends one JSON line
+to `ClaudeGraft/diagnostics.log`, opened `O_APPEND` per write rather than held,
+because the app and any number of launchers write to it at once and every one
+of them is a short-lived process that may be killed mid-pass. The launchers are
+the reason it exists rather than a print: a launcher is what runs the sweep in
+front of a window opening, it runs when nobody is watching a terminal, and it
+has exited by the time anyone thinks to ask. The events are the decisions that
+were previously silent — a store the walk could not get into, a refusal to
+file and which half of `mayFileRecords` refused, every withdrawal and its
+grounds, a stash going out and coming back with its counts, a mirror pass that
+did nothing because a side would not read.
+
+`ClaudeGraft/state-report.txt` is the other half, rewritten in full each pass:
+what is true now rather than what happened. It leads with the command line
+login, because that is the fact behind the question this app gets asked most.
+`stateFindings` then names what is wrong in the words the symptom arrives in —
+a profile signed into one account while the command line is logged in as
+another, a stash holding more than the folder beside it, records remembered
+where none are. Every one of those has been reported as something else.
+
+The report is built into a string so the suite can drive it, and the login and
+the device file are read through overrides for the same reason.
 
 ## Verification state
 

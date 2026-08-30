@@ -113,7 +113,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // launcher is replaced, and the update that replaced this app never
         // touched them. Off the main thread: this copies binaries and runs
         // codesign, once per shortcut left behind by an older version.
-        let shortcuts = Shared.store.shortcuts
+        // Sources resolved here rather than in the closure: the store belongs
+        // to the main thread and this runs off it.
+        let shortcuts = Shared.store.shortcuts.map {
+            (shortcut: $0, sourceDir: Shared.store.sourceDir(for: $0))
+        }
         DispatchQueue.global(qos: .utility).async {
             Installer.refreshLaunchers(in: shortcuts)
         }
