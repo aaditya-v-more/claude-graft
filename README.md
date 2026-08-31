@@ -1,5 +1,7 @@
 # Claude Graft
 
+[![Support this on Ko-fi](https://img.shields.io/badge/Ko--fi-support%20this-FF5E5B?logo=kofi&logoColor=white)](https://ko-fi.com/aadityavmore)
+
 **1× is less but 5× is too much.** *(Or 20× is less, lol.)*
 
 One Claude login is never quite the right amount.
