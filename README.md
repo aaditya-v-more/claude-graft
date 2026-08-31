@@ -60,72 +60,68 @@ which saves signing in again if you set something up by hand.
 
 ## Usage in the menu bar
 
-The percentage in the bar is whichever account is currently open, with the rest
-behind the tooltip. Figures come from Anthropic's own endpoint using the login
-each profile already holds — so they're live even for an account that isn't
-running, with real reset times.
+The bar shows whichever account is currently open, the rest behind the tooltip.
+Figures come from Anthropic's own endpoint using the login each profile already
+holds, so they're live with real reset times even for an account that isn't
+running.
 
-Reaching that needs the profile's token, which macOS gates behind one keychain
-prompt. Choose **Always Allow** and later reads are silent. macOS ties that
-permission to one exact build, so a new version asks again — once, rather than
-quietly showing you worse numbers.
+Reading that token needs one keychain prompt: choose **Always Allow** and later
+reads are silent. macOS ties the permission to one exact build, so a new version
+asks again — once, rather than quietly showing you worse numbers.
 
-Only the access token is ever decrypted, never the refresh token, because
-Anthropic rotates those and using one would sign Claude Desktop out. Nothing is
-written back to Claude's config or keychain, and the token goes to
-`api.anthropic.com` and nowhere else.
+Only the access token is ever decrypted, never the refresh token, which
+Anthropic rotates and which would sign Claude Desktop out. Nothing is written
+back to Claude's config or keychain, and the token goes to `api.anthropic.com`
+and nowhere else.
 
 **Start Session** opens a five-hour window on an account without switching to
-it: one short message, `max_tokens` as low as the API allows, reply discarded.
-It costs a handful of tokens and happens only because you pressed the button.
+it — one short message, `max_tokens` as low as the API allows, reply discarded.
+A handful of tokens, and only because you pressed the button.
 
 ## Updating
 
-Graft updates itself. It checks hourly, and at launch when an hour has passed,
-then downloads, installs and restarts on its own — the only sign is the menu bar
+Graft updates itself: hourly, and at launch once an hour has passed, it
+downloads, installs and restarts on its own, the only sign being the menu bar
 item blinking out and back. Every download is verified against a signing key
-that ships inside the app. **Check for Updates…** does it immediately if you'd
-rather not wait.
+that ships inside the app. **Check for Updates…** does it immediately.
 
 ## Worth knowing
 
 Two Claudes sharing a chat store write to the same files, so opening the *same*
-conversation in both at once can lose messages. Opening one from Graft — the
-window or the menu bar, a shortcut or Claude itself — warns you when something
-else is already on those chats. Launching it from the Dock doesn't check.
+conversation in both at once can lose messages. Opening one from Graft — window
+or menu bar, a shortcut or Claude itself — warns you when something else is
+already on those chats; from the Dock it doesn't check.
 
-Opening a Claude that is already open brings that one forward instead of
-starting a second. Claude Desktop itself doesn't refuse a second copy on the
-same profile, and two copies of one profile is the worst version of the problem
-above — not two accounts sharing chats, but the very same files being written
-twice over. If you've closed the window and left it in the menu bar, opening it
-builds the window back, the way clicking a Dock icon does.
+Opening a Claude that is already open brings that one forward rather than
+starting a second, which Claude Desktop won't refuse on its own — two copies of
+one profile being the worst version of that problem: not two accounts sharing
+chats, but the very same files written twice over. With the window closed and
+the item left in the menu bar, opening it builds the window back, the way a Dock
+icon does.
 
-A profile that borrows chats gets its own copy of them rather than a link to
-them. Claude Desktop will not write a conversation's record into a folder that
-resolves outside its own profile, and a link to another profile's chat store is
-exactly such a folder — so through a link a borrowed conversation can be read
-and never changed. Archiving one takes it out of that window's sidebar and
-saves nothing anywhere, so it is back on the next launch. Renaming and starring
-go through the same write.
+A profile that borrows chats gets its own copy rather than a link. Claude
+Desktop will not write a conversation's record into a folder that resolves
+outside its own profile, and a link to another profile's chat store is exactly
+that — so through a link a borrowed conversation can be read and never changed:
+archiving one takes it out of that window's sidebar, saves nothing anywhere, and
+it is back on the next launch. Renaming and starring go through the same write.
 
 A copy is a folder Claude will write into, so all of that works, and Graft
 carries the changes both ways each time either Claude is opened. Sharing merges
-the two histories rather than swapping one for the other: the profile keeps the
-chats it already had and gains the source's, and both sidebars end up showing
-the combined set. Archive the same conversation differently in both between two
-openings and the one touched last wins. Only the small record files are copied
-— the messages themselves live in `~/.claude` and are shared either way.
+the two histories rather than swapping one for the other — the profile keeps the
+chats it had and gains the source's, and both sidebars show the combined set.
+Archive the same conversation differently in both between two openings and the
+one touched last wins. Only the small record files are copied; the messages live
+in `~/.claude` and are shared either way.
 
-Because it goes both ways, the borrowing profile's existing chats are copied
-into the source as well. Switching a shortcut back to its own chats hands
-everything over and leaves that profile with exactly what it had before, down
-to anything it archived along the way — but the copies already in the source
-stay there. Merging two histories is the one thing here that cannot be undone.
+Because it goes both ways, the borrowing profile's own chats are copied into the
+source as well. Switching a shortcut back hands everything over and leaves that
+profile with exactly what it had, down to anything it archived along the way —
+but the copies already in the source stay there. Merging two histories is the
+one thing here that cannot be undone.
 
 `~/.claude` — settings, `CLAUDE.md`, skills, plugins, MCP servers, transcripts —
-is already shared by every instance, since it comes from `$HOME` rather than the
-profile.
+is already shared by every instance, coming from `$HOME` rather than the profile.
 
 Claude Code prunes transcripts after 30 days while the desktop's records are
 permanent, so old chats can open to "Session not found on disk". That happens in
@@ -133,11 +129,11 @@ a normal single-account setup too; raise `cleanupPeriodDays` in
 `~/.claude/settings.json` to keep them longer.
 
 Deleting a shortcut asks whether to take the profile folder with it. Keeping it
-is the default, and the destructive option is guarded: Claude's own profile can
-never be removed, nor anything outside `~/Library/Application Support`, nor a
-profile that's running or that another shortcut still points at. Graft also
-refuses to touch any app it didn't create — it identifies its own by the
-description file they carry, never by name.
+is the default, and the destructive option is guarded: never Claude's own
+profile, never anything outside `~/Library/Application Support`, never a profile
+that's running or that another shortcut points at. Graft also refuses to touch
+any app it didn't create, identifying its own by the description file they carry
+rather than by name.
 
 ## How it works
 
