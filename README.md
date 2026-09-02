@@ -28,7 +28,7 @@
 
 <br>
 
-<img src="docs/assets/menu-bar.png" alt="Live usage for both accounts in the menu bar">
+<img src="docs/assets/menu-bar.png" width="460" alt="Live usage for both accounts in the menu bar">
 
 </div>
 
@@ -73,11 +73,11 @@ Name it, choose where its chats come from, press **Create Shortcut**. You get a
 real app in `/Applications` that you can launch from Spotlight or pin to the
 Dock like any other.
 
-![Claude and Claude 2 side by side in Spotlight](docs/assets/shortcuts.png)
+<img src="docs/assets/shortcuts.png" width="580" alt="Claude and Claude 2 side by side in Spotlight">
 
 Launch it, sign in with the other account, and both run side by side.
 
-![The shortcut's settings](docs/assets/window.png)
+<img src="docs/assets/window.png" width="660" alt="The shortcut's settings">
 
 Each shortcut is self-contained — it carries its own launcher and a description
 of its profile — so it keeps working whether or not Graft is installed or
