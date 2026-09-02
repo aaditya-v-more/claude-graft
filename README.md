@@ -1,10 +1,36 @@
-# Claude Graft
+<div align="center">
 
-[![Support this on Ko-fi](https://img.shields.io/badge/Ko--fi-support%20this-FF5E5B?logo=kofi&logoColor=white)](https://ko-fi.com/aadityavmore)
+<img src="docs/assets/icon.png" width="120" alt="Claude Graft">
 
-**1× is less but 5× is too much.** *(Or 20× is less, lol.)*
+<h1>Claude Graft</h1>
 
-One Claude login is never quite the right amount.
+<p>
+  <b>1× is less but 5× is too much.</b> <i>(Or 20× is less, lol.)</i><br>
+  One Claude login is never quite the right amount.
+</p>
+
+<p>
+  <a href="https://github.com/aaditya-v-more/claude-graft/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/aaditya-v-more/claude-graft?style=for-the-badge&logo=github&logoColor=white&labelColor=1C1A17&color=C2410C"></a>
+  <a href="https://github.com/aaditya-v-more/homebrew-claude-graft"><img alt="Homebrew cask" src="https://img.shields.io/badge/Homebrew-cask-C2410C?style=for-the-badge&logo=homebrew&logoColor=white&labelColor=1C1A17"></a>
+  <img alt="macOS 13+" src="https://img.shields.io/badge/macOS-13%2B-C2410C?style=for-the-badge&logo=apple&logoColor=white&labelColor=1C1A17">
+  <a href="https://github.com/aaditya-v-more/claude-graft/stargazers"><img alt="Stars" src="https://img.shields.io/github/stars/aaditya-v-more/claude-graft?style=for-the-badge&logo=github&logoColor=white&labelColor=1C1A17&color=C2410C"></a>
+  <a href="LICENSE"><img alt="MIT licence" src="https://img.shields.io/github/license/aaditya-v-more/claude-graft?style=for-the-badge&labelColor=1C1A17&color=C2410C"></a>
+  <a href="https://ko-fi.com/aadityavmore"><img alt="Support this on Ko-fi" src="https://img.shields.io/badge/Ko--fi-support-FF5E5B?style=for-the-badge&logo=kofi&logoColor=white&labelColor=1C1A17"></a>
+</p>
+
+<p>
+  <a href="https://aaditya-v-more.github.io/claude-graft/"><b>Website</b></a>
+  &nbsp;·&nbsp;
+  <a href="#install"><b>Install</b></a>
+  &nbsp;·&nbsp;
+  <a href="https://github.com/aaditya-v-more/claude-graft/releases"><b>Releases</b></a>
+</p>
+
+<br>
+
+<img src="docs/assets/menu-bar.png" alt="Live usage for both accounts in the menu bar">
+
+</div>
 
 Claude Desktop signs into one account at a time. Graft gives you as many Claudes
 as you want — each with its own name, icon and login — and lets any of them read
@@ -12,12 +38,18 @@ another one's Claude Code history.
 
 That last part is the point. Every other way of running two accounts gives you
 an empty second profile. Graft lets your work login open your personal chats,
-connectors and extensions while the accounts stay completely separate.
+connectors and extensions while the accounts stay completely separate. There are
+screenshots and the short version on
+[the site](https://aaditya-v-more.github.io/claude-graft/).
 
-There are screenshots and the short version at
-**[claude-graft](https://aaditya-v-more.github.io/claude-graft/)**.
+## Before you install
 
-![Live usage for both accounts in the menu bar](docs/assets/menu-bar.png)
+Graft works on a copy of Claude Desktop, so Claude Desktop has to be there
+first — in `/Applications`, or in `~/Applications` if that is where you keep it.
+Graft installs it for you no more than it signs you in, and without it there is
+nothing to copy.
+
+macOS 13 or later. Universal, for Apple Silicon and Intel.
 
 ## Install
 
@@ -34,8 +66,6 @@ quarantine flag for you at install time; the command it runs is right there in
 the cask file. If you'd rather judge that yourself, take the **.dmg** from the
 [releases page](https://github.com/aaditya-v-more/claude-graft/releases) and
 allow it in System Settings → Privacy & Security instead.
-
-Requires macOS 13 or later. Universal, for Apple Silicon and Intel.
 
 ## Making a Claude
 
