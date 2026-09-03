@@ -150,6 +150,26 @@ profile with exactly what it had, down to anything it archived along the way —
 but the copies already in the source stay there. Merging two histories is the
 one thing here that cannot be undone.
 
+None of that is what a second account usually needs. If you have been switching
+accounts by signing out of Claude and back in, both histories are sitting in
+that one profile: a store is keyed by account and each Claude reads only the
+folder for the account it holds, so the shortcut you make for the second one
+comes up with an empty sidebar while its own chats stay next door. Graft says
+so — which profile has them, how many, and the last few titles with the dates
+they were last active — and offers to bring them over. It asks when you press
+**Open**, where **Do Not Show Again** stops the question, and it keeps the offer
+in the shortcut's own view for as long as anything is missing, so the answer can
+be later rather than now.
+
+Quit every Claude first, this profile's and everybody else's: an instance builds
+its sidebar as it starts and rewrites records as it runs, so anything copied
+underneath a running one is invisible at best. Graft checks, refuses, and names
+what to close. The originals stay exactly where they are, so the other profile
+still has them if you sign back into that account there, and nothing already
+here is written over — which is why the offer stands for a profile that has its
+own chats too, merging the two sets rather than replacing either. The count is
+always what this profile is missing, so it is the number that will arrive.
+
 `~/.claude` — settings, `CLAUDE.md`, skills, plugins, MCP servers, transcripts —
 is already shared by every instance, coming from `$HOME` rather than the profile.
 

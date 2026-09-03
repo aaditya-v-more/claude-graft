@@ -25,6 +25,14 @@ struct ShortcutDetail: View {
     @State private var sharersOpen: [String] = []
     @State private var askAboutSharers = false
 
+    /// Chats for this profile's account that another profile is still holding.
+    @State private var elsewhere: Graft.ChatsElsewhere?
+    @State private var askAboutElsewhere = false
+    @State private var copying = false
+    /// What the last copy did, kept on screen because Claude may not be open
+    /// to show the answer for itself.
+    @State private var copiedNote: String?
+
     /// Set once the folder is typed by hand, so renaming stops rewriting it.
     @State private var folderIsCustom = false
 
@@ -94,6 +102,35 @@ struct ShortcutDetail: View {
                 SectionHeader(title: "Chats", info: sourceExplanation)
             }
 
+            if let found = elsewhere {
+                Section {
+                    Text(foundNote(found))
+                        .font(.callout)
+                        .fixedSize(horizontal: false, vertical: true)
+                    ForEach(found.chats, id: \.self) { chat in
+                        LabeledContent {
+                            Text(Self.chatDate.string(from: chat.lastActive))
+                                .font(.callout)
+                                .foregroundStyle(.secondary)
+                        } label: {
+                            Text(chat.title)
+                                .font(.callout)
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+                        }
+                    }
+                    HStack(spacing: 8) {
+                        Button(found.merging ? "Merge Them Here" : "Copy Them Here") {
+                            adopt(found)
+                        }
+                        .disabled(copying)
+                        if copying { ProgressView().controlSize(.small) }
+                    }
+                } header: {
+                    SectionHeader(title: "Chats found elsewhere", info: Self.elsewhereNote)
+                }
+            }
+
             Section("Status") {
                 LabeledContent("Shortcut") {
                     Text(installedAt.map { $0.path } ?? "Not created yet")
@@ -106,6 +143,15 @@ struct ShortcutDetail: View {
                     Text(isRunning ? "Running on this profile" : "Not running")
                         .font(.callout)
                         .foregroundStyle(.secondary)
+                }
+                if let copiedNote {
+                    LabeledContent("Chats") {
+                        Text(copiedNote)
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .multilineTextAlignment(.trailing)
+                    }
                 }
             }
 
@@ -147,6 +193,26 @@ struct ShortcutDetail: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text(ChatConflict.message(sharers: sharersOpen))
+        }
+        .confirmationDialog(elsewhere?.merging == true
+                                ? "Merge this account's other chats in first?"
+                                : "Bring this account's chats across first?",
+                            isPresented: $askAboutElsewhere,
+                            titleVisibility: .visible) {
+            Button(elsewhere?.merging == true ? "Merge Them Here" : "Copy Them Here") {
+                if let found = elsewhere { adopt(found) { checkSharers() } }
+            }
+            Button("Open Without Them") {
+                store.askedAboutChats.insert(shortcut.id)
+                checkSharers()
+            }
+            Button("Do Not Show Again") {
+                if let found = elsewhere { shortcut.stopAskingChatsFor = found.account }
+                checkSharers()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(elsewhere.map(openNote) ?? "")
         }
         .onAppear {
             refresh()
@@ -210,6 +276,67 @@ struct ShortcutDetail: View {
             """
     }
 
+    private static let elsewhereNote = """
+        Every Claude has to be closed first, this profile's and every other \
+        one. An instance builds its sidebar as it starts and rewrites records \
+        in its own shape as it runs, so chats copied underneath a running one \
+        are invisible at best and written over at worst.
+
+        Copying leaves the originals where they are, so the other profile is \
+        unchanged and still has them if that account is ever signed back into \
+        over there. Nothing already here is written over either, so a chat \
+        this profile has archived or renamed keeps the shape it was given.
+
+        Only the small record files are copied; the messages themselves \
+        already live in ~/.claude and are shared either way.
+        """
+
+    /// Named, counted and quoted, because none of the three answers the
+    /// question on its own. Which profile says where they went, the count says
+    /// whether it is the history being missed, and the titles and dates say it
+    /// in the only terms anybody recognises their own chats by.
+    private func foundNote(_ found: Graft.ChatsElsewhere) -> String {
+        """
+        \(store.name(ofProfile: found.profile)) is holding \(chats(found.count)) for \
+        the account this profile is signed into that this one has not got. \
+        \(found.merging
+            ? "This profile has chats of its own too, so they are merged rather than either set being replaced."
+            : "This profile has none of its own yet.")
+        """
+    }
+
+    private func openNote(_ found: Graft.ChatsElsewhere) -> String {
+        """
+        \(foundNote(found))
+
+        Claude builds its sidebar as it starts, so bringing them over now is \
+        what puts them in the window about to open. Every other Claude has to \
+        be closed for that.
+        """
+    }
+
+    private func chats(_ count: Int) -> String {
+        count == 1 ? "1 chat" : "\(count) chats"
+    }
+
+    /// Reads as a sentence for any number of them.
+    private func names(_ profiles: [URL]) -> String {
+        let all = profiles.map(store.name(ofProfile:))
+        switch all.count {
+        case 0: return ""
+        case 1: return all[0]
+        case 2: return all.joined(separator: " and ")
+        default: return all.dropLast().joined(separator: ", ") + " and " + (all.last ?? "")
+        }
+    }
+
+    private static let chatDate: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .none
+        return formatter
+    }()
+
     private var plan: UsageMonitor.Entry? { usage.entry(for: shortcut.profileDir) }
 
     private var isDraft: Bool {
@@ -239,10 +366,22 @@ struct ShortcutDetail: View {
             let bundle = Installer.installedBundle(for: target)
             let running = Graft.isRunning(profile: target.profileDir)
             let hasProfile = FileManager.default.fileExists(atPath: target.profileDir.path)
+            // Only for a profile keeping its own chats. One reading from a
+            // source is having its sidebar filled by the graft already, and
+            // the offer would be describing chats it is about to be handed.
+            let found = target.source == .own
+                ? Graft.chatsElsewhere(for: target.profileDir,
+                                       among: Graft.sessionStoreProfiles())
+                : nil
             DispatchQueue.main.async {
                 installedAt = bundle
                 isRunning = running
                 profileExists = hasProfile
+                // Kept whatever the answer was last time. Saying no to being
+                // asked silences the question at the door, not the offer in
+                // the window, which is the only place left to change your
+                // mind from.
+                elsewhere = found
             }
         }
     }
@@ -268,9 +407,57 @@ struct ShortcutDetail: View {
         }
     }
 
+    /// Off the main thread, because it copies files and asks what is running.
+    ///
+    /// The continuation runs only when something was actually brought over. A
+    /// copy refused for a Claude still being open has not done what the press
+    /// asked for, and carrying on to open a window would bury the one line
+    /// saying which Claude to quit.
+    private func adopt(_ found: Graft.ChatsElsewhere, then: (() -> Void)? = nil) {
+        guard !copying else { return }
+        copying = true
+        let profile = shortcut.profileDir
+        DispatchQueue.global(qos: .userInitiated).async {
+            let result = Graft.adoptChats(from: found.profile, into: profile,
+                                          account: found.account)
+            DispatchQueue.main.async {
+                copying = false
+                if !result.running.isEmpty {
+                    copiedNote = "Nothing copied — quit \(names(result.running)) first"
+                } else if result.copied == 0 {
+                    copiedNote = "Nothing was copied"
+                } else {
+                    copiedNote = "\(chats(result.copied)) copied from "
+                        + store.name(ofProfile: found.profile)
+                }
+                refresh()
+                if result.running.isEmpty, result.copied > 0 { then?() }
+            }
+        }
+    }
+
+    /// Asked before the conflict question, not after it: copying is what
+    /// changes the sidebar of the window about to open, and Claude builds that
+    /// sidebar as it starts.
+    ///
+    /// Silenced two ways, both meaning "carry on". One is for good and is kept
+    /// with the shortcut; the other lasts as long as the app is up, so a press
+    /// that changed nothing — a copy refused because something was still open
+    /// — is asked about again the next time.
+    private func open() {
+        guard installedAt != nil else { return }
+        if let found = elsewhere,
+           shortcut.stopAskingChatsFor != found.account,
+           !store.askedAboutChats.contains(shortcut.id) {
+            askAboutElsewhere = true
+            return
+        }
+        checkSharers()
+    }
+
     /// Checking who else is open means one pgrep per neighbour, so it happens
     /// off the main thread and the window opens once the answer is back.
-    private func open() {
+    private func checkSharers() {
         guard installedAt != nil else { return }
         let neighbours = store.chatStoreNeighbours(of: shortcut)
         DispatchQueue.global(qos: .userInitiated).async {

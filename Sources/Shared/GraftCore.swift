@@ -2388,6 +2388,262 @@ enum Graft {
         Diagnostics.note("ungraft.end", ["profile": profile.lastPathComponent])
     }
 
+    // MARK: - Chats left in another profile
+
+    /// Chat records for this profile's account that another profile is holding
+    /// and this one has not got.
+    ///
+    /// A store is keyed `<account>/<org>` and an instance reads only the
+    /// folder for the account it currently holds, so signing out of one
+    /// account and into another leaves the first one's history exactly where
+    /// it was written. Somebody who used to switch accounts inside a single
+    /// Claude therefore has both histories in that one profile, and the
+    /// shortcut they make for the second account comes up with an empty
+    /// sidebar while its own chats sit in the profile next door.
+    ///
+    /// Nothing is broken and nothing is lost, which is precisely why it is
+    /// worth saying out loud: an empty sidebar is what a history that has gone
+    /// looks like too, and the first thing anybody does about it is reach for
+    /// the chat source picker — which merges two accounts' chats rather than
+    /// recovering one account's, and is the single thing this app cannot take
+    /// back.
+    struct ChatsElsewhere: Equatable {
+        /// One of the chats on offer. A count names a quantity; a title and a
+        /// date name a conversation, which is the only thing anybody
+        /// recognises their own history by.
+        struct Chat: Equatable, Hashable {
+            var title: String
+            var lastActive: Date
+        }
+
+        /// The profile holding them.
+        var profile: URL
+        /// The account, spelled the way the profile asking about it spells it.
+        var account: String
+        /// How many of them this profile has not got.
+        ///
+        /// Only ever the missing ones. Copying takes nothing out of the
+        /// profile they came from, so an offer counting everything over there
+        /// would stand for ever afterwards saying the chats are elsewhere when
+        /// they are also right here — and the number it showed would never
+        /// match the number that arrived.
+        var count: Int
+        /// Whether this profile has chats of its own under that account, which
+        /// is the difference between recovering one history and merging two.
+        var merging: Bool
+        /// A few of the newest, newest first.
+        var chats: [Chat]
+    }
+
+    /// Whichever profile holds the most chats this one has not got, or nil
+    /// when there is nothing to offer.
+    ///
+    /// Offered to a profile that already has a history of its own as well as
+    /// to an empty one. The two are not the same question — one is recovering
+    /// an account's chats, the other is merging a second set in — but they
+    /// have the same answer, and a profile that has been used for a week is
+    /// still missing everything written before it existed.
+    static func chatsElsewhere(for profile: URL, among others: [URL]) -> ChatsElsewhere? {
+        // Unreadable is not signed out. A config caught mid-rename reads as
+        // "no account", and every fallback below that point would be an offer
+        // to copy somebody else's history into this profile.
+        guard let config = readableConfigJSON(of: profile),
+              let account = config["lastKnownAccountUuid"] as? String
+        else { return nil }
+
+        // A grafted profile's own folder has been linked or moved aside, so
+        // what it is holding is not its own and what it appears to be missing
+        // is already coming in from its source.
+        for store in chatStores {
+            let dir = profile.appending(path: store)
+            if isSymlink(dir) || isStashedAway(dir) { return nil }
+        }
+
+        let own = recordFiles(in: profile, account: account)
+        let here = Set(own.map(\.key))
+
+        var best: ChatsElsewhere?
+        for other in others where !samePath(other, profile) {
+            let missing = recordFiles(in: other, account: account)
+                .filter { !here.contains($0.key) }
+            guard !missing.isEmpty, missing.count > (best?.count ?? 0) else { continue }
+            best = ChatsElsewhere(profile: other, account: account,
+                                  count: missing.count, merging: !own.isEmpty,
+                                  chats: newestChats(of: missing.map(\.url)))
+        }
+        return best
+    }
+
+    /// Every chat record one profile holds under one account, across both
+    /// stores and each organization in them.
+    ///
+    /// Keyed by store and file name rather than by name alone, since the two
+    /// stores hold different conversations and a name in one says nothing
+    /// about the other.
+    private static func recordFiles(in profile: URL,
+                                    account: String) -> [(key: String, url: URL)] {
+        var found: [(key: String, url: URL)] = []
+        for store in chatStores {
+            let dir = profile.appending(path: store)
+            guard let accountDir = counterpartDirectory(in: dir, for: account) else { continue }
+            let under = dir.appending(path: accountDir)
+            for org in (try? fm.contentsOfDirectory(atPath: under.path)) ?? []
+            where !org.hasPrefix(".") && !org.hasSuffix(stashSuffix) {
+                let orgDir = under.appending(path: org)
+                // `<org>.profile-origin.json` is a plain file sitting beside
+                // the organization folders, and reading it as one of them is
+                // a mistake this app has made before.
+                guard isDirectory(orgDir) else { continue }
+                for name in (try? fm.contentsOfDirectory(atPath: orgDir.path)) ?? []
+                where name.hasPrefix("local_") && name.hasSuffix(".json") {
+                    found.append((key: store + "/" + name, url: orgDir.appending(path: name)))
+                }
+            }
+        }
+        return found
+    }
+
+    /// The newest few, newest first, each with the moment it was last active.
+    ///
+    /// Narrowed by the file's own timestamp and then ordered by the moment
+    /// written inside it. Sorting a long history properly means opening every
+    /// record in it, and this runs on a window's refresh; the filesystem knows
+    /// enough to pick a shortlist, and only what will be shown is read.
+    private static func newestChats(of files: [URL], limit: Int = 5) -> [ChatsElsewhere.Chat] {
+        let shortlist = files
+            .map { (url: $0, when: modified($0)) }
+            .sorted { $0.when > $1.when }
+            .prefix(limit * 4)
+            .compactMap { entry -> ChatsElsewhere.Chat? in
+                guard let record = (try? Data(contentsOf: entry.url))
+                        .flatMap({ try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }),
+                      let title = record["title"] as? String, !title.isEmpty
+                else { return nil }
+                // Milliseconds, the way a record stamps everything else. The
+                // file's own timestamp stands in for one written without it.
+                let active = (record["lastActivityAt"] as? Double)
+                    .map { Date(timeIntervalSince1970: $0 / 1000) }
+                return ChatsElsewhere.Chat(title: title, lastActive: active ?? entry.when)
+            }
+        return Array(shortlist.sorted { $0.lastActive > $1.lastActive }.prefix(limit))
+    }
+
+    /// What one attempt to bring chats across did.
+    struct Adoption: Equatable {
+        /// Chats copied. The markers saying which have been deleted travel
+        /// with them and are counted separately: somebody offered four chats
+        /// and told five arrived reads that as a bug, and a sidebar shows
+        /// records.
+        var copied = 0
+        /// The profiles with a Claude on them when this was asked. Nothing is
+        /// copied while any of them is up, so anything here means nothing
+        /// happened.
+        var running: [URL] = []
+    }
+
+    /// Every profile on the machine with a Claude on it, Claude's own included.
+    ///
+    /// One `pgrep` each plus a `ps` for the main profile, so never on the main
+    /// thread and never on a timer. Read through an override so the suite can
+    /// drive it: nothing in a temporary directory can be made to run, and a
+    /// test that asked for real would answer differently depending on whether
+    /// somebody had Claude open at the time.
+    static var runningClaudesOverride: (() -> [URL])?
+
+    static func runningClaudes() -> [URL] {
+        if let runningClaudesOverride { return runningClaudesOverride() }
+        var seen: Set<String> = []
+        return ([mainProfile] + sessionStoreProfiles())
+            .filter { seen.insert($0.resolvingSymlinksInPath().path).inserted }
+            .filter { isRunning(profile: $0) }
+    }
+
+    /// Copy another profile's records for one account into this profile, and
+    /// take nothing away.
+    ///
+    /// Copied rather than moved. The profile they come from is one this app
+    /// did not make — `Claude` itself, in the case this exists for — and the
+    /// rule that has kept every incident in this project from being worse is
+    /// that nothing here removes a record from a profile it does not own. So a
+    /// wrong guess costs some small JSON on disk instead of a history, and the
+    /// folder they came from is left exactly as it was for the day that
+    /// account is signed back into over there.
+    ///
+    /// Additive on this side too: a name already here is left alone rather
+    /// than written over, so a second run copies nothing and a record this
+    /// profile has since archived or renamed keeps the shape it gave it. That
+    /// is also what makes this safe to offer to a profile with a history of
+    /// its own — the two sets are merged, and neither is stood in for.
+    @discardableResult
+    static func adoptChats(from source: URL, into profile: URL, account: String) -> Adoption {
+        guard !samePath(source, profile) else { return Adoption() }
+
+        // Every Claude on the machine, not merely the two either side of the
+        // copy. An instance builds its sidebar as it starts and writes records
+        // back in its own shape as it runs, so records landing underneath one
+        // are at best invisible until it is restarted and at worst about to be
+        // written over; and any of them may be sharing these very folders
+        // through a graft. Waiting for a quiet machine costs one restart and
+        // is the only version of this that cannot go wrong.
+        let running = runningClaudes()
+        guard running.isEmpty else {
+            Diagnostics.note("adopt.blocked", [
+                "into": profile.lastPathComponent,
+                "running": running.map(\.lastPathComponent),
+                "because": "records landing under a running Claude are ones it may write over",
+            ])
+            return Adoption(copied: 0, running: running)
+        }
+
+        let root = profile.resolvingSymlinksInPath().path + "/"
+        var copied = 0
+        var markers = 0
+
+        for store in chatStores {
+            let src = source.appending(path: store)
+            let dst = profile.appending(path: store)
+            guard let sourceAccountDir = counterpartDirectory(in: src, for: account) else { continue }
+            let from = src.appending(path: sourceAccountDir)
+            let into = dst.appending(path: counterpartDirectory(in: dst, for: account) ?? account)
+
+            // The rule the rest of this app is built on. A folder that
+            // resolves outside the profile is one a graft has linked or
+            // stashed away, and filling it files these records into the store
+            // next door rather than into this one.
+            guard !isStashedAway(into),
+                  into.resolvingSymlinksInPath().path.hasPrefix(root)
+            else {
+                Diagnostics.note("adopt.skipped", [
+                    "profile": profile.path, "store": store,
+                    "because": "this profile's folder for the account is not its own",
+                ])
+                continue
+            }
+
+            for org in (try? fm.contentsOfDirectory(atPath: from.path)) ?? []
+            where !org.hasPrefix(".") && !org.hasSuffix(stashSuffix) {
+                let orgFrom = from.appending(path: org)
+                guard isDirectory(orgFrom) else { continue }
+                let orgInto = into.appending(path: counterpartDirectory(in: into, for: org) ?? org)
+                try? fm.createDirectory(at: orgInto, withIntermediateDirectories: true)
+                for name in (try? fm.contentsOfDirectory(atPath: orgFrom.path)) ?? []
+                where isMirrored(name) {
+                    let to = orgInto.appending(path: name)
+                    guard !exists(to),
+                          (try? fm.copyItem(at: orgFrom.appending(path: name), to: to)) != nil
+                    else { continue }
+                    if name.hasPrefix("local_") { copied += 1 } else { markers += 1 }
+                }
+            }
+        }
+
+        Diagnostics.note("adopt", [
+            "from": source.lastPathComponent, "into": profile.lastPathComponent,
+            "account": account, "copied": copied, "markers": markers,
+        ])
+        return Adoption(copied: copied)
+    }
+
     // MARK: - Removing a profile
 
     /// Compares two locations by their real path. `deletingLastPathComponent`

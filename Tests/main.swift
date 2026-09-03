@@ -32,6 +32,10 @@ try! fm.createDirectory(at: apps, withIntermediateDirectories: true)
 Graft.applicationSupportOverride = support
 Installer.installDirectoryOverride = apps
 Installer.registersWithLaunchServices = false
+// Nothing in a temporary directory can be made to run, and asking for real
+// would answer differently depending on whether somebody had Claude open while
+// the suite ran.
+Graft.runningClaudesOverride = { [] }
 
 defer { try? fm.removeItem(at: root) }
 
@@ -3051,6 +3055,172 @@ do {
     try? fm.removeItem(at: source)
     try? fm.removeItem(at: borrower)
     try? fm.removeItem(at: Graft.mirrorStateFile)
+}
+
+// MARK: - Chats left behind by an account switch
+
+section("Chats left in another profile")
+
+do {
+    func writeChat(_ id: String, titled title: String, at dir: URL,
+                   age: TimeInterval = 0, lastActive: Date? = nil) {
+        try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
+        let file = dir.appending(path: "local_\(id).json")
+        var record: [String: Any] = ["cliSessionId": id, "title": title]
+        if let lastActive {
+            record["lastActivityAt"] = lastActive.timeIntervalSince1970 * 1000
+        }
+        try! JSONSerialization.data(withJSONObject: record).write(to: file)
+        try? fm.setAttributes([.modificationDate: Date().addingTimeInterval(-age)],
+                              ofItemAtPath: file.path)
+    }
+
+    func workFolder(of profile: URL, store: String = "claude-code-sessions") -> URL {
+        profile.appending(path: store).appending(path: "work").appending(path: "ORG-W")
+    }
+
+    // The shape switching accounts inside one Claude leaves behind: a single
+    // profile holding both histories, keyed by account, with the one it is not
+    // signed into sitting there untouched.
+    let main = makeProfile("Claude", account: "personal", org: "ORG-P", chats: ["p1"])
+    writeChat("w1", titled: "First look at the codebase", at: workFolder(of: main), age: 300)
+    writeChat("w2", titled: "Invoice parser", at: workFolder(of: main), age: 120)
+    writeChat("w3", titled: "Rewriting the deploy script", at: workFolder(of: main))
+    writeChat("w4", titled: "A local agent chat",
+              at: workFolder(of: main, store: "local-agent-mode-sessions"), age: 60)
+    try! "1700000000".write(to: workFolder(of: main).appending(path: "deleted_gone"),
+                            atomically: true, encoding: .utf8)
+
+    let second = makeProfile("Claude-Work", account: "work")
+    let found = Graft.chatsElsewhere(for: second, among: Graft.sessionStoreProfiles())
+
+    check(found?.profile.lastPathComponent == "Claude",
+          "a profile signed in with nothing of its own finds the chats another profile holds for its account")
+    check(found?.account == "work", "and it is asked about the account this profile is signed into")
+    check(found?.count == 4, "both chat stores are counted, not only the sessions one")
+    check(found?.merging == false,
+          "a profile with nothing of its own is told this is a history arriving, not two being merged")
+    check(found?.chats.first?.title == "Rewriting the deploy script",
+          "the newest chat is named first, since a count alone does not say which history this is")
+    check(found?.chats.contains { $0.title == "A local agent chat" } == true,
+          "and the titles reach across both stores")
+    check(found?.chats.first?.lastActive != nil,
+          "each one carries when it was last active, which is the other half of recognising it")
+
+    check(Graft.chatsElsewhere(for: main, among: Graft.sessionStoreProfiles()) == nil,
+          "a profile holding every chat the others have is offered nothing")
+
+    let signedOut = makeProfile("Claude-New", account: nil)
+    check(Graft.chatsElsewhere(for: signedOut, among: Graft.sessionStoreProfiles()) == nil,
+          "a profile that has never been signed in is offered nothing")
+
+    try! "{ truncated".write(to: signedOut.appending(path: "config.json"),
+                             atomically: true, encoding: .utf8)
+    check(Graft.chatsElsewhere(for: signedOut, among: Graft.sessionStoreProfiles()) == nil,
+          "a config caught mid-rename is not read as an account with chats waiting for it")
+
+    let busy = makeProfile("Claude-Busy", account: "work", org: "ORG-W", chats: ["own"])
+    check(Graft.chatsElsewhere(for: busy, among: Graft.sessionStoreProfiles())?.count == 4,
+          "a profile with a history of its own is offered the chats it has not got as well")
+    check(Graft.chatsElsewhere(for: busy, among: Graft.sessionStoreProfiles())?.merging == true,
+          "and is told the two sets are merged rather than one standing in for the other")
+    writeChat("w1", titled: "First look at the codebase", at: workFolder(of: busy))
+    check(Graft.chatsElsewhere(for: busy, among: Graft.sessionStoreProfiles())?.count == 3,
+          "the count is only what is missing, so it is the number that will actually arrive")
+    try? fm.removeItem(at: busy)
+
+    // Ordered by the moment inside the record, not by the file it sits in.
+    let stamped = makeProfile("Claude-Stamped", account: "stamps")
+    let stampedSource = main.appending(path: "claude-code-sessions")
+        .appending(path: "stamps").appending(path: "ORG-S")
+    writeChat("late", titled: "Touched last, active first", at: stampedSource,
+              age: 9000, lastActive: Date())
+    writeChat("early", titled: "Touched first, active last", at: stampedSource,
+              lastActive: Date().addingTimeInterval(-9000))
+    check(Graft.chatsElsewhere(for: stamped, among: Graft.sessionStoreProfiles())?
+            .chats.first?.title == "Touched last, active first",
+          "a record says when it was last active, and that outranks when its file was written")
+    try? fm.removeItem(at: stamped)
+
+    let grafted = makeProfile("Claude-Grafted", account: "work")
+    linkTheOldWay(grafted.appending(path: "claude-code-sessions"), to: workFolder(of: main))
+    check(Graft.chatsElsewhere(for: grafted, among: Graft.sessionStoreProfiles()) == nil,
+          "a grafted profile's emptiness is this app's own doing, so it is offered nothing")
+    try? fm.removeItem(at: grafted)
+
+    // The copy itself.
+    let copied = Graft.adoptChats(from: main, into: second, account: "work")
+    check(copied.copied == 4,
+          "the count answers in chats, so it is the same number the offer put on screen")
+    check(chatsVisible(to: second) == ["local_w1.json", "local_w2.json", "local_w3.json"],
+          "the chats arrive in the profile that was signed into that account")
+    check(Graft.exists(workFolder(of: second, store: "local-agent-mode-sessions")
+                        .appending(path: "local_w4.json")),
+          "and the other store is filled as well as the sessions one")
+    check(Graft.exists(workFolder(of: second).appending(path: "deleted_gone")),
+          "a chat deleted over there stays deleted here, rather than coming back as new")
+    check(chatsVisible(to: main).contains("local_w3.json"),
+          "the originals stay where they are, so the other profile is unchanged by this")
+    check(Graft.exists(workFolder(of: main).appending(path: "local_w3.json")),
+          "and a profile this app did not make has nothing taken out of it")
+
+    check(Graft.chatsElsewhere(for: second, among: Graft.sessionStoreProfiles()) == nil,
+          "once they are here the offer stops being made")
+
+    try! JSONSerialization.data(withJSONObject: ["cliSessionId": "w3", "isArchived": true])
+        .write(to: workFolder(of: second).appending(path: "local_w3.json"))
+    check(Graft.adoptChats(from: main, into: second, account: "work").copied == 0,
+          "a second run copies nothing, having nothing new to bring")
+    let kept = (try? Data(contentsOf: workFolder(of: second).appending(path: "local_w3.json")))
+        .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+    check(kept?["isArchived"] as? Bool == true,
+          "so a chat archived here since is not written back over with the copy it came from")
+
+    check(Graft.adoptChats(from: main, into: main, account: "work").copied == 0,
+          "a profile is never asked to copy its own chats onto themselves")
+    try? fm.removeItem(at: second)
+    try? fm.removeItem(at: signedOut)
+
+    // Nothing moves while any Claude is up, this profile's or anybody's.
+    let waiting = makeProfile("Claude-Waiting", account: "work")
+    Graft.runningClaudesOverride = { [Graft.mainProfile] }
+    let refused = Graft.adoptChats(from: main, into: waiting, account: "work")
+    check(refused.running.map(\.lastPathComponent) == ["Claude"],
+          "a copy asked for while a Claude is open says which one to quit")
+    check(refused.copied == 0 && chatsVisible(to: waiting).isEmpty,
+          "and copies nothing, rather than landing records under an instance that may write over them")
+    Graft.runningClaudesOverride = { [] }
+    check(Graft.adoptChats(from: main, into: waiting, account: "work").copied == 4,
+          "the same press on a quiet machine brings them across")
+    try? fm.removeItem(at: waiting)
+
+    // A folder that is not the profile's to fill.
+    let stashed = makeProfile("Claude-Stashed", account: "work")
+    try! fm.createDirectory(at: Graft.stashURL(for: stashed.appending(path: "claude-code-sessions")
+                                                .appending(path: "work")),
+                            withIntermediateDirectories: true)
+    let landed = Graft.adoptChats(from: main, into: stashed, account: "work").copied
+    check(chatsVisible(to: stashed).isEmpty,
+          "a folder this app has stashed away is left alone rather than filled behind the graft holding it")
+    check(landed == 1 && Graft.exists(workFolder(of: stashed, store: "local-agent-mode-sessions")
+                                        .appending(path: "local_w4.json")),
+          "and the refusal is per store, so the one that is still the profile's own is filled")
+    try? fm.removeItem(at: stashed)
+
+    // The shortened spelling a profile in local mode uses.
+    let short = makeProfile("Claude-Short", account: "workaccount-1234")
+    let shortWork = short.appending(path: "claude-code-sessions").appending(path: "workacco")
+    try! fm.createDirectory(at: shortWork.appending(path: "ORG-W"), withIntermediateDirectories: true)
+    writeChat("s1", titled: "Long-named account",
+              at: main.appending(path: "claude-code-sessions")
+                  .appending(path: "workaccount-1234").appending(path: "ORG-W"))
+    check(Graft.adoptChats(from: main, into: short, account: "workaccount-1234").copied == 1,
+          "a store spelling the account short is filled where it really keeps it")
+    check(Graft.exists(shortWork.appending(path: "ORG-W").appending(path: "local_s1.json")),
+          "rather than beside it under the name the account was asked for")
+    try? fm.removeItem(at: short)
+
+    try? fm.removeItem(at: main)
 }
 
 // MARK: - Reading an absence

@@ -15,6 +15,13 @@ struct Shortcut: Codable, Identifiable, Hashable {
     var source: Source = .main
     /// Name the bundle was last installed under, so a rename can clean up.
     var installedName: String?
+    /// The account this shortcut has been told to stop asking about when it
+    /// is opened. It silences the question, not the offer: the window goes on
+    /// showing what another profile is holding, so somebody who said not now
+    /// can still bring the chats over later. Optional because it is decoded
+    /// from lists written before it existed, and keyed by account because
+    /// signing the profile into a different one is a new question.
+    var stopAskingChatsFor: String?
     init(name: String, folder: String? = nil, source: Source = .main) {
         self.name = name
         self.folder = folder ?? Shortcut.folderName(for: name)
@@ -59,7 +66,21 @@ final class ShortcutStore: ObservableObject {
         try? data.write(to: file, options: .atomic)
     }
 
+    /// Shortcuts already asked about the chats another profile holds for
+    /// them, while this run of the app has been up. Deliberately not saved:
+    /// answering for good is a button of its own, and this only stops a second
+    /// press of Open asking a second time.
+    var askedAboutChats: Set<UUID> = []
+
     func shortcut(_ id: UUID) -> Shortcut? { shortcuts.first { $0.id == id } }
+
+    /// What to call a profile on screen. Claude's own has no shortcut standing
+    /// for it, and a folder name is not what anybody calls either of them.
+    func name(ofProfile profile: URL) -> String {
+        if Graft.samePath(profile, Graft.mainProfile) { return "Claude" }
+        return shortcuts.first { Graft.samePath($0.profileDir, profile) }?.name
+            ?? profile.lastPathComponent
+    }
 
     /// Removes the shortcut and the app it installed. The profile folder — a
     /// login and a chat history — only goes when explicitly asked for, and
