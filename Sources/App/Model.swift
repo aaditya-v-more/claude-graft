@@ -3,6 +3,83 @@ import Foundation
 /// One extra Claude Desktop shortcut: a name, a profile folder of its own, and
 /// where its Claude Code chats come from.
 struct Shortcut: Codable, Identifiable, Hashable {
+    enum IconPreset: String, Codable, CaseIterable, Identifiable {
+        case original
+        case blue
+        case violet
+        case green
+        case red
+        case pink
+        case teal
+        case graphite
+        case work
+        case personal
+        case code
+        case research
+
+        var id: Self { self }
+
+        var title: String {
+            switch self {
+            case .original: return L10n.text("Original")
+            case .blue: return L10n.text("Blue")
+            case .violet: return L10n.text("Violet")
+            case .green: return L10n.text("Green")
+            case .red: return L10n.text("Red")
+            case .pink: return L10n.text("Pink")
+            case .teal: return L10n.text("Teal")
+            case .graphite: return L10n.text("Graphite")
+            case .work: return L10n.text("Work")
+            case .personal: return L10n.text("Personal")
+            case .code: return L10n.text("Code")
+            case .research: return L10n.text("Research")
+            }
+        }
+
+        var hueAngle: Double? {
+            switch self {
+            case .original, .graphite: return nil
+            case .red: return -0.45
+            case .pink, .research: return -0.95
+            case .blue, .work: return -2.8
+            case .violet, .personal: return -1.75
+            case .teal: return 2.8
+            case .green, .code: return 2.25
+            }
+        }
+
+        var saturation: Double { self == .graphite ? 0 : 1 }
+
+        var badgeSymbol: String? {
+            switch self {
+            case .work: return "briefcase.fill"
+            case .personal: return "person.fill"
+            case .code: return "terminal.fill"
+            case .research: return "magnifyingglass"
+            default: return nil
+            }
+        }
+    }
+
+    enum ThemePreset: String, Codable, CaseIterable, Identifiable {
+        case `default`
+        case system
+        case light
+        case dark
+
+        var id: Self { self }
+        var value: String? { self == .default ? nil : rawValue }
+
+        var title: String {
+            switch self {
+            case .default: return L10n.text("Default")
+            case .system: return L10n.text("System")
+            case .light: return L10n.text("Light")
+            case .dark: return L10n.text("Dark")
+            }
+        }
+    }
+
     enum Source: Codable, Hashable {
         case own
         case main
@@ -13,12 +90,37 @@ struct Shortcut: Codable, Identifiable, Hashable {
     var name: String
     var folder: String
     var source: Source = .main
+    var iconPreset: IconPreset = .original
+    var themePreset: ThemePreset = .default
+    var showsWindowOutline = true
     /// Name the bundle was last installed under, so a rename can clean up.
     var installedName: String?
-    init(name: String, folder: String? = nil, source: Source = .main) {
+    init(name: String, folder: String? = nil, source: Source = .main,
+         iconPreset: IconPreset = .original, themePreset: ThemePreset = .default,
+         showsWindowOutline: Bool = true) {
         self.name = name
         self.folder = folder ?? Shortcut.folderName(for: name)
         self.source = source
+        self.iconPreset = iconPreset
+        self.themePreset = themePreset
+        self.showsWindowOutline = showsWindowOutline
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, name, folder, source, iconPreset, themePreset, showsWindowOutline, installedName
+    }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        id = try values.decode(UUID.self, forKey: .id)
+        name = try values.decode(String.self, forKey: .name)
+        folder = try values.decode(String.self, forKey: .folder)
+        source = try values.decodeIfPresent(Source.self, forKey: .source) ?? .main
+        iconPreset = try values.decodeIfPresent(IconPreset.self, forKey: .iconPreset) ?? .original
+        themePreset = try values.decodeIfPresent(ThemePreset.self, forKey: .themePreset) ?? .default
+        showsWindowOutline = try values.decodeIfPresent(Bool.self,
+                                                         forKey: .showsWindowOutline) ?? true
+        installedName = try values.decodeIfPresent(String.self, forKey: .installedName)
     }
 
     /// "Work Account" -> "Claude-Work-Account", "Claude 2" -> "Claude-2".
@@ -75,7 +177,7 @@ final class ShortcutStore: ObservableObject {
         var problem: String?
         if deletingProfile {
             if sharedWithAnother {
-                problem = "The profile folder was kept: another shortcut still uses it."
+                problem = L10n.text("The profile folder was kept: another shortcut still uses it.")
             } else {
                 do { try Graft.deleteProfile(shortcut.profileDir) }
                 catch { problem = error.localizedDescription }
@@ -159,9 +261,9 @@ final class ShortcutStore: ObservableObject {
 
     func label(for source: Shortcut.Source) -> String {
         switch source {
-        case .own: return "Its own chats"
-        case .main: return "Main Claude"
-        case .shortcut(let id): return shortcut(id)?.name ?? "Removed shortcut"
+        case .own: return L10n.text("Its own chats")
+        case .main: return L10n.text("Main Claude")
+        case .shortcut(let id): return shortcut(id)?.name ?? L10n.text("Removed shortcut")
         }
     }
 

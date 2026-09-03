@@ -29,24 +29,24 @@ enum SessionStarter {
         var errorDescription: String? {
             switch self {
             case .noLogin:
-                return """
+                return L10n.text("""
                     No login is stored for this profile yet. Open it once and sign in, \
                     then a session can be started from here.
-                    """
+                    """)
             case .inFlight:
-                return "A session is already being started for this account."
+                return L10n.text("A session is already being started for this account.")
             case .credentials(let detail):
                 return detail
             case .http(401, _), .http(403, _):
-                return "That profile's login was refused. Open it once so Claude can renew it."
+                return L10n.text("That profile's login was refused. Open it once so Claude can renew it.")
             case .http(429, _):
-                return "That account is rate-limited right now."
+                return L10n.text("That account is rate-limited right now.")
             case .http(let code, let detail):
                 return detail.isEmpty
-                    ? "Anthropic answered \(code)."
-                    : "Anthropic answered \(code): \(detail)"
+                    ? L10n.format("Anthropic answered %ld.", code)
+                    : L10n.format("Anthropic answered %ld: %@", code, detail)
             case .unreachable(let detail):
-                return "Could not reach Anthropic: \(detail)"
+                return L10n.format("Could not reach Anthropic: %@", detail)
             }
         }
     }

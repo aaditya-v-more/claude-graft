@@ -63,10 +63,10 @@ struct SettingsView: View {
                     set: { problem = settings.setOpenAtLogin($0) }))
                 Toggle("Show in Menu Bar", isOn: $settings.showInMenuBar)
             } footer: {
-                Text(problem ?? """
+                Text(problem ?? L10n.text("""
                      The menu bar item keeps reporting usage after this window is \
                      closed. Quit it from the menu bar itself.
-                     """)
+                     """))
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -83,6 +83,7 @@ struct SettingsView: View {
 /// icon goes with the window so it behaves like the utility it is.
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var menuBar: MenuBarController?
+    private var profileBorder: ProfileBorderController?
     /// Guards against hiding the app before its first window ever appears.
     private var hasShownWindow = false
     /// Set by Quit in the dropdown, and by nothing else. See `applicationShouldTerminate`.
@@ -125,6 +126,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                     settings: Shared.settings,
                                     usage: Shared.usage,
                                     openMainWindow: { [weak self] in self?.showMainWindow() })
+        profileBorder = ProfileBorderController(store: Shared.store)
         watchForWindowClose()
         watchForShutdown()
     }

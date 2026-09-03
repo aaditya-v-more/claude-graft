@@ -47,19 +47,19 @@ enum ClaudeCredentials {
         var errorDescription: String? {
             switch self {
             case .noKeychainAccess:
-                return """
+                return L10n.text("""
                     macOS has not granted access to the “Claude Safe Storage” keychain \
                     item. Choose Always Allow when it asks, and live usage starts working.
-                    """
+                    """)
             case .keychainDeclined:
-                return """
+                return L10n.text("""
                     Access to the “Claude Safe Storage” keychain item was declined, so usage \
                     is coming from disk. Refresh Usage asks again.
-                    """
+                    """)
             case .notSignedIn:
-                return "No Claude Desktop login was found for this profile."
+                return L10n.text("No Claude Desktop login was found for this profile.")
             case .expired:
-                return "That profile's login has expired. Open it once so Claude can renew it."
+                return L10n.text("That profile's login has expired. Open it once so Claude can renew it.")
             }
         }
     }

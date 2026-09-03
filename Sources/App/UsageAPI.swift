@@ -13,6 +13,8 @@ enum UsageAPI {
         var fiveHourReset: Date?
         var weekReset: Date?
         var plan: String?
+        var fable: Int? = nil
+        var fableReset: Date? = nil
     }
 
     enum Failure: LocalizedError {
@@ -24,13 +26,13 @@ enum UsageAPI {
         var errorDescription: String? {
             switch self {
             case .http(401, _), .http(403, _):
-                return "That login was refused. Open the profile once so Claude can renew it."
+                return L10n.text("That login was refused. Open the profile once so Claude can renew it.")
             case .http(429, _):
-                return "Anthropic is rate-limiting usage checks. The last figures stay on screen."
+                return L10n.text("Anthropic is rate-limiting usage checks. The last figures stay on screen.")
             case .http(let code, _):
-                return "The usage service answered \(code)."
+                return L10n.format("The usage service answered %ld.", code)
             case .unreadable:
-                return "The usage service sent something unexpected."
+                return L10n.text("The usage service sent something unexpected.")
             }
         }
     }
@@ -74,22 +76,44 @@ enum UsageAPI {
     static func reading(from body: [String: Any]) -> Reading? {
         guard let session = window(body["five_hour"]) else { return nil }
         let weekly = window(body["seven_day"])
+        let fable = fableWindow(body["limits"])
         return Reading(fiveHour: session.used,
                        week: weekly?.used ?? 0,
                        fiveHourReset: session.resets,
                        weekReset: weekly?.resets,
-                       plan: (body["subscription_type"] as? String)?.capitalized)
+                       plan: (body["subscription_type"] as? String)?.capitalized,
+                       fable: fable?.used,
+                       fableReset: fable?.resets)
     }
 
     private static func window(_ value: Any?) -> (used: Int, resets: Date?)? {
-        guard let object = value as? [String: Any] else { return nil }
-        let used: Int
-        switch object["utilization"] {
-        case let number as Int: used = number
-        case let number as Double: used = Int(number.rounded())
+        guard let object = value as? [String: Any],
+              let used = percentage(object["utilization"])
+        else { return nil }
+        return (used, date(object["resets_at"]))
+    }
+
+    private static func fableWindow(_ value: Any?) -> (used: Int, resets: Date?)? {
+        guard let limits = value as? [[String: Any]],
+              let limit = limits.first(where: {
+                  guard $0["kind"] as? String == "weekly_scoped",
+                        let scope = $0["scope"] as? [String: Any],
+                        let model = scope["model"] as? [String: Any],
+                        let name = model["display_name"] as? String
+                  else { return false }
+                  return name.localizedCaseInsensitiveContains("fable")
+              }),
+              let used = percentage(limit["percent"])
+        else { return nil }
+        return (used, date(limit["resets_at"]))
+    }
+
+    private static func percentage(_ value: Any?) -> Int? {
+        switch value {
+        case let number as Int: return number
+        case let number as Double: return Int(number.rounded())
         default: return nil
         }
-        return (used, date(object["resets_at"]))
     }
 
     /// `resets_at` comes back as an ISO timestamp, occasionally as epoch seconds.

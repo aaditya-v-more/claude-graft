@@ -1,14 +1,27 @@
+import AppKit
+import CoreImage
+import CryptoKit
 import Foundation
 
-/// Builds the small .app bundle that a shortcut turns into. The bundle holds a
-/// copy of the launcher binary plus a JSON description of the profile, so it
-/// keeps working without this app installed.
+/// Builds a profile-specific copy of Claude.app. APFS clones make the copy
+/// cheap, while running Claude from that bundle gives Dock and Force Quit the
+/// shortcut's own name and icon instead of the stock Claude identity.
 enum Installer {
     static let fm = FileManager.default
 
     /// Redirected by the test suite; also stops it registering junk bundles.
     static var installDirectoryOverride: URL?
     static var registersWithLaunchServices = true
+    /// Lets the icon integration test use a self-made image instead of Claude.
+    static var iconSourceOverride: URL? { didSet { iconPreviews.removeAll() } }
+
+    private static let graftVersionKey = "ClaudeGraftVersion"
+    private static let sourceVersionKey = "ClaudeGraftSourceVersion"
+    private static let runtimeFormatKey = "ClaudeGraftRuntimeFormat"
+    private static let runtimeFormat = 1
+
+    private static let imageContext = CIContext()
+    private static var iconPreviews: [String: NSImage] = [:]
 
     /// Preferred install directory, falling back to the user's own when
     /// /Applications is not writable.
@@ -56,24 +69,39 @@ enum Installer {
 
     enum InstallError: LocalizedError {
         case missingLauncher
+        case missingClaude
+        case incompatibleClaude
+        case signingFailed
         case reservedName(String)
         case nameTaken(String)
         case badFolder(String)
         case selfSource
+        case missingIcon
+        case iconCreationFailed
         case writeFailed(String)
 
         var errorDescription: String? {
             switch self {
             case .missingLauncher:
-                return "This copy of Claude Graft is missing its launcher binary."
+                return L10n.text("This copy of Claude Graft is missing its launcher binary.")
+            case .missingClaude:
+                return L10n.text("Claude.app could not be found or is incomplete.")
+            case .incompatibleClaude:
+                return L10n.text("This Claude version cannot yet be used as a profile app. Update Claude Graft and try again.")
+            case .signingFailed:
+                return L10n.text("The profile app could not be signed for this Mac.")
             case .reservedName(let name):
-                return "“\(name)” is the name of Claude itself. Pick something else."
+                return L10n.format("“%@” is the name of Claude itself. Pick something else.", name)
             case .nameTaken(let path):
-                return "There is already an application at \(path) that Claude Graft did not create. Rename this shortcut."
+                return L10n.format("There is already an application at %@ that Claude Graft did not create. Rename this shortcut.", path)
             case .badFolder(let reason):
                 return reason
             case .selfSource:
-                return "This shortcut is set to borrow chats from its own profile. Choose a different source."
+                return L10n.text("This shortcut is set to borrow chats from its own profile. Choose a different source.")
+            case .missingIcon:
+                return L10n.text("Claude's application icon could not be read.")
+            case .iconCreationFailed:
+                return L10n.text("The selected application icon could not be created.")
             case .writeFailed(let detail):
                 return detail
             }
@@ -105,40 +133,37 @@ enum Installer {
             throw InstallError.nameTaken(bundle.path)
         }
 
-        // A rename leaves the old bundle behind, so clear it. Only ever one of
-        // ours; installedBundle already refuses anything else.
+        var previousBundle: URL?
         if let previousName, previousName != shortcut.name {
             var stale = shortcut
             stale.name = previousName
-            if let old = installedBundle(for: stale) { try? fm.removeItem(at: old) }
+            previousBundle = installedBundle(for: stale)
+            if let previousBundle, runtimeIsRunning(in: previousBundle) {
+                throw InstallError.writeFailed(
+                    L10n.text("Close this profile before renaming its application."))
+            }
         }
         let config = GraftConfig(profileDir: shortcut.profileDir.path,
-                                 sourceDir: sourceDir?.path)
-        let contents = bundle.appending(path: "Contents")
-        let macos = contents.appending(path: "MacOS")
-        let resources = contents.appending(path: "Resources")
-
+                                 sourceDir: sourceDir?.path,
+                                 themeMode: shortcut.themePreset.value)
         do {
-            try fm.createDirectory(at: macos, withIntermediateDirectories: true)
-            try fm.createDirectory(at: resources, withIntermediateDirectories: true)
-
-            let binary = macos.appending(path: "launcher")
-            if fm.fileExists(atPath: binary.path) { try fm.removeItem(at: binary) }
-            try fm.copyItem(at: launcher, to: binary)
-            try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: binary.path)
-
-            let data = try JSONEncoder().encode(config)
-            try data.write(to: resources.appending(path: "graft.json"))
-
-            try infoPlist(for: shortcut).write(to: contents.appending(path: "Info.plist"),
-                                               atomically: true, encoding: .utf8)
-            copyIcon(into: resources)
+            let source = Graft.claudeApp
+            guard validClaude(at: source) else { throw InstallError.missingClaude }
+            let needsRuntime = !isRuntimeBundle(bundle)
+                || runtimeFormatOf(bundle) != runtimeFormat
+                || builtFrom(bundle) != sourceVersion(of: source)
+            if needsRuntime && !runtimeIsRunning(in: bundle) {
+                try buildBundle(at: bundle, from: source, shortcut: shortcut,
+                                config: config, launcher: launcher)
+            } else {
+                try updateBundle(at: bundle, shortcut: shortcut,
+                                 config: config, launcher: launcher)
+            }
             try fm.createDirectory(at: shortcut.profileDir, withIntermediateDirectories: true)
-        } catch {
-            throw InstallError.writeFailed(error.localizedDescription)
-        }
+        } catch let error as InstallError { throw error }
+          catch { throw InstallError.writeFailed(error.localizedDescription) }
 
-        sign(bundle)
+        if let previousBundle, previousBundle != bundle { try? fm.removeItem(at: previousBundle) }
         touch(bundle)
 
         // Apply straight away when nothing holds the profile open; otherwise
@@ -166,8 +191,8 @@ enum Installer {
     @discardableResult
     static func refreshLaunchers(in shortcuts: [(shortcut: Shortcut, sourceDir: URL?)]) -> Int {
         shortcuts.reduce(0) {
-            let launcher = refreshLauncher(for: $1.shortcut)
             let config = refreshConfig(for: $1.shortcut, sourceDir: $1.sourceDir)
+            let launcher = refreshLauncher(for: $1.shortcut)
             return $0 + (launcher || config ? 1 : 0)
         }
     }
@@ -198,7 +223,8 @@ enum Installer {
         guard let bundle = installedBundle(for: shortcut) else { return false }
         let file = bundle.appending(path: "Contents/Resources/graft.json")
         let wanted = GraftConfig(profileDir: shortcut.profileDir.path,
-                                 sourceDir: sourceDir?.path)
+                                 sourceDir: sourceDir?.path,
+                                 themeMode: shortcut.themePreset.value)
         let current = (try? Data(contentsOf: file))
             .flatMap { try? JSONDecoder().decode(GraftConfig.self, from: $0) }
         guard current != wanted else { return false }
@@ -207,7 +233,7 @@ enum Installer {
               (try? data.write(to: file, options: .atomic)) != nil
         else { return false }
         // The bundle is signed, and writing into it breaks that.
-        sign(bundle)
+        guard sign(bundle) else { return false }
         touch(bundle)
         return true
     }
@@ -215,16 +241,37 @@ enum Installer {
     static func refreshLauncher(for shortcut: Shortcut) -> Bool {
         let version = graftVersion
         guard let launcher = Bundle.main.url(forResource: "graft-launch", withExtension: nil),
-              let bundle = installedBundle(for: shortcut),
-              builtBy(bundle) != version
+              let bundle = installedBundle(for: shortcut)
         else { return false }
+
+        let source = Graft.claudeApp
+        if validClaude(at: source),
+           (!isRuntimeBundle(bundle) || runtimeFormatOf(bundle) != runtimeFormat
+                || builtFrom(bundle) != sourceVersion(of: source)),
+           !runtimeIsRunning(in: bundle),
+           let data = try? Data(contentsOf: bundle.appending(path: "Contents/Resources/graft.json")),
+           let config = try? JSONDecoder().decode(GraftConfig.self, from: data) {
+            do {
+                try buildBundle(at: bundle, from: source, shortcut: shortcut,
+                                config: config, launcher: launcher)
+                touch(bundle)
+                return true
+            } catch {
+                Diagnostics.note("installer.refresh.failed", [
+                    "profile": shortcut.folder,
+                    "error": error.localizedDescription
+                ])
+                return false
+            }
+        }
+        guard isRuntimeBundle(bundle), builtBy(bundle) != version else { return false }
 
         // Staged and swapped rather than removed and rewritten. This runs while
         // Graft starts, which on a login is exactly when a shortcut may be
         // starting too, and a shortcut that finds no executable where its
         // launcher was does not open anything.
-        let binary = bundle.appending(path: "Contents/MacOS/launcher")
-        let staged = bundle.appending(path: "Contents/MacOS/launcher.staged")
+        let binary = bundle.appending(path: "Contents/MacOS/Claude")
+        let staged = bundle.appending(path: "Contents/MacOS/Claude.staged")
         do {
             try? fm.removeItem(at: staged)
             try fm.copyItem(at: launcher, to: staged)
@@ -237,9 +284,19 @@ enum Installer {
             try stampVersion(version, into: bundle)
         } catch {
             try? fm.removeItem(at: staged)
+            Diagnostics.note("installer.refresh.failed", [
+                "profile": shortcut.folder,
+                "error": error.localizedDescription
+            ])
             return false
         }
-        sign(bundle)
+        guard sign(bundle) else {
+            Diagnostics.note("installer.refresh.failed", [
+                "profile": shortcut.folder,
+                "error": InstallError.signingFailed.localizedDescription
+            ])
+            return false
+        }
         touch(bundle)
         return true
     }
@@ -252,7 +309,19 @@ enum Installer {
               let plist = try? PropertyListSerialization.propertyList(from: data, format: nil)
                 as? [String: Any]
         else { return nil }
-        return plist["CFBundleShortVersionString"] as? String
+        return plist[graftVersionKey] as? String
+            ?? plist["CFBundleShortVersionString"] as? String
+    }
+
+    static func builtFrom(_ bundle: URL) -> String? {
+        guard isGraftBundle(bundle),
+              let plist = plist(at: bundle.appending(path: "Contents/Info.plist"))
+        else { return nil }
+        return plist[sourceVersionKey] as? String
+    }
+
+    private static func runtimeFormatOf(_ bundle: URL) -> Int? {
+        plist(at: bundle.appending(path: "Contents/Info.plist"))?[runtimeFormatKey] as? Int
     }
 
     /// Only the two version keys are rewritten. Regenerating the whole file
@@ -263,8 +332,7 @@ enum Installer {
         let data = try Data(contentsOf: url)
         guard var plist = try PropertyListSerialization.propertyList(from: data, format: nil)
                 as? [String: Any] else { return }
-        plist["CFBundleShortVersionString"] = version
-        plist["CFBundleVersion"] = version
+        plist[graftVersionKey] = version
         let updated = try PropertyListSerialization.data(fromPropertyList: plist,
                                                          format: .xml, options: 0)
         try updated.write(to: url)
@@ -277,65 +345,530 @@ enum Installer {
 
     // MARK: - Bundle pieces
 
-    /// A name is free text and lands inside an XML document; an ampersand in it
-    /// would otherwise produce a plist macOS refuses to read.
-    private static func escaped(_ text: String) -> String {
-        text.replacingOccurrences(of: "&", with: "&amp;")
-            .replacingOccurrences(of: "<", with: "&lt;")
-            .replacingOccurrences(of: ">", with: "&gt;")
-    }
-
     /// The running app's own version. Nil only under the test binary, which is
     /// not a bundle and has no version to inherit.
     static var graftVersion: String {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.0.0"
     }
 
-    private static func infoPlist(for shortcut: Shortcut) -> String {
+    private static func identifier(for shortcut: Shortcut) -> String {
         let slug = shortcut.folder.lowercased()
             .map { $0.isLetter || $0.isNumber || $0 == "-" ? $0 : "-" }
-        let identifier = "graft." + String(slug)
-        let name = escaped(shortcut.name)
-        // Stamped with whichever Graft built it, so a shortcut left behind by an
-        // older one can be told apart from the current crop.
-        let version = graftVersion
-        return """
-        <?xml version="1.0" encoding="UTF-8"?>
-        <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-        <plist version="1.0">
-        <dict>
-            <key>CFBundleName</key><string>\(name)</string>
-            <key>CFBundleDisplayName</key><string>\(name)</string>
-            <key>CFBundleIdentifier</key><string>\(identifier)</string>
-            <key>CFBundleExecutable</key><string>launcher</string>
-            <key>CFBundleIconFile</key><string>icon</string>
-            <key>CFBundlePackageType</key><string>APPL</string>
-            <key>CFBundleShortVersionString</key><string>\(version)</string>
-            <key>CFBundleVersion</key><string>\(version)</string>
-            <key>LSUIElement</key><true/>
-            <key>LSMinimumSystemVersion</key><string>13.0</string>
-        </dict>
-        </plist>
-        """
+        return "graft." + String(slug)
     }
 
-    /// Borrow Claude's own icon so the shortcut is recognisable in the Dock.
-    private static func copyIcon(into resources: URL) {
+    private static func validClaude(at bundle: URL) -> Bool {
+        fm.isExecutableFile(atPath: bundle.appending(path: "Contents/MacOS/Claude").path)
+            && fm.fileExists(atPath: bundle.appending(path: "Contents/Resources/app.asar").path)
+            && plist(at: bundle.appending(path: "Contents/Info.plist")) != nil
+    }
+
+    private static func isRuntimeBundle(_ bundle: URL) -> Bool {
+        fm.isExecutableFile(atPath: bundle.appending(path: "Contents/MacOS/ClaudeRuntime").path)
+            && fm.isExecutableFile(atPath: bundle.appending(path: "Contents/MacOS/Claude").path)
+    }
+
+    private static func runtimeIsRunning(in bundle: URL) -> Bool {
+        let runtime = bundle.appending(path: "Contents/MacOS/ClaudeRuntime").path
+        return Graft.processes().contains { $0.command.contains(runtime) }
+    }
+
+    private static func sourceVersion(of bundle: URL) -> String? {
+        guard let plist = plist(at: bundle.appending(path: "Contents/Info.plist")),
+              let version = plist["CFBundleShortVersionString"] as? String
+        else { return nil }
+        return version + "|" + (plist["CFBundleVersion"] as? String ?? version)
+    }
+
+    private static func plist(at url: URL) -> [String: Any]? {
+        guard let data = try? Data(contentsOf: url),
+              let plist = try? PropertyListSerialization.propertyList(from: data, format: nil)
+                as? [String: Any]
+        else { return nil }
+        return plist
+    }
+
+    private static func writeInfo(for shortcut: Shortcut, into bundle: URL,
+                                  sourceVersion: String? = nil) throws {
+        let url = bundle.appending(path: "Contents/Info.plist")
+        guard var plist = plist(at: url) else { throw InstallError.missingClaude }
+        // Electron derives "Claude Helper.app" from CFBundleName. The display
+        // name and bundle path can still carry the profile identity.
+        plist["CFBundleName"] = "Claude"
+        plist["CFBundleDisplayName"] = shortcut.name
+        plist["CFBundleIdentifier"] = identifier(for: shortcut)
+        plist["CFBundleExecutable"] = "Claude"
+        plist["CFBundleIconFile"] = "icon.icns"
+        plist.removeValue(forKey: "CFBundleIconName")
+        plist.removeValue(forKey: "LSUIElement")
+        plist[graftVersionKey] = graftVersion
+        if let sourceVersion {
+            plist[sourceVersionKey] = sourceVersion
+            plist[runtimeFormatKey] = runtimeFormat
+        }
+        let data = try PropertyListSerialization.data(fromPropertyList: plist,
+                                                       format: .xml, options: 0)
+        try data.write(to: url, options: .atomic)
+    }
+
+    private static func writeConfig(_ config: GraftConfig, into bundle: URL) throws {
+        let data = try JSONEncoder().encode(config)
+        try data.write(to: bundle.appending(path: "Contents/Resources/graft.json"),
+                       options: .atomic)
+    }
+
+    private static func installLauncher(_ launcher: URL, into bundle: URL) throws {
+        let binary = bundle.appending(path: "Contents/MacOS/Claude")
+        if fm.fileExists(atPath: binary.path) { try fm.removeItem(at: binary) }
+        try fm.copyItem(at: launcher, to: binary)
+        try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: binary.path)
+    }
+
+    private static func buildBundle(at destination: URL, from source: URL,
+                                    shortcut: Shortcut, config: GraftConfig,
+                                    launcher: URL) throws {
+        let staged = destination.deletingLastPathComponent()
+            .appending(path: ".claude-graft-\(UUID().uuidString).app")
+        defer { try? fm.removeItem(at: staged) }
+        guard Graft.runTool("/bin/cp", ["-cR", source.path, staged.path]) == 0 else {
+            throw InstallError.writeFailed(
+                L10n.text("Claude.app could not be copied for this profile."))
+        }
+
+        let original = staged.appending(path: "Contents/MacOS/Claude")
+        let runtime = staged.appending(path: "Contents/MacOS/ClaudeRuntime")
+        try fm.moveItem(at: original, to: runtime)
+        try installLauncher(launcher, into: staged)
+        try writeConfig(config, into: staged)
+        try writeInfo(for: shortcut, into: staged, sourceVersion: sourceVersion(of: source))
+        try writeIcon(shortcut.iconPreset, into: staged.appending(path: "Contents/Resources"))
+        try disableAutoUpdates(in: staged.appending(path: "Contents/Resources/app.asar"))
+        try signRuntime(in: staged)
+        guard sign(staged) else {
+            Diagnostics.note("installer.sign.failed", ["target": "bundle"])
+            throw InstallError.signingFailed
+        }
+        guard verify(staged) else {
+            Diagnostics.note("installer.sign.failed", ["target": "verification"])
+            throw InstallError.signingFailed
+        }
+
+        if fm.fileExists(atPath: destination.path) {
+            _ = try fm.replaceItemAt(destination, withItemAt: staged)
+        } else {
+            try fm.moveItem(at: staged, to: destination)
+        }
+    }
+
+    private static func updateBundle(at bundle: URL, shortcut: Shortcut,
+                                     config: GraftConfig, launcher: URL) throws {
+        try installLauncher(launcher, into: bundle)
+        try writeConfig(config, into: bundle)
+        try writeInfo(for: shortcut, into: bundle)
+        try writeIcon(shortcut.iconPreset, into: bundle.appending(path: "Contents/Resources"))
+        guard sign(bundle) else { throw InstallError.signingFailed }
+    }
+
+    /// Make only Claude's installed-app test return false. The replacement has
+    /// identical length, so the ASAR header and every file offset stay intact;
+    /// APFS copies only the touched block instead of duplicating the archive.
+    private static func disableAutoUpdates(in asar: URL) throws {
+        let data = try Data(contentsOf: asar, options: .mappedIfSafe)
+        let replacement = Data("return!1/*graft-off__*/".utf8)
+        var match: (range: Range<Data.Index>, returnOffset: Int)?
+        for symbol in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ$_" {
+            let prefix = "if(process.platform!==`win32`)"
+            let old = "return \(symbol).app.isPackaged"
+            let needle = Data((prefix + old + ";if(!\(symbol).app.isPackaged)").utf8)
+            guard let range = data.range(of: needle) else { continue }
+            guard match == nil, data.range(of: needle, in: range.upperBound..<data.endIndex) == nil
+            else { throw InstallError.incompatibleClaude }
+            match = (range, prefix.utf8.count)
+        }
+        guard let match, replacement.count == 23 else {
+            throw InstallError.incompatibleClaude
+        }
+
+        // The tiny fixture is deliberately not an ASAR. Production archives
+        // continue below so their per-file and embedded header hashes stay valid.
+        if installDirectoryOverride != nil {
+            let handle = try FileHandle(forWritingTo: asar)
+            defer { try? handle.close() }
+            try handle.seek(toOffset: UInt64(match.range.lowerBound + match.returnOffset))
+            try handle.write(contentsOf: replacement)
+            return
+        }
+
+        let patchOffset = match.range.lowerBound + match.returnOffset
+        guard data.count >= 16 else { throw InstallError.incompatibleClaude }
+        func uint32(at offset: Int) -> Int {
+            data[offset..<offset + 4].enumerated().reduce(0) {
+                $0 | Int($1.element) << ($1.offset * 8)
+            }
+        }
+        let headerSize = uint32(at: 4)
+        let jsonSize = uint32(at: 12)
+        let jsonRange = 16..<16 + jsonSize
+        let filesStart = 8 + headerSize
+        guard jsonRange.upperBound <= data.count,
+              let headerObject = try JSONSerialization.jsonObject(
+                with: data.subdata(in: jsonRange)) as? [String: Any],
+              let files = headerObject["files"] as? [String: Any],
+              let entry = asarEntry(in: files, containing: patchOffset - filesStart)
+        else { throw InstallError.incompatibleClaude }
+
+        let fileRange = (filesStart + entry.offset)..<(filesStart + entry.offset + entry.size)
+        guard fileRange.contains(patchOffset), fileRange.upperBound <= data.count,
+              let blockSize = entry.integrity["blockSize"] as? Int,
+              blockSize > 0
+        else { throw InstallError.incompatibleClaude }
+
+        var integrity = entry.integrity
+        var file = data.subdata(in: fileRange)
+        let relativePatch = patchOffset - fileRange.lowerBound
+        file.replaceSubrange(relativePatch..<relativePatch + replacement.count, with: replacement)
+        integrity["hash"] = sha256(file)
+        integrity["blocks"] = stride(from: 0, to: file.count, by: blockSize).map {
+            sha256(file.subdata(in: $0..<min($0 + blockSize, file.count)))
+        }
+
+        var updatedHeader = headerObject
+        guard setAsarIntegrity(integrity, at: entry.path[...], node: &updatedHeader) else {
+            throw InstallError.incompatibleClaude
+        }
+        let header = try JSONSerialization.data(withJSONObject: updatedHeader)
+        guard header.count == jsonSize else { throw InstallError.incompatibleClaude }
+
+        let handle = try FileHandle(forWritingTo: asar)
+        defer { try? handle.close() }
+        try handle.seek(toOffset: UInt64(patchOffset))
+        try handle.write(contentsOf: replacement)
+        try handle.seek(toOffset: UInt64(jsonRange.lowerBound))
+        try handle.write(contentsOf: header)
+        try handle.synchronize()
+
+        try updateEmbeddedAsarHash(sha256(header), in: asar
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent())
+    }
+
+    private struct AsarEntry {
+        let path: [String]
+        let offset: Int
+        let size: Int
+        let integrity: [String: Any]
+    }
+
+    private static func asarEntry(in files: [String: Any], path: [String] = [],
+                                  containing offset: Int) -> AsarEntry? {
+        for (name, value) in files {
+            guard let item = value as? [String: Any] else { continue }
+            if let children = item["files"] as? [String: Any],
+               let found = asarEntry(in: children, path: path + [name], containing: offset) {
+                return found
+            }
+            guard let rawOffset = item["offset"] as? String,
+                  let start = Int(rawOffset),
+                  let size = item["size"] as? Int,
+                  offset >= start, offset < start + size,
+                  let integrity = item["integrity"] as? [String: Any]
+            else { continue }
+            return AsarEntry(path: path + [name], offset: start,
+                             size: size, integrity: integrity)
+        }
+        return nil
+    }
+
+    private static func setAsarIntegrity(_ integrity: [String: Any],
+                                         at path: ArraySlice<String>,
+                                         node: inout [String: Any]) -> Bool {
+        guard let name = path.first,
+              var files = node["files"] as? [String: Any],
+              var item = files[name] as? [String: Any]
+        else { return false }
+        if path.count == 1 {
+            item["integrity"] = integrity
+        } else if !setAsarIntegrity(integrity, at: path.dropFirst(), node: &item) {
+            return false
+        }
+        files[name] = item
+        node["files"] = files
+        return true
+    }
+
+    private static func sha256(_ data: Data) -> String {
+        SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+    }
+
+    private static func updateEmbeddedAsarHash(_ hash: String, in bundle: URL) throws {
+        guard let enumerator = fm.enumerator(at: bundle,
+                                             includingPropertiesForKeys: [.isRegularFileKey])
+        else { throw InstallError.incompatibleClaude }
+        let infoFiles = enumerator.compactMap { $0 as? URL }.filter {
+            $0.lastPathComponent == "Info.plist"
+                && plist(at: $0)?["ElectronAsarIntegrity"] != nil
+        }
+        let roots = Set(infoFiles.compactMap { codeRoot(for: $0, inside: bundle) })
+        let processEntitlements: [URL: Data] = Dictionary(
+            uniqueKeysWithValues: try roots.compactMap { root -> (URL, Data)? in
+            guard isProcessBundle(root) else { return nil }
+            return (root, try entitlementsForResigning(root))
+        })
+
+        for url in infoFiles {
+            guard var info = plist(at: url),
+                  var archives = info["ElectronAsarIntegrity"] as? [String: Any],
+                  var app = archives["Resources/app.asar"] as? [String: Any]
+            else { continue }
+            app["hash"] = hash
+            archives["Resources/app.asar"] = app
+            info["ElectronAsarIntegrity"] = archives
+            let data = try PropertyListSerialization.data(fromPropertyList: info,
+                                                           format: .xml, options: 0)
+            try data.write(to: url, options: .atomic)
+        }
+
+        for root in roots.sorted(by: { $0.pathComponents.count > $1.pathComponents.count }) {
+            let arguments: [String]
+            let entitlementFile: URL?
+            if let entitlements = processEntitlements[root] {
+                let file = fm.temporaryDirectory
+                    .appending(path: "claude-graft-entitlements-\(UUID().uuidString).plist")
+                try entitlements.write(to: file, options: Data.WritingOptions.atomic)
+                entitlementFile = file
+                arguments = ["--force", "--options", "runtime", "--entitlements", file.path,
+                             "--sign", "-", root.path]
+            } else {
+                entitlementFile = nil
+                arguments = ["--force", "--sign", "-", root.path]
+            }
+            defer { if let entitlementFile { try? fm.removeItem(at: entitlementFile) } }
+            guard Graft.runTool("/usr/bin/codesign", arguments) == 0 else {
+                Diagnostics.note("installer.sign.failed", ["target": root.path])
+                throw InstallError.signingFailed
+            }
+        }
+    }
+
+    private static func codeRoot(for info: URL, inside bundle: URL) -> URL? {
+        var candidate = info.deletingLastPathComponent()
+        while candidate.path.hasPrefix(bundle.path), candidate != bundle {
+            if ["app", "xpc", "appex", "framework"].contains(candidate.pathExtension) {
+                return candidate
+            }
+            candidate.deleteLastPathComponent()
+        }
+        return nil
+    }
+
+    private static func isProcessBundle(_ url: URL) -> Bool {
+        ["app", "xpc", "appex"].contains(url.pathExtension)
+    }
+
+    private static func entitlementsForResigning(_ code: URL) throws -> Data {
+        let file = fm.temporaryDirectory
+            .appending(path: "claude-graft-original-entitlements-\(UUID().uuidString).plist")
+        defer { try? fm.removeItem(at: file) }
+        var entitlements: [String: Any] = [:]
+        if Graft.runTool("/usr/bin/codesign",
+                         ["--display", "--entitlements", file.path, "--xml", code.path]) == 0,
+           let existing = plist(at: file) {
+            entitlements = existing
+        }
+        entitlements.removeValue(forKey: "com.apple.application-identifier")
+        entitlements.removeValue(forKey: "com.apple.developer.team-identifier")
+        entitlements.removeValue(forKey: "keychain-access-groups")
+        entitlements["com.apple.security.cs.disable-library-validation"] = true
+        return try PropertyListSerialization.data(fromPropertyList: entitlements,
+                                                   format: .xml, options: 0)
+    }
+
+    private static func signRuntime(in bundle: URL) throws {
+        guard installDirectoryOverride == nil else { return }
+        guard let entitlements = Bundle.main.url(forResource: "ClaudeRuntime",
+                                                 withExtension: "entitlements") else {
+            throw InstallError.signingFailed
+        }
+        let runtime = bundle.appending(path: "Contents/MacOS/ClaudeRuntime")
+        guard Graft.runTool("/usr/bin/codesign",
+                            ["--force", "--options", "runtime", "--entitlements",
+                             entitlements.path, "--sign", "-", runtime.path]) == 0
+        else {
+            Diagnostics.note("installer.sign.failed", ["target": "runtime"])
+            throw InstallError.signingFailed
+        }
+    }
+
+    /// Borrow Claude's own icon and optionally recolour/badge it. The result is
+    /// a real bundle icon, so Finder, Spotlight and the Dock all see it.
+    private static func writeIcon(_ preset: Shortcut.IconPreset, into resources: URL) throws {
+        guard let source = iconSource else { throw InstallError.missingIcon }
+        let destination = resources.appending(path: "icon.icns")
+        let staged = resources.appending(path: "icon.staged.icns")
+        try? fm.removeItem(at: staged)
+        defer { try? fm.removeItem(at: staged) }
+
+        if preset == .original, source.pathExtension.lowercased() == "icns" {
+            try fm.copyItem(at: source, to: staged)
+        } else {
+            let scratch = fm.temporaryDirectory
+                .appending(path: "claude-graft-icon-\(UUID().uuidString).png")
+            defer { try? fm.removeItem(at: scratch) }
+            guard let image = renderedIcon(from: source, preset: preset, pixels: 1024),
+                  let data = image.tiffRepresentation
+                    .flatMap(NSBitmapImageRep.init(data:))?
+                    .representation(using: .png, properties: [:])
+            else { throw InstallError.iconCreationFailed }
+            try data.write(to: scratch)
+            guard Graft.runTool("/usr/bin/sips",
+                                ["-s", "format", "icns", scratch.path,
+                                 "--out", staged.path]) == 0
+            else { throw InstallError.iconCreationFailed }
+        }
+
+        if fm.fileExists(atPath: destination.path) {
+            _ = try fm.replaceItemAt(destination, withItemAt: staged)
+        } else {
+            try fm.moveItem(at: staged, to: destination)
+        }
+    }
+
+    private static var iconSource: URL? {
+        if let iconSourceOverride { return iconSourceOverride }
         let candidates = ["electron.icns", "Claude.icns", "app.icns"]
         for name in candidates {
             let source = Graft.claudeApp.appending(path: "Contents/Resources/\(name)")
-            guard fm.fileExists(atPath: source.path) else { continue }
-            let destination = resources.appending(path: "icon.icns")
-            if fm.fileExists(atPath: destination.path) { try? fm.removeItem(at: destination) }
-            try? fm.copyItem(at: source, to: destination)
-            return
+            if fm.fileExists(atPath: source.path) { return source }
+        }
+        return nil
+    }
+
+    static func previewIcon(for preset: Shortcut.IconPreset) -> NSImage? {
+        guard let source = iconSource else { return nil }
+        let key = source.path + "|" + preset.rawValue
+        if let cached = iconPreviews[key] { return cached }
+        guard let image = renderedIcon(from: source, preset: preset, pixels: 96) else { return nil }
+        iconPreviews[key] = image
+        return image
+    }
+
+    private static func renderedIcon(from source: URL, preset: Shortcut.IconPreset,
+                                     pixels: Int) -> NSImage? {
+        guard let stock = NSImage(contentsOf: source),
+              let base = bitmapImage(pixels: pixels, drawing: {
+                  stock.draw(in: $0, from: .zero, operation: .copy, fraction: 1)
+              })
+        else { return nil }
+
+        var icon = base
+        if (preset.hueAngle != nil || preset.saturation != 1),
+           let input = base.representations.compactMap({ ($0 as? NSBitmapImageRep)?.cgImage }).first {
+            var filtered = CIImage(cgImage: input)
+            if let angle = preset.hueAngle {
+                filtered = filtered.applyingFilter(
+                    "CIHueAdjust", parameters: [kCIInputAngleKey: angle])
+            }
+            if preset.saturation != 1 {
+                filtered = filtered.applyingFilter(
+                    "CIColorControls", parameters: [kCIInputSaturationKey: preset.saturation])
+            }
+            guard let output = imageContext.createCGImage(filtered, from: filtered.extent) else {
+                return nil
+            }
+            icon = NSImage(cgImage: output, size: base.size)
+        }
+
+        guard let symbolName = preset.badgeSymbol else { return icon }
+        return bitmapImage(pixels: pixels) { rect in
+            icon.draw(in: rect, from: .zero, operation: .copy, fraction: 1)
+
+            let side = rect.width
+            let badge = NSRect(x: side * 0.63, y: side * 0.075,
+                               width: side * 0.29, height: side * 0.29)
+            NSColor.white.withAlphaComponent(0.96).setFill()
+            NSBezierPath(ovalIn: badge).fill()
+
+            let disk = badge.insetBy(dx: side * 0.016, dy: side * 0.016)
+            badgeColor(for: preset).setFill()
+            NSBezierPath(ovalIn: disk).fill()
+
+            guard let symbol = NSImage(systemSymbolName: symbolName,
+                                       accessibilityDescription: nil),
+                  let glyph = whiteSymbol(symbol)
+            else { return }
+            let glyphSide = side * 0.135
+            glyph.draw(in: NSRect(x: disk.midX - glyphSide / 2,
+                                  y: disk.midY - glyphSide / 2,
+                                  width: glyphSide, height: glyphSide),
+                       from: .zero, operation: .sourceOver, fraction: 1)
+        }
+    }
+
+    private static func bitmapImage(pixels: Int,
+                                    drawing: (NSRect) -> Void) -> NSImage? {
+        guard let bitmap = NSBitmapImageRep(bitmapDataPlanes: nil,
+                                            pixelsWide: pixels,
+                                            pixelsHigh: pixels,
+                                            bitsPerSample: 8,
+                                            samplesPerPixel: 4,
+                                            hasAlpha: true,
+                                            isPlanar: false,
+                                            colorSpaceName: .deviceRGB,
+                                            bytesPerRow: 0,
+                                            bitsPerPixel: 0),
+              let context = NSGraphicsContext(bitmapImageRep: bitmap)
+        else { return nil }
+
+        let pixelSize = NSSize(width: pixels, height: pixels)
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = context
+        context.imageInterpolation = .high
+        drawing(NSRect(origin: .zero, size: pixelSize))
+        NSGraphicsContext.restoreGraphicsState()
+
+        // ICNS treats a 1024 px representation as a 512 pt @2x image. Set that
+        // metadata after drawing, while the context still uses pixel units.
+        let pointSize = NSSize(width: CGFloat(pixels) / 2, height: CGFloat(pixels) / 2)
+        bitmap.size = pointSize
+        let image = NSImage(size: pointSize)
+        image.addRepresentation(bitmap)
+        return image
+    }
+
+    private static func whiteSymbol(_ symbol: NSImage) -> NSImage? {
+        let image = NSImage(size: symbol.size)
+        image.lockFocus()
+        symbol.draw(at: .zero, from: .zero, operation: .sourceOver, fraction: 1)
+        NSColor.white.setFill()
+        NSRect(origin: .zero, size: symbol.size).fill(using: .sourceAtop)
+        image.unlockFocus()
+        return image
+    }
+
+    private static func badgeColor(for preset: Shortcut.IconPreset) -> NSColor {
+        switch preset {
+        case .personal:
+            return NSColor(srgbRed: 0.43, green: 0.22, blue: 0.72, alpha: 1)
+        case .code:
+            return NSColor(srgbRed: 0.08, green: 0.48, blue: 0.27, alpha: 1)
+        case .research:
+            return NSColor(srgbRed: 0.73, green: 0.16, blue: 0.42, alpha: 1)
+        default:
+            return NSColor(srgbRed: 0.08, green: 0.34, blue: 0.70, alpha: 1)
         }
     }
 
     /// Ad-hoc signature, otherwise macOS refuses to launch a bundle whose
     /// contents changed after the first run.
-    private static func sign(_ bundle: URL) {
-        run("/usr/bin/codesign", ["--force", "--sign", "-", bundle.path])
+    @discardableResult
+    private static func sign(_ bundle: URL) -> Bool {
+        installDirectoryOverride != nil
+            || Graft.runTool("/usr/bin/codesign", ["--force", "--sign", "-", bundle.path]) == 0
+    }
+
+    private static func verify(_ bundle: URL) -> Bool {
+        installDirectoryOverride != nil
+            || Graft.runTool("/usr/bin/codesign", ["--verify", "--deep", "--strict",
+                                                   bundle.path]) == 0
     }
 
     /// Nudge Launch Services so the new name and icon show up straight away.

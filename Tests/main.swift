@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 
 // Every test runs against a throwaway Application Support and Applications
@@ -29,11 +30,52 @@ let apps = root.appending(path: "Applications")
 try! fm.createDirectory(at: support, withIntermediateDirectories: true)
 try! fm.createDirectory(at: apps, withIntermediateDirectories: true)
 
+let stock = root.appending(path: "Stock/Claude.app")
+let stockMacOS = stock.appending(path: "Contents/MacOS")
+let stockResources = stock.appending(path: "Contents/Resources")
+try! fm.createDirectory(at: stockMacOS, withIntermediateDirectories: true)
+try! fm.createDirectory(at: stockResources, withIntermediateDirectories: true)
+let stockBinary = stockMacOS.appending(path: "Claude")
+try! Data("#!/bin/sh\nexit 0\n".utf8).write(to: stockBinary)
+try! fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: stockBinary.path)
+let updaterProbe = "function ZU(){if(IU.forceInstalled)return!0;if(process.platform!==`win32`)return o.app.isPackaged;if(!o.app.isPackaged)return!1}"
+try! Data(updaterProbe.utf8).write(to: stockResources.appending(path: "app.asar"))
+let stockPlist: [String: Any] = [
+    "CFBundleName": "Claude",
+    "CFBundleDisplayName": "Claude",
+    "CFBundleIdentifier": "com.anthropic.claudefordesktop",
+    "CFBundleExecutable": "Claude",
+    "CFBundleIconFile": "electron.icns",
+    "CFBundlePackageType": "APPL",
+    "CFBundleShortVersionString": "9.9.9",
+    "CFBundleVersion": "999",
+]
+try! PropertyListSerialization.data(fromPropertyList: stockPlist, format: .xml, options: 0)
+    .write(to: stock.appending(path: "Contents/Info.plist"))
+let stockImage = NSImage(size: NSSize(width: 128, height: 128))
+stockImage.lockFocus()
+NSColor.systemOrange.setFill()
+NSBezierPath(roundedRect: NSRect(x: 4, y: 4, width: 120, height: 120),
+             xRadius: 24, yRadius: 24).fill()
+stockImage.unlockFocus()
+let stockPNG = root.appending(path: "stock-icon.png")
+let stockPNGData = stockImage.tiffRepresentation
+    .flatMap(NSBitmapImageRep.init(data:))!
+    .representation(using: .png, properties: [:])!
+try! stockPNGData.write(to: stockPNG)
+check(Graft.runTool("/usr/bin/sips", ["-s", "format", "icns", stockPNG.path,
+                                      "--out", stockResources.appending(path: "electron.icns").path]) == 0,
+      "the isolated stock-Claude fixture has an application icon")
+
 Graft.applicationSupportOverride = support
+Graft.claudeAppOverride = stock
 Installer.installDirectoryOverride = apps
 Installer.registersWithLaunchServices = false
 
-defer { try? fm.removeItem(at: root) }
+defer {
+    Graft.claudeAppOverride = nil
+    try? fm.removeItem(at: root)
+}
 
 // MARK: - Helpers
 
@@ -156,8 +198,15 @@ do {
     var shortcut = Shortcut(name: "Work", source: .main)
 
     let bundle = try! Installer.install(shortcut, sourceDir: main)
-    check(fm.fileExists(atPath: bundle.appending(path: "Contents/MacOS/launcher").path),
-          "the bundle carries a launcher")
+    check(fm.fileExists(atPath: bundle.appending(path: "Contents/MacOS/Claude").path),
+          "the bundle carries a launcher as its main executable")
+    check(fm.fileExists(atPath: bundle.appending(path: "Contents/MacOS/ClaudeRuntime").path),
+          "and its own Claude runtime")
+    check(Installer.builtFrom(bundle) == "9.9.9|999",
+          "the bundle records which stock Claude it was cloned from")
+    let profileAsar = try! Data(contentsOf: bundle.appending(path: "Contents/Resources/app.asar"))
+    check(String(decoding: profileAsar, as: UTF8.self).contains("return!1/*graft-off__*/"),
+          "the profile copy leaves updates to the stock Claude and Graft")
     check(Installer.builtBy(bundle) == Installer.graftVersion,
           "stamped with the version of Graft that wrote it, which is how a stale one is spotted")
     check(!Installer.refreshLauncher(for: shortcut),
@@ -171,13 +220,13 @@ do {
         let aged = (try! String(contentsOf: plist, encoding: .utf8))
             .replacingOccurrences(of: Installer.graftVersion, with: "0.0.1")
         try! aged.write(to: plist, atomically: true, encoding: .utf8)
-        try! Data("stale".utf8).write(to: bundle.appending(path: "Contents/MacOS/launcher"))
+        try! Data("stale".utf8).write(to: bundle.appending(path: "Contents/MacOS/Claude"))
 
         check(Installer.builtBy(bundle) == "0.0.1", "a bundle remembers which Graft wrote it")
         check(Installer.refreshLauncher(for: shortcut), "and an older one is brought up to date")
         check(Installer.builtBy(bundle) == Installer.graftVersion,
               "restamped, so the next launch leaves it alone")
-        let refreshed = try! Data(contentsOf: bundle.appending(path: "Contents/MacOS/launcher"))
+        let refreshed = try! Data(contentsOf: bundle.appending(path: "Contents/MacOS/Claude"))
         check(refreshed.count > 5, "carrying this version's launcher rather than the old one")
         check(sourcePath(ofBundle: bundle) == main.path,
               "and nothing else about the shortcut was rewritten")
@@ -226,6 +275,116 @@ do {
     try? fm.removeItem(at: renamed)
     try? fm.removeItem(at: shortcut.profileDir)
     try? fm.removeItem(at: main)
+}
+
+// MARK: - Application icons
+
+section("Application icons")
+do {
+    let saved = Shortcut(name: "Styled", iconPreset: .work, themePreset: .dark,
+                         showsWindowOutline: false)
+    let encoded = try! JSONEncoder().encode(saved)
+    let decoded = try! JSONDecoder().decode(Shortcut.self, from: encoded)
+    check(decoded.iconPreset == .work && decoded.themePreset == .dark
+            && !decoded.showsWindowOutline,
+          "the selected icon, theme and outline settings survive a restart")
+
+    var legacy = try! JSONSerialization.jsonObject(with: encoded) as! [String: Any]
+    legacy.removeValue(forKey: "iconPreset")
+    legacy.removeValue(forKey: "themePreset")
+    legacy.removeValue(forKey: "showsWindowOutline")
+    let legacyData = try! JSONSerialization.data(withJSONObject: legacy)
+    check(try! JSONDecoder().decode(Shortcut.self, from: legacyData).iconPreset == .original,
+          "a shortcut saved before icon presets existed keeps Claude's original icon")
+    check(try! JSONDecoder().decode(Shortcut.self, from: legacyData).themePreset == .default,
+          "a shortcut saved before themes existed keeps its current Claude theme")
+    check(try! JSONDecoder().decode(Shortcut.self, from: legacyData).showsWindowOutline,
+          "a shortcut saved before outline settings existed keeps its outline")
+    check(Set(Shortcut.IconPreset.allCases.map(\.rawValue)).count == 12,
+          "the icon picker offers twelve distinct presets")
+
+    let source = root.appending(path: "test-icon.png")
+    let seed = NSImage(size: NSSize(width: 256, height: 256))
+    seed.lockFocus()
+    NSColor.systemOrange.setFill()
+    NSBezierPath(roundedRect: NSRect(x: 8, y: 8, width: 240, height: 240),
+                 xRadius: 48, yRadius: 48).fill()
+    seed.unlockFocus()
+    let png = seed.tiffRepresentation
+        .flatMap(NSBitmapImageRep.init(data:))!
+        .representation(using: .png, properties: [:])!
+    try! png.write(to: source)
+
+    Installer.iconSourceOverride = source
+    defer { Installer.iconSourceOverride = nil }
+    let preview = NSBitmapImageRep(data: Installer.previewIcon(for: .blue)!.tiffRepresentation!)!
+    check(preview.colorAt(x: 75, y: 75)!.alphaComponent > 0.5,
+          "the preview fills its Retina canvas instead of shrinking into one quarter")
+    var styled = Shortcut(name: "Styled Icon", source: .own, iconPreset: .work)
+    let bundle = try! Installer.install(styled, sourceDir: nil)
+    let icon = bundle.appending(path: "Contents/Resources/icon.icns")
+    let workIcon = try! Data(contentsOf: icon)
+    check(NSImage(contentsOf: icon) != nil,
+          "a preset is written as a valid application icon inside the bundle")
+
+    styled.iconPreset = .blue
+    _ = try! Installer.install(styled, sourceDir: nil, previousName: styled.name)
+    check(try! Data(contentsOf: icon) != workIcon,
+          "updating the app replaces the badged icon with the newly selected preset")
+    try? fm.removeItem(at: bundle)
+    try? fm.removeItem(at: styled.profileDir)
+}
+
+// MARK: - Per-profile theme
+
+section("Per-profile theme")
+do {
+    let source = makeProfile("Theme-Source", account: "THEME-A", org: "ORG-A", chats: [],
+                             extras: ["userThemeMode": "dark"])
+    let profile = makeProfile("Theme-Profile", account: "THEME-B", org: "ORG-B", chats: [],
+                              extras: ["userThemeMode": "light"])
+    Graft.apply(GraftConfig(profileDir: profile.path, sourceDir: source.path,
+                            themeMode: "system"))
+    check(Graft.configJSON(of: profile)["userThemeMode"] as? String == "system",
+          "an explicit profile theme wins after the source appearance is copied")
+
+    let unreadable = root.appending(path: "Theme-Unreadable")
+    try! fm.createDirectory(at: unreadable, withIntermediateDirectories: true)
+    try! "{".write(to: unreadable.appending(path: "config.json"),
+                    atomically: true, encoding: .utf8)
+    Graft.setTheme("dark", for: unreadable)
+    check((try! String(contentsOf: unreadable.appending(path: "config.json"))) == "{",
+          "theme selection never overwrites an unreadable profile config")
+}
+
+// MARK: - Profile window border
+
+section("Profile window border")
+do {
+    let work = Shortcut(name: "Work", folder: "Claude-Work", source: .own,
+                        iconPreset: .work)
+    let command = "/Applications/Claude.app/Contents/MacOS/Claude --user-data-dir=\(work.profileDir.path)"
+    check(ProfileBorder.preset(for: command, shortcuts: [work]) == .work,
+          "a managed Claude window gets the colour of its selected icon")
+    let profileCommand = "/Applications/Work.app/Contents/MacOS/ClaudeRuntime --user-data-dir=\(work.profileDir.path)"
+    check(ProfileBorder.preset(for: profileCommand, shortcuts: [work]) == .work,
+          "the same outline follows a profile-specific application runtime")
+    var withoutOutline = work
+    withoutOutline.showsWindowOutline = false
+    check(ProfileBorder.preset(for: profileCommand, shortcuts: [withoutOutline]) == nil,
+          "a shortcut can turn its own outline off")
+    check(ProfileBorder.lineWidth == 1 && ProfileBorder.opacity > 0
+            && ProfileBorder.opacity < 1,
+          "the outline is a one-point translucent accent")
+    check(ProfileBorder.preset(for: "/Applications/Claude.app/Contents/MacOS/Claude",
+                               shortcuts: [work]) == .original,
+          "Claude's normal window gets the original orange outline")
+    check(ProfileBorder.preset(for: command, shortcuts: []) == nil,
+          "an unmanaged Claude instance is never marked as one of Graft's profiles")
+    check(ProfileBorder.appKitFrame(for: CGRect(x: 0, y: 34, width: 1728, height: 1028),
+                                    primaryScreenMaxY: 1117)
+            == CGRect(x: 0, y: 55, width: 1728, height: 1028),
+          "Quartz window bounds are placed correctly in AppKit coordinates")
 }
 
 // MARK: - Grafting between accounts
@@ -544,8 +703,10 @@ do {
     check(plist.contains("Ben &amp; Co &lt;work&gt;"), "and so are angle brackets")
     let parsed = (try? PropertyListSerialization.propertyList(
         from: Data(plist.utf8), options: [], format: nil)) as? [String: Any]
-    check((parsed?["CFBundleName"] as? String) == "Ben & Co <work>",
-          "the plist still reads back as the name typed")
+    check((parsed?["CFBundleDisplayName"] as? String) == "Ben & Co <work>",
+          "the display name still reads back as the name typed")
+    check((parsed?["CFBundleName"] as? String) == "Claude",
+          "the internal name stays compatible with Claude's helper apps")
 }
 
 // MARK: - Sharing a chat store
@@ -840,14 +1001,22 @@ do {
     let body: [String: Any] = [
         "five_hour": ["utilization": 42, "resets_at": "2026-08-24T09:30:00Z"],
         "seven_day": ["utilization": 71.4, "resets_at": "2026-08-25T22:51:00.000Z"],
+        "limits": [[
+            "kind": "weekly_scoped",
+            "percent": 37.6,
+            "resets_at": "2026-08-26T22:51:00.000Z",
+            "scope": ["model": ["display_name": "Fable"]],
+        ]],
         "subscription_type": "max",
     ]
     let reading = UsageAPI.reading(from: body)
     check(reading?.fiveHour == 42, "the five-hour figure is read")
     check(reading?.week == 71, "a fractional weekly figure rounds")
+    check(reading?.fable == 38, "the Fable weekly figure is read")
     check(reading?.plan == "Max", "the plan name is tidied up")
     check(reading?.fiveHourReset != nil, "a plain ISO reset time parses")
     check(reading?.weekReset != nil, "and so does one with fractional seconds")
+    check(reading?.fableReset != nil, "the Fable reset comes from its scoped window")
 
     // Reset times come from the service rather than being worked out, which is
     // the whole point of preferring it over the file on disk.
@@ -864,6 +1033,8 @@ do {
     let missingWeek: [String: Any] = ["five_hour": ["utilization": 5]]
     check(UsageAPI.reading(from: missingWeek)?.week == 0,
           "a missing weekly window reads as nothing used, not as a failure")
+    check(UsageAPI.reading(from: missingWeek)?.fable == nil,
+          "an account without a Fable limit does not grow a made-up one")
 }
 
 section("Borrowed credentials")
@@ -890,6 +1061,39 @@ do {
     // a message needs the other.
     check(ClaudeCredentials.usageScope != ClaudeCredentials.inferenceScope,
           "reading usage and running the model are different permissions")
+}
+
+// MARK: - Localization follows macOS
+
+section("Localization")
+
+do {
+    let repo = URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+    func catalog(_ language: String) -> [String: String] {
+        let file = repo.appending(path: "Resources/\(language).lproj/Localizable.strings")
+        guard let data = try? Data(contentsOf: file),
+              let strings = try? PropertyListSerialization.propertyList(from: data, format: nil)
+                as? [String: String]
+        else { return [:] }
+        return strings
+    }
+
+    let english = catalog("en")
+    let russian = catalog("ru")
+    check(!english.isEmpty && !russian.isEmpty, "the app carries English and Russian catalogs")
+    check(Set(english.keys) == Set(russian.keys), "both catalogs cover the same strings")
+    check(russian["New Shortcut"] == "Новый ярлык", "the Russian catalog is actually translated")
+    check(Bundle.preferredLocalizations(from: ["en", "ru"], forPreferences: ["ru-RU"]) == ["ru"],
+          "a Russian system preference selects Russian")
+    check(Bundle.preferredLocalizations(from: ["en", "ru"], forPreferences: ["de-DE"]) == ["en"],
+          "an unsupported system language falls back to English")
+
+    let plist = (try? String(contentsOf: repo.appending(path: "Resources/Info.plist"),
+                             encoding: .utf8)) ?? ""
+    check(plist.contains("<key>CFBundleDevelopmentRegion</key><string>en</string>"),
+          "the bundle declares English as its development language")
 }
 
 // MARK: - One place the version is written down
@@ -1308,6 +1512,9 @@ do {
     check(Graft.carriesDataDir(helper, two), "a helper carries its profile too")
     check(!Graft.isClaudeProcess(helper), "but a helper is not the Claude to show")
     check(Graft.isClaudeProcess(running), "the browser process is")
+    check(Graft.isClaudeProcess(
+            "/Applications/Claude Two.app/Contents/MacOS/ClaudeRuntime --user-data-dir=\(two.path)"),
+          "a profile app's own runtime is the browser process too")
     check(!Graft.isClaudeProcess(
             "/Users/x/Library/Application Support/Claude/claude-code/2.1.237/claude.app/Contents/MacOS/claude -p hi"),
           "and neither is the bundled command line")
@@ -1573,15 +1780,15 @@ do {
                               lastWrite: then, ownerProfile: owner, now: later, quietWindow: 300) == .withdrawn,
           "a session deleted in a sidebar once is never brought back")
     check(Graft.sessionFiling(facts: facts, recorded: [], withdrawn: [],
-                              deletions: [1_000 + 30_000],
+                              deletions: [1_000.0 + 30_000],
                               lastWrite: then, ownerProfile: owner, now: later, quietWindow: 300) == .withdrawn,
           "a session that had just gone quiet before a deletion marker is the one the marker took")
     check(Graft.sessionFiling(facts: facts, recorded: [], withdrawn: [],
-                              deletions: [1_000 + 10 * 60_000],
+                              deletions: [1_000.0 + 10 * 60_000],
                               lastWrite: then, ownerProfile: owner, now: later, quietWindow: 300) == .file,
               "a marker long after the session closed is about some other session")
     check(Graft.sessionFiling(facts: facts, recorded: [], withdrawn: [],
-                              deletions: [1_000 - 5 * 60_000],
+                              deletions: [1_000.0 - 5 * 60_000],
                               lastWrite: then, ownerProfile: owner, now: later, quietWindow: 300) == .file,
           "and a marker from before the session existed says nothing about it")
     check(Graft.sessionFiling(facts: facts, recorded: [], withdrawn: [], deletions: [],
@@ -2177,7 +2384,7 @@ do {
     // has to be rewritten for one to migrate — it just stops being asked.
     let old = try! JSONDecoder().decode(GraftConfig.self,
         from: Data("{\"profileDir\":\"/tmp/p\",\"sourceDir\":\"/tmp/s\",\"mirrorChats\":false}".utf8))
-    check(old.profileDir == "/tmp/p" && old.sourceDir == "/tmp/s",
+    check(old.profileDir == "/tmp/p" && old.sourceDir == "/tmp/s" && old.themeMode == nil,
           "a shortcut written while linking was still an option reads back without complaint")
 
     try? fm.removeItem(at: Graft.mirrorStateFile)

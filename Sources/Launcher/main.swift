@@ -1,15 +1,15 @@
 import Foundation
 
 // Executable of a generated shortcut. It reads the profile description sitting
-// beside it in the bundle, re-establishes the links, and opens Claude on that
-// profile — or brings forward the Claude already on it. Nothing here is
-// interactive; the process exits as soon as it has handed over.
+// beside it in the bundle, re-establishes the links, and becomes the Claude
+// runtime inside that bundle — or brings forward the Claude already on it.
 
 let executable = URL(fileURLWithPath: CommandLine.arguments[0]).resolvingSymlinksInPath()
 let resources = executable            // .../Contents/MacOS/launcher
     .deletingLastPathComponent()      // .../Contents/MacOS
     .deletingLastPathComponent()      // .../Contents
     .appending(path: "Resources")
+let runtime = executable.deletingLastPathComponent().appending(path: "ClaudeRuntime")
 
 let configURL = Bundle.main.url(forResource: "graft", withExtension: "json")
     ?? resources.appending(path: "graft.json")
@@ -21,4 +21,4 @@ else {
     exit(1)
 }
 
-Graft.run(config)
+Graft.run(config, runtime: runtime)
