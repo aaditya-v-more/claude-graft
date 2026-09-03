@@ -73,19 +73,19 @@ struct ContentView: View {
 
     private var deletionMessage: String {
         guard let pendingDeletion, let shortcut = store.shortcut(pendingDeletion) else { return "" }
-        return """
-        The app is removed from \(Installer.installDirectory.path) either way.
+        return L10n.format("""
+            The app is removed from %@ either way.
 
-        Its profile folder, \(shortcut.folder), holds that account's login and \
-        chat history. Deleting it cannot be undone.
-        """
+            Its profile folder, %@, holds that account's login and chat history. \
+            Deleting it cannot be undone.
+            """, Installer.installDirectory.path, shortcut.folder)
     }
 
     private var deletionTitle: String {
         guard let pendingDeletion, let shortcut = store.shortcut(pendingDeletion) else {
-            return "Delete this shortcut?"
+            return L10n.text("Delete this shortcut?")
         }
-        return "Delete “\(shortcut.name)”?"
+        return L10n.format("Delete “%@”?", shortcut.name)
     }
 
     private var sidebar: some View {
@@ -111,7 +111,7 @@ struct ContentView: View {
                         VStack(alignment: .leading, spacing: 1) {
                             Text(shortcut.name)
                             Text(shortcut.installedName == nil
-                                 ? "Not created yet"
+                                 ? L10n.text("Not created yet")
                                  : store.label(for: shortcut.source))
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
@@ -122,7 +122,7 @@ struct ContentView: View {
                     }
                     .tag(shortcut.id)
                     .contextMenu {
-                        Button(store.isDraft(shortcut) ? "Discard" : "Delete Shortcut…",
+                        Button(L10n.text(store.isDraft(shortcut) ? "Discard" : "Delete Shortcut…"),
                                role: .destructive) {
                             requestDeletion(of: shortcut.id)
                         }
@@ -176,7 +176,7 @@ private struct EmptyState: View {
             Image(systemName: "square.on.square.dashed")
                 .font(.system(size: 34, weight: .light))
                 .foregroundStyle(.tertiary)
-            Text(hasShortcuts ? "Select a shortcut" : "No shortcuts yet")
+            Text(L10n.text(hasShortcuts ? "Select a shortcut" : "No shortcuts yet"))
                 .font(.title3)
             Text("Each shortcut opens Claude on its own account,\nand can borrow another account's Claude Code chats.")
                 .font(.callout)

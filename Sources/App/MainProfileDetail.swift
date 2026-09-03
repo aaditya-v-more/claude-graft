@@ -57,7 +57,7 @@ struct MainProfileDetail: View {
 
             Section("Status") {
                 LabeledContent("Claude") {
-                    Text(isRunning ? "Running on this profile" : "Not running")
+                    Text(L10n.text(isRunning ? "Running on this profile" : "Not running"))
                         .font(.callout)
                         .foregroundStyle(.secondary)
                 }

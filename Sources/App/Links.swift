@@ -39,10 +39,10 @@ struct FooterLink: View {
     @State private var hovering = false
 
     init(_ title: String, icon: String, url: URL, help: String) {
-        self.title = title
+        self.title = L10n.text(title)
         self.icon = icon
         self.url = url
-        self.help = help
+        self.help = L10n.text(help)
     }
 
     var body: some View {

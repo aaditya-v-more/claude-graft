@@ -15,6 +15,7 @@ swiftc -swift-version 5 \
     "$ROOT/Sources/App/Model.swift" \
     "$ROOT/Sources/App/ChatConflict.swift" \
     "$ROOT/Sources/App/Installer.swift" \
+    "$ROOT/Sources/App/ProfileBorderController.swift" \
     "$ROOT/Sources/App/Settings.swift" \
     "$ROOT/Sources/App/UsageAPI.swift" \
     "$ROOT/Sources/App/SessionStarter.swift" \

@@ -173,7 +173,7 @@ struct MenuButton: View {
     @State private var hovering = false
 
     init(_ title: String, action: @escaping () -> Void) {
-        self.title = title
+        self.title = L10n.text(title)
         self.action = action
     }
 
@@ -234,6 +234,10 @@ struct UsageRow: View {
                          percent: usage.week,
                          resets: usage.weekReset,
                          dimmed: entry.isDimmed)
+                if let fable = usage.fable {
+                    UsageBar(label: "Fable", percent: fable,
+                             resets: usage.fableReset, dimmed: entry.isDimmed)
+                }
                 if entry.isDimmed {
                     Text("Last seen \(Self.relative.localizedString(for: usage.sampled, relativeTo: Date()))")
                         .font(.caption)
@@ -275,7 +279,7 @@ struct UsageBar: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             HStack(spacing: 8) {
-                Text(label)
+                Text(L10n.text(label))
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .frame(width: 52, alignment: .leading)

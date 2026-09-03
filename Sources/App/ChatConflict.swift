@@ -14,7 +14,7 @@ import Foundation
 /// it, so nothing ever looked. That last case is the common one: every shortcut
 /// grafted from main reads exactly the files main is about to open.
 enum ChatConflict {
-    static let title = "Another Claude is open on these chats"
+    static let title = L10n.text("Another Claude is open on these chats")
 
     /// Reads as a sentence for any number of them, which is why it is one
     /// function rather than a format string at each call site.
@@ -22,18 +22,16 @@ enum ChatConflict {
         let list: String
         switch sharers.count {
         case 0: list = ""
-        case 1: list = sharers[0] + " is"
-        case 2: list = sharers.joined(separator: " and ") + " are"
+        case 1: list = sharers[0]
+        case 2: list = sharers.joined(separator: " \(L10n.text("and")) ")
         default:
             list = sharers.dropLast().joined(separator: ", ")
-                + " and " + (sharers.last ?? "") + " are"
+                + " \(L10n.text("and")) " + (sharers.last ?? "")
         }
-        return """
-            \(list) already open on the same Claude Code chats.
-
-            Both instances write to the same chat files. Opening the same \
-            conversation in two of them at once can lose messages.
-            """
+        let key = sharers.count == 1
+            ? "%@ is already open on the same Claude Code chats.\n\nBoth instances write to the same chat files. Opening the same conversation in two of them at once can lose messages."
+            : "%@ are already open on the same Claude Code chats.\n\nBoth instances write to the same chat files. Opening the same conversation in two of them at once can lose messages."
+        return L10n.format(key, list)
     }
 
     /// Who among `neighbours` is running, and whether that is worth asking
@@ -69,8 +67,8 @@ enum ChatConflict {
         alert.alertStyle = .warning
         alert.messageText = title
         alert.informativeText = message(sharers: sharers)
-        alert.addButton(withTitle: "Open Anyway")
-        alert.addButton(withTitle: "Cancel")
+        alert.addButton(withTitle: L10n.text("Open Anyway"))
+        alert.addButton(withTitle: L10n.text("Cancel"))
         NSApp.activate(ignoringOtherApps: true)
         return alert.runModal() == .alertFirstButtonReturn
     }

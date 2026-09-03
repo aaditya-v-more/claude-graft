@@ -69,9 +69,10 @@ allow it in System Settings → Privacy & Security instead.
 
 ## Making a Claude
 
-Name it, choose where its chats come from, press **Create Shortcut**. You get a
-real app in `/Applications` that you can launch from Spotlight or pin to the
-Dock like any other.
+Name it, choose one of twelve Claude icon variations, its light or dark theme
+and where its chats come from, then press **Create Shortcut**. You get a real
+app in `/Applications` that you can launch from Spotlight or pin to the Dock
+like any other.
 
 <img src="docs/assets/shortcuts.png" width="580" alt="Claude and Claude 2 side by side in Spotlight">
 
@@ -84,6 +85,10 @@ of its profile — so it keeps working whether or not Graft is installed or
 running. Every launch re-establishes its links first, which matters because
 Claude replaces some config files wholesale, and that quietly detaches a
 symlink.
+
+While Graft is running, the active Claude window gets a thin outline matching
+its chosen icon colour. It can be disabled per shortcut; the normal Claude
+window uses the original orange.
 
 Point the profile folder at one that already exists and the shortcut adopts it,
 which saves signing in again if you set something up by hand.
@@ -210,7 +215,7 @@ in the profile it was merged into.
 
 ```
 ./build.sh     the app, into build.noindex/
-./test.sh      542 checks, all in a throwaway directory
+./test.sh      574 checks, all in a throwaway directory
 ./release.sh   tests, builds universal, signs, packages
 
 Tools/render-diagrams.sh   the README's diagrams, into docs/assets

@@ -7,7 +7,7 @@ struct InfoButton: View {
     let text: String
     @State private var showing = false
 
-    init(_ text: String) { self.text = text }
+    init(_ text: String) { self.text = L10n.text(text) }
 
     var body: some View {
         Button { showing.toggle() } label: {
@@ -34,7 +34,7 @@ struct SectionHeader: View {
 
     var body: some View {
         HStack(spacing: 5) {
-            Text(title)
+            Text(L10n.text(title))
             InfoButton(info)
             Spacer()
         }
