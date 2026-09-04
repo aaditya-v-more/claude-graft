@@ -230,7 +230,7 @@ in the profile it was merged into.
 
 ```
 ./build.sh     the app, into build.noindex/
-./test.sh      542 checks, all in a throwaway directory
+./test.sh      574 checks, all in a throwaway directory
 ./release.sh   tests, builds universal, signs, packages
 
 Tools/render-diagrams.sh   the README's diagrams, into docs/assets
@@ -244,6 +244,19 @@ checksum. The version lives in one file, `VERSION`.
 keeps where, the rules around borrowed credentials, and the several things that
 had to go wrong before this worked. Read it before changing anything that
 touches profiles, the keychain or the menu bar.
+
+## Contributing
+
+Bug reports, fixes and documentation are all welcome, and the ones that help
+most are about what happened to a real profile. Graft writes down what every
+pass did — `diagnostics.log` and `state-report.txt` in
+`~/Library/Application Support/ClaudeGraft/` — and attaching those to an issue
+usually says more than a description can.
+
+[CONTRIBUTING.md](CONTRIBUTING.md) is what to know before a patch: how the suite
+is written and why its checks read as sentences, what the commit log looks like,
+and which files belong to a release rather than to a change. Every push and pull
+request runs the tests and a universal build.
 
 ## Supporting it
 

@@ -1,0 +1,81 @@
+name: Bug report
+description: Something Graft did that it should not have
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Graft writes down what every pass did, which is usually faster than
+        reproducing it. Both files are in
+        `~/Library/Application Support/ClaudeGraft/` — `diagnostics.log` and
+        `state-report.txt` — and there are fields for them below.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did, and what Graft did instead of what you expected.
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Graft version
+      description: The dropdown in the menu bar shows it.
+      placeholder: "1.1.1"
+    validations:
+      required: true
+
+  - type: input
+    id: macos
+    attributes:
+      label: macOS version and Mac
+      placeholder: "15.2, Apple Silicon"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: accounts
+    attributes:
+      label: How many Claude accounts are involved
+      description: >
+        Almost everything here behaves differently between one account and two,
+        so this narrows it down more than anything else you can tell us.
+      options:
+        - One account across the profiles involved
+        - Two or more different accounts
+        - Not sure
+    validations:
+      required: true
+
+  - type: dropdown
+    id: sharing
+    attributes:
+      label: Is a profile sharing another one's chats
+      options:
+        - "Yes — a shortcut's chats come from another profile"
+        - "No — every profile is on its own chats"
+        - Not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: state-report
+    attributes:
+      label: state-report.txt
+      description: >
+        `~/Library/Application Support/ClaudeGraft/state-report.txt`. It names
+        profiles, folder paths and the account identifiers Claude uses; it holds
+        no chat titles, messages or tokens. Redact anything you would rather not
+        post.
+      render: text
+
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: diagnostics.log
+      description: >
+        `~/Library/Application Support/ClaudeGraft/diagnostics.log` — the last
+        few dozen lines around when it happened are usually enough.
+      render: text

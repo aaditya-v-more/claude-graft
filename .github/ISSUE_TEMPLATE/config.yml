@@ -1,0 +1,13 @@
+# Blank issues stay on, because somebody with something to say that fits
+# neither form should not be turned away at the door.
+blank_issues_enabled: true
+contact_links:
+  - name: Question about using Graft
+    url: https://github.com/aaditya-v-more/claude-graft/discussions/new?category=q-a
+    about: >
+      Not sure whether something is a bug — an empty sidebar, chats in the
+      wrong profile, a shortcut that will not open. Ask here and it can become
+      an issue if it turns out to be one.
+  - name: Idea or something you built with it
+    url: https://github.com/aaditya-v-more/claude-graft/discussions
+    about: Anything that wants a conversation rather than a ticket.

@@ -1,0 +1,29 @@
+name: Idea
+description: Something Graft could do that it does not
+labels: [enhancement]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What you want
+    validations:
+      required: true
+
+  - type: textarea
+    id: today
+    attributes:
+      label: What you do instead today
+      description: >
+        The workaround is usually the most useful part of the report — it says
+        what the thing is actually for.
+    validations:
+      required: true
+
+  - type: textarea
+    id: existing-profiles
+    attributes:
+      label: What it would mean for profiles that already exist
+      description: >
+        Only if the idea touches where chats live. Anything that moves a chat
+        history has to say what happens to the histories already on the machine,
+        and whether it can be undone.

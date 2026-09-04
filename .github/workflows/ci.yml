@@ -1,0 +1,59 @@
+# Every push and every pull request runs the suite and builds the app the way a
+# release builds it. The universal build is here rather than left to release.sh
+# because an architecture that stopped compiling is otherwise found by whoever
+# has the other kind of Mac, weeks later.
+name: Checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+# A second push supersedes the first; there is nothing to learn from the run it
+# replaced.
+concurrency:
+  group: checks-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Named rather than left to default, because this string is what the branch
+  # rule on main requires by name and a rename here would quietly stop being
+  # required rather than start failing.
+  checks:
+    name: checks
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Fifteen megabytes fetched from GitHub on every run otherwise. The key is
+      # the fetch script itself, which is where the version and the checksum are
+      # written down, so bumping either one misses the cache exactly when it
+      # should.
+      - name: Restore vendored Sparkle
+        uses: actions/cache@v4
+        with:
+          path: vendor
+          key: sparkle-${{ hashFiles('Tools/fetch-sparkle.sh') }}
+
+      - name: Tests
+        run: ./test.sh
+
+      - name: Build
+        run: GRAFT_UNIVERSAL=1 ./build.sh
+
+      # build.sh joins the slices with lipo and says nothing if it was handed
+      # only one, and a bundle missing a slice reports nothing more useful than
+      # a bounce in the Dock on the machine that needed it.
+      - name: Both architectures are in the bundle
+        run: |
+          archs="$(lipo -archs 'build.noindex/Claude Graft.app/Contents/MacOS/ClaudeGraft')"
+          echo "$archs"
+          for arch in arm64 x86_64; do
+            case " $archs " in
+              *" $arch "*) ;;
+              *) echo "missing $arch" >&2; exit 1 ;;
+            esac
+          done
