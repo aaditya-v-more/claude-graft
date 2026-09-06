@@ -1,0 +1,36 @@
+<h2>Choose when Claude updates</h2>
+
+<p>Turn on <strong>Update Claude Desktop manually</strong> in Graft's menu bar
+or Settings to stop automatic updates from interrupting work in Claude or any
+of your shortcuts. The setting takes effect when each Claude next starts, so
+finish your work before restarting an instance that is already open.</p>
+
+<p>Graft checks for Claude updates at launch and hourly, including while Claude
+is running. An available version appears in the window and menu bar, and the
+menu bar icon changes to an exclamation mark. <strong>Check for Claude
+Updates</strong> checks immediately.</p>
+
+<p><strong>Update Claude…</strong> warns that all running Claude instances will
+close and their workflows will stop. Cancel leaves them running. Confirming
+rechecks the release, waits for every approved instance to quit, and starts
+Claude's own updater. Graft shows progress and verifies the installed version
+before reporting success. An instance that refuses to quit is never forced
+closed, and one opened after confirmation requires another decision.</p>
+
+<p>Manual update mode stays on during installation. Provider settings, logins,
+and shortcut relationships stay in place. Turning manual mode off restores
+the previous automatic update settings.</p>
+
+<p>When Claude's automatic updater reopens the default profile instead of the
+shortcut you were using, Graft can now reopen the affected shortcut after
+installation. A profile you quit yourself stays closed. If the wrong instance
+has opened the same chats, Graft asks before reopening the shortcut. Workflows
+that Claude ended during its update still need to be resumed.</p>
+
+<h3>Upgrading from 1.0.x</h3>
+
+<p>As with 1.1.0, shared profiles merge their chat histories on their next
+launch. Going back to a profile's own chats preserves what it brought, but
+copies already merged into the source stay there. If you need an untouched
+copy, back up your Claude profile folders in <code>~/Library/Application
+Support</code> before upgrading.</p>
