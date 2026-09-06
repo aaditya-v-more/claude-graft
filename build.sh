@@ -67,6 +67,8 @@ echo "building launcher"
 compile "$APP/Contents/Resources/graft-launch" \
     "$ROOT/Sources/Shared/GraftCore.swift" \
     "$ROOT/Sources/Shared/Diagnostics.swift" \
+    "$ROOT/Sources/Shared/ManualUpdates.swift" \
+    "$ROOT/Sources/Shared/ClaudeUpdateGate.swift" \
     "$ROOT/Sources/Launcher/main.swift"
 
 echo "building app"
@@ -74,6 +76,8 @@ compile "$APP/Contents/MacOS/ClaudeGraft" \
     -F "$ROOT/vendor" -framework Sparkle \
     "$ROOT/Sources/Shared/GraftCore.swift" \
     "$ROOT/Sources/Shared/Diagnostics.swift" \
+    "$ROOT/Sources/Shared/ManualUpdates.swift" \
+    "$ROOT/Sources/Shared/ClaudeUpdateGate.swift" \
     "$ROOT"/Sources/App/*.swift
 
 echo "embedding Sparkle"

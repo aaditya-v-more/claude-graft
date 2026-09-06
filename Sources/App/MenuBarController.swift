@@ -38,6 +38,11 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in self?.updateTitle() }
             .store(in: &watches)
+
+        Shared.claudeUpdates.$availableVersion.combineLatest(Shared.claudeUpdates.$isUpdating)
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.updateTitle() }
+            .store(in: &watches)
     }
 
     // MARK: - The item itself
@@ -77,9 +82,15 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
     /// the tooltip.
     private func updateTitle() {
         guard let button = item?.button else { return }
+        let updates = Shared.claudeUpdates
+        button.image = NSImage(systemSymbolName: updates.isUpdating ? "arrow.triangle.2.circlepath"
+                               : updates.availableVersion != nil ? "exclamationmark.circle.fill" : "circle.lefthalf.filled",
+                               accessibilityDescription: "Claude Graft")
+        let updateTip = updates.isUpdating ? "Claude Desktop is updating"
+            : updates.availableVersion.map { "Claude Desktop \($0) is available" }
         guard let headline = usage.headlineEntry, let figures = headline.usage else {
             button.title = ""
-            button.toolTip = "No usage reported yet"
+            button.toolTip = updateTip ?? "No usage reported yet"
             return
         }
 
@@ -91,6 +102,7 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
             guard let other = entry.usage else { continue }
             lines.append("\(entry.name): \(other.fiveHour)% of 5 hours, \(other.week)% of the week")
         }
+        if let updateTip { lines.append(updateTip) }
         button.toolTip = lines.joined(separator: "\n")
     }
 

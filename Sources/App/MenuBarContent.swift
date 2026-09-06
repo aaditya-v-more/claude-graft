@@ -19,6 +19,9 @@ struct MenuBarContent: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
+            UpdateRecoveryNotice()
+            ClaudeUpdateStatus(compact: true)
+            Divider()
             if usage.entries.isEmpty {
                 Text("No Claude profiles yet")
                     .foregroundStyle(.secondary)
@@ -74,7 +77,7 @@ struct MenuBarContent: View {
 
             if let version = updater.availableVersion {
                 Button { updater.checkForUpdates() } label: {
-                    Label("Version \(version) is available", systemImage: "arrow.down.circle")
+                    Label("Claude Graft \(version) is available", systemImage: "arrow.down.circle")
                         .font(.callout)
                 }
                 .buttonStyle(.link)
@@ -88,6 +91,7 @@ struct MenuBarContent: View {
                     get: { settings.openAtLogin },
                     set: { problem = settings.setOpenAtLogin($0) }))
                 Toggle("Show in Menu Bar", isOn: $settings.showInMenuBar)
+                ManualUpdateControl()
             }
             .toggleStyle(.checkbox)
             .padding(.horizontal, 14)
@@ -98,7 +102,7 @@ struct MenuBarContent: View {
                 MenuButton(usage.isRefreshing ? "Refreshing…" : "Refresh Usage") {
                     usage.refresh(store, interactive: true)
                 }
-                MenuButton(updater.canCheck ? "Check for Updates" : "Checking for Updates…") {
+                MenuButton(updater.canCheck ? "Check for Claude Graft Updates" : "Checking for Claude Graft Updates…") {
                     updater.checkForUpdates()
                 }
                 .disabled(!updater.canCheck)

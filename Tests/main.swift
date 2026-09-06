@@ -6,6 +6,24 @@ import Foundation
 var failures = 0
 var checks = 0
 
+enum Shared {
+    static let updateRecovery = UpdateRecoveryMonitor()
+}
+
+final class ClaudeFeedFixture: URLProtocol {
+    static var response = Data("{\"currentRelease\":\"1.2.4\"}".utf8)
+    static var status = 200
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        let response = HTTPURLResponse(url: request.url!, statusCode: Self.status, httpVersion: "HTTP/1.1", headerFields: nil)!
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: Self.response)
+        client?.urlProtocolDidFinishLoading(self)
+    }
+    override func stopLoading() {}
+}
+
 func check(_ condition: Bool, _ what: String) {
     checks += 1
     if condition {
@@ -1364,6 +1382,499 @@ do {
         if text.contains("Graft.launch(") { launchers.append(file.lastPathComponent) }
     }
     check(launchers.isEmpty, "and nothing in the app launches a Claude without asking who is there")
+}
+
+// MARK: - Profiles lost during Claude's update restart
+
+section("Bringing back the profile an update left behind")
+
+do {
+    let profile = makeProfile("Claude-Update-Recovery", account: nil)
+    let now = Date(timeIntervalSince1970: 1_800_000_000)
+    func marker(_ seconds: TimeInterval = 1) -> UpdateRelaunchMarker {
+        UpdateRelaunchMarker(ts: now.addingTimeInterval(seconds).timeIntervalSince1970 * 1000,
+                            windowVisible: true)
+    }
+    func sample(running: Bool, mark: UpdateRelaunchMarker? = nil,
+                pid: pid_t = 123) -> UpdateRecovery.Sample {
+        UpdateRecovery.Sample(name: "Claude 2", profile: profile,
+                              pids: running ? [pid] : [], marker: mark)
+    }
+    func ready(_ events: [UpdateRecovery.Event]) -> [UpdateRecovery.Request] {
+        events.compactMap { if case .ready(let request) = $0 { return request }; return nil }
+    }
+    func restored(_ events: [UpdateRecovery.Event]) -> Bool {
+        events.contains { if case .restored = $0 { return true }; return false }
+    }
+    func failed(_ events: [UpdateRecovery.Event]) -> Bool {
+        events.contains { if case .failed = $0 { return true }; return false }
+    }
+    func cancelled(_ events: [UpdateRecovery.Event]) -> Bool {
+        events.contains { if case .cancelled = $0 { return true }; return false }
+    }
+    let afterQuit = now.addingTimeInterval(2)
+    let afterGrace = afterQuit.addingTimeInterval(UpdateRecovery.grace)
+    let fresh = marker()
+
+    check(fresh.isFresh(at: afterQuit), "Claude's millisecond timestamp identifies a fresh restart")
+    check(!marker(3).isFresh(at: afterQuit), "a timestamp in the future cannot authorize a launch")
+    check(!marker(-300).isFresh(at: now), "a marker five minutes old has expired")
+    check(!UpdateRelaunchMarker(ts: .infinity, windowVisible: true).isFresh(at: now),
+          "an infinite timestamp cannot authorize a launch")
+    check(!UpdateRelaunchMarker(ts: fresh.ts, navOnly: true).isFresh(at: afterQuit),
+          "navigation-only relaunches are not mistaken for stealth updates")
+    check(!UpdateRelaunchMarker(ts: fresh.ts).isFresh(at: afterQuit),
+          "an unfamiliar marker without window state cannot authorize a launch")
+    check(UpdateRelaunchMarker(ts: fresh.ts, windowVisible: false).isFresh(at: afterQuit),
+          "a hidden profile is still restored after an update")
+
+    let markerFile = profile.appending(path: "stealth-relaunch")
+    check(UpdateRelaunchMarker.read(from: profile) == nil, "a missing marker is not an update")
+    try! Data("{\"ts\":".utf8).write(to: markerFile)
+    check(UpdateRelaunchMarker.read(from: profile) == nil, "a partially written marker is left for a later pass")
+    try! Data("{\"ts\":true,\"windowVisible\":true}".utf8).write(to: markerFile)
+    check(UpdateRelaunchMarker.read(from: profile) == nil, "a boolean is not read as a timestamp")
+    let payload = "{\"ts\":\(fresh.ts),\"windowVisible\":true,\"navEntries\":[{\"url\":\"saved-navigation\"}],\"navIndex\":0}"
+    try! Data(payload.utf8).write(to: markerFile)
+    check(UpdateRelaunchMarker.read(from: profile) == fresh, "Claude's navigation fields do not prevent reading its marker")
+    check((try! Data(contentsOf: markerFile)) == Data(payload.utf8),
+          "reading the marker leaves the navigation for Claude to restore")
+
+    var recovery = UpdateRecovery()
+    check(recovery.observe([sample(running: false, mark: fresh)], at: afterGrace).isEmpty,
+          "starting Graft beside a closed profile does not bring it back")
+    _ = recovery.observe([sample(running: true)], at: now)
+    check(recovery.observe([sample(running: false)], at: afterQuit).isEmpty,
+          "an ordinary quit creates no recovery request")
+    check(recovery.observe([sample(running: false)], at: afterGrace).isEmpty,
+          "waiting after an ordinary quit does not reopen it either")
+
+    for (description, mark) in [("stale", marker(-400)), ("future", marker(200)),
+                                 ("written after the quit", marker(3))] {
+        var state = UpdateRecovery()
+        _ = state.observe([sample(running: true)], at: now)
+        _ = state.observe([sample(running: false, mark: mark)], at: afterQuit)
+        check(ready(state.observe([sample(running: false, mark: mark)], at: afterGrace)).isEmpty,
+              "a marker \(description) cannot turn a quit into an update")
+    }
+
+    var leftover = UpdateRecovery()
+    _ = leftover.observe([sample(running: true, mark: marker(-1))], at: now)
+    _ = leftover.observe([sample(running: false, mark: marker(-1))], at: afterQuit)
+    check(leftover.observe([sample(running: false, mark: marker(-1))], at: afterGrace).isEmpty,
+          "a fresh marker already present when monitoring began is not a new update")
+
+    recovery = UpdateRecovery()
+    _ = recovery.observe([sample(running: true)], at: now)
+    check(recovery.observe([sample(running: false, mark: fresh)], at: afterQuit).isEmpty,
+          "Claude gets time to finish its own relaunch first")
+    check(recovery.observe([sample(running: false, mark: fresh)], at: afterGrace,
+                           installerRunning: true).isEmpty,
+          "a profile is not opened while ShipIt is replacing the bundle")
+    let requests = ready(recovery.observe([sample(running: false, mark: fresh)], at: afterGrace))
+    check(requests.count == 1, "a running profile lost during an update is reopened once installation finishes")
+    if let request = requests.first {
+        check(request.profile == profile, "recovery names the lost profile rather than the default Claude")
+        check(recovery.observe([sample(running: false, mark: fresh)], at: afterGrace).isEmpty,
+              "a pending request is not offered on every tick")
+        check(recovery.started(request, at: afterGrace), "the recovery launch can be claimed once")
+        check(!recovery.started(request, at: afterGrace), "a second click cannot claim the same launch")
+        check(recovery.observe([sample(running: false)], at: afterGrace.addingTimeInterval(5)).isEmpty,
+              "a consumed marker does not count as a successful launch")
+        check(restored(recovery.observe([sample(running: true, mark: fresh, pid: 456)],
+                                         at: afterGrace.addingTimeInterval(6))),
+              "success is reported only when the profile's process is seen")
+        _ = recovery.observe([sample(running: false, mark: fresh)], at: afterGrace.addingTimeInterval(7))
+        check(recovery.observe([sample(running: false, mark: fresh)], at: afterGrace.addingTimeInterval(30)).isEmpty,
+              "quitting the recovered profile stays closed even if its old marker survives")
+    }
+
+    var selfRestart = UpdateRecovery()
+    _ = selfRestart.observe([sample(running: true)], at: now)
+    _ = selfRestart.observe([sample(running: false, mark: fresh)], at: afterQuit)
+    check(selfRestart.observe([sample(running: true, pid: 456)], at: afterQuit.addingTimeInterval(5)).isEmpty,
+          "Claude preserving its own profile argument needs no recovery")
+    check(selfRestart.observe([sample(running: true, pid: 456)], at: afterGrace).isEmpty,
+          "an already restored profile is never launched a second time")
+
+    func pendingRecovery() -> (UpdateRecovery, UpdateRecovery.Request) {
+        var state = UpdateRecovery()
+        _ = state.observe([sample(running: true)], at: now)
+        _ = state.observe([sample(running: false, mark: fresh)], at: afterQuit)
+        let request = ready(state.observe([sample(running: false, mark: fresh)], at: afterGrace)).first!
+        return (state, request)
+    }
+    var (failure, request) = pendingRecovery()
+    _ = failure.started(request, at: afterGrace)
+    let timeout = afterGrace.addingTimeInterval(UpdateRecovery.launchTimeout)
+    check(failed(failure.observe([sample(running: false, mark: fresh)], at: timeout)),
+          "a launch without a returning process reports failure after a bounded wait")
+    check(failure.observe([sample(running: false, mark: fresh)], at: timeout.addingTimeInterval(30)).isEmpty,
+          "a failed launch does not become an endless restart loop")
+
+    var (declined, declinedRequest) = pendingRecovery()
+    declined.dismiss(declinedRequest)
+    check(!declined.started(declinedRequest, at: afterGrace), "a dismissed request can no longer start a profile")
+    check(declined.observe([sample(running: false, mark: fresh)], at: afterGrace).isEmpty,
+          "leaving a profile closed does not ask again for the same update")
+
+    var (removed, _) = pendingRecovery()
+    check(cancelled(removed.observe([], at: afterGrace)), "removing a shortcut cancels its pending recovery")
+    var (expired, _) = pendingRecovery()
+    check(cancelled(expired.observe([sample(running: false, mark: fresh)], at: now.addingTimeInterval(400))),
+          "a recovery question expires with the marker that justified it")
+    var (manual, _) = pendingRecovery()
+    check(cancelled(manual.observe([sample(running: true, pid: 789)], at: afterGrace)),
+          "opening the shortcut by hand clears a recovery question without claiming credit")
+
+    var linked = UpdateRecovery()
+    var two = sample(running: true)
+    let threeProfile = makeProfile("Claude-Update-Three", account: nil)
+    var three = UpdateRecovery.Sample(name: "Claude 3", profile: threeProfile, pids: [789])
+    two.openNeighbours = [threeProfile.path: "Claude 3"]
+    two.defaultPIDs = [10]
+    _ = linked.observe([two, three], at: now)
+    two.pids = []; two.marker = fresh; two.defaultPIDs = [10, 11]
+    three.pids = []; three.marker = fresh
+    _ = linked.observe([two, three], at: afterQuit)
+    let both = ready(linked.observe([two, three], at: afterGrace))
+    check(Set(both.map(\.profile)) == [profile, threeProfile], "two profiles lost together are each recovered on their own directory")
+    if let request = both.first(where: { $0.profile == profile }) {
+        check(UpdateRecovery.newSharers(for: request, in: two).isEmpty,
+              "a linked profile already open before the update does not require another confirmation")
+        two.openNeighbours[Graft.mainProfile.path] = "Claude"
+        check(UpdateRecovery.newSharers(for: request, in: two) == ["Claude"],
+              "a default Claude newly reading shared chats requires confirmation")
+        check(request.previousDefaultPIDs == [10], "the default Claude that was already open is kept out of the extra-instance offer")
+        two.openNeighbours = [threeProfile.path: "Claude 3"]
+        check(UpdateRecovery.newSharers(for: request, in: two).isEmpty,
+              "a separate default profile such as Ollama does not block recovery of the linked pair")
+    }
+
+    let arguments = Graft.launchArguments(for: profile, inBackground: true)
+    check(arguments.contains("-g") && arguments.contains("-n"),
+          "recovery opens a new instance in the background")
+    check(arguments.contains("--user-data-dir=\(profile.path)"),
+          "the background launch keeps the exact profile path, including spaces")
+    check(!Graft.launchArguments(for: profile).contains("-g"),
+          "opening a shortcut by hand keeps its normal foreground behavior")
+}
+
+// MARK: - Keeping workflows out of automatic update restarts
+
+section("Choosing when Claude updates")
+
+do {
+    let originalSupport = Graft.applicationSupportOverride
+    Graft.applicationSupportOverride = support.appending(path: "ManualUpdates")
+    defer { Graft.applicationSupportOverride = originalSupport }
+    let main = Graft.mainProfile
+    let two = Graft.applicationSupport.appending(path: "Claude-2")
+    let three = Graft.applicationSupport.appending(path: "Claude-3")
+    let profiles = [main, two, three]
+    func write(_ object: [String: Any], to file: URL) {
+        try! fm.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try! JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]).write(to: file, options: .atomic)
+    }
+    func read(_ file: URL) -> [String: Any] {
+        (try? Data(contentsOf: file)).flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } ?? [:]
+    }
+    func selected(_ profile: URL) -> URL {
+        let library = try! ManualUpdates.library(for: profile)
+        let id = read(library.appending(path: "_meta.json"))["appliedId"] as! String
+        return library.appending(path: id + ".json")
+    }
+    func refuses(_ action: () throws -> Void) -> Bool {
+        do { try action(); return false } catch { return true }
+    }
+    check(try! !ManualUpdates.readState().enabled, "manual updates are opt-in")
+    try! ManualUpdates.synchronize(profiles)
+    check(!Graft.exists(ManualUpdates.stateFile), "normal launches do not create update policy state")
+    check((try! ManualUpdates.library(for: main)).path.hasSuffix("Claude-3p/configLibrary"),
+          "the default Claude reads its policy from its configuration library")
+    check((try! ManualUpdates.library(for: two)).path.hasSuffix("Claude-2-3p/configLibrary"),
+          "a shortcut has its own policy location rather than borrowing Claude 1's")
+    check(try! ManualUpdates.library(for: Graft.applicationSupport.appending(path: "Claude-3p"))
+          == ManualUpdates.library(for: main), "an existing third-party profile is not given a second suffix")
+    check(refuses { _ = try ManualUpdates.library(for: root.appending(path: "Elsewhere")) },
+          "a profile outside Application Support is not modified")
+
+    let relocatedSupport = root.appending(path: "RelocatedSupport")
+    let supportAlias = root.appending(path: "SupportAlias")
+    try! fm.createDirectory(at: relocatedSupport, withIntermediateDirectories: true)
+    try! fm.createSymbolicLink(at: supportAlias, withDestinationURL: relocatedSupport)
+    Graft.applicationSupportOverride = supportAlias
+    check(!refuses { _ = try ManualUpdates.library(for: Graft.mainProfile) },
+          "a new policy directory works when Application Support has a filesystem alias")
+    Graft.applicationSupportOverride = support.appending(path: "ManualUpdates")
+
+    let library = try! ManualUpdates.library(for: main)
+    let configID = UUID().uuidString.lowercased()
+    let configFile = library.appending(path: configID + ".json")
+    let metadataFile = library.appending(path: "_meta.json")
+    write(["appliedId": configID, "entries": [["id": configID, "name": "Local provider"]]], to: metadataFile)
+    let originalMetadata = try! Data(contentsOf: metadataFile)
+    write(["inferenceProvider": "gateway", "inferenceGatewayApiKey": "private-fixture-value",
+           "inferenceGatewayBaseUrl": "http://127.0.0.1:11436", "disableAutoUpdates": false], to: configFile)
+    write(["login": "unchanged"], to: two.appending(path: "config.json"))
+    let login = try! Data(contentsOf: two.appending(path: "config.json"))
+    try! ManualUpdates.setEnabled(true, profiles: profiles)
+    check(try! ManualUpdates.readState().enabled, "enabling manual updates is remembered for future launches")
+    for profile in profiles {
+        check(read(selected(profile))["disableAutoUpdates"] as? Bool == true,
+              "automatic updates are disabled for \(profile.lastPathComponent)")
+    }
+    check(read(configFile)["inferenceProvider"] as? String == "gateway"
+          && read(configFile)["inferenceGatewayBaseUrl"] as? String == "http://127.0.0.1:11436",
+          "the local provider and its endpoint are preserved")
+    check(read(configFile)["inferenceGatewayApiKey"] as? String == "private-fixture-value",
+          "provider credentials are not replaced")
+    check(try! Data(contentsOf: metadataFile) == originalMetadata,
+          "an existing selected configuration and its metadata stay in place")
+    check(try! Data(contentsOf: two.appending(path: "config.json")) == login,
+          "the profile's login file is not touched")
+    check(!(try! String(contentsOf: ManualUpdates.stateFile)).contains("private-fixture-value"),
+          "the undo record holds only update settings, never a copy of credentials")
+    let originalChanges = try! ManualUpdates.readState().changes.count
+    let before = try! fm.attributesOfItem(atPath: configFile.path)[.modificationDate] as! Date
+    try! ManualUpdates.synchronize(profiles)
+    check(try! ManualUpdates.readState().changes.count == originalChanges,
+          "opening the same profiles again keeps their original undo records")
+    check(try! fm.attributesOfItem(atPath: configFile.path)[.modificationDate] as? Date == before,
+          "a policy already in place is not rewritten underneath another running Claude")
+
+    let later = Graft.applicationSupport.appending(path: "Claude-Later")
+    try! ManualUpdates.synchronize([later])
+    check(read(selected(later))["disableAutoUpdates"] as? Bool == true,
+          "a shortcut created after manual mode was enabled is protected too")
+    var edited = read(configFile)
+    edited["deploymentDisplayName"] = "Renamed while protected"
+    write(edited, to: configFile)
+    try! ManualUpdates.setEnabled(false, profiles: profiles)
+    check(read(configFile)["disableAutoUpdates"] as? Bool == false,
+          "turning manual mode off restores the previous automatic-update setting")
+    check(read(configFile)["deploymentDisplayName"] as? String == "Renamed while protected",
+          "restoring updates preserves other configuration edits made meanwhile")
+    check(!Graft.exists((try! ManualUpdates.library(for: two)).appending(path: "_meta.json")),
+          "the temporary update-only selection is removed on disable")
+    check(!Graft.exists((try! ManualUpdates.library(for: two)).deletingLastPathComponent()),
+          "an empty policy folder created by manual mode does not remain as a ghost profile")
+    check(!Graft.exists((try! ManualUpdates.library(for: later)).appending(path: "_meta.json")),
+          "restoration also covers a profile no longer included in the shortcut list")
+    check(try! ManualUpdates.readState().changes.isEmpty, "completed restorations leave no outstanding undo records")
+
+    write(["disableAutoUpdates": true, "autoUpdate.disabled": false, "other": "preserved"], to: configFile)
+    try! ManualUpdates.setEnabled(true, profiles: [main])
+    check(read(configFile)["autoUpdate.disabled"] as? Bool == true,
+          "a canonical policy key cannot override the protection with a stale false value")
+    try! ManualUpdates.setEnabled(false, profiles: [])
+    check(read(configFile)["disableAutoUpdates"] as? Bool == true
+          && read(configFile)["autoUpdate.disabled"] as? Bool == false,
+          "both existing spellings are restored exactly, including an originally disabled updater")
+
+    write(["disableAutoUpdates": false], to: configFile)
+    try! ManualUpdates.setEnabled(true, profiles: [main])
+    write(["disableAutoUpdates": true, "autoUpdate.disabled": false], to: configFile)
+    try! ManualUpdates.synchronize([main])
+    check(read(configFile)["autoUpdate.disabled"] as? Bool == true,
+          "a newly added canonical spelling is protected on the next launch too")
+    try! ManualUpdates.setEnabled(false, profiles: [])
+    check(read(configFile)["disableAutoUpdates"] as? Bool == false
+          && read(configFile)["autoUpdate.disabled"] as? Bool == false,
+          "the original value of a policy spelling added later is also remembered")
+
+    try! ManualUpdates.setEnabled(true, profiles: [two])
+    let twoFile = selected(two)
+    write(["disableAutoUpdates": false, "newSetting": "keep"], to: twoFile)
+    try! ManualUpdates.setEnabled(false, profiles: [])
+    check(read(twoFile)["disableAutoUpdates"] as? Bool == false && read(twoFile)["newSetting"] as? String == "keep",
+          "a configuration edited by its owner while protected is retained, including an explicit update change")
+
+    let broken = Graft.applicationSupport.appending(path: "Claude-Broken")
+    let brokenMeta = (try! ManualUpdates.library(for: broken)).appending(path: "_meta.json")
+    try! fm.createDirectory(at: brokenMeta.deletingLastPathComponent(), withIntermediateDirectories: true)
+    try! Data("{partial".utf8).write(to: brokenMeta)
+    check(refuses { try ManualUpdates.setEnabled(true, profiles: [broken]) },
+          "an unreadable configuration list cannot be replaced with an empty one")
+    check(try! Data(contentsOf: brokenMeta) == Data("{partial".utf8), "the unreadable list is left intact")
+    write(["appliedId": "../../outside", "entries": []], to: brokenMeta)
+    check(refuses { try ManualUpdates.synchronize([broken]) }, "a selected configuration cannot escape its library")
+    write(["appliedId": UUID().uuidString.uppercased(), "entries": []], to: brokenMeta)
+    check(refuses { try ManualUpdates.synchronize([broken]) },
+          "a configuration id Claude's reader would ignore is not reported as protected")
+    write(["hybridPointer": "https://example.invalid/config", "entries": []], to: brokenMeta)
+    check(refuses { try ManualUpdates.synchronize([broken]) },
+          "a remotely supplied configuration is not presented as locally protected")
+    let symlinked = Graft.applicationSupport.appending(path: "Claude-Linked")
+    let linkedLibrary = try! ManualUpdates.library(for: symlinked)
+    try! fm.createDirectory(at: linkedLibrary.deletingLastPathComponent(), withIntermediateDirectories: true)
+    try! fm.createSymbolicLink(at: linkedLibrary, withDestinationURL: library)
+    check(refuses { try ManualUpdates.synchronize([symlinked]) },
+          "a symlink cannot redirect update-policy writes into another profile")
+    let linkedFolder = Graft.applicationSupport.appending(path: "Claude-LinkedFolder-3p")
+    try! fm.createSymbolicLink(at: linkedFolder, withDestinationURL: library.deletingLastPathComponent())
+    check(refuses { _ = try ManualUpdates.library(for: linkedFolder) },
+          "a symlinked policy profile cannot redirect writes into another profile")
+    try! ManualUpdates.setEnabled(false, profiles: [])
+    try! Data("{partial".utf8).write(to: ManualUpdates.stateFile)
+    check(refuses { try ManualUpdates.synchronize([main]) },
+          "unreadable undo state stops the write rather than forgetting how to restore settings")
+}
+
+// MARK: - Explicit Claude Desktop updates
+
+section("Showing and applying Claude Desktop updates")
+
+do {
+    func feed(_ version: String) -> Data {
+        try! JSONSerialization.data(withJSONObject: ["currentRelease": version, "releases": []])
+    }
+    check(try! ClaudeUpdateFeed.available(in: feed("1.46388.4"), installed: "1.46388.4") == nil,
+          "an installed release is shown as up to date")
+    check(try! ClaudeUpdateFeed.available(in: feed("1.46388.10"), installed: "1.46388.9") == "1.46388.10",
+          "version numbers compare numerically rather than alphabetically")
+    check(try! ClaudeUpdateFeed.available(in: feed("1.40000.1"), installed: "1.46388.4") == nil,
+          "a rolled-back feed does not offer to downgrade Claude")
+    for invalid in ["", "1.2", "1.2.3.4", "1.2.bad", "1..3", "1.2.-3", "1.2.３", "1.2.3<script>"] {
+        do {
+            _ = try ClaudeUpdateFeed.available(in: feed(invalid), installed: "1.2.3")
+            check(false, "an invalid feed version is rejected: \(invalid)")
+        } catch { check(true, "an invalid feed version is rejected: \(invalid)") }
+    }
+    do {
+        _ = try ClaudeUpdateFeed.available(in: Data("<html>Offline</html>".utf8), installed: "1.2.3")
+        check(false, "an error page is not reported as up to date")
+    } catch { check(true, "an error page is not reported as up to date") }
+    let endpoint = ClaudeUpdateFeed.url(version: "1.2.3", deviceID: "fixture&version=0")
+    check(endpoint.scheme == "https" && endpoint.host == "api.anthropic.com",
+          "availability checks use Claude's own update service")
+    check(URLComponents(url: endpoint, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "device_id" }?.value == "fixture&version=0",
+          "device identifiers cannot inject another feed parameter")
+    let shipIt = Graft.claudeApp.appending(path: "Contents/Frameworks/Squirrel.framework/Versions/A/Resources/ShipIt").path
+    check(Graft.isClaudeInstallerProcess(shipIt + " com.anthropic.claudefordesktop.ShipIt"),
+          "Claude's native ShipIt process keeps installation pending")
+    check(!Graft.isClaudeInstallerProcess("/usr/bin/tail -f /tmp/com.anthropic.claudefordesktop.ShipIt/ShipIt_stderr.log"),
+          "reading the updater log cannot block an update forever")
+    check(!Graft.isClaudeInstallerProcess("/bin/zsh -c '" + shipIt + " com.anthropic.claudefordesktop.ShipIt'"),
+          "a command mentioning the installer is not the installer itself")
+
+    let now = Date(timeIntervalSince1970: 2_000_000_000)
+    let one = ClaudeUpdateFlow.Instance(pid: 101, launched: now.addingTimeInterval(-100))
+    let two = ClaudeUpdateFlow.Instance(pid: 102, launched: now.addingTimeInterval(-90))
+    let three = ClaudeUpdateFlow.Instance(pid: 103, launched: now.addingTimeInterval(-80))
+    let helper = ClaudeUpdateFlow.Instance(pid: 104, launched: now)
+    let all: Set<ClaudeUpdateFlow.Instance> = [one, two, three]
+    func flow() -> ClaudeUpdateFlow { ClaudeUpdateFlow(target: "1.2.4", original: all, phaseStarted: now) }
+    func sample(_ instances: Set<ClaudeUpdateFlow.Instance>, helper: ClaudeUpdateFlow.Instance? = nil,
+                installed: String = "1.2.3", staged: String? = nil, installing: Bool = false) -> ClaudeUpdateFlow.Sample {
+        ClaudeUpdateFlow.Sample(instances: instances, helper: helper, installed: installed, staged: staged, installerRunning: installing)
+    }
+    func failed(_ action: ClaudeUpdateFlow.Action) -> Bool { if case .fail = action { return true }; return false }
+    var update = flow()
+    check(update.advance(sample([two, three]), at: now) == .wait,
+          "closing only Claude 1 cannot start the update while Claude 2 and 3 remain")
+    check(update.advance(sample([three]), at: now) == .wait,
+          "the updater waits for the final linked instance to exit")
+    check(update.advance(sample([]), at: now) == .launch,
+          "only a complete shutdown starts the native updater")
+    check(update.advance(sample([]), at: now) == .wait,
+          "polling cannot launch a second updater")
+    check(update.advance(sample([], staged: "1.2.4"), at: now) == .wait,
+          "an old staged update does not bypass identifying the new updater process")
+    check(update.advance(sample([helper], helper: helper), at: now) == .wait,
+          "the native updater gets time to download its release")
+    check(update.advance(sample([helper], helper: helper, staged: "1.2.3"), at: now) == .wait,
+          "an older staged bundle is not installed as the offered update")
+    check(update.advance(sample([helper], helper: helper, staged: "1.2.4"), at: now) == .quitHelper,
+          "a prepared update quits only its dedicated updater instance to install")
+    check(update.advance(sample([helper], helper: helper, staged: "1.2.4"), at: now) == .wait,
+          "the install request is issued once")
+    check(update.advance(sample([], installed: "1.2.4", installing: true), at: now) == .wait,
+          "a changed version is not success while ShipIt is still installing")
+    check(update.advance(sample([], installed: "1.2.4"), at: now) == .complete,
+          "success requires the new bundle version and a finished installer")
+
+    update = flow()
+    let reused = ClaudeUpdateFlow.Instance(pid: one.pid, launched: now)
+    check(failed(update.advance(sample([reused]), at: now)),
+          "a reused pid cannot authorize quitting a newly opened Claude")
+    update = flow()
+    check(failed(update.advance(sample([three]), at: now.addingTimeInterval(90))),
+          "a Claude refusing to quit aborts the update without force quitting it")
+    update = flow()
+    check(update.advance(sample([]), at: now) == .launch, "a retry starts with its own shutdown barrier")
+    check(failed(update.advance(sample([one]), at: now)),
+          "a Claude reopened after the shutdown stops the update instead of being killed")
+    update = flow()
+    _ = update.advance(sample([]), at: now)
+    check(failed(update.advance(sample([]), at: now.addingTimeInterval(30))),
+          "an updater that never starts reports failure")
+    update = flow()
+    _ = update.advance(sample([]), at: now)
+    _ = update.advance(sample([helper], helper: helper), at: now)
+    check(failed(update.advance(sample([helper], helper: helper), at: now.addingTimeInterval(1200))),
+          "a stalled download does not hold shortcuts closed indefinitely without an error")
+    update = flow()
+    _ = update.advance(sample([]), at: now)
+    _ = update.advance(sample([helper], helper: helper, staged: "1.2.4"), at: now)
+    check(failed(update.advance(sample([]), at: now.addingTimeInterval(180))),
+          "a quit alone is not mistaken for a successful installation")
+
+    let previousSupport = Graft.applicationSupportOverride
+    Graft.applicationSupportOverride = support.appending(path: "UpdateGate")
+    defer { Graft.applicationSupportOverride = previousSupport }
+
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [ClaudeFeedFixture.self]
+    let monitor = ClaudeDesktopUpdater(session: URLSession(configuration: configuration), version: { "1.2.3" })
+    func waitForCheck() {
+        let deadline = Date().addingTimeInterval(5)
+        while (monitor.checking || monitor.isUpdating) && Date() < deadline {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+        }
+    }
+    monitor.check()
+    waitForCheck()
+    check(monitor.availableVersion == "1.2.4" && monitor.installedVersion == "1.2.3",
+          "the shared window and menu model publishes an available Desktop update")
+    check(!monitor.isUpdating && !Graft.exists(ClaudeUpdateGate.file),
+          "a background availability check does not start an update or close anything")
+    ClaudeFeedFixture.status = 503
+    monitor.install()
+    waitForCheck()
+    check(monitor.problem != nil && !Graft.exists(ClaudeUpdateGate.file),
+          "a failed preflight leaves Claude running instead of closing it for an unavailable download")
+    ClaudeFeedFixture.status = 200
+    ClaudeFeedFixture.response = Data("{\"currentRelease\":\"1.2.3\"}".utf8)
+    monitor.install()
+    waitForCheck()
+    check(monitor.availableVersion == nil && !monitor.isUpdating && !Graft.exists(ClaudeUpdateGate.file),
+          "a withdrawn update is rechecked before any Claude is asked to quit")
+    ClaudeFeedFixture.response = Data("not json".utf8)
+    monitor.check()
+    waitForCheck()
+    check(monitor.problem != nil && !monitor.checking,
+          "a malformed response becomes a visible check error rather than a stuck spinner")
+
+    try! ClaudeUpdateGate.requireLaunchAllowed()
+    var lease: ClaudeUpdateGate.Lease? = try! ClaudeUpdateGate.acquire()
+    check(lease != nil, "an explicit update holds the shared launcher lock")
+    do {
+        _ = try ClaudeUpdateGate.acquire()
+        check(false, "a second update cannot claim the same installation")
+    } catch { check(true, "a second update cannot claim the same installation") }
+    do {
+        try ClaudeUpdateGate.requireLaunchAllowed()
+        check(false, "shortcut launches wait while an update owns the lock")
+    } catch { check(true, "shortcut launches wait while an update owns the lock") }
+    let profile = Graft.applicationSupport.appending(path: "Claude-2")
+    check(!Graft.open(profile: profile, inBackground: true),
+          "the actual launch entry point refuses to open a profile during installation")
+    lease = nil
+    do {
+        try ClaudeUpdateGate.requireLaunchAllowed()
+        check(true, "normal launches resume when the update releases its lock")
+    } catch { check(false, "normal launches resume when the update releases its lock") }
 }
 
 // MARK: - What the bar shows

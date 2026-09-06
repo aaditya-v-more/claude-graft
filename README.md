@@ -113,7 +113,38 @@ A handful of tokens, and only because you pressed the button.
 Graft updates itself: hourly, and at launch once an hour has passed, it
 downloads, installs and restarts on its own, the only sign being the menu bar
 item blinking out and back. Every download is verified against a signing key
-that ships inside the app. **Check for Updates…** does it immediately.
+that ships inside the app. **Check for Claude Graft Updates** does it immediately.
+
+Claude Desktop can restart itself to update while an unfinished workflow is
+waiting for input. Turn on **Update Claude Desktop manually** in Graft's menu
+bar or Settings to prevent these automatic updates in Claude and every
+shortcut. It takes effect when each Claude next starts; finish your work before
+restarting any instance already open. Graft checks Claude's update service at
+launch and hourly, including while Claude instances are running. A new version
+appears in the window and menu bar, and the menu bar icon becomes an exclamation
+mark. **Check for Claude Updates** checks immediately.
+
+**Update Claude…** first warns that every running Claude will close and its
+workflows will stop. Cancel leaves them running. Confirming rechecks the release,
+quits the instances you approved, and waits for all of them to exit before
+starting Claude's own updater. Graft shows progress, blocks shortcut launches
+during installation, and verifies the installed version before reporting success.
+A Claude that refuses to quit is not forced closed. A new instance opened after
+confirmation requires another decision.
+
+Manual update mode stays on throughout this process. The updater uses its own
+empty profile; your provider settings, logins, and shortcut relationships stay
+in place. You can still turn manual mode off to restore the previous automatic
+update settings. Managed installations need their administrator to allow updates.
+
+Claude's updater can also reopen the default Claude instead of the shortcut
+you were using. While Graft is running, it
+watches for that restart and reopens the affected profile after installation
+finishes. A profile you quit yourself stays closed. Graft reports the recovery
+in its window and menu bar; if an extra Claude opened during the restart, it
+offers to close it. If that instance has newly opened the same chats, Graft
+asks before reopening your profile. Sessions Claude ended during its update
+still need to be resumed.
 
 ## Worth knowing
 
@@ -230,7 +261,7 @@ in the profile it was merged into.
 
 ```
 ./build.sh     the app, into build.noindex/
-./test.sh      574 checks, all in a throwaway directory
+./test.sh      checks run in a throwaway directory
 ./release.sh   tests, builds universal, signs, packages
 
 Tools/render-diagrams.sh   the README's diagrams, into docs/assets

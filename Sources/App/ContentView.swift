@@ -35,6 +35,13 @@ struct ContentView: View {
                 EmptyState(hasShortcuts: !store.shortcuts.isEmpty, add: add)
             }
         }
+        .safeAreaInset(edge: .top, spacing: 0) {
+            VStack(spacing: 0) {
+                UpdateRecoveryNotice()
+                ClaudeUpdateStatus()
+                Divider()
+            }
+        }
         .confirmationDialog(deletionTitle,
                             isPresented: Binding(get: { pendingDeletion != nil },
                                                  set: { if !$0 { pendingDeletion = nil } }),

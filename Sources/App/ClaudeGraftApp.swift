@@ -49,6 +49,9 @@ enum Shared {
     static let usage = UsageMonitor()
     static let updater = Updater()
     static let sessionRecords = SessionRecords()
+    static let updateRecovery = UpdateRecoveryMonitor()
+    static let manualUpdates = ManualUpdateSettings()
+    static let claudeUpdates = ClaudeDesktopUpdater()
 }
 
 struct SettingsView: View {
@@ -62,6 +65,7 @@ struct SettingsView: View {
                     get: { settings.openAtLogin },
                     set: { problem = settings.setOpenAtLogin($0) }))
                 Toggle("Show in Menu Bar", isOn: $settings.showInMenuBar)
+                ManualUpdateControl()
             } footer: {
                 Text(problem ?? """
                      The menu bar item keeps reporting usage after this window is \
@@ -103,6 +107,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // the window or the dropdown.
         Shared.usage.mayPromptUnasked = !Shared.startHidden
         Shared.usage.start(watching: Shared.store)
+        Shared.manualUpdates.start(watching: Shared.store)
+        Shared.updateRecovery.start(watching: Shared.store)
+        Shared.claudeUpdates.start()
         Shared.updater.start()
         // No prompts, no windows: filing records is a thing the menu bar
         // does on its own whether anyone is looking or not. Once, here —
@@ -151,6 +158,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                  systemGoingDown: systemIsGoingDown,
                                  menuBarShowing: menuBar?.isShowing == true) {
             Self.isTerminating = true
+            Shared.updateRecovery.stop()
             return .terminateNow
         }
         hideToMenuBar()

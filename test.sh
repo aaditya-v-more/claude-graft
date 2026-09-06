@@ -12,6 +12,8 @@ swiftc -swift-version 5 \
     -target "$(uname -m)-apple-macos${MACOS_DEPLOYMENT_TARGET:-13.0}" \
     "$ROOT/Sources/Shared/GraftCore.swift" \
     "$ROOT/Sources/Shared/Diagnostics.swift" \
+    "$ROOT/Sources/Shared/ManualUpdates.swift" \
+    "$ROOT/Sources/Shared/ClaudeUpdateGate.swift" \
     "$ROOT/Sources/App/Model.swift" \
     "$ROOT/Sources/App/ChatConflict.swift" \
     "$ROOT/Sources/App/Installer.swift" \
@@ -20,6 +22,9 @@ swiftc -swift-version 5 \
     "$ROOT/Sources/App/SessionStarter.swift" \
     "$ROOT/Sources/App/ClaudeCredentials.swift" \
     "$ROOT/Sources/App/UsageMonitor.swift" \
+    "$ROOT/Sources/App/UpdateRecovery.swift" \
+    "$ROOT/Sources/App/ClaudeUpdateFlow.swift" \
+    "$ROOT/Sources/App/ClaudeDesktopUpdater.swift" \
     "$ROOT/Tests/main.swift" \
     -o "$BUILD/tests"
 
@@ -29,6 +34,8 @@ swiftc -swift-version 5 \
     -target "$(uname -m)-apple-macos${MACOS_DEPLOYMENT_TARGET:-13.0}" \
     "$ROOT/Sources/Shared/GraftCore.swift" \
     "$ROOT/Sources/Shared/Diagnostics.swift" \
+    "$ROOT/Sources/Shared/ManualUpdates.swift" \
+    "$ROOT/Sources/Shared/ClaudeUpdateGate.swift" \
     "$ROOT/Sources/Launcher/main.swift" \
     -o "$BUILD/graft-launch"
 

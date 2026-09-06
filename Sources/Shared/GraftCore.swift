@@ -2780,6 +2780,15 @@ enum Graft {
             && !command.contains("Helper")
     }
 
+    static func isClaudeInstallerProcess(_ command: String) -> Bool {
+        // A terminal following ShipIt's log has the same name in its arguments.
+        // Only the executable's location is evidence of an installer running.
+        let framework = claudeApp.appending(path: "Contents/Frameworks/Squirrel.framework").path + "/"
+        if command.hasPrefix(framework), command.contains("/ShipIt ") || command.hasSuffix("/ShipIt") { return true }
+        let cached = fm.homeDirectoryForCurrentUser.appending(path: "Library/Caches/com.anthropic.claudefordesktop.ShipIt/ShipIt").path
+        return command == cached || command.hasPrefix(cached + " ")
+    }
+
     /// The main binary of Claude itself, on no profile in particular.
     static func isDefaultInstance(_ command: String) -> Bool {
         isClaudeProcess(command) && !command.contains("--user-data-dir=")
@@ -2871,8 +2880,9 @@ enum Graft {
     /// Always a new instance. LaunchServices left to pick for itself reopens
     /// whichever instance of the bundle started first — measured, with three
     /// running — and that is somebody else's profile.
-    static func launchArguments(for profile: URL) -> [String] {
+    static func launchArguments(for profile: URL, inBackground: Bool = false) -> [String] {
         var arguments = ["-n", "-a", claudeApp.path]
+        if inBackground { arguments.insert("-g", at: 0) }
         // The main profile is the one launched with no --user-data-dir at all,
         // and that absence is the only mark it has. Naming it here would start
         // a Claude that nothing afterwards recognises as the main one.
@@ -2883,14 +2893,8 @@ enum Graft {
     }
 
     @discardableResult
-    private static func launch(profile: URL) -> Bool {
-        let task = Process()
-        task.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-        task.arguments = launchArguments(for: profile)
-        task.standardOutput = FileHandle.nullDevice
-        task.standardError = FileHandle.nullDevice
-        do { try task.run() } catch { return false }
-        return true
+    private static func launch(profile: URL, inBackground: Bool = false) -> Bool {
+        runTool("/usr/bin/open", launchArguments(for: profile, inBackground: inBackground)) == 0
     }
 
     /// Mirror, file, then write down what the pass left behind.
@@ -2930,15 +2934,21 @@ enum Graft {
     /// case nothing else covers, since a press on a profile already open is not
     /// going to start anything and there is no timer behind it.
     @discardableResult
-    static func open(profile: URL) -> Bool {
+    static func open(profile: URL, inBackground: Bool = false) -> Bool {
         guard !isRunning(profile: profile) else {
+            // A recovery can race Claude's own relaunch. It must neither open
+            // a second process nor raise a window the updater kept hidden.
+            if inBackground { return true }
             var shown = false
             if let pid = processIdentifier(of: profile) { shown = reveal(pid: pid) }
             squareUp(filingInto: [profile, mainProfile])
             return shown
         }
+        guard prepareUpdatePolicy(for: profile) else { return false }
         squareUp(filingInto: [profile, mainProfile])
-        return launch(profile: profile)
+        // Filing can take long enough for Claude's own relaunch to arrive.
+        if inBackground && isRunning(profile: profile) { return true }
+        return launch(profile: profile, inBackground: inBackground)
     }
 
     /// What a generated shortcut does when clicked.
@@ -2969,6 +2979,7 @@ enum Graft {
             squareUp(filingInto: filing, checkingRunning: false)
             return
         }
+        guard prepareUpdatePolicy(for: profile) else { return }
         apply(config)
         // After the links, so a record filed through a graft lands where the
         // link now points rather than where it pointed last time. The mirror
@@ -2977,6 +2988,19 @@ enum Graft {
         // moment their changes have to reach the sidebar about to be built.
         squareUp(filingInto: filing, checkingRunning: false)
         launch(profile: profile)
+    }
+
+    private static func prepareUpdatePolicy(for profile: URL) -> Bool {
+        do {
+            try ClaudeUpdateGate.requireLaunchAllowed()
+            try ManualUpdates.synchronize([mainProfile, profile])
+            return true
+        } catch {
+            Diagnostics.note("updates.policy-failed", ["profile": profile.lastPathComponent,
+                                                       "reason": error.localizedDescription])
+            FileHandle.standardError.write(Data((error.localizedDescription + "\n").utf8))
+            return false
+        }
     }
 
     /// Bring a profile's storage in line with its configuration.

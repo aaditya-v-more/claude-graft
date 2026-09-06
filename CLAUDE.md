@@ -477,6 +477,69 @@ any shortcut running every instance of `Claude.app` is somebody else's profile.
 `launch` passes `-n` for that reason, and passes no `--user-data-dir` at all for
 the main profile, whose only mark is that absence.
 
+**An update restart is not permission to undo a quit.** Claude's ShipIt
+relaunches the bundle without `--user-data-dir`, so a shortcut's profile stays
+closed and the default Claude appears instead. `UpdateRecovery` requires a
+profile observed running and a new, fresh `stealth-relaunch` marker written
+before that process disappeared. A marker already there when monitoring began,
+a navigation-only marker, and an ordinary quit authorize nothing. The marker
+stays untouched so Claude can consume its saved window and navigation state.
+
+`UpdateRecoveryMonitor` has its own five-second timer because a usage request
+or keychain dialog can stall for longer than a restart. It waits fifteen seconds
+after the exit and until ShipIt is gone, then asks who is running again before
+launching in the background. Only a returning process counts as success, and
+one marker can claim only one launch. A new reader of shared chats requires a
+decision; a reader already present before the update does not. An extra default
+instance is only offered for closing, with its pid and launch date checked
+again when the person accepts. Graft stopping at logout stops this monitor too.
+
+**Recovery cannot preserve a workflow the updater already killed.** Each
+Claude instance asks its own Code and Cowork managers whether work is active;
+there is no shared idle check across profiles. Waiting for permission or input
+can count as idle even with an unfinished turn and open terminals. Once the
+idle update fires, Claude kills those terminals before ShipIt takes over.
+
+Manual update mode prevents that path using Claude's `disableAutoUpdates`
+policy. It is opt-in, applies at the next Claude launch, and covers the default
+profile as well as every shortcut. Its configuration library lives at
+`<profile>-3p/configLibrary`, even when the profile uses Claude.ai; a policy
+without inference settings does not switch providers. Verified against the
+installed binary. A device-managed or remote configuration is refused because
+it can override the local policy and make a protection switch a false promise.
+
+`ManualUpdates` journals only the keys it changes before writing them, with a
+lock shared by launchers and the app. Existing provider settings, credentials,
+configuration selections and login files keep their owners. Disabling restores
+the saved update values, preserving other edits made meanwhile; an empty
+configuration created solely for this mode is then removed. A repeated launch
+does not rewrite an already protected configuration. Nothing restarts a Claude
+to apply this setting: a staged update in an existing process is precisely why
+the interface says to finish work before reopening it.
+
+**Checking for a release never closes a Claude.** `ClaudeDesktopUpdater` reads
+the public Desktop feed at launch and hourly, whether Claude is running or not.
+It has its own empty profile and device identifier, so checking needs no account
+credentials and follows the same rollout as its eventual native updater. The
+window and dropdown observe the same model. An available release also changes
+the status item to an exclamation mark; Graft's own Sparkle update stays named
+separately.
+
+The update button first warns that all current Claude instances and workflows
+will close. Only confirmation authorizes a fresh feed check and graceful quit,
+using the approved pids and launch dates. A new process is not covered by that
+approval. All instances must exit before the dedicated updater launches. Its
+download is installed by Claude's own Squirrel updater on quit; Graft never
+copies a replacement over Claude.app. A prepared bundle alone is not success:
+the installed version must change and ShipIt must finish.
+
+The cross-process `ClaudeUpdateGate` blocks shortcut launches and update
+recovery during that operation. The journal allows a Graft relaunch to follow
+an updater already running, but never authorizes another round of quitting
+working profiles. Manual policy stays in place throughout. A refusal to quit,
+bad process read, failed download, or failed install is a visible error, never
+permission to force quit or claim success.
+
 **An update installs itself and says nothing.** Checked hourly and at launch
 once that much has passed, downloaded, installed and restarted with nobody
 asked. The gentle-reminder route was tried first and was wrong for this app:

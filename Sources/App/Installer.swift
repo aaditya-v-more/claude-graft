@@ -104,6 +104,7 @@ enum Installer {
         if fm.fileExists(atPath: bundle.path), !isGraftBundle(bundle) {
             throw InstallError.nameTaken(bundle.path)
         }
+        try ManualUpdates.synchronize([Graft.mainProfile, shortcut.profileDir])
 
         // A rename leaves the old bundle behind, so clear it. Only ever one of
         // ours; installedBundle already refuses anything else.
