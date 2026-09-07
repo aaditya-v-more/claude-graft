@@ -88,7 +88,7 @@ final class AppSettings: ObservableObject {
     @discardableResult
     func setOpenAtLogin(_ wanted: Bool) -> String? {
         guard #available(macOS 13, *) else {
-            return "Opening at login needs macOS 13 or later."
+            return L10n.text("Opening at login needs macOS 13 or later.")
         }
         do {
             if wanted {
@@ -103,7 +103,7 @@ final class AppSettings: ObservableObject {
         } catch {
             openAtLogin = SMAppService.mainApp.status == .enabled
             if SMAppService.mainApp.status == .requiresApproval {
-                return "macOS needs this approved in System Settings › General › Login Items."
+                return L10n.text("macOS needs this approved in System Settings › General › Login Items.")
             }
             return error.localizedDescription
         }

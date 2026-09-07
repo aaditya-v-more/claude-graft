@@ -33,9 +33,9 @@
 
 </div>
 
-Claude Desktop signs into one account at a time. Graft gives you as many Claudes
-as you want — each with its own name, icon and login — and lets any of them read
-another one's Claude Code history.
+Claude Desktop signs into one account at a time. Graft gives you as many Claude
+profiles as you want — each shortcut with its own name and icon, each profile
+with its own login — and lets any of them read another one's Claude Code history.
 
 That last part is the point. Every other way of running two accounts gives you
 an empty second profile. Graft lets your work login open your personal chats,
@@ -45,12 +45,12 @@ screenshots and the short version on
 
 ## Before you install
 
-Graft works on a copy of Claude Desktop, so Claude Desktop has to be there
-first — in `/Applications`, or in `~/Applications` if that is where you keep it.
-Graft installs it for you no more than it signs you in, and without it there is
-nothing to copy.
+Graft launches Claude Desktop with separate profile folders, so Claude Desktop
+has to be installed first — in `/Applications`, or in `~/Applications` if that
+is where you keep it. Graft installs it for you no more than it signs you in.
 
 macOS 13 or later. Universal, for Apple Silicon and Intel.
+The interface follows the macOS language, with English and Russian included.
 
 ## Install
 
@@ -70,9 +70,14 @@ allow it in System Settings → Privacy & Security instead.
 
 ## Making a Claude
 
-Name it, choose where its chats come from, press **Create Shortcut**. You get a
-real app in `/Applications` that you can launch from Spotlight or pin to the
-Dock like any other.
+Name it, choose one of twelve icon variations and where its chats come from,
+then press **Create Shortcut**. You get a small generated shortcut app in
+`/Applications` that you can open from Spotlight or pin to the Dock. Graft does
+not copy or modify the installed Claude bundle.
+
+The custom name and icon belong to that shortcut. Once it opens Claude, macOS
+shows the running stock Claude name and icon; changing the runtime identity
+would require modifying or re-signing Anthropic's app.
 
 <img src="docs/assets/shortcuts.png" width="580" alt="Claude and Claude 2 side by side in Spotlight">
 
@@ -94,7 +99,7 @@ which saves signing in again if you set something up by hand.
 The bar shows whichever account is currently open, the rest behind the tooltip.
 Figures come from Anthropic's own endpoint using the login each profile already
 holds, so they're live with real reset times even for an account that isn't
-running.
+running. When Anthropic reports a scoped Fable limit, it appears as a third bar.
 
 Reading that token needs one keychain prompt: choose **Always Allow** and later
 reads are silent. macOS ties the permission to one exact build, so a new version

@@ -1,6 +1,18 @@
 import AppKit
 import Foundation
 
+/// Uses the localization chosen by macOS for this app. English source text is
+/// also the fallback, so an unsupported system language stays readable.
+enum L10n {
+    static func text(_ key: String) -> String {
+        Bundle.main.localizedString(forKey: key, value: key, table: nil)
+    }
+
+    static func format(_ key: String, _ arguments: CVarArg...) -> String {
+        String(format: text(key), locale: Locale.current, arguments: arguments)
+    }
+}
+
 /// Describes one grafted Claude Desktop profile: where its data lives, and
 /// which other profile — if any — it borrows its Claude Code chats from.
 struct GraftConfig: Codable, Equatable {
@@ -44,18 +56,18 @@ enum Graft {
     /// somebody else's data.
     static func validateFolder(_ folder: String) -> String? {
         let trimmed = folder.trimmingCharacters(in: .whitespaces)
-        if trimmed.isEmpty { return "The profile folder needs a name." }
+        if trimmed.isEmpty { return L10n.text("The profile folder needs a name.") }
         if trimmed.contains("/") || trimmed.contains(":") {
-            return "The profile folder must be a single folder name, not a path."
+            return L10n.text("The profile folder must be a single folder name, not a path.")
         }
         if trimmed == "." || trimmed == ".." || trimmed.hasPrefix(".") {
-            return "“\(trimmed)” is not a usable folder name."
+            return L10n.format("“%@” is not a usable folder name.", trimmed)
         }
         if trimmed == "Claude" {
-            return "That is Claude's own profile folder. Pick another name."
+            return L10n.text("That is Claude's own profile folder. Pick another name.")
         }
         if trimmed == "ClaudeGraft" {
-            return "That folder belongs to Claude Graft itself. Pick another name."
+            return L10n.text("That folder belongs to Claude Graft itself. Pick another name.")
         }
         return nil
     }
@@ -1778,6 +1790,8 @@ enum Graft {
         /// dropping back to nothing.
         var fiveHourReset: Date?
         var weekReset: Date?
+        var fable: Int? = nil
+        var fableReset: Date? = nil
 
         /// Claude only writes this while it is running, so an old sample says
         /// nothing useful about a five-hour window that has since rolled over.
@@ -1885,9 +1899,9 @@ enum Graft {
         let days = remaining / 86_400
         let hours = (remaining % 86_400) / 3_600
         let minutes = (remaining % 3_600) / 60
-        if days > 0 { return "\(days)d \(hours)h \(minutes)m" }
-        if hours > 0 { return "\(hours)h \(minutes)m" }
-        return "\(max(minutes, 1))m"
+        if days > 0 { return L10n.format("%ldd %ldh %ldm", days, hours, minutes) }
+        if hours > 0 { return L10n.format("%ldh %ldm", hours, minutes) }
+        return L10n.format("%ldm", max(minutes, 1))
     }
 
     // MARK: - Grafting
@@ -2666,11 +2680,11 @@ enum Graft {
         var errorDescription: String? {
             switch self {
             case .mainProfile:
-                return "That folder belongs to Claude itself and will not be deleted."
+                return L10n.text("That folder belongs to Claude itself and will not be deleted.")
             case .outsideApplicationSupport:
-                return "Only folders directly inside ~/Library/Application Support can be deleted."
+                return L10n.text("Only folders directly inside ~/Library/Application Support can be deleted.")
             case .running:
-                return "Claude is still running on this profile. Quit it first."
+                return L10n.text("Claude is still running on this profile. Quit it first.")
             }
         }
     }

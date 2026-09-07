@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 
 // Every test runs against a throwaway Application Support and Applications
@@ -47,15 +48,31 @@ let apps = root.appending(path: "Applications")
 try! fm.createDirectory(at: support, withIntermediateDirectories: true)
 try! fm.createDirectory(at: apps, withIntermediateDirectories: true)
 
+let stockImage = NSImage(size: NSSize(width: 128, height: 128))
+stockImage.lockFocus()
+NSColor.systemOrange.setFill()
+NSBezierPath(roundedRect: NSRect(x: 4, y: 4, width: 120, height: 120),
+             xRadius: 24, yRadius: 24).fill()
+stockImage.unlockFocus()
+let stockPNG = root.appending(path: "stock-icon.png")
+let stockPNGData = stockImage.tiffRepresentation
+    .flatMap(NSBitmapImageRep.init(data:))!
+    .representation(using: .png, properties: [:])!
+try! stockPNGData.write(to: stockPNG)
+
 Graft.applicationSupportOverride = support
 Installer.installDirectoryOverride = apps
 Installer.registersWithLaunchServices = false
+Installer.iconSourceOverride = stockPNG
 // Nothing in a temporary directory can be made to run, and asking for real
 // would answer differently depending on whether somebody had Claude open while
 // the suite ran.
 Graft.runningClaudesOverride = { [] }
 
-defer { try? fm.removeItem(at: root) }
+defer {
+    Installer.iconSourceOverride = nil
+    try? fm.removeItem(at: root)
+}
 
 // MARK: - Helpers
 
@@ -248,6 +265,75 @@ do {
     try? fm.removeItem(at: renamed)
     try? fm.removeItem(at: shortcut.profileDir)
     try? fm.removeItem(at: main)
+}
+
+// MARK: - Shortcut icons
+
+section("Shortcut icons")
+do {
+    let saved = Shortcut(name: "Styled", iconPreset: .work)
+    let encoded = try! JSONEncoder().encode(saved)
+    let decoded = try! JSONDecoder().decode(Shortcut.self, from: encoded)
+    check(decoded.iconPreset == .work,
+          "the selected icon survives a restart")
+
+    var legacy = try! JSONSerialization.jsonObject(with: encoded) as! [String: Any]
+    legacy.removeValue(forKey: "iconPreset")
+    let legacyData = try! JSONSerialization.data(withJSONObject: legacy)
+    check(try! JSONDecoder().decode(Shortcut.self, from: legacyData).iconPreset == .original,
+          "a shortcut saved before icon presets existed keeps Claude's original icon")
+    check(Set(Shortcut.IconPreset.allCases.map(\.rawValue)).count == 12,
+          "the icon picker offers twelve distinct presets")
+
+    let preview = NSBitmapImageRep(data: Installer.previewIcon(for: .blue)!.tiffRepresentation!)!
+    check(preview.colorAt(x: 75, y: 75)!.alphaComponent > 0.5,
+          "the preview fills its Retina canvas instead of shrinking into one quarter")
+    var styled = Shortcut(name: "Styled Icon", source: .own, iconPreset: .work)
+    let bundle = try! Installer.install(styled, sourceDir: nil)
+    let icon = bundle.appending(path: "Contents/Resources/icon.icns")
+    let workIcon = try! Data(contentsOf: icon)
+    check(NSImage(contentsOf: icon) != nil,
+          "a preset is written as a valid shortcut icon inside the bundle")
+    check(Graft.runTool("/usr/bin/codesign", ["--verify", "--strict", bundle.path]) == 0,
+          "the generated shortcut remains validly ad-hoc signed")
+
+    styled.iconPreset = .blue
+    _ = try! Installer.install(styled, sourceDir: nil, previousName: styled.name)
+    check(try! Data(contentsOf: icon) != workIcon,
+          "updating the shortcut replaces the badged icon with the newly selected preset")
+    try? fm.removeItem(at: bundle)
+    try? fm.removeItem(at: styled.profileDir)
+}
+
+section("Legacy launcher refresh")
+do {
+    let shortcut = Shortcut(name: "Legacy", source: .own)
+    let bundle = Installer.bundleURL(for: shortcut)
+    let macOS = bundle.appending(path: "Contents/MacOS")
+    let resources = bundle.appending(path: "Contents/Resources")
+    try! fm.createDirectory(at: macOS, withIntermediateDirectories: true)
+    try! fm.createDirectory(at: resources, withIntermediateDirectories: true)
+    let binary = macOS.appending(path: "launcher")
+    try! fm.copyItem(at: Bundle.main.executableURL!, to: binary)
+    let stale = try! Data(contentsOf: binary)
+    let plist: [String: Any] = [
+        "CFBundleIdentifier": "graft.legacy",
+        "CFBundleExecutable": "launcher",
+        "CFBundlePackageType": "APPL",
+        "CFBundleShortVersionString": "0.0.1",
+        "CFBundleVersion": "0.0.1",
+    ]
+    try! PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0)
+        .write(to: bundle.appending(path: "Contents/Info.plist"))
+    try! JSONEncoder().encode(GraftConfig(profileDir: shortcut.profileDir.path))
+        .write(to: resources.appending(path: "graft.json"))
+
+    check(Installer.refreshLauncher(for: shortcut),
+          "a legacy shortcut gets a fresh launcher")
+    check(try! Data(contentsOf: binary) != stale,
+          "the executable named by the legacy bundle is the one replaced")
+    check(Installer.builtBy(bundle) == Installer.graftVersion,
+          "the refreshed legacy shortcut carries the current Graft version")
 }
 
 // MARK: - Grafting between accounts
@@ -862,14 +948,33 @@ do {
     let body: [String: Any] = [
         "five_hour": ["utilization": 42, "resets_at": "2026-08-24T09:30:00Z"],
         "seven_day": ["utilization": 71.4, "resets_at": "2026-08-25T22:51:00.000Z"],
+        "limits": [[
+            "kind": "weekly_scoped",
+            "percent": 37.6,
+            "resets_at": "2026-08-26T22:51:00.000Z",
+            "scope": ["model": ["display_name": "Fable"]],
+        ]],
         "subscription_type": "max",
     ]
     let reading = UsageAPI.reading(from: body)
     check(reading?.fiveHour == 42, "the five-hour figure is read")
     check(reading?.week == 71, "a fractional weekly figure rounds")
+    check(reading?.fable == 38, "the Fable weekly figure is read")
     check(reading?.plan == "Max", "the plan name is tidied up")
     check(reading?.fiveHourReset != nil, "a plain ISO reset time parses")
     check(reading?.weekReset != nil, "and so does one with fractional seconds")
+    check(reading?.fableReset != nil, "the Fable reset comes from its scoped window")
+    let alternateFable = UsageAPI.reading(from: [
+        "five_hour": ["utilization": 1],
+        "limits": [[
+            "kind": "weekly_scoped",
+            "percent": NSNull(),
+            "utilization": 12.4,
+            "scope": ["model": ["display_name": "Fable"]],
+        ]],
+    ])
+    check(alternateFable?.fable == 12,
+          "the Fable window accepts the same utilization spelling as other windows")
 
     // Reset times come from the service rather than being worked out, which is
     // the whole point of preferring it over the file on disk.
@@ -886,6 +991,8 @@ do {
     let missingWeek: [String: Any] = ["five_hour": ["utilization": 5]]
     check(UsageAPI.reading(from: missingWeek)?.week == 0,
           "a missing weekly window reads as nothing used, not as a failure")
+    check(UsageAPI.reading(from: missingWeek)?.fable == nil,
+          "an account without a Fable limit does not grow a made-up one")
 }
 
 section("Borrowed credentials")
@@ -912,6 +1019,43 @@ do {
     // a message needs the other.
     check(ClaudeCredentials.usageScope != ClaudeCredentials.inferenceScope,
           "reading usage and running the model are different permissions")
+}
+
+// MARK: - Localization follows macOS
+
+section("Localization")
+
+do {
+    let repo = URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+    func catalog(_ language: String) -> [String: String] {
+        let file = repo.appending(path: "Resources/\(language).lproj/Localizable.strings")
+        guard let data = try? Data(contentsOf: file),
+              let strings = try? PropertyListSerialization.propertyList(from: data, format: nil)
+                as? [String: String]
+        else { return [:] }
+        return strings
+    }
+
+    let english = catalog("en")
+    let russian = catalog("ru")
+    check(!english.isEmpty && !russian.isEmpty, "the app carries English and Russian catalogs")
+    check(Set(english.keys) == Set(russian.keys), "both catalogs cover the same strings")
+    check(russian["New Shortcut"] == "Новый ярлык", "the Russian catalog is actually translated")
+    let rebasedKeys = ["Claude Desktop is updating", "Claude Desktop %@ is available",
+                       "Preparing the update…", "Version %@ · Up to date"]
+    check(rebasedKeys.allSatisfy { english[$0] != nil && russian[$0] != nil },
+          "the update UI added upstream is localized too")
+    check(Bundle.preferredLocalizations(from: ["en", "ru"], forPreferences: ["ru-RU"]) == ["ru"],
+          "a Russian system preference selects Russian")
+    check(Bundle.preferredLocalizations(from: ["en", "ru"], forPreferences: ["de-DE"]) == ["en"],
+          "an unsupported system language falls back to English")
+
+    let plist = (try? String(contentsOf: repo.appending(path: "Resources/Info.plist"),
+                             encoding: .utf8)) ?? ""
+    check(plist.contains("<key>CFBundleDevelopmentRegion</key><string>en</string>"),
+          "the bundle declares English as its development language")
 }
 
 // MARK: - One place the version is written down
@@ -2088,15 +2232,15 @@ do {
                               lastWrite: then, ownerProfile: owner, now: later, quietWindow: 300) == .withdrawn,
           "a session deleted in a sidebar once is never brought back")
     check(Graft.sessionFiling(facts: facts, recorded: [], withdrawn: [],
-                              deletions: [1_000 + 30_000],
+                              deletions: [1_000.0 + 30_000],
                               lastWrite: then, ownerProfile: owner, now: later, quietWindow: 300) == .withdrawn,
           "a session that had just gone quiet before a deletion marker is the one the marker took")
     check(Graft.sessionFiling(facts: facts, recorded: [], withdrawn: [],
-                              deletions: [1_000 + 10 * 60_000],
+                              deletions: [1_000.0 + 10 * 60_000],
                               lastWrite: then, ownerProfile: owner, now: later, quietWindow: 300) == .file,
               "a marker long after the session closed is about some other session")
     check(Graft.sessionFiling(facts: facts, recorded: [], withdrawn: [],
-                              deletions: [1_000 - 5 * 60_000],
+                              deletions: [1_000.0 - 5 * 60_000],
                               lastWrite: then, ownerProfile: owner, now: later, quietWindow: 300) == .file,
           "and a marker from before the session existed says nothing about it")
     check(Graft.sessionFiling(facts: facts, recorded: [], withdrawn: [], deletions: [],

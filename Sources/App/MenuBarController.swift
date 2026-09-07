@@ -86,21 +86,26 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
         button.image = NSImage(systemSymbolName: updates.isUpdating ? "arrow.triangle.2.circlepath"
                                : updates.availableVersion != nil ? "exclamationmark.circle.fill" : "circle.lefthalf.filled",
                                accessibilityDescription: "Claude Graft")
-        let updateTip = updates.isUpdating ? "Claude Desktop is updating"
-            : updates.availableVersion.map { "Claude Desktop \($0) is available" }
+        let updateTip = updates.isUpdating ? L10n.text("Claude Desktop is updating")
+            : updates.availableVersion.map { L10n.format("Claude Desktop %@ is available", $0) }
         guard let headline = usage.headlineEntry, let figures = headline.usage else {
             button.title = ""
-            button.toolTip = updateTip ?? "No usage reported yet"
+            button.toolTip = updateTip ?? L10n.text("No usage reported yet")
             return
         }
 
         button.title = " \(figures.fiveHour)%"
 
-        var lines = ["\(headline.name): \(figures.fiveHour)% of 5 hours, \(figures.week)% of the week"]
-        if headline.isRunning { lines[0] += " — open now" }
+        var lines = [L10n.format("%@: %ld%% of 5 hours, %ld%% of the week",
+                                 headline.name, figures.fiveHour, figures.week)]
+        if let fable = figures.fable { lines[0] += L10n.format(", %ld%% Fable", fable) }
+        if headline.isRunning { lines[0] += L10n.text(" — open now") }
         for entry in usage.entries where entry.id != headline.id {
             guard let other = entry.usage else { continue }
-            lines.append("\(entry.name): \(other.fiveHour)% of 5 hours, \(other.week)% of the week")
+            var line = L10n.format("%@: %ld%% of 5 hours, %ld%% of the week",
+                                   entry.name, other.fiveHour, other.week)
+            if let fable = other.fable { line += L10n.format(", %ld%% Fable", fable) }
+            lines.append(line)
         }
         if let updateTip { lines.append(updateTip) }
         button.toolTip = lines.joined(separator: "\n")

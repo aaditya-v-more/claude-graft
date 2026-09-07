@@ -110,6 +110,9 @@ cp "$ROOT/Resources/Info.plist" "$APP/Contents/Info.plist"
 if [ -f "$ROOT/Resources/AppIcon.icns" ]; then
     cp "$ROOT/Resources/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
 fi
+for localization in "$ROOT"/Resources/*.lproj; do
+    ditto "$localization" "$APP/Contents/Resources/$(basename "$localization")"
+done
 
 codesign --force $SIGN_FLAGS --sign "$IDENTITY" "$APP" >/dev/null
 

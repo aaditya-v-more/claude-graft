@@ -1,8 +1,72 @@
+import AppKit
 import Foundation
 
 /// One extra Claude Desktop shortcut: a name, a profile folder of its own, and
 /// where its Claude Code chats come from.
 struct Shortcut: Codable, Identifiable, Hashable {
+    enum IconPreset: String, Codable, CaseIterable, Identifiable {
+        case original
+        case blue
+        case violet
+        case green
+        case red
+        case pink
+        case teal
+        case graphite
+        case work
+        case personal
+        case code
+        case research
+
+        var id: Self { self }
+
+        var title: String {
+            switch self {
+            case .original: return L10n.text("Original")
+            case .blue: return L10n.text("Blue")
+            case .violet: return L10n.text("Violet")
+            case .green: return L10n.text("Green")
+            case .red: return L10n.text("Red")
+            case .pink: return L10n.text("Pink")
+            case .teal: return L10n.text("Teal")
+            case .graphite: return L10n.text("Graphite")
+            case .work: return L10n.text("Work")
+            case .personal: return L10n.text("Personal")
+            case .code: return L10n.text("Code")
+            case .research: return L10n.text("Research")
+            }
+        }
+
+        private var style: (hueAngle: Double?, saturation: Double, accent: NSColor) {
+            switch self {
+            case .original:
+                return (nil, 1, NSColor(srgbRed: 0.85, green: 0.36, blue: 0.24, alpha: 1))
+            case .red: return (-0.45, 1, .systemRed)
+            case .pink, .research: return (-0.95, 1, .systemPink)
+            case .blue, .work: return (-2.8, 1, .systemBlue)
+            case .violet, .personal: return (-1.75, 1, .systemPurple)
+            case .teal: return (2.8, 1, .systemTeal)
+            case .green, .code: return (2.25, 1, .systemGreen)
+            case .graphite: return (nil, 0, .systemGray)
+            }
+        }
+
+        var hueAngle: Double? { style.hueAngle }
+        var saturation: Double { style.saturation }
+        var accentColor: NSColor { style.accent }
+
+        var badgeSymbol: String? {
+            switch self {
+            case .work: return "briefcase.fill"
+            case .personal: return "person.fill"
+            case .code: return "terminal.fill"
+            case .research: return "magnifyingglass"
+            case .original, .blue, .violet, .green, .red, .pink, .teal, .graphite:
+                return nil
+            }
+        }
+    }
+
     enum Source: Codable, Hashable {
         case own
         case main
@@ -13,6 +77,7 @@ struct Shortcut: Codable, Identifiable, Hashable {
     var name: String
     var folder: String
     var source: Source = .main
+    var iconPreset: IconPreset = .original
     /// Name the bundle was last installed under, so a rename can clean up.
     var installedName: String?
     /// The account this shortcut has been told to stop asking about when it
@@ -22,10 +87,28 @@ struct Shortcut: Codable, Identifiable, Hashable {
     /// from lists written before it existed, and keyed by account because
     /// signing the profile into a different one is a new question.
     var stopAskingChatsFor: String?
-    init(name: String, folder: String? = nil, source: Source = .main) {
+    init(name: String, folder: String? = nil, source: Source = .main,
+         iconPreset: IconPreset = .original) {
         self.name = name
         self.folder = folder ?? Shortcut.folderName(for: name)
         self.source = source
+        self.iconPreset = iconPreset
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, name, folder, source, iconPreset, installedName
+        case stopAskingChatsFor
+    }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        id = try values.decode(UUID.self, forKey: .id)
+        name = try values.decode(String.self, forKey: .name)
+        folder = try values.decode(String.self, forKey: .folder)
+        source = try values.decodeIfPresent(Source.self, forKey: .source) ?? .main
+        iconPreset = try values.decodeIfPresent(IconPreset.self, forKey: .iconPreset) ?? .original
+        installedName = try values.decodeIfPresent(String.self, forKey: .installedName)
+        stopAskingChatsFor = try values.decodeIfPresent(String.self, forKey: .stopAskingChatsFor)
     }
 
     /// "Work Account" -> "Claude-Work-Account", "Claude 2" -> "Claude-2".
@@ -96,7 +179,7 @@ final class ShortcutStore: ObservableObject {
         var problem: String?
         if deletingProfile {
             if sharedWithAnother {
-                problem = "The profile folder was kept: another shortcut still uses it."
+                problem = L10n.text("The profile folder was kept: another shortcut still uses it.")
             } else {
                 do { try Graft.deleteProfile(shortcut.profileDir) }
                 catch { problem = error.localizedDescription }
@@ -180,9 +263,9 @@ final class ShortcutStore: ObservableObject {
 
     func label(for source: Shortcut.Source) -> String {
         switch source {
-        case .own: return "Its own chats"
-        case .main: return "Main Claude"
-        case .shortcut(let id): return shortcut(id)?.name ?? "Removed shortcut"
+        case .own: return L10n.text("Its own chats")
+        case .main: return L10n.text("Main Claude")
+        case .shortcut(let id): return shortcut(id)?.name ?? L10n.text("Removed shortcut")
         }
     }
 
