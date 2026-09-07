@@ -11,7 +11,7 @@ struct ShortcutDetail: View {
     let requestDelete: () -> Void
 
     @State private var error: String?
-    @State private var errorTitle = "Something went wrong"
+    @State private var errorTitle = L10n.text("Something went wrong")
 
     /// Looked up off the main thread and refreshed on a timer. Reading them
     /// during a view update would mean touching the filesystem and running
@@ -20,6 +20,7 @@ struct ShortcutDetail: View {
     @State private var isRunning = false
     @State private var profileExists = false
     @State private var startingSession = false
+    @State private var iconPreviews: [Shortcut.IconPreset: NSImage] = [:]
 
     /// Other instances found open on the same chat store when Open was pressed.
     @State private var sharersOpen: [String] = []
@@ -42,13 +43,13 @@ struct ShortcutDetail: View {
         !FileManager.default.fileExists(atPath: Graft.claudeApp.path)
     }
 
-    static let sessionNote = """
+    static let sessionNote = L10n.text("""
         Sends one short message to this account so its five-hour window opens. \
         Nothing appears on screen.
 
         It uses that profile's own login, borrowed the same way the usage \
         figures are, so each account can be started separately.
-        """
+        """)
 
     var body: some View {
         Form {
@@ -82,6 +83,8 @@ struct ShortcutDetail: View {
                         .help("Show in Finder")
                     }
                 }
+
+                iconPicker
             } header: {
                 SectionHeader(title: "Shortcut", info: Self.shortcutNote)
             }
@@ -133,14 +136,14 @@ struct ShortcutDetail: View {
 
             Section("Status") {
                 LabeledContent("Shortcut") {
-                    Text(installedAt.map { $0.path } ?? "Not created yet")
+                    Text(installedAt.map { $0.path } ?? L10n.text("Not created yet"))
                         .font(.callout)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                         .truncationMode(.middle)
                 }
                 LabeledContent("Claude") {
-                    Text(isRunning ? "Running on this profile" : "Not running")
+                    Text(L10n.text(isRunning ? "Running on this profile" : "Not running"))
                         .font(.callout)
                         .foregroundStyle(.secondary)
                 }
@@ -164,7 +167,7 @@ struct ShortcutDetail: View {
         .formStyle(.grouped)
         .safeAreaInset(edge: .bottom) {
             HStack(spacing: 8) {
-                Button(isDraft ? "Discard" : "Delete Shortcut…",
+                Button(L10n.text(isDraft ? "Discard" : "Delete Shortcut…"),
                        role: .destructive, action: requestDelete)
                 Spacer()
                 Button(action: startSession) {
@@ -179,7 +182,8 @@ struct ShortcutDetail: View {
 
                 Button("Open", action: open)
                     .disabled(installedAt == nil)
-                Button(installedAt == nil ? "Create Shortcut" : "Update Shortcut", action: install)
+                Button(L10n.text(installedAt == nil ? "Create Shortcut" : "Update Shortcut"),
+                       action: install)
                     .keyboardShortcut(.defaultAction)
                     .disabled(shortcut.name.trimmingCharacters(in: .whitespaces).isEmpty || claudeMissing)
             }
@@ -216,6 +220,7 @@ struct ShortcutDetail: View {
         }
         .onAppear {
             refresh()
+            loadIconPreviews()
             // Selecting a profile is someone looking at its figures, which is the
             // rung below a press: current within the minute, and allowed to ask
             // for keychain access once if that is what stands in the way.
@@ -229,26 +234,76 @@ struct ShortcutDetail: View {
         }
     }
 
-    private static let shortcutNote = """
-        The name is what the app in \(Installer.installDirectory.path) is called. \
-        The profile folder is where this account's login, chats and settings are \
-        kept, inside ~/Library/Application Support.
+    private var iconPicker: some View {
+        LabeledContent("Shortcut icon") {
+            VStack(alignment: .trailing, spacing: 4) {
+                LazyVGrid(columns: Array(repeating: GridItem(.fixed(46), spacing: 6), count: 6),
+                          spacing: 6) {
+                    ForEach(Shortcut.IconPreset.allCases) { preset in
+                        Button { shortcut.iconPreset = preset } label: {
+                            Group {
+                                if let image = iconPreviews[preset] {
+                                    Image(nsImage: image).resizable().scaledToFit()
+                                } else {
+                                    Image(systemName: "app.dashed").resizable().scaledToFit()
+                                        .padding(7)
+                                }
+                            }
+                            .frame(width: 38, height: 38)
+                            .padding(4)
+                            .background(RoundedRectangle(cornerRadius: 8)
+                                .fill(preset == shortcut.iconPreset
+                                      ? Color.accentColor.opacity(0.12) : .clear))
+                            .overlay(RoundedRectangle(cornerRadius: 8)
+                                .stroke(preset == shortcut.iconPreset
+                                        ? Color.accentColor : Color.secondary.opacity(0.2),
+                                        lineWidth: preset == shortcut.iconPreset ? 2 : 1))
+                        }
+                        .buttonStyle(.plain)
+                        .help(preset.title)
+                        .accessibilityLabel(Text(preset.title))
+                        .accessibilityValue(Text(preset == shortcut.iconPreset
+                                                 ? L10n.text("Selected") : ""))
+                    }
+                }
+                Text(shortcut.iconPreset.title)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
 
-        Naming an existing folder adopts that profile instead of starting an \
-        empty one.
-        """
+    private static let shortcutNote = L10n.text("""
+            The name is what the installed shortcut app is called. The profile folder is where \
+            this account's login, chats and settings are kept, inside \
+            ~/Library/Application Support.
+
+            Naming an existing folder adopts that profile instead of starting an \
+            empty one.
+            """)
+
+    private func loadIconPreviews() {
+        guard iconPreviews.isEmpty else { return }
+        DispatchQueue.global(qos: .userInitiated).async {
+            let previews = Dictionary(uniqueKeysWithValues:
+                Shortcut.IconPreset.allCases.compactMap { preset in
+                    Installer.previewIcon(for: preset).map { (preset, $0) }
+                })
+            DispatchQueue.main.async { iconPreviews = previews }
+        }
+    }
 
     private var sourceExplanation: String {
         switch shortcut.source {
         case .own:
-            return "This profile keeps its own Claude Code history, connectors and preferences. Nothing is shared."
+            return L10n.text("This profile keeps its own Claude Code history, connectors and preferences. Nothing is shared.")
         default:
             let name = store.label(for: shortcut.source)
-            return """
-                Merges this profile's Claude Code chats with \(name)'s, and shares \
-                its connectors, extensions and window state. Logins stay separate, \
-                so this shortcut can sign into a different account.
-                """
+            return L10n.format("""
+                Merges this profile's Claude Code chats with %@'s, and shares its \
+                connectors, extensions and window state. Logins stay separate, so \
+                this shortcut can sign into a different account.
+                """, name)
         }
     }
 
@@ -257,26 +312,25 @@ struct ShortcutDetail: View {
     /// anybody calls it.
     private var mergeNote: String {
         let name = store.label(for: shortcut.source)
-        return """
+        return L10n.format("""
             The two histories are merged rather than swapped. This profile keeps \
-            the chats it already had and gains \(name)'s, and both sidebars end up \
+            the chats it already had and gains %1$@'s, and both sidebars end up \
             showing the combined set. Graft carries changes both ways each time \
             either Claude is opened, which is what lets this profile archive, \
             rename and delete them at all.
 
             Sharing goes both ways, so this profile's existing chats are copied \
-            into \(name) as well. Switching back to its own chats returns this \
-            profile to exactly what it had, but the copies already in \(name) stay \
-            there — merging a history is not something Graft can take back.
+            into %1$@ as well. Switching back to its own chats returns this profile \
+            to exactly what it had, but the copies already in %1$@ stay there — \
+            merging a history is not something Graft can take back.
 
-            Only the small record files are copied; the messages themselves \
-            already live in ~/.claude and are shared either way. Archive the same \
-            conversation differently in both between two openings and the one \
-            touched last wins.
-            """
+            Only the small record files are copied; the messages themselves already \
+            live in ~/.claude and are shared either way. Archive the same conversation \
+            differently in both between two openings and the one touched last wins.
+            """, name)
     }
 
-    private static let elsewhereNote = """
+    private static let elsewhereNote = L10n.text("""
         Every Claude has to be closed first, this profile's and every other \
         one. An instance builds its sidebar as it starts and rewrites records \
         in its own shape as it runs, so chats copied underneath a running one \
@@ -289,7 +343,7 @@ struct ShortcutDetail: View {
 
         Only the small record files are copied; the messages themselves \
         already live in ~/.claude and are shared either way.
-        """
+        """)
 
     /// Named, counted and quoted, because none of the three answers the
     /// question on its own. Which profile says where they went, the count says
@@ -353,7 +407,7 @@ struct ShortcutDetail: View {
             shortcut.installedName = shortcut.name
             refresh()
         } catch {
-            errorTitle = "Could not create the shortcut"
+            errorTitle = L10n.text("Could not create the shortcut")
             self.error = error.localizedDescription
         }
     }
@@ -398,7 +452,7 @@ struct ShortcutDetail: View {
             DispatchQueue.main.async {
                 startingSession = false
                 if let failure {
-                    errorTitle = "Could not start a session"
+                    errorTitle = L10n.text("Could not start a session")
                     error = failure.errorDescription
                 }
                 refresh()
@@ -495,6 +549,10 @@ struct UsageSummary: View {
                      resets: usage.fiveHourReset, dimmed: dimmed)
             UsageBar(label: "Week", percent: usage.week,
                      resets: usage.weekReset, dimmed: dimmed)
+            if let fable = usage.fable {
+                UsageBar(label: "Fable", percent: fable,
+                         resets: usage.fableReset, dimmed: dimmed)
+            }
         } else {
             Text("No usage reported yet")
                 .font(.callout)
@@ -507,31 +565,30 @@ struct UsageSummary: View {
     /// Claude is running, the file is as old as the last time it ran.
     static func explanation(for entry: UsageMonitor.Entry?) -> String {
         guard let entry, let usage = entry.usage else {
-            return """
+            return L10n.text("""
                 Claude records how much of each window it has spent while it runs, \
                 and the account itself is asked directly once its login is readable. \
                 Neither has answered yet.
-                """
+                """)
         }
         if entry.isLive {
-            return """
+            return L10n.text("""
                 Asked of this account directly, using the login it already holds — \
                 the same figure the menu bar is showing. It stays current whether or \
                 not that Claude is running.
-                """
+                """)
         }
         if usage.isStale {
-            return """
+            return L10n.text("""
                 Recorded while this profile was last open, which was long enough ago \
                 that the five-hour window has since reset. Turn on live usage from the \
                 menu bar to have the account asked instead.
-                """
+                """)
         }
-        return """
-            Recorded by this profile at \(time.string(from: usage.sampled)). It only \
-            updates while that Claude is running, and the reset times are worked out \
-            from its own history.
-            """
+        return L10n.format("""
+            Recorded by this profile at %@. It only updates while that Claude is \
+            running, and the reset times are worked out from its own history.
+            """, time.string(from: usage.sampled))
     }
 
     private static let time: DateFormatter = {

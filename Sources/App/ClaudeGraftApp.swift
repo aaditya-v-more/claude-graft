@@ -67,10 +67,10 @@ struct SettingsView: View {
                 Toggle("Show in Menu Bar", isOn: $settings.showInMenuBar)
                 ManualUpdateControl()
             } footer: {
-                Text(problem ?? """
+                Text(problem ?? L10n.text("""
                      The menu bar item keeps reporting usage after this window is \
                      closed. Quit it from the menu bar itself.
-                     """)
+                     """))
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)

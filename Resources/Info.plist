@@ -6,6 +6,7 @@
     <key>CFBundleDisplayName</key><string>Claude Graft</string>
     <key>CFBundleIdentifier</key><string>graft.claude-graft</string>
     <key>CFBundleExecutable</key><string>ClaudeGraft</string>
+    <key>CFBundleDevelopmentRegion</key><string>en</string>
     <key>CFBundleIconFile</key><string>AppIcon</string>
     <key>CFBundlePackageType</key><string>APPL</string>
     <!-- Both stamped by build.sh from the VERSION file at the repo root, which

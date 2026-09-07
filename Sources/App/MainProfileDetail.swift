@@ -48,16 +48,16 @@ struct MainProfileDetail: View {
                     }
                 }
             } header: {
-                SectionHeader(title: "Claude", info: """
+                SectionHeader(title: "Claude", info: L10n.text("""
                     The Claude you installed, launched the ordinary way. Graft does \
                     not create or modify it — shortcuts borrow from it, and it can \
                     never be renamed, re-pointed or deleted from here.
-                    """)
+                    """))
             }
 
             Section("Status") {
                 LabeledContent("Claude") {
-                    Text(isRunning ? "Running on this profile" : "Not running")
+                    Text(L10n.text(isRunning ? "Running on this profile" : "Not running"))
                         .font(.callout)
                         .foregroundStyle(.secondary)
                 }

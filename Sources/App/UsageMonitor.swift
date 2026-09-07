@@ -252,7 +252,9 @@ final class UsageMonitor: ObservableObject {
                                               organization: onDisk?.organization,
                                               sampled: Date(),
                                               fiveHourReset: live.fiveHourReset,
-                                              weekReset: live.weekReset)
+                                              weekReset: live.weekReset,
+                                              fable: live.fable,
+                                              fableReset: live.fableReset)
                     entry.isLive = true
                     entry.plan = live.plan
                 }
@@ -300,6 +302,8 @@ final class UsageMonitor: ObservableObject {
                 row["week"] = usage.week
                 if let reset = usage.fiveHourReset { row["fiveHourReset"] = stamp.string(from: reset) }
                 if let reset = usage.weekReset { row["weekReset"] = stamp.string(from: reset) }
+                if let fable = usage.fable { row["fable"] = fable }
+                if let reset = usage.fableReset { row["fableReset"] = stamp.string(from: reset) }
             }
             if let plan = entry.plan { row["plan"] = plan }
             return row
@@ -386,8 +390,8 @@ final class UsageMonitor: ObservableObject {
 
     private func waitingMessage(until: Date?) -> String {
         guard let until, let remaining = Graft.countdown(to: until) else {
-            return "Waiting before asking for usage again."
+            return L10n.text("Waiting before asking for usage again.")
         }
-        return "Waiting \(remaining) before asking for usage again."
+        return L10n.format("Waiting %@ before asking for usage again.", remaining)
     }
 }

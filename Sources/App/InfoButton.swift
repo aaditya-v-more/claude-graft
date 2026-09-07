@@ -29,7 +29,7 @@ struct InfoButton: View {
 
 /// A section heading with its explanation tucked behind the "!".
 struct SectionHeader: View {
-    let title: String
+    let title: LocalizedStringKey
     let info: String
 
     var body: some View {

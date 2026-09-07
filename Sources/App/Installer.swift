@@ -1,3 +1,5 @@
+import AppKit
+import CoreImage
 import Foundation
 
 /// Builds the small .app bundle that a shortcut turns into. The bundle holds a
@@ -9,6 +11,10 @@ enum Installer {
     /// Redirected by the test suite; also stops it registering junk bundles.
     static var installDirectoryOverride: URL?
     static var registersWithLaunchServices = true
+    /// Lets the icon integration test use a self-made image instead of Claude.
+    static var iconSourceOverride: URL?
+
+    private static let imageContext = CIContext()
 
     /// Preferred install directory, falling back to the user's own when
     /// /Applications is not writable.
@@ -60,20 +66,26 @@ enum Installer {
         case nameTaken(String)
         case badFolder(String)
         case selfSource
+        case missingIcon
+        case iconCreationFailed
         case writeFailed(String)
 
         var errorDescription: String? {
             switch self {
             case .missingLauncher:
-                return "This copy of Claude Graft is missing its launcher binary."
+                return L10n.text("This copy of Claude Graft is missing its launcher binary.")
             case .reservedName(let name):
-                return "“\(name)” is the name of Claude itself. Pick something else."
+                return L10n.format("“%@” is the name of Claude itself. Pick something else.", name)
             case .nameTaken(let path):
-                return "There is already an application at \(path) that Claude Graft did not create. Rename this shortcut."
+                return L10n.format("There is already an application at %@ that Claude Graft did not create. Rename this shortcut.", path)
             case .badFolder(let reason):
                 return reason
             case .selfSource:
-                return "This shortcut is set to borrow chats from its own profile. Choose a different source."
+                return L10n.text("This shortcut is set to borrow chats from its own profile. Choose a different source.")
+            case .missingIcon:
+                return L10n.text("Claude's application icon could not be read.")
+            case .iconCreationFailed:
+                return L10n.text("The selected shortcut icon could not be created.")
             case .writeFailed(let detail):
                 return detail
             }
@@ -133,7 +145,7 @@ enum Installer {
 
             try infoPlist(for: shortcut).write(to: contents.appending(path: "Info.plist"),
                                                atomically: true, encoding: .utf8)
-            copyIcon(into: resources)
+            try writeIcon(shortcut.iconPreset, into: resources)
             try fm.createDirectory(at: shortcut.profileDir, withIntermediateDirectories: true)
         } catch {
             throw InstallError.writeFailed(error.localizedDescription)
@@ -217,15 +229,16 @@ enum Installer {
         let version = graftVersion
         guard let launcher = Bundle.main.url(forResource: "graft-launch", withExtension: nil),
               let bundle = installedBundle(for: shortcut),
-              builtBy(bundle) != version
+              builtBy(bundle) != version,
+              let binary = executableURL(in: bundle)
         else { return false }
 
         // Staged and swapped rather than removed and rewritten. This runs while
         // Graft starts, which on a login is exactly when a shortcut may be
         // starting too, and a shortcut that finds no executable where its
         // launcher was does not open anything.
-        let binary = bundle.appending(path: "Contents/MacOS/launcher")
-        let staged = bundle.appending(path: "Contents/MacOS/launcher.staged")
+        let staged = binary.deletingLastPathComponent()
+            .appending(path: "\(binary.lastPathComponent).staged")
         do {
             try? fm.removeItem(at: staged)
             try fm.copyItem(at: launcher, to: staged)
@@ -278,6 +291,28 @@ enum Installer {
 
     // MARK: - Bundle pieces
 
+    /// The running app's own version. Nil only under the test binary, which is
+    /// not a bundle and has no version to inherit.
+    static var graftVersion: String {
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.0.0"
+    }
+
+    private static func executableURL(in bundle: URL) -> URL? {
+        guard let info = plist(at: bundle.appending(path: "Contents/Info.plist")),
+              let executable = info["CFBundleExecutable"] as? String,
+              !executable.isEmpty
+        else { return nil }
+        return bundle.appending(path: "Contents/MacOS").appending(path: executable)
+    }
+
+    private static func plist(at url: URL) -> [String: Any]? {
+        guard let data = try? Data(contentsOf: url),
+              let plist = try? PropertyListSerialization.propertyList(from: data, format: nil)
+                as? [String: Any]
+        else { return nil }
+        return plist
+    }
+
     /// A name is free text and lands inside an XML document; an ampersand in it
     /// would otherwise produce a plist macOS refuses to read.
     private static func escaped(_ text: String) -> String {
@@ -286,19 +321,11 @@ enum Installer {
             .replacingOccurrences(of: ">", with: "&gt;")
     }
 
-    /// The running app's own version. Nil only under the test binary, which is
-    /// not a bundle and has no version to inherit.
-    static var graftVersion: String {
-        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.0.0"
-    }
-
     private static func infoPlist(for shortcut: Shortcut) -> String {
         let slug = shortcut.folder.lowercased()
             .map { $0.isLetter || $0.isNumber || $0 == "-" ? $0 : "-" }
         let identifier = "graft." + String(slug)
         let name = escaped(shortcut.name)
-        // Stamped with whichever Graft built it, so a shortcut left behind by an
-        // older one can be told apart from the current crop.
         let version = graftVersion
         return """
         <?xml version="1.0" encoding="UTF-8"?>
@@ -320,17 +347,146 @@ enum Installer {
         """
     }
 
-    /// Borrow Claude's own icon so the shortcut is recognisable in the Dock.
-    private static func copyIcon(into resources: URL) {
+    /// Borrow Claude's own icon and optionally recolour or badge it for the
+    /// generated shortcut bundle.
+    private static func writeIcon(_ preset: Shortcut.IconPreset, into resources: URL) throws {
+        guard let source = iconSource else { throw InstallError.missingIcon }
+        let destination = resources.appending(path: "icon.icns")
+        let staged = resources.appending(path: "icon.staged.icns")
+        try? fm.removeItem(at: staged)
+        defer { try? fm.removeItem(at: staged) }
+
+        if preset == .original, source.pathExtension.lowercased() == "icns" {
+            try fm.copyItem(at: source, to: staged)
+        } else {
+            let scratch = fm.temporaryDirectory
+                .appending(path: "claude-graft-icon-\(UUID().uuidString).png")
+            defer { try? fm.removeItem(at: scratch) }
+            guard let image = renderedIcon(from: source, preset: preset, pixels: 1024),
+                  let data = image.tiffRepresentation
+                    .flatMap(NSBitmapImageRep.init(data:))?
+                    .representation(using: .png, properties: [:])
+            else { throw InstallError.iconCreationFailed }
+            try data.write(to: scratch)
+            guard Graft.runTool("/usr/bin/sips",
+                                ["-s", "format", "icns", scratch.path,
+                                 "--out", staged.path]) == 0
+            else { throw InstallError.iconCreationFailed }
+        }
+
+        if fm.fileExists(atPath: destination.path) {
+            _ = try fm.replaceItemAt(destination, withItemAt: staged)
+        } else {
+            try fm.moveItem(at: staged, to: destination)
+        }
+    }
+
+    private static var iconSource: URL? {
+        if let iconSourceOverride { return iconSourceOverride }
         let candidates = ["electron.icns", "Claude.icns", "app.icns"]
         for name in candidates {
             let source = Graft.claudeApp.appending(path: "Contents/Resources/\(name)")
-            guard fm.fileExists(atPath: source.path) else { continue }
-            let destination = resources.appending(path: "icon.icns")
-            if fm.fileExists(atPath: destination.path) { try? fm.removeItem(at: destination) }
-            try? fm.copyItem(at: source, to: destination)
-            return
+            if fm.fileExists(atPath: source.path) { return source }
         }
+        return nil
+    }
+
+    static func previewIcon(for preset: Shortcut.IconPreset) -> NSImage? {
+        guard let source = iconSource else { return nil }
+        return renderedIcon(from: source, preset: preset, pixels: 96)
+    }
+
+    private static func renderedIcon(from source: URL, preset: Shortcut.IconPreset,
+                                     pixels: Int) -> NSImage? {
+        guard let stock = NSImage(contentsOf: source),
+              let base = bitmapImage(pixels: pixels, drawing: {
+                  stock.draw(in: $0, from: .zero, operation: .copy, fraction: 1)
+              })
+        else { return nil }
+
+        var icon = base
+        if (preset.hueAngle != nil || preset.saturation != 1),
+           let input = base.representations.compactMap({ ($0 as? NSBitmapImageRep)?.cgImage }).first {
+            var filtered = CIImage(cgImage: input)
+            if let angle = preset.hueAngle {
+                filtered = filtered.applyingFilter(
+                    "CIHueAdjust", parameters: [kCIInputAngleKey: angle])
+            }
+            if preset.saturation != 1 {
+                filtered = filtered.applyingFilter(
+                    "CIColorControls", parameters: [kCIInputSaturationKey: preset.saturation])
+            }
+            guard let output = imageContext.createCGImage(filtered, from: filtered.extent) else {
+                return nil
+            }
+            icon = NSImage(cgImage: output, size: base.size)
+        }
+
+        guard let symbolName = preset.badgeSymbol else { return icon }
+        return bitmapImage(pixels: pixels) { rect in
+            icon.draw(in: rect, from: .zero, operation: .copy, fraction: 1)
+
+            let side = rect.width
+            let badge = NSRect(x: side * 0.63, y: side * 0.075,
+                               width: side * 0.29, height: side * 0.29)
+            NSColor.white.withAlphaComponent(0.96).setFill()
+            NSBezierPath(ovalIn: badge).fill()
+
+            let disk = badge.insetBy(dx: side * 0.016, dy: side * 0.016)
+            preset.accentColor.setFill()
+            NSBezierPath(ovalIn: disk).fill()
+
+            guard let symbol = NSImage(systemSymbolName: symbolName,
+                                       accessibilityDescription: nil),
+                  let glyph = whiteSymbol(symbol)
+            else { return }
+            let glyphSide = side * 0.135
+            glyph.draw(in: NSRect(x: disk.midX - glyphSide / 2,
+                                  y: disk.midY - glyphSide / 2,
+                                  width: glyphSide, height: glyphSide),
+                       from: .zero, operation: .sourceOver, fraction: 1)
+        }
+    }
+
+    private static func bitmapImage(pixels: Int,
+                                    drawing: (NSRect) -> Void) -> NSImage? {
+        guard let bitmap = NSBitmapImageRep(bitmapDataPlanes: nil,
+                                            pixelsWide: pixels,
+                                            pixelsHigh: pixels,
+                                            bitsPerSample: 8,
+                                            samplesPerPixel: 4,
+                                            hasAlpha: true,
+                                            isPlanar: false,
+                                            colorSpaceName: .deviceRGB,
+                                            bytesPerRow: 0,
+                                            bitsPerPixel: 0),
+              let context = NSGraphicsContext(bitmapImageRep: bitmap)
+        else { return nil }
+
+        let pixelSize = NSSize(width: pixels, height: pixels)
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = context
+        context.imageInterpolation = .high
+        drawing(NSRect(origin: .zero, size: pixelSize))
+        NSGraphicsContext.restoreGraphicsState()
+
+        // ICNS treats a 1024 px representation as a 512 pt @2x image. Set that
+        // metadata after drawing, while the context still uses pixel units.
+        let pointSize = NSSize(width: CGFloat(pixels) / 2, height: CGFloat(pixels) / 2)
+        bitmap.size = pointSize
+        let image = NSImage(size: pointSize)
+        image.addRepresentation(bitmap)
+        return image
+    }
+
+    private static func whiteSymbol(_ symbol: NSImage) -> NSImage? {
+        let image = NSImage(size: symbol.size)
+        image.lockFocus()
+        symbol.draw(at: .zero, from: .zero, operation: .sourceOver, fraction: 1)
+        NSColor.white.setFill()
+        NSRect(origin: .zero, size: symbol.size).fill(using: .sourceAtop)
+        image.unlockFocus()
+        return image
     }
 
     /// Ad-hoc signature, otherwise macOS refuses to launch a bundle whose
