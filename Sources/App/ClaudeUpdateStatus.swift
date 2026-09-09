@@ -36,7 +36,7 @@ struct ClaudeUpdateStatus: View {
             Label("Claude Desktop", systemImage: updater.availableVersion == nil ? "arrow.triangle.2.circlepath" : "arrow.down.circle")
                 .fontWeight(.medium)
             if updater.isUpdating {
-                Text(updater.status ?? "Preparing the update…")
+                Text(updater.status ?? L10n.text("Preparing the update…"))
             } else if let version = updater.availableVersion {
                 Text("Version \(version) is available")
                 Text("Closes all Claude instances and ends their running workflows.")

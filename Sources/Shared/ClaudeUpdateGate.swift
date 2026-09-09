@@ -9,8 +9,8 @@ enum ClaudeUpdateGate {
         case busy, unavailable
         var errorDescription: String? {
             switch self {
-            case .busy: return "Claude is updating. Wait for the update to finish before opening a shortcut."
-            case .unavailable: return "Claude's update lock could not be opened."
+            case .busy: return L10n.text("Claude is updating. Wait for the update to finish before opening a shortcut.")
+            case .unavailable: return L10n.text("Claude's update lock could not be opened.")
             }
         }
     }

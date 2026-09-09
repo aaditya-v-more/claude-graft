@@ -5,10 +5,10 @@ enum ClaudeUpdateConfirmation {
     static func show(runningCount: Int) -> Bool {
         let alert = NSAlert()
         alert.alertStyle = .warning
-        alert.messageText = "Update Claude Desktop?"
-        alert.informativeText = "This will close all running Claude instances and stop their current workflows. Finish or save your work before continuing.\n\nCurrently running: \(runningCount) Claude instance\(runningCount == 1 ? "" : "s").\n\nYour profiles and manual update setting will be kept."
-        alert.addButton(withTitle: "Cancel")
-        alert.addButton(withTitle: "Quit All Claude & Update")
+        alert.messageText = L10n.text("Update Claude Desktop?")
+        alert.informativeText = L10n.format("This will close all running Claude instances and stop their current workflows. Finish or save your work before continuing.\n\nCurrently running: %ld.\n\nYour profiles and manual update setting will be kept.", runningCount)
+        alert.addButton(withTitle: L10n.text("Cancel"))
+        alert.addButton(withTitle: L10n.text("Quit All Claude & Update"))
         NSApp.activate(ignoringOtherApps: true)
         return alert.runModal() == .alertSecondButtonReturn
     }
@@ -91,7 +91,7 @@ final class ClaudeDesktopUpdater: ObservableObject {
     private func fetch(_ completion: @escaping (Result<(installed: String, available: String?), Error>) -> Void) {
         do {
             guard let installed = version() else {
-                throw NSError(domain: "ClaudeUpdate", code: 1, userInfo: [NSLocalizedDescriptionKey: "Install Claude Desktop to check for updates."])
+                throw NSError(domain: "ClaudeUpdate", code: 1, userInfo: [NSLocalizedDescriptionKey: L10n.text("Install Claude Desktop to check for updates.")])
             }
             let id = try Self.deviceID()
             var request = URLRequest(url: ClaudeUpdateFeed.url(version: installed, deviceID: id))
@@ -117,10 +117,10 @@ final class ClaudeDesktopUpdater: ObservableObject {
             try ManualUpdates.checkManagedPolicy()
             let sample = try Self.snapshot()
             guard sample.instances.isSubset(of: approved) else {
-                throw NSError(domain: "ClaudeUpdate", code: 5, userInfo: [NSLocalizedDescriptionKey: "Another Claude opened after you confirmed. Review the running instances and try again."])
+                throw NSError(domain: "ClaudeUpdate", code: 5, userInfo: [NSLocalizedDescriptionKey: L10n.text("Another Claude opened after you confirmed. Review the running instances and try again.")])
             }
             guard sample.helper == nil else {
-                throw NSError(domain: "ClaudeUpdate", code: 2, userInfo: [NSLocalizedDescriptionKey: "A previous Claude update is still running. Close its Claude instance and try again."])
+                throw NSError(domain: "ClaudeUpdate", code: 2, userInfo: [NSLocalizedDescriptionKey: L10n.text("A previous Claude update is still running. Close its Claude instance and try again.")])
             }
             run = Run(flow: ClaudeUpdateFlow(target: target, original: sample.instances, phaseStarted: Date()),
                       logOffset: Self.logSize())
@@ -165,7 +165,7 @@ final class ClaudeDesktopUpdater: ObservableObject {
         guard !isUpdating, !checking, availableVersion != nil else { return }
         isUpdating = true
         problem = nil
-        status = "Checking the latest Claude release before closing anything…"
+        status = L10n.text("Checking the latest Claude release before closing anything…")
         queue.async {
             self.fetch { result in self.queue.async { self.installAfterChecking(result, approved: approved) } }
         }
@@ -178,7 +178,7 @@ final class ClaudeDesktopUpdater: ObservableObject {
         if Graft.exists(file) {
             guard !Graft.isSymlink(file), let encoded = try? Data(contentsOf: file),
                   let data = Data(base64Encoded: encoded), let id = String(data: data, encoding: .utf8),
-                  UUID(uuidString: id) != nil else { throw ManualUpdates.Failure.unreadable("the update device identifier") }
+                  UUID(uuidString: id) != nil else { throw ManualUpdates.Failure.unreadable(L10n.text("the update device identifier")) }
             return id
         }
         let id = UUID().uuidString.lowercased()
@@ -207,7 +207,7 @@ final class ClaudeDesktopUpdater: ObservableObject {
                 poll()
             } else {
                 let installed = sample.installed.map { $0 == saved.flow.target || ClaudeUpdateFeed.isNewer($0, than: saved.flow.target) } ?? false
-                finish(installed ? nil : "The previous Claude update did not finish. Check for updates and try again.")
+                finish(installed ? nil : L10n.text("The previous Claude update did not finish. Check for updates and try again."))
             }
         } catch { finish(error.localizedDescription) }
     }
@@ -231,7 +231,7 @@ final class ClaudeDesktopUpdater: ObservableObject {
                 let arguments = ["-n", "-g", "-j", "-a", Graft.claudeApp.path,
                                  "--args", "--user-data-dir=\(Self.profile.path)"]
                 guard Graft.runTool("/usr/bin/open", arguments) == 0 else {
-                    stop("Claude's updater could not be opened.", sample: sample)
+                    stop(L10n.text("Claude's updater could not be opened."), sample: sample)
                     return
                 }
             case .quitHelper:
@@ -258,7 +258,7 @@ final class ClaudeDesktopUpdater: ObservableObject {
         else {
             DispatchQueue.main.async {
                 self.problem = message
-                self.status = "Waiting for Claude's updater to close…"
+                self.status = L10n.text("Waiting for Claude's updater to close…")
             }
         }
     }
@@ -276,7 +276,7 @@ final class ClaudeDesktopUpdater: ObservableObject {
             self.problem = failure
             if failure == nil {
                 self.availableVersion = nil
-                self.status = "Claude Desktop \(installed ?? target ?? "") is installed. Open your shortcuts when ready."
+                self.status = L10n.format("Claude Desktop %@ is installed. Open your shortcuts when ready.", installed ?? target ?? "")
             } else { self.status = nil }
         }
         Diagnostics.note("claude-update.finished", ["version": installed ?? "", "error": failure ?? ""])
@@ -286,10 +286,10 @@ final class ClaudeDesktopUpdater: ObservableObject {
         guard let phase = run?.flow.phase else { return }
         let message: String
         switch phase {
-        case .quitting: message = "Closing all Claude instances…"
-        case .starting: message = "Starting Claude's updater…"
-        case .downloading: message = "Claude is checking and downloading its update…"
-        case .installing: message = "Installing the Claude update…"
+        case .quitting: message = L10n.text("Closing all Claude instances…")
+        case .starting: message = L10n.text("Starting Claude's updater…")
+        case .downloading: message = L10n.text("Claude is checking and downloading its update…")
+        case .installing: message = L10n.text("Installing the Claude update…")
         }
         DispatchQueue.main.async { self.isUpdating = true; self.status = message }
     }
@@ -297,7 +297,7 @@ final class ClaudeDesktopUpdater: ObservableObject {
     private static func snapshot() throws -> ClaudeUpdateFlow.Sample {
         let processes = Graft.processes()
         guard processes.contains(where: { $0.id == getpid() }) else {
-            throw NSError(domain: "ClaudeUpdate", code: 3, userInfo: [NSLocalizedDescriptionKey: "Could not read running Claude instances. The update will wait."])
+            throw NSError(domain: "ClaudeUpdate", code: 3, userInfo: [NSLocalizedDescriptionKey: L10n.text("Could not read running Claude instances. The update will wait.")])
         }
         var instances = Set<ClaudeUpdateFlow.Instance>()
         var helper: ClaudeUpdateFlow.Instance?
@@ -306,7 +306,7 @@ final class ClaudeDesktopUpdater: ObservableObject {
             if app?.bundleIdentifier != "com.anthropic.claudefordesktop",
                !process.command.hasPrefix(Graft.claudeApp.appending(path: "Contents/MacOS/Claude").path) { continue }
             guard app?.bundleIdentifier == "com.anthropic.claudefordesktop", let launched = app?.launchDate else {
-                throw NSError(domain: "ClaudeUpdate", code: 4, userInfo: [NSLocalizedDescriptionKey: "Claude is still opening or closing. The update will wait."])
+                throw NSError(domain: "ClaudeUpdate", code: 4, userInfo: [NSLocalizedDescriptionKey: L10n.text("Claude is still opening or closing. The update will wait.")])
             }
             let instance = ClaudeUpdateFlow.Instance(pid: process.id, launched: launched)
             instances.insert(instance)
@@ -352,13 +352,13 @@ final class ClaudeDesktopUpdater: ObservableObject {
         run?.logOffset = end
         let text = String(decoding: data, as: UTF8.self)
         if text.contains("[updater] Auto-updates disabled by enterprise policy") {
-            return "Claude's policy prevents this update. Ask its administrator to allow updates."
+            return L10n.text("Claude's policy prevents this update. Ask its administrator to allow updates.")
         }
         if text.contains("[updater] Auto-update error:") {
-            return "Claude reported an update error. Check your connection and try again."
+            return L10n.text("Claude reported an update error. Check your connection and try again.")
         }
         if text.contains("[updater] Found an update, downloading") {
-            DispatchQueue.main.async { self.status = "Downloading the Claude update…" }
+            DispatchQueue.main.async { self.status = L10n.text("Downloading the Claude update…") }
         }
         return nil
     }

@@ -116,18 +116,16 @@ enum Installer {
         if fm.fileExists(atPath: bundle.path), !isGraftBundle(bundle) {
             throw InstallError.nameTaken(bundle.path)
         }
-        try ManualUpdates.synchronize([Graft.mainProfile, shortcut.profileDir])
-
-        // A rename leaves the old bundle behind, so clear it. Only ever one of
-        // ours; installedBundle already refuses anything else.
-        if let previousName, previousName != shortcut.name {
-            var stale = shortcut
-            stale.name = previousName
-            if let old = installedBundle(for: stale) { try? fm.removeItem(at: old) }
-        }
         let config = GraftConfig(profileDir: shortcut.profileDir.path,
                                  sourceDir: sourceDir?.path)
-        let contents = bundle.appending(path: "Contents")
+        // Render and sign beside the destination before replacing anything.
+        // A missing icon or failed conversion must leave a working shortcut,
+        // including its old name and profile description, exactly as it was.
+        let staging = bundle.deletingLastPathComponent()
+            .appending(path: ".graft-install-\(UUID().uuidString).noindex")
+        let replacement = staging.appending(path: bundle.lastPathComponent)
+        defer { try? fm.removeItem(at: staging) }
+        let contents = replacement.appending(path: "Contents")
         let macos = contents.appending(path: "MacOS")
         let resources = contents.appending(path: "Resources")
 
@@ -146,12 +144,28 @@ enum Installer {
             try infoPlist(for: shortcut).write(to: contents.appending(path: "Info.plist"),
                                                atomically: true, encoding: .utf8)
             try writeIcon(shortcut.iconPreset, into: resources)
+            guard sign(replacement),
+                  Graft.runTool("/usr/bin/codesign", ["--verify", "--strict", replacement.path]) == 0
+            else { throw InstallError.writeFailed(L10n.text("The shortcut could not be signed. Its existing app was kept.")) }
+            try ManualUpdates.synchronize([Graft.mainProfile, shortcut.profileDir])
             try fm.createDirectory(at: shortcut.profileDir, withIntermediateDirectories: true)
+            if fm.fileExists(atPath: bundle.path) {
+                _ = try fm.replaceItemAt(bundle, withItemAt: replacement)
+            } else {
+                try fm.moveItem(at: replacement, to: bundle)
+            }
         } catch {
             throw InstallError.writeFailed(error.localizedDescription)
         }
 
-        sign(bundle)
+        // A failed rename keeps its old app until the new one is usable.
+        if let previousName, previousName != shortcut.name {
+            var stale = shortcut
+            stale.name = previousName
+            if let old = installedBundle(for: stale), !Graft.samePath(old, bundle) {
+                try? fm.removeItem(at: old)
+            }
+        }
         touch(bundle)
 
         // Apply straight away when nothing holds the profile open; otherwise
@@ -491,8 +505,9 @@ enum Installer {
 
     /// Ad-hoc signature, otherwise macOS refuses to launch a bundle whose
     /// contents changed after the first run.
-    private static func sign(_ bundle: URL) {
-        run("/usr/bin/codesign", ["--force", "--sign", "-", bundle.path])
+    @discardableResult
+    private static func sign(_ bundle: URL) -> Bool {
+        Graft.runTool("/usr/bin/codesign", ["--force", "--sign", "-", bundle.path]) == 0
     }
 
     /// Nudge Launch Services so the new name and icon show up straight away.

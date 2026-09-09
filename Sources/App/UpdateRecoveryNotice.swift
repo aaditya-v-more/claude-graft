@@ -17,7 +17,7 @@ struct UpdateRecoveryNotice: View {
                     if notice.needsDecision {
                         Button("Reopen Anyway") { recovery.reopen(notice) }
                     }
-                    Button(notice.needsDecision ? "Leave Closed" : "Dismiss") { recovery.dismiss(notice) }
+                    Button(L10n.text(notice.needsDecision ? "Leave Closed" : "Dismiss")) { recovery.dismiss(notice) }
                 }
             }
             .font(.callout)

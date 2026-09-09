@@ -262,11 +262,11 @@ final class UpdateRecoveryMonitor: ObservableObject {
                     case .ready(let request):
                         self.offerOrLaunch(request, targets: targets, approved: false)
                     case .restored(let request):
-                        self.publish(request, message: "Claude restarted itself to update. \(request.name) was reopened.",
+                        self.publish(request, message: L10n.format("Claude restarted itself to update. %@ was reopened.", request.name),
                                      samples: snapshot.samples)
                         Diagnostics.note("update-recovery.restored", ["profile": request.profile.lastPathComponent])
                     case .failed(let request):
-                        self.publish(request, message: "Claude restarted itself to update, but \(request.name) could not be reopened. Open its shortcut to try again.", samples: snapshot.samples)
+                        self.publish(request, message: L10n.format("Claude restarted itself to update, but %@ could not be reopened. Open its shortcut to try again.", request.name), samples: snapshot.samples)
                         Diagnostics.note("update-recovery.failed", ["profile": request.profile.lastPathComponent])
                     case .cancelled(let path):
                         DispatchQueue.main.async { self.notices.removeAll { $0.id == path && $0.needsDecision } }
@@ -290,14 +290,14 @@ final class UpdateRecoveryMonitor: ObservableObject {
         else { return }
         let sharers = UpdateRecovery.newSharers(for: request, in: sample)
         if !approved && !sharers.isEmpty {
-            publish(request, message: "Claude restarted itself to update and closed \(request.name). "
-                    + ChatConflict.message(sharers: sharers), needsDecision: true, samples: snapshot.samples)
+            publish(request, message: L10n.format("Claude restarted itself to update and closed %@. %@",
+                    request.name, ChatConflict.message(sharers: sharers)), needsDecision: true, samples: snapshot.samples)
             Diagnostics.note("update-recovery.conflict", ["profile": request.profile.lastPathComponent,
                                                           "sharers": sharers])
             return
         }
         guard !snapshot.installing else {
-            publish(request, message: "Claude is still installing its update. Reopen \(request.name) when it finishes.",
+            publish(request, message: L10n.format("Claude is still installing its update. Reopen %@ when it finishes.", request.name),
                     needsDecision: true, samples: snapshot.samples)
             return
         }
@@ -305,10 +305,10 @@ final class UpdateRecoveryMonitor: ObservableObject {
         Diagnostics.note("update-recovery.launch", ["profile": request.profile.lastPathComponent,
                                                     "marker": request.marker.date])
         if Graft.open(profile: request.profile, inBackground: true) {
-            publish(request, message: "Claude restarted itself to update. Reopening \(request.name)…", samples: snapshot.samples)
+            publish(request, message: L10n.format("Claude restarted itself to update. Reopening %@…", request.name), samples: snapshot.samples)
         } else {
             recovery.dismiss(request)
-            publish(request, message: "Claude restarted itself to update, but \(request.name) could not be reopened. Open its shortcut to try again.", samples: snapshot.samples)
+            publish(request, message: L10n.format("Claude restarted itself to update, but %@ could not be reopened. Open its shortcut to try again.", request.name), samples: snapshot.samples)
             Diagnostics.note("update-recovery.failed", ["profile": request.profile.lastPathComponent])
         }
     }
@@ -341,10 +341,10 @@ final class UpdateRecoveryMonitor: ObservableObject {
 
     func closeExtras(_ notice: Notice) {
         let alert = NSAlert()
-        alert.messageText = "Close the extra Claude?"
-        alert.informativeText = "A default Claude instance opened during this restart. Closing it ends any sessions running in that instance."
-        alert.addButton(withTitle: "Keep Open")
-        alert.addButton(withTitle: "Close Extra Claude")
+        alert.messageText = L10n.text("Close the extra Claude?")
+        alert.informativeText = L10n.text("A default Claude instance opened during this restart. Closing it ends any sessions running in that instance.")
+        alert.addButton(withTitle: L10n.text("Keep Open"))
+        alert.addButton(withTitle: L10n.text("Close Extra Claude"))
         NSApp.activate(ignoringOtherApps: true)
         guard alert.runModal() == .alertSecondButtonReturn else { return }
         queue.async {

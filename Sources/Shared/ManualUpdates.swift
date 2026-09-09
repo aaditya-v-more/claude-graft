@@ -32,11 +32,11 @@ enum ManualUpdates {
         var errorDescription: String? {
             switch self {
             case .unreadable(let name):
-                return "Manual update mode could not read \(name). Its existing configuration was kept."
+                return L10n.format("Manual update mode could not read %@. Its existing configuration was kept.", name)
             case .managed:
-                return "Claude has managed or remotely supplied configuration. Its administrator needs to set disableAutoUpdates; a local setting cannot guarantee protection."
+                return L10n.text("Claude has managed or remotely supplied configuration. Its administrator needs to set disableAutoUpdates; a local setting cannot guarantee protection.")
             case .invalidProfile:
-                return "Manual update mode refused a configuration outside this profile's own folder."
+                return L10n.text("Manual update mode refused a configuration outside this profile's own folder.")
             }
         }
     }
@@ -49,7 +49,7 @@ enum ManualUpdates {
         guard Graft.exists(stateFile) else { return State() }
         guard let data = try? Data(contentsOf: stateFile),
               let state = try? JSONDecoder().decode(State.self, from: data)
-        else { throw Failure.unreadable("Graft's saved update settings") }
+        else { throw Failure.unreadable(L10n.text("Graft's saved update settings")) }
         return state
     }
 
@@ -63,9 +63,9 @@ enum ManualUpdates {
         try Graft.fm.createDirectory(at: stateFile.deletingLastPathComponent(), withIntermediateDirectories: true)
         let file = stateFile.deletingLastPathComponent().appending(path: "manual-updates.lock")
         let descriptor = open(file.path, O_RDWR | O_CREAT, 0o600)
-        guard descriptor >= 0 else { throw Failure.unreadable("Graft's update settings lock") }
+        guard descriptor >= 0 else { throw Failure.unreadable(L10n.text("Graft's update settings lock")) }
         defer { close(descriptor) }
-        guard flock(descriptor, LOCK_EX) == 0 else { throw Failure.unreadable("Graft's update settings lock") }
+        guard flock(descriptor, LOCK_EX) == 0 else { throw Failure.unreadable(L10n.text("Graft's update settings lock")) }
         defer { flock(descriptor, LOCK_UN) }
         var state = try readState()
         try action(&state)
@@ -160,10 +160,10 @@ enum ManualUpdates {
         var metadata = try readObject(metadataFile, optional: true)
         guard metadata["hybridPointer"] == nil else { throw Failure.managed }
         guard metadata["entries"] == nil || metadata["entries"] is [[String: Any]]
-        else { throw Failure.unreadable("Claude's configuration list") }
+        else { throw Failure.unreadable(L10n.text("Claude's configuration list")) }
         let applied = metadata["appliedId"] as? String
-        if let applied, !validID(applied) { throw Failure.unreadable("Claude's selected configuration") }
-        if metadata["appliedId"] != nil && applied == nil { throw Failure.unreadable("Claude's selected configuration") }
+        if let applied, !validID(applied) { throw Failure.unreadable(L10n.text("Claude's selected configuration")) }
+        if metadata["appliedId"] != nil && applied == nil { throw Failure.unreadable(L10n.text("Claude's selected configuration")) }
         let id = applied ?? UUID().uuidString.lowercased()
         let file = dir.appending(path: id + ".json")
         var config = try readObject(file, optional: applied == nil)
@@ -223,7 +223,7 @@ enum ManualUpdates {
             if metadata["appliedId"] as? String == change.configID { metadata["appliedId"] = nil }
             if let entries = metadata["entries"] as? [[String: Any]] {
                 metadata["entries"] = entries.filter { $0["id"] as? String != change.configID }
-            } else if metadata["entries"] != nil { throw Failure.unreadable("Claude's configuration list") }
+            } else if metadata["entries"] != nil { throw Failure.unreadable(L10n.text("Claude's configuration list")) }
             if change.createdMetadata, metadata.keys.allSatisfy({ $0 == "entries" }),
                (metadata["entries"] as? [Any] ?? []).isEmpty {
                 if Graft.exists(metadataFile) { try Graft.fm.removeItem(at: metadataFile) }

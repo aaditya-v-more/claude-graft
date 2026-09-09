@@ -301,6 +301,39 @@ do {
     _ = try! Installer.install(styled, sourceDir: nil, previousName: styled.name)
     check(try! Data(contentsOf: icon) != workIcon,
           "updating the shortcut replaces the badged icon with the newly selected preset")
+    check(Graft.runTool("/usr/bin/codesign", ["--verify", "--strict", bundle.path]) == 0,
+          "replacing the complete shortcut preserves its new signature")
+
+    let sealedFiles = ["Contents/MacOS/launcher", "Contents/Info.plist",
+                       "Contents/Resources/graft.json", "Contents/Resources/icon.icns",
+                       "Contents/_CodeSignature/CodeResources"]
+    let before = sealedFiles.map { try! Data(contentsOf: bundle.appending(path: $0)) }
+    Installer.iconSourceOverride = root.appending(path: "unreadable-icon.png")
+    defer { Installer.iconSourceOverride = stockPNG }
+    var changed = styled
+    changed.folder = "Claude-Failed-Icon"
+    do {
+        _ = try Installer.install(changed, sourceDir: nil)
+        check(false, "an unreadable icon refuses the update")
+    } catch {
+        check(sealedFiles.map { try! Data(contentsOf: bundle.appending(path: $0)) } == before,
+              "a failed icon update keeps the launcher, profile, plist, icon and signature unchanged")
+        check(Graft.runTool("/usr/bin/codesign", ["--verify", "--strict", bundle.path]) == 0,
+              "the old shortcut is still validly signed after an icon failure")
+        check(!Graft.exists(changed.profileDir), "a failed icon update does not create the new profile")
+    }
+    changed.name = "Failed Icon Rename"
+    do {
+        _ = try Installer.install(changed, sourceDir: nil, previousName: styled.name)
+        check(false, "an unreadable icon refuses the rename")
+    } catch {
+        check(sealedFiles.map { try! Data(contentsOf: bundle.appending(path: $0)) } == before,
+              "a failed rename leaves the working app under its original name")
+        check(!Graft.exists(Installer.bundleURL(for: changed)),
+              "a failed rename leaves no incomplete replacement app")
+    }
+    check((try! fm.contentsOfDirectory(atPath: apps.path)).allSatisfy { !$0.hasPrefix(".graft-install-") },
+          "successful and failed installs both remove their staging directories")
     try? fm.removeItem(at: bundle)
     try? fm.removeItem(at: styled.profileDir)
 }
@@ -1044,9 +1077,29 @@ do {
     check(Set(english.keys) == Set(russian.keys), "both catalogs cover the same strings")
     check(russian["New Shortcut"] == "Новый ярлык", "the Russian catalog is actually translated")
     let rebasedKeys = ["Claude Desktop is updating", "Claude Desktop %@ is available",
-                       "Preparing the update…", "Version %@ · Up to date"]
+                       "Preparing the update…", "Version %@ · Up to date",
+                       "Check for Claude Updates", "Check for Claude Graft Updates",
+                       "Checking for Claude Graft Updates…", "Update Claude Desktop manually",
+                       "Update Claude…", "Update Claude Desktop?", "Quit All Claude & Update",
+                       "Chats found elsewhere", "Merge Them Here", "Copy Them Here",
+                       "Open Without Them", "Do Not Show Again", "Leave Closed", "Dismiss"]
     check(rebasedKeys.allSatisfy { english[$0] != nil && russian[$0] != nil },
           "the update UI added upstream is localized too")
+    let russianBundle = Bundle(path: repo.appending(path: "Resources/ru.lproj").path)!
+    check(russianBundle.localizedString(forKey: "Check for Claude Graft Updates", value: nil, table: nil)
+            == "Проверить обновления Claude Graft",
+          "the current update action resolves through the Russian bundle")
+    let recovered = russianBundle.localizedString(
+        forKey: "Recovered %lld sessions that closed without records", value: nil, table: nil)
+    check(String(format: recovered, 3) == "Восстановлено сессий, закрытых без записей: 3",
+          "the numeric SwiftUI recovery message uses an integer placeholder")
+    let placeholders = try! NSRegularExpression(pattern: "%[0-9$]*[l]*[@difus]")
+    func arguments(_ value: String) -> [String] {
+        placeholders.matches(in: value, range: NSRange(value.startIndex..., in: value))
+            .map { (value as NSString).substring(with: $0.range) }.sorted()
+    }
+    check(english.allSatisfy { key, value in arguments(value) == arguments(russian[key] ?? "") },
+          "every translation preserves its format arguments and their types")
     check(Bundle.preferredLocalizations(from: ["en", "ru"], forPreferences: ["ru-RU"]) == ["ru"],
           "a Russian system preference selects Russian")
     check(Bundle.preferredLocalizations(from: ["en", "ru"], forPreferences: ["de-DE"]) == ["en"],

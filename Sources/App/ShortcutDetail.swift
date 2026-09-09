@@ -123,7 +123,7 @@ struct ShortcutDetail: View {
                         }
                     }
                     HStack(spacing: 8) {
-                        Button(found.merging ? "Merge Them Here" : "Copy Them Here") {
+                        Button(L10n.text(found.merging ? "Merge Them Here" : "Copy Them Here")) {
                             adopt(found)
                         }
                         .disabled(copying)
@@ -198,12 +198,12 @@ struct ShortcutDetail: View {
         } message: {
             Text(ChatConflict.message(sharers: sharersOpen))
         }
-        .confirmationDialog(elsewhere?.merging == true
+        .confirmationDialog(L10n.text(elsewhere?.merging == true
                                 ? "Merge this account's other chats in first?"
-                                : "Bring this account's chats across first?",
+                                : "Bring this account's chats across first?"),
                             isPresented: $askAboutElsewhere,
                             titleVisibility: .visible) {
-            Button(elsewhere?.merging == true ? "Merge Them Here" : "Copy Them Here") {
+            Button(L10n.text(elsewhere?.merging == true ? "Merge Them Here" : "Copy Them Here")) {
                 if let found = elsewhere { adopt(found) { checkSharers() } }
             }
             Button("Open Without Them") {
@@ -350,27 +350,15 @@ struct ShortcutDetail: View {
     /// whether it is the history being missed, and the titles and dates say it
     /// in the only terms anybody recognises their own chats by.
     private func foundNote(_ found: Graft.ChatsElsewhere) -> String {
-        """
-        \(store.name(ofProfile: found.profile)) is holding \(chats(found.count)) for \
-        the account this profile is signed into that this one has not got. \
-        \(found.merging
-            ? "This profile has chats of its own too, so they are merged rather than either set being replaced."
-            : "This profile has none of its own yet.")
-        """
+        L10n.format("%@ is holding chats for this account that this profile does not have. Chats found: %ld. %@",
+                    store.name(ofProfile: found.profile), found.count,
+                    L10n.text(found.merging
+                        ? "This profile has chats of its own too, so they are merged rather than either set being replaced."
+                        : "This profile has none of its own yet."))
     }
 
     private func openNote(_ found: Graft.ChatsElsewhere) -> String {
-        """
-        \(foundNote(found))
-
-        Claude builds its sidebar as it starts, so bringing them over now is \
-        what puts them in the window about to open. Every other Claude has to \
-        be closed for that.
-        """
-    }
-
-    private func chats(_ count: Int) -> String {
-        count == 1 ? "1 chat" : "\(count) chats"
+        L10n.format("%@\n\nClaude builds its sidebar as it starts, so bringing them over now is what puts them in the window about to open. Every other Claude has to be closed for that.", foundNote(found))
     }
 
     /// Reads as a sentence for any number of them.
@@ -379,8 +367,8 @@ struct ShortcutDetail: View {
         switch all.count {
         case 0: return ""
         case 1: return all[0]
-        case 2: return all.joined(separator: " and ")
-        default: return all.dropLast().joined(separator: ", ") + " and " + (all.last ?? "")
+        case 2: return all.joined(separator: " \(L10n.text("and")) ")
+        default: return all.dropLast().joined(separator: ", ") + " \(L10n.text("and")) " + (all.last ?? "")
         }
     }
 
@@ -477,12 +465,12 @@ struct ShortcutDetail: View {
             DispatchQueue.main.async {
                 copying = false
                 if !result.running.isEmpty {
-                    copiedNote = "Nothing copied — quit \(names(result.running)) first"
+                    copiedNote = L10n.format("Nothing copied — quit %@ first", names(result.running))
                 } else if result.copied == 0 {
-                    copiedNote = "Nothing was copied"
+                    copiedNote = L10n.text("Nothing was copied")
                 } else {
-                    copiedNote = "\(chats(result.copied)) copied from "
-                        + store.name(ofProfile: found.profile)
+                    copiedNote = L10n.format("Chats copied from %@: %ld",
+                                            store.name(ofProfile: found.profile), result.copied)
                 }
                 refresh()
                 if result.running.isEmpty, result.copied > 0 { then?() }

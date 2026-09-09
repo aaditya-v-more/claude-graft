@@ -5,8 +5,8 @@ enum ClaudeUpdateFeed {
         case invalid, unavailable
         var errorDescription: String? {
             switch self {
-            case .invalid: return "Claude's update service returned an unreadable version."
-            case .unavailable: return "Could not check for Claude Desktop updates. Try again when connected."
+            case .invalid: return L10n.text("Claude's update service returned an unreadable version.")
+            case .unavailable: return L10n.text("Could not check for Claude Desktop updates. Try again when connected.")
             }
         }
     }
@@ -82,19 +82,19 @@ struct ClaudeUpdateFlow: Codable {
         switch phase {
         case .quitting:
             guard sample.instances.isSubset(of: original) else {
-                return .fail("Another Claude opened while preparing the update. Close it and try again.")
+                return .fail(L10n.text("Another Claude opened while preparing the update. Close it and try again."))
             }
             guard sample.instances.isEmpty else {
-                return elapsed >= 90 ? .fail("Claude has not finished quitting. Finish closing it, then try again.") : .wait
+                return elapsed >= 90 ? .fail(L10n.text("Claude has not finished quitting. Finish closing it, then try again.")) : .wait
             }
-            if sample.installerRunning { return elapsed >= 180 ? .fail("Claude's installer is still busy. Try again after it finishes.") : .wait }
+            if sample.installerRunning { return elapsed >= 180 ? .fail(L10n.text("Claude's installer is still busy. Try again after it finishes.")) : .wait }
             if installed() { return .complete }
             phase = .starting; phaseStarted = now
             return .launch
         case .starting, .downloading:
             if installed() && sample.helper == nil && !sample.installerRunning { return .complete }
             guard sample.instances.allSatisfy({ $0 == sample.helper }) else {
-                return .fail("Another Claude opened during the update. Keep Claude closed until the update finishes.")
+                return .fail(L10n.text("Another Claude opened during the update. Keep Claude closed until the update finishes."))
             }
             if sample.helper != nil, let staged = sample.staged, staged == target || ClaudeUpdateFeed.isNewer(staged, than: target) {
                 phase = .installing; phaseStarted = now
@@ -106,15 +106,15 @@ struct ClaudeUpdateFlow: Codable {
             }
             if phase == .starting {
                 if sample.helper != nil { phase = .downloading; phaseStarted = now }
-                else if elapsed >= 30 { return .fail("Claude's updater could not be started. Try again.") }
+                else if elapsed >= 30 { return .fail(L10n.text("Claude's updater could not be started. Try again.")) }
             } else if sample.helper == nil {
-                return .fail("Claude closed before preparing its update. Try again.")
+                return .fail(L10n.text("Claude closed before preparing its update. Try again."))
             } else if elapsed >= 20 * 60 {
-                return .fail("Claude did not finish downloading its update. Check your connection and try again.")
+                return .fail(L10n.text("Claude did not finish downloading its update. Check your connection and try again."))
             }
         case .installing:
             if installed() && sample.helper == nil && !sample.installerRunning { return .complete }
-            if elapsed >= 180 { return .fail("Claude's update did not finish installing. Check Claude and try again.") }
+            if elapsed >= 180 { return .fail(L10n.text("Claude's update did not finish installing. Check Claude and try again.")) }
         }
         return .wait
     }
