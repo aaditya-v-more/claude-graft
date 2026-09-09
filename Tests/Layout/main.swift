@@ -52,6 +52,14 @@ func descendants(_ view: NSView) -> [NSView] {
 }
 func settle() { RunLoop.main.run(until: Date().addingTimeInterval(0.3)) }
 
+final class LayoutWindow: NSWindow {
+    // CI's virtual display can be smaller than the largest test window. Keep
+    // AppKit from shrinking that case to the screen instead of testing it.
+    override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect {
+        frameRect
+    }
+}
+
 for selection in [ContentView.mainProfileID, shortcut.id] {
     let root = ContentView(selection: selection)
         .environmentObject(Shared.store)
@@ -59,7 +67,7 @@ for selection in [ContentView.mainProfileID, shortcut.id] {
         .environmentObject(Shared.usage)
     let hosting = NSHostingView(rootView: root)
     hosting.sizingOptions = []
-    let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 820, height: 560),
+    let window = LayoutWindow(contentRect: NSRect(x: 100, y: 100, width: 820, height: 560),
                           styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
     window.contentView = hosting
     window.title = "Claude Graft layout check"
