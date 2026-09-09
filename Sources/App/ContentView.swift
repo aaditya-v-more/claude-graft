@@ -10,7 +10,39 @@ struct ContentView: View {
     @State private var pendingDeletion: UUID?
     @State private var problem: String?
 
+    init(selection: UUID? = ContentView.mainProfileID) {
+        _selection = State(initialValue: selection)
+    }
+
     var body: some View {
+        // The split view's native scroll views can draw under a top safe-area
+        // inset. Give notices their own space so the first account and form
+        // fields remain visible, including when a notice grows or wraps.
+        VStack(spacing: 0) {
+            UpdateRecoveryNotice()
+            ClaudeUpdateStatus()
+            Divider()
+            profiles
+        }
+        .confirmationDialog(deletionTitle,
+                            isPresented: Binding(get: { pendingDeletion != nil },
+                                                 set: { if !$0 { pendingDeletion = nil } }),
+                            titleVisibility: .visible) {
+            Button("Delete Shortcut Only") { delete(alsoProfile: false) }
+            Button("Delete Shortcut and Profile", role: .destructive) { delete(alsoProfile: true) }
+            Button("Cancel", role: .cancel) { pendingDeletion = nil }
+        } message: {
+            Text(deletionMessage)
+        }
+        .alert("The shortcut was deleted", isPresented: Binding(get: { problem != nil },
+                                                               set: { if !$0 { problem = nil } })) {
+            Button("OK") { problem = nil }
+        } message: {
+            Text(problem ?? "")
+        }
+    }
+
+    private var profiles: some View {
         NavigationSplitView {
             sidebar
                 .navigationSplitViewColumnWidth(min: 200, ideal: 220, max: 280)
@@ -34,29 +66,6 @@ struct ContentView: View {
             } else {
                 EmptyState(hasShortcuts: !store.shortcuts.isEmpty, add: add)
             }
-        }
-        .safeAreaInset(edge: .top, spacing: 0) {
-            VStack(spacing: 0) {
-                UpdateRecoveryNotice()
-                ClaudeUpdateStatus()
-                Divider()
-            }
-        }
-        .confirmationDialog(deletionTitle,
-                            isPresented: Binding(get: { pendingDeletion != nil },
-                                                 set: { if !$0 { pendingDeletion = nil } }),
-                            titleVisibility: .visible) {
-            Button("Delete Shortcut Only") { delete(alsoProfile: false) }
-            Button("Delete Shortcut and Profile", role: .destructive) { delete(alsoProfile: true) }
-            Button("Cancel", role: .cancel) { pendingDeletion = nil }
-        } message: {
-            Text(deletionMessage)
-        }
-        .alert("The shortcut was deleted", isPresented: Binding(get: { problem != nil },
-                                                               set: { if !$0 { problem = nil } })) {
-            Button("OK") { problem = nil }
-        } message: {
-            Text(problem ?? "")
         }
     }
 

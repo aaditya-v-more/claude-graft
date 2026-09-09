@@ -27,7 +27,8 @@ and a checksum.
 
     ./build.sh                    app and launcher into build.noindex/, this architecture
     GRAFT_UNIVERSAL=1 ./build.sh  both architectures, joined with lipo
-    ./test.sh                     574 checks, all in a throwaway directory
+    ./test.sh                     core checks, all in a throwaway directory
+    ./test-layout.sh              window layout, both languages and three sizes
 
     Tools/render-diagrams.sh      the README's diagrams, into docs/assets
 

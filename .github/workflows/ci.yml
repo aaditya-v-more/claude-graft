@@ -44,6 +44,9 @@ jobs:
       - name: Build
         run: GRAFT_UNIVERSAL=1 ./build.sh
 
+      - name: Window layout in English and Russian
+        run: ./test-layout.sh
+
       # build.sh joins the slices with lipo and says nothing if it was handed
       # only one, and a bundle missing a slice reports nothing more useful than
       # a bounce in the Dock on the machine that needed it.

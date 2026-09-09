@@ -635,6 +635,13 @@ folder field pointed a shortcut at Claude's own profile.
 
 ## SwiftUI rules this app learned the hard way
 
+**Notices above the split view need their own layout space.** A top
+`safeAreaInset` on `NavigationSplitView` left its native sidebar and form
+drawing beneath the update banner. The first account and the top of the form
+were hidden even though accessibility still reported them. Keep the notices
+and split view as siblings in a vertical stack. `test-layout.sh` checks the
+native view bounds as the update state, window size and language change.
+
 **No `MenuBarExtra`.** Alongside a `WindowGroup` it loops on macOS 26 — every
 scene update rebuilds the main menu, which invalidates the scene. 100% CPU and
 about a gigabyte a minute, but only while a window is open. Bisected: not the
