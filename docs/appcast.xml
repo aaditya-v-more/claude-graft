@@ -3,6 +3,39 @@
     <channel>
         <title>Claude Graft</title>
         <item>
+            <title>1.1.3</title>
+            <pubDate>Wed, 09 Sep 2026 22:15:41 +0530</pubDate>
+            <link>https://github.com/aaditya-v-more/claude-graft</link>
+            <sparkle:version>1.1.3</sparkle:version>
+            <sparkle:shortVersionString>1.1.3</sparkle:shortVersionString>
+            <sparkle:minimumAutoupdateVersion>1.1.0</sparkle:minimumAutoupdateVersion>
+            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+            <description><![CDATA[<h2>Clearer account controls and more personal shortcuts</h2>
+
+<p>The Claude Desktop update bar now has its own space above the account list
+and profile controls. The first account and the top of each form stay visible,
+including in smaller windows.</p>
+
+<p>Choose a colour or a Work, Personal, Code or Research icon for each shortcut
+to make accounts easier to tell apart. The app also includes Russian
+localization, including update warnings, recovery messages and account controls.
+Fable usage appears when the account reports a separate limit.</p>
+
+<p>Updating a shortcut now prepares and verifies the replacement before changing
+the installed app. If preparation fails, the existing shortcut stays usable,
+including when the update would rename it.</p>
+
+<h3>Upgrading from 1.0.x</h3>
+
+<p>As with 1.1.0, shared profiles merge their chat histories on their next
+launch. Going back to a profile's own chats preserves what it brought, but
+copies already merged into the source stay there. If you need an untouched
+copy, back up your Claude profile folders in <code>~/Library/Application
+Support</code> before upgrading.</p>
+]]></description>
+            <enclosure url="https://github.com/aaditya-v-more/claude-graft/releases/download/v1.1.3/ClaudeGraft-1.1.3.zip" length="4239792" type="application/octet-stream" sparkle:edSignature="iiSeWAmhXZYGjSgJU+dZ3L6Mx/RaK77x1F/7ZWgONvvK0ByXUUf457ZHduBLYDMciZPlE1i2yiOywBuXzRkCDg=="/>
+        </item>
+        <item>
             <title>1.1.2</title>
             <pubDate>Sun, 06 Sep 2026 21:41:15 +0530</pubDate>
             <link>https://github.com/aaditya-v-more/claude-graft</link>
