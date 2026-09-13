@@ -223,6 +223,10 @@ footer {
   color: var(--ink-faint); font-size: .93rem;
 }
 footer p { max-width: none; }
+
+.creator-links { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 20px; margin-top: 16px; }
+.creator-links a { display: inline-flex; align-items: center; min-height: 44px; }
+.creator-links a:focus-visible { outline: 2px solid currentColor; outline-offset: 4px; }
 </style>
 </head>
 <body>
@@ -357,6 +361,11 @@ footer p { max-width: none; }
     <a href="https://ko-fi.com/aadityavmore">tip jar</a> ·
     <a href="https://github.com/aaditya-v-more/claude-graft/issues">report something</a>.
     An independent project, not affiliated with Anthropic.</p>
+    <nav class="creator-links" data-creator-links aria-label="More from Aaditya More">
+      <a href="https://aadityamore.com/">Website</a>
+      <a href="https://github.com/aaditya-v-more">GitHub</a>
+      <a href="https://www.linkedin.com/in/aadityavmore/">LinkedIn</a>
+    </nav>
   </div>
 </footer>
 
