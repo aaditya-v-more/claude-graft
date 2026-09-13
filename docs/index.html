@@ -10,11 +10,8 @@
 <meta property="og:type" content="website">
 <link rel="icon" href="assets/icon.png" type="image/png">
 <link rel="apple-touch-icon" href="assets/icon.png">
-<script src="appearance.js"></script>
-<link rel="stylesheet" href="appearance.css">
 <style>
 :root {
-  color-scheme: light;
   --bg:        #faf8f5;
   --bg-deep:   #f2ece3;
   --card:      #ffffff;
@@ -27,22 +24,8 @@
   --glow:      rgba(194,65,12,.10);
   --shadow:    0 1px 2px rgba(26,24,21,.05), 0 12px 32px -8px rgba(26,24,21,.14);
 }
-:root[data-theme="dark"] {
-    --bg:        #14120f;
-    --bg-deep:   #1b1814;
-    --card:      #1d1a16;
-    --ink:       #f2eee8;
-    --ink-soft:  #b3aa9e;
-    --ink-faint: #837a6f;
-    --line:      #2e2921;
-    --accent:    #f0855a;
-    --accent-in: #1a1005;
-    --glow:      rgba(240,133,90,.13);
-    --shadow:    0 1px 2px rgba(0,0,0,.4), 0 20px 48px -12px rgba(0,0,0,.6);
-    color-scheme: dark;
-}
 @media (prefers-color-scheme: dark) {
-  :root:not([data-theme]) {
+  :root {
     --bg:        #14120f;
     --bg-deep:   #1b1814;
     --card:      #1d1a16;
@@ -54,7 +37,6 @@
     --accent-in: #1a1005;
     --glow:      rgba(240,133,90,.13);
     --shadow:    0 1px 2px rgba(0,0,0,.4), 0 20px 48px -12px rgba(0,0,0,.6);
-    color-scheme: dark;
   }
 }
 
@@ -245,17 +227,9 @@ footer p { max-width: none; }
 .creator-links { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 20px; margin-top: 16px; }
 .creator-links a { display: inline-flex; align-items: center; min-height: 44px; }
 .creator-links a:focus-visible { outline: 2px solid currentColor; outline-offset: 4px; }
-.site-toolbar { --appearance-panel: var(--card); display: flex; justify-content: flex-end; padding-top: 16px; }
-.hero { padding-top: clamp(1.5rem, 7vw, 5rem); }
 </style>
 </head>
 <body>
-
-<div class="wrap">
-<div class="site-toolbar">
-  <div class="appearance-switcher" role="group" aria-label="Color theme"><button type="button" data-appearance-choice="light" aria-label="Light mode" title="Light mode" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M4.93 4.93l1.42 1.42m11.3 11.3 1.42 1.42M4.93 19.07l1.42-1.42m11.3-11.3 1.42-1.42"/></svg></button><button type="button" data-appearance-choice="dark" aria-label="Dark mode" title="Dark mode" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20.8 13.2A8.7 8.7 0 0 1 10.8 3.2a8.8 8.8 0 1 0 10 10Z"/></svg></button></div>
-</div>
-</div>
 
 <div class="hero">
   <div class="wrap">
