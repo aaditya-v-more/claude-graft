@@ -1,0 +1,43 @@
+.appearance-switcher {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  width: max-content;
+  padding: 2px;
+  border: 1px solid var(--appearance-line, var(--line, #8886));
+  border-radius: 28px;
+  color: inherit;
+}
+.appearance-switcher button {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
+  min-height: 44px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.appearance-switcher button:is(:hover, [aria-pressed="true"]) {
+  background: var(--appearance-panel, var(--panel, #8882));
+  color: var(--appearance-accent, var(--accent, currentColor));
+}
+.appearance-switcher button:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+.appearance-switcher svg {
+  width: 20px;
+  height: 20px;
+}
+@media print {
+  .appearance-switcher {
+    display: none;
+  }
+}
