@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <!-- A tiny standalone launcher a desktop shortcut points at. Win32 GUI
+         subsystem (WinExe) so no console window flashes when the shortcut is
+         double-clicked; it applies the graft and starts Claude, then exits. -->
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <RootNamespace>ClaudeGraft.Launcher</RootNamespace>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <UseWindowsForms>false</UseWindowsForms>
+    <UseWPF>false</UseWPF>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="..\Platform\DesktopInteraction.cs" Link="Platform\DesktopInteraction.cs" />
+    <ProjectReference Include="..\ClaudeGraft.Core\ClaudeGraft.Core.csproj" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,111 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<UserControl
+    x:Class="ClaudeGraft.FlyoutView"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="using:ClaudeGraft"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    Width="380"
+    mc:Ignorable="d">
+
+    <!-- Transparent inside so the window's mica is the surface, with a slim edge
+         to define the panel against the wallpaper, rounded to match the window's
+         own corner. -->
+    <Border x:Name="RootBorder" Background="Transparent"
+            BorderBrush="{ThemeResource SurfaceStrokeColorDefaultBrush}"
+            BorderThickness="1" CornerRadius="8">
+        <StackPanel>
+            <!-- Profiles. Capped so a long list scrolls rather than growing the
+                 flyout past the screen. -->
+            <ScrollViewer MaxHeight="520" VerticalScrollBarVisibility="Auto"
+                          HorizontalScrollMode="Disabled">
+            <ItemsControl ItemsSource="{x:Bind Rows}" Padding="12,12,12,6">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="local:ShortcutRow">
+                        <StackPanel Spacing="10" Padding="10,12">
+                            <Grid ColumnSpacing="10">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <Ellipse Grid.Column="0" Width="9" Height="9"
+                                         VerticalAlignment="Center"
+                                         Fill="{x:Bind StatusBrush, Mode=OneWay}" />
+                                <TextBlock Grid.Column="1" Text="{x:Bind Name}"
+                                           VerticalAlignment="Center"
+                                           Style="{StaticResource BodyStrongTextBlockStyle}" />
+                                <StackPanel Grid.Column="2" Orientation="Horizontal"
+                                            Spacing="8" VerticalAlignment="Center">
+                                    <Border Background="Transparent" ToolTipService.ToolTip="{x:Bind StartTooltip, Mode=OneWay}">
+                                        <StackPanel Orientation="Horizontal">
+                                            <ProgressRing IsActive="{x:Bind Starting, Mode=OneWay}"
+                                                          Visibility="{x:Bind StartingVisibility, Mode=OneWay}"
+                                                          Width="16" Height="16" VerticalAlignment="Center" />
+                                            <Button Content="Start Session" Click="Start_Click" Tag="{x:Bind}"
+                                                    Visibility="{x:Bind StartVisibility, Mode=OneWay}"
+                                                    IsEnabled="{x:Bind StartEnabled, Mode=OneWay}"
+                                                    Padding="10,4" MinHeight="0" />
+                                        </StackPanel>
+                                    </Border>
+                                    <Button Content="Open" Click="Open_Click" Tag="{x:Bind}"
+                                            Style="{StaticResource AccentButtonStyle}"
+                                            Padding="16,4" MinHeight="0" />
+                                </StackPanel>
+                            </Grid>
+
+                            <!-- Always in the layout, so the row is its full height
+                                 from the first frame rather than growing once the
+                                 usage arrives — which showed as the flyout opening
+                                 to half its size and then jumping. The bindings
+                                 read "· 0%" until the figures land. -->
+                            <StackPanel Spacing="4" Visibility="{x:Bind BarsVisibility, Mode=OneWay}">
+                                <TextBlock Text="{x:Bind FiveHourText, Mode=OneWay}"
+                                           Style="{StaticResource CaptionTextBlockStyle}"
+                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                <ProgressBar Value="{x:Bind FiveHour, Mode=OneWay}" Maximum="100"
+                                             local:BarPulse.Key="{x:Bind Pulse, Mode=OneWay}" />
+                                <TextBlock Text="{x:Bind WeekText, Mode=OneWay}" Margin="0,4,0,0"
+                                           Style="{StaticResource CaptionTextBlockStyle}"
+                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                <ProgressBar Value="{x:Bind Week, Mode=OneWay}" Maximum="100"
+                                             local:BarPulse.Key="{x:Bind Pulse, Mode=OneWay}" />
+                                <TextBlock Text="{x:Bind FableText, Mode=OneWay}" Visibility="{x:Bind FableVisibility, Mode=OneWay}" FontSize="12" />
+                                <ProgressBar Value="{x:Bind Fable, Mode=OneWay}" Visibility="{x:Bind FableVisibility, Mode=OneWay}" Maximum="100" />
+                            </StackPanel>
+                            <TextBlock Text="No usage reported yet" Visibility="{x:Bind NoUsageVisibility, Mode=OneWay}" FontSize="12" />
+
+                            <!-- Why the last Start Session could not open a window,
+                                 shown only when there is one to report. -->
+                            <TextBlock Text="{x:Bind Problem, Mode=OneWay}"
+                                       Visibility="{x:Bind ProblemVisibility, Mode=OneWay}"
+                                       TextWrapping="Wrap"
+                                       Style="{StaticResource CaptionTextBlockStyle}"
+                                       Foreground="{ThemeResource SystemFillColorCautionBrush}" />
+                        </StackPanel>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+            </ScrollViewer>
+
+            <!-- Actions -->
+            <Border Height="1" Margin="12,4"
+                    Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
+            <StackPanel Padding="12,6,12,10">
+                <Button x:Name="RefreshButton" Click="Refresh_Click" HorizontalAlignment="Stretch"
+                        HorizontalContentAlignment="Left" Background="Transparent"
+                        BorderThickness="0" Content="Refresh Usage" Padding="12,9" />
+                <Button Click="Manager_Click" HorizontalAlignment="Stretch"
+                        HorizontalContentAlignment="Left" Background="Transparent"
+                        BorderThickness="0" Content="Open Claude Graft" Padding="12,9" />
+                <Button Click="Quit_Click" HorizontalAlignment="Stretch"
+                        HorizontalContentAlignment="Left" Background="Transparent"
+                        BorderThickness="0" Content="Quit Claude Graft" Padding="12,9" />
+                <Button Click="Support_Click" HorizontalAlignment="Stretch"
+                        HorizontalContentAlignment="Left" Background="Transparent"
+                        BorderThickness="0" Content="Support Claude Graft…" Padding="12,9" />
+            </StackPanel>
+        </StackPanel>
+    </Border>
+</UserControl>

@@ -43,7 +43,14 @@ connectors and extensions while the accounts stay completely separate. There are
 screenshots and the short version on
 [the site](https://aaditya-v-more.github.io/claude-graft/).
 
-## Before you install
+## Windows
+
+The Windows port is built separately in [windows/](windows/README.md), with a
+native notification-area app, independent profiles and the same sidebar layout.
+See that directory for build instructions, portable packaging and the current
+platform differences. The Swift app and macOS build remain separate.
+
+## Before you install on macOS
 
 Graft launches Claude Desktop with separate profile folders, so Claude Desktop
 has to be installed first — in `/Applications`, or in `~/Applications` if that

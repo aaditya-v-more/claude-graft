@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows10.0.26100.0</TargetFramework>
+    <TargetPlatformMinVersion>10.0.19041.0</TargetPlatformMinVersion>
+    <RootNamespace>ClaudeGraft</RootNamespace>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <Platforms>x64;ARM64</Platforms>
+    <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == ''">win-x64</RuntimeIdentifier>
+    <UseWinUI>true</UseWinUI>
+    <WinUISDKReferences>false</WinUISDKReferences>
+    <EnableMsixTooling>true</EnableMsixTooling>
+    <WindowsPackageType>None</WindowsPackageType>
+    <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+    <SelfContained>true</SelfContained>
+    <PublishTrimmed>false</PublishTrimmed>
+    <PublishReadyToRun>false</PublishReadyToRun>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <ApplicationIcon>Assets\AppIcon.ico</ApplicationIcon>
+  </PropertyGroup>
+  <ItemGroup>
+    <Content Include="Assets\**" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Manifest Include="$(ApplicationManifest)" />
+    <Compile Include="..\Platform\DesktopInteraction.cs" Link="Platform\DesktopInteraction.cs" />
+    <PackageReference Include="H.NotifyIcon.WinUI" Version="2.4.1" />
+    <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.28000.1839" />
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.4.0" />
+    <PackageReference Include="System.Drawing.Common" Version="10.0.11" />
+    <ProjectReference Include="..\ClaudeGraft.Core\ClaudeGraft.Core.csproj" />
+  </ItemGroup>
+  <Target Name="BundleLauncher" AfterTargets="Publish">
+    <Exec Command="dotnet publish &quot;$(MSBuildThisFileDirectory)..\GraftLaunch\GraftLaunch.csproj&quot; -c $(Configuration) -r $(RuntimeIdentifier) --self-contained true -p:RestoreLockedMode=$(RestoreLockedMode) -o &quot;$(PublishDir)launcher&quot; --nologo -v q" />
+  </Target>
+</Project>
