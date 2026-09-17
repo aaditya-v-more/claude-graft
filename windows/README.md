@@ -3,7 +3,11 @@
 Run Claude Desktop profiles side by side, each with its own login, and share
 Claude Code history between them. The window follows the macOS app: profiles
 in the sidebar, the shortcut and chat settings on the right, and Support and
-Source at the bottom. Support still goes to
+Source at the bottom. The window uses the macOS layout and visual treatment:
+traffic-light window controls, blue sidebar selection, rounded grouped rows,
+compact action buttons and a two-row grid of six icon presets per row. Its
+default size is 820 by 560, with a 720 by 460 minimum, matching the Swift app.
+Support still goes to
 [the project's Ko-fi page](https://ko-fi.com/aadityavmore).
 
 This is the Windows development port. Windows 10 version 2004 or later is
@@ -46,14 +50,18 @@ transcript directory. They never need a Claude login or contact the usage API.
 
 After publishing, run ./windows/test-ui.ps1 from the repository root for the
 native UI smoke test. It creates an isolated manager instance, checks the
-Support link, creates and renames a shortcut, verifies its configuration and
-bundled runtime, and closes that test instance. Its fixtures remain in
-windows/dist for inspection.
+window controls, drag region, Support link and twelve-icon grid, then creates
+and renames a shortcut and verifies its saved icon and bundled runtime. Use
+-Theme Light -Preset Research to exercise the light appearance and a badged
+icon. Screenshots and fixtures remain in windows/dist for inspection.
 
 ## Profiles and sign-in
 
 Choose New Shortcut, give it a name, select one of the twelve icon variations,
-and choose where its chats come from. Create Shortcut writes a desktop shortcut.
+and choose where its chats come from. The presets follow the Mac's order, hue
+angles, grayscale option and Work, Personal, Code and Research badges. Desktop
+icons include seven sizes from 16 through 256 pixels; cached icons from earlier
+renderers do not override the new colors. Create Shortcut writes a desktop shortcut.
 Its launcher has a stable copy of the runtime and a separate graft.json
 description, so it keeps working when the manager is closed. The main Claude
 profile cannot be renamed, repointed or removed.

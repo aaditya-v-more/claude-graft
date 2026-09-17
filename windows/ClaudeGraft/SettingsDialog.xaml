@@ -6,7 +6,7 @@
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="d"
-    Title="Settings"
+    Title="Settings" FontFamily="{StaticResource MacFont}" FontSize="13" CornerRadius="12"
     PrimaryButtonText="Done"
     CloseButtonText="Cancel"
     DefaultButton="Primary"
@@ -44,8 +44,8 @@
         </StackPanel>
 
         <StackPanel Spacing="4">
-            <ToggleSwitch x:Name="AutoStartSwitch" Header="Start with Windows" />
-            <ToggleSwitch x:Name="StartHiddenSwitch" Header="Start hidden in the notification area" />
+            <CheckBox x:Name="AutoStartSwitch" Content="Open at Login" MinHeight="24" FontSize="13" />
+            <CheckBox x:Name="StartHiddenSwitch" Content="Start in the menu bar" MinHeight="24" FontSize="13" />
         </StackPanel>
 
         <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}" />

@@ -20,8 +20,8 @@ public sealed partial class SettingsDialog : ContentDialog
         // through the selected index without a lookup table.
         ThemeBox.SelectedIndex = (int)current.Theme;
         BackdropBox.SelectedIndex = (int)current.Backdrop;
-        AutoStartSwitch.IsOn = AutoStart.IsEnabled();
-        StartHiddenSwitch.IsOn = current.StartHidden;
+        AutoStartSwitch.IsChecked = AutoStart.IsEnabled();
+        StartHiddenSwitch.IsChecked = current.StartHidden;
 
         var version = Assembly.GetExecutingAssembly().GetName().Version;
         VersionText.Text = version is null
@@ -34,10 +34,10 @@ public sealed partial class SettingsDialog : ContentDialog
     {
         Theme = (AppTheme)ThemeBox.SelectedIndex,
         Backdrop = (BackdropMaterial)BackdropBox.SelectedIndex,
-        StartHidden = StartHiddenSwitch.IsOn,
+        StartHidden = StartHiddenSwitch.IsChecked == true,
     };
 
     /// Whether the person asked to start with Windows — applied to the Startup
     /// folder separately from the settings file.
-    public bool AutoStartEnabled => AutoStartSwitch.IsOn;
+    public bool AutoStartEnabled => AutoStartSwitch.IsChecked == true;
 }

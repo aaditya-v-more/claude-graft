@@ -11,6 +11,7 @@ namespace ClaudeGraft;
 /// right now, and — filled in asynchronously — its plan usage.
 public sealed class ShortcutRow : INotifyPropertyChanged
 {
+    public override string ToString() => Name;
     /// Null for the main Claude, which has no shortcut behind it.
     public Shortcut? Shortcut { get; set; }
     public string ProfileDir { get; set; } = "";
@@ -46,7 +47,7 @@ public sealed class ShortcutRow : INotifyPropertyChanged
         Notify(nameof(StatusLabel));
     }
 
-    public string StatusLabel => _running ? "A Claude is open on this profile" : "No Claude is open on this profile";
+    public string StatusLabel => _running ? "Running on this profile" : "Not running";
 
     // Lit green when a Claude holds the profile; a faint, theme-neutral grey
     // when none does, so the dot is legible on either background without a
@@ -67,6 +68,7 @@ public sealed class ShortcutRow : INotifyPropertyChanged
             nameof(FiveHour), nameof(Week), nameof(FiveHourText), nameof(WeekText),
             nameof(BarsVisibility), nameof(NoUsageVisibility),
             nameof(Fable), nameof(FableText), nameof(FableVisibility),
+            nameof(FiveHourPercent), nameof(WeekPercent), nameof(FablePercent),
         }) Notify(name);
         // Only a live reading is trusted to say a window is open. On the stale
         // disk fallback, or with the endpoint refusing, the state is unknown — and
@@ -102,6 +104,9 @@ public sealed class ShortcutRow : INotifyPropertyChanged
 
     public int FiveHour => _usage?.Usage?.FiveHour ?? 0;
     public int Week => _usage?.Usage?.Week ?? 0;
+    public string FiveHourPercent => $"{FiveHour}%";
+    public string WeekPercent => $"{Week}%";
+    public string FablePercent => $"{Fable}%";
     public int Fable => _usage?.Usage?.Fable ?? 0;
     public string FableText => Line("Fable", Fable, _usage?.Usage?.FableReset);
     public Visibility FableVisibility => _usage?.Usage?.Fable is null ? Visibility.Collapsed : Visibility.Visible;

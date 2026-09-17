@@ -19,6 +19,7 @@ public sealed partial class FlyoutView : UserControl
     /// wants them, not how the app carries them out.
     public event Action? OpenManagerRequested;
     public event Action? QuitRequested;
+    public event Action? OpenSettingsRequested;
     public event Action? DismissRequested;
 
     /// The content changed size — a row added, an account's bars arriving — so
@@ -31,10 +32,7 @@ public sealed partial class FlyoutView : UserControl
     /// Paints the flyout's own surface opaque, for the Solid backdrop where there
     /// is no material behind it, or leaves it transparent so a material shows
     /// through. The window's mica is what the transparent case reveals.
-    public void SetOpaqueSurface(bool opaque) =>
-        RootBorder.Background = opaque
-            ? (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["SolidBackgroundFillColorBaseBrush"]
-            : new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Transparent);
+    public void SetOpaqueSurface(bool opaque) => RootBorder.Opacity = opaque ? 1 : 0.97;
 
     /// Rebuilds the list and refreshes usage. Called each time the flyout opens,
     /// so the figures are current the way pressing the Mac menu bar item makes
@@ -141,5 +139,6 @@ public sealed partial class FlyoutView : UserControl
     }
 
     private void Quit_Click(object sender, RoutedEventArgs e) => QuitRequested?.Invoke();
+    private void Settings_Click(object sender, RoutedEventArgs e) { OpenSettingsRequested?.Invoke(); DismissRequested?.Invoke(); }
     private void Support_Click(object sender, RoutedEventArgs e) { Links.Open(Links.Support); DismissRequested?.Invoke(); }
 }

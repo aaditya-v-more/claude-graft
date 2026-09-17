@@ -3,101 +3,71 @@ using ClaudeGraft.Core;
 using Microsoft.UI;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
-using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Input;
 using Windows.Graphics;
+using Windows.System;
 
 namespace ClaudeGraft;
 
-/// <summary>
-/// The profile manager. Closing it hides it back to the tray rather than
-/// quitting — the app keeps running in the notification area, as the Mac build
-/// keeps running in the menu bar. Quit is a deliberate act from the tray menu.
-/// </summary>
 public sealed partial class MainWindow : Window
 {
-    [DllImport("user32.dll")] private static extern uint GetDpiForWindow(IntPtr hWnd);
+    private readonly WindowChrome _chrome;
+    private bool _sidebarVisible = true;
 
     public MainWindow()
     {
         InitializeComponent();
-
-        ExtendsContentIntoTitleBar = true;
-        SetTitleBar(AppTitleBar);
-        // The icon ships packed as an app resource, not a loose file, so this
-        // path is absent in an unpackaged install — and SetIcon throwing on it
-        // used to abort the rest of the constructor, navigation included, which
-        // is a window that opens with no content behind the title bar. A window
-        // titled by its resource icon is fine without this; a missing decoration
-        // must not cost the profile list.
-        var iconPath = System.IO.Path.Combine(System.AppContext.BaseDirectory, "Assets/AppIcon.ico");
-        if (System.IO.File.Exists(iconPath)) AppWindow.SetIcon(iconPath);
-
+        var icon = Path.Combine(AppContext.BaseDirectory, "Assets", "AppIcon.ico");
+        if (File.Exists(icon)) AppWindow.SetIcon(icon);
+        if (AppWindow.Presenter is OverlappedPresenter presenter) presenter.SetBorderAndTitleBar(false, false);
+        _chrome = new WindowChrome(this, () => _sidebarVisible);
         ApplyAppearance();
         App.SettingsChanged += ApplyAppearance;
-        // The window only hides, so this outlives every close, but drop the
-        // handler if it is ever truly closed rather than leak onto a dead window.
-        Closed += (_, _) => App.SettingsChanged -= ApplyAppearance;
+        Closed += (_, _) => { App.SettingsChanged -= ApplyAppearance; _chrome.Dispose(); };
 
-        var hwnd = Win32Interop.GetWindowFromWindowId(AppWindow.Id);
-        var scale = GetDpiForWindow(hwnd) / 96.0;
-        AppWindow.Resize(new SizeInt32((int)(960 * scale), (int)(800 * scale)));
-
-        // Closing hides to the tray instead of quitting; Window.Closed is too
-        // late to cancel, so this is on AppWindow.Closing.
+        var scale = _chrome.Scale;
+        AppWindow.Resize(new SizeInt32((int)(820 * scale), (int)(560 * scale)));
         AppWindow.Closing += (sender, args) => { args.Cancel = true; sender.Hide(); };
-
         RootFrame.Navigate(typeof(MainPage));
+
+        var add = new KeyboardAccelerator { Key = VirtualKey.N, Modifiers = VirtualKeyModifiers.Control };
+        add.Invoked += (_, e) => { NewShortcut_Click(this, null!); e.Handled = true; };
+        RootGrid.KeyboardAccelerators.Add(add);
+        var settings = new KeyboardAccelerator { Key = (VirtualKey)188, Modifiers = VirtualKeyModifiers.Control };
+        settings.Invoked += (_, e) => { ShowSettings(); e.Handled = true; };
+        RootGrid.KeyboardAccelerators.Add(settings);
+        RootGrid.KeyboardAcceleratorPlacementMode = KeyboardAcceleratorPlacementMode.Hidden;
     }
 
-    public void Show()
-    {
-        AppWindow.Show();
-        Activate();
-    }
-
-    /// Brings the window up and opens the settings dialog on it — the tray's
-    /// Settings entry has no window of its own to show one in.
+    public void Show() { AppWindow.Show(); Activate(); }
     public void ShowSettings()
     {
         Show();
         if (RootFrame.Content is MainPage page) _ = page.OpenSettingsAsync();
     }
-
-    /// Dresses the window from the current settings: theme on the content root,
-    /// the chosen backdrop, and the title bar to match. Backdrop None leaves the
-    /// window with no material, so the root paints an opaque themed surface —
-    /// otherwise the window would be see-through onto the desktop.
-    private BackdropMaterial? _appliedBackdrop;
-
+    private void CloseWindow_Click(object sender, RoutedEventArgs e) => AppWindow.Hide();
+    private void Minimize_Click(object sender, RoutedEventArgs e) { if (AppWindow.Presenter is OverlappedPresenter p) p.Minimize(); }
+    private void Zoom_Click(object sender, RoutedEventArgs e)
+    {
+        if (AppWindow.Presenter is not OverlappedPresenter p) return;
+        if (p.State == OverlappedPresenterState.Maximized) p.Restore(); else p.Maximize();
+    }
+    private void NewShortcut_Click(object sender, RoutedEventArgs e) { if (RootFrame.Content is MainPage p) p.AddShortcut(); }
+    private void ToggleSidebar_Click(object sender, RoutedEventArgs e)
+    {
+        if (RootFrame.Content is not MainPage page) return;
+        _sidebarVisible = page.ToggleSidebar();
+        TitleSidebarColumn.Width = new GridLength(_sidebarVisible ? 220 : 154);
+        NewShortcutToolbarButton.Visibility = _sidebarVisible ? Visibility.Visible : Visibility.Collapsed;
+    }
+    private BackdropMaterial? _material;
     private void ApplyAppearance()
     {
-        var settings = App.Settings;
-        RootGrid.RequestedTheme = Appearance.ToElementTheme(settings.Theme);
-
-        // Only when the material actually changes: assigning SystemBackdrop
-        // re-composites the window, which reads as a flash if done for a Done that
-        // left the backdrop where it was.
-        if (_appliedBackdrop != settings.Backdrop)
+        WindowBorder.RequestedTheme = RootGrid.RequestedTheme = Appearance.ToElementTheme(App.Settings.Theme);
+        if (_material != App.Settings.Backdrop)
         {
-            var backdrop = Appearance.ToBackdrop(settings.Backdrop);
-            SystemBackdrop = backdrop;
-            RootGrid.Background = backdrop is null
-                ? (Brush)Application.Current.Resources["ApplicationPageBackgroundThemeBrush"]
-                : null;
-            _appliedBackdrop = settings.Backdrop;
+            SystemBackdrop = Appearance.ToBackdrop(App.Settings.Backdrop);
+            _material = App.Settings.Backdrop;
         }
-
-        if (AppWindow is not null && AppWindowTitleBar.IsCustomizationSupported())
-            AppWindow.TitleBar.PreferredTheme = IsDark(settings.Theme)
-                ? TitleBarTheme.Dark : TitleBarTheme.Light;
     }
-
-    /// Whether the resolved theme is dark — the explicit choice, or what Windows
-    /// is set to when the choice is System.
-    private static bool IsDark(AppTheme theme) => theme switch
-    {
-        AppTheme.Dark => true,
-        AppTheme.Light => false,
-        _ => Application.Current.RequestedTheme == ApplicationTheme.Dark,
-    };
 }

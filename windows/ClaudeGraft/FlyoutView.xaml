@@ -6,15 +6,15 @@
     xmlns:local="using:ClaudeGraft"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-    Width="380"
+    Width="320" FontFamily="{StaticResource MacFont}" FontSize="13" Foreground="{ThemeResource MacTextBrush}"
     mc:Ignorable="d">
 
     <!-- Transparent inside so the window's mica is the surface, with a slim edge
          to define the panel against the wallpaper, rounded to match the window's
          own corner. -->
-    <Border x:Name="RootBorder" Background="Transparent"
-            BorderBrush="{ThemeResource SurfaceStrokeColorDefaultBrush}"
-            BorderThickness="1" CornerRadius="8">
+    <Border x:Name="RootBorder" Background="{ThemeResource MacSidebarBrush}"
+            BorderBrush="{ThemeResource MacFrameBrush}"
+            BorderThickness="0.5" CornerRadius="12">
         <StackPanel>
             <!-- Profiles. Capped so a long list scrolls rather than growing the
                  flyout past the screen. -->
@@ -35,7 +35,7 @@
                                          Fill="{x:Bind StatusBrush, Mode=OneWay}" />
                                 <TextBlock Grid.Column="1" Text="{x:Bind Name}"
                                            VerticalAlignment="Center"
-                                           Style="{StaticResource BodyStrongTextBlockStyle}" />
+                                           FontSize="13" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
                                 <StackPanel Grid.Column="2" Orientation="Horizontal"
                                             Spacing="8" VerticalAlignment="Center">
                                     <Border Background="Transparent" ToolTipService.ToolTip="{x:Bind StartTooltip, Mode=OneWay}">
@@ -46,12 +46,12 @@
                                             <Button Content="Start Session" Click="Start_Click" Tag="{x:Bind}"
                                                     Visibility="{x:Bind StartVisibility, Mode=OneWay}"
                                                     IsEnabled="{x:Bind StartEnabled, Mode=OneWay}"
-                                                    Padding="10,4" MinHeight="0" />
+                                                    Padding="7,3" FontSize="12" MinHeight="0" />
                                         </StackPanel>
                                     </Border>
                                     <Button Content="Open" Click="Open_Click" Tag="{x:Bind}"
-                                            Style="{StaticResource AccentButtonStyle}"
-                                            Padding="16,4" MinHeight="0" />
+                                            Style="{StaticResource MacPrimaryButton}"
+                                            Padding="7,3" FontSize="12" MinHeight="0" />
                                 </StackPanel>
                             </Grid>
 
@@ -64,15 +64,15 @@
                                 <TextBlock Text="{x:Bind FiveHourText, Mode=OneWay}"
                                            Style="{StaticResource CaptionTextBlockStyle}"
                                            Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                                <ProgressBar Value="{x:Bind FiveHour, Mode=OneWay}" Maximum="100"
-                                             local:BarPulse.Key="{x:Bind Pulse, Mode=OneWay}" />
+                                <local:MacProgressBar Value="{x:Bind FiveHour, Mode=OneWay}" Maximum="100"
+                                             Style="{StaticResource MacProgress}" local:BarPulse.Key="{x:Bind Pulse, Mode=OneWay}" />
                                 <TextBlock Text="{x:Bind WeekText, Mode=OneWay}" Margin="0,4,0,0"
                                            Style="{StaticResource CaptionTextBlockStyle}"
                                            Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                                <ProgressBar Value="{x:Bind Week, Mode=OneWay}" Maximum="100"
-                                             local:BarPulse.Key="{x:Bind Pulse, Mode=OneWay}" />
+                                <local:MacProgressBar Value="{x:Bind Week, Mode=OneWay}" Maximum="100"
+                                             Style="{StaticResource MacProgress}" local:BarPulse.Key="{x:Bind Pulse, Mode=OneWay}" />
                                 <TextBlock Text="{x:Bind FableText, Mode=OneWay}" Visibility="{x:Bind FableVisibility, Mode=OneWay}" FontSize="12" />
-                                <ProgressBar Value="{x:Bind Fable, Mode=OneWay}" Visibility="{x:Bind FableVisibility, Mode=OneWay}" Maximum="100" />
+                                <local:MacProgressBar Value="{x:Bind Fable, Mode=OneWay}" Visibility="{x:Bind FableVisibility, Mode=OneWay}" Maximum="100" />
                             </StackPanel>
                             <TextBlock Text="No usage reported yet" Visibility="{x:Bind NoUsageVisibility, Mode=OneWay}" FontSize="12" />
 
@@ -95,16 +95,18 @@
             <StackPanel Padding="12,6,12,10">
                 <Button x:Name="RefreshButton" Click="Refresh_Click" HorizontalAlignment="Stretch"
                         HorizontalContentAlignment="Left" Background="Transparent"
-                        BorderThickness="0" Content="Refresh Usage" Padding="12,9" />
+                        BorderThickness="0" Content="Refresh Usage" Padding="10,5" />
                 <Button Click="Manager_Click" HorizontalAlignment="Stretch"
                         HorizontalContentAlignment="Left" Background="Transparent"
-                        BorderThickness="0" Content="Open Claude Graft" Padding="12,9" />
-                <Button Click="Quit_Click" HorizontalAlignment="Stretch"
-                        HorizontalContentAlignment="Left" Background="Transparent"
-                        BorderThickness="0" Content="Quit Claude Graft" Padding="12,9" />
+                        BorderThickness="0" Content="Open Claude Graft" Padding="10,5" />
+                <Button Click="Settings_Click" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Background="Transparent" BorderThickness="0" Content="Settings…" Padding="10,5" />
                 <Button Click="Support_Click" HorizontalAlignment="Stretch"
                         HorizontalContentAlignment="Left" Background="Transparent"
-                        BorderThickness="0" Content="Support Claude Graft…" Padding="12,9" />
+                        BorderThickness="0" Content="Support Claude Graft…" Padding="10,5" />
+                <Button Click="Quit_Click" HorizontalAlignment="Stretch"
+                        HorizontalContentAlignment="Left" Background="Transparent"
+                        BorderThickness="0" Content="Quit Claude Graft" Padding="10,5" />
+
             </StackPanel>
         </StackPanel>
     </Border>

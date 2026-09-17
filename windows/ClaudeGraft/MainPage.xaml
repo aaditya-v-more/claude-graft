@@ -1,148 +1,69 @@
-<?xml version="1.0" encoding="utf-8"?>
-<Page x:Class="ClaudeGraft.MainPage"
- xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
- xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
- xmlns:local="using:ClaudeGraft">
- <Page.Resources>
-  <Style x:Key="FormField" TargetType="TextBox">
-   <Setter Property="Background" Value="Transparent"/><Setter Property="BorderThickness" Value="0"/>
-   <Setter Property="VerticalAlignment" Value="Center"/>
-  </Style>
-  <Style x:Key="SectionTitle" TargetType="TextBlock">
-   <Setter Property="FontWeight" Value="SemiBold"/><Setter Property="Margin" Value="10,8,0,10"/>
-  </Style>
-  <Style x:Key="GroupBox" TargetType="Border">
-   <Setter Property="Background" Value="{ThemeResource CardBackgroundFillColorDefaultBrush}"/>
-   <Setter Property="CornerRadius" Value="8"/><Setter Property="Padding" Value="14,8"/>
-   <Setter Property="BorderBrush" Value="{ThemeResource CardStrokeColorDefaultBrush}"/>
-   <Setter Property="BorderThickness" Value="1"/>
-  </Style>
- </Page.Resources>
- <Grid>
-  <Grid.ColumnDefinitions><ColumnDefinition Width="220"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-  <Border BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="0,0,1,0">
-   <Grid Padding="10,16,10,0">
-    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-    <StackPanel Spacing="8">
-     <TextBlock Text="Claude" Style="{StaticResource SectionTitle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-     <Button x:Name="MainButton" Click="Main_Click" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
-      <StackPanel Orientation="Horizontal" Spacing="10">
-       <FontIcon Glyph="&#xE80F;" FontSize="18"/>
-       <StackPanel><TextBlock Text="Claude"/><TextBlock Text="Installed normally" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/></StackPanel>
-      </StackPanel>
-     </Button>
-     <TextBlock Text="Shortcuts" Style="{StaticResource SectionTitle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-    </StackPanel>
-    <StackPanel Grid.Row="1" Spacing="6">
-     <ListView x:Name="ShortcutList" ItemsSource="{x:Bind Shortcuts}" SelectionChanged="Shortcut_SelectionChanged"
-       ScrollViewer.HorizontalScrollMode="Disabled" SelectionMode="Single">
-      <ListView.ItemTemplate><DataTemplate x:DataType="local:ShortcutRow">
-       <StackPanel Orientation="Horizontal" Spacing="10" Padding="0,4">
-        <FontIcon Glyph="&#xE71B;" FontSize="18"/>
-        <StackPanel MaxWidth="145" AutomationProperties.Name="{x:Bind Name}"><TextBlock Text="{x:Bind Name}" TextTrimming="CharacterEllipsis"/>
-         <TextBlock Text="{x:Bind SourceLabel}" FontSize="12" TextTrimming="CharacterEllipsis"
-          Foreground="{ThemeResource TextFillColorSecondaryBrush}"/></StackPanel>
-       </StackPanel>
-      </DataTemplate></ListView.ItemTemplate>
-     </ListView>
-     <Button Content="+  New Shortcut" Click="Add_Click" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Background="Transparent" BorderThickness="0"/>
-    </StackPanel>
-    <Grid Grid.Row="2" Padding="0,8" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="0,1,0,0">
-     <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-     <HyperlinkButton NavigateUri="https://ko-fi.com/aadityavmore" Content="♡ Support"
-       ToolTipService.ToolTip="Sponsor Claude Graft on Ko-fi. Your support keeps this free app worked on." AutomationProperties.Name="Support Claude Graft on Ko-fi"/>
-     <HyperlinkButton Grid.Column="1" NavigateUri="https://github.com/aaditya-v-more/claude-graft" Content="&lt;/&gt; Source"
-       ToolTipService.ToolTip="View the source on GitHub"/>
-    </Grid>
-   </Grid>
-  </Border>
-  <Grid Grid.Column="1" x:Name="DetailPanel">
-   <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-   <Grid Padding="22,10,16,4">
-    <TextBlock x:Name="DetailTitle" Text="Claude Graft" FontSize="22" FontWeight="SemiBold" VerticalAlignment="Center"/>
-    <StackPanel Orientation="Horizontal" Spacing="4" HorizontalAlignment="Right">
-     <Button Content="↻" Click="Refresh_Click" ToolTipService.ToolTip="Refresh usage" AutomationProperties.Name="Refresh usage"/>
-     <Button Content="⚙" Click="Settings_Click" ToolTipService.ToolTip="Settings" AutomationProperties.Name="Settings"/>
-    </StackPanel>
-   </Grid>
-   <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Disabled" HorizontalScrollMode="Disabled">
-    <StackPanel Spacing="18" Padding="22,14,22,20">
-     <InfoBar x:Name="Problem" IsOpen="False" IsClosable="True" Severity="Error"/>
-     <StackPanel>
-      <TextBlock x:Name="ShortcutHeader" Text="Shortcut" Style="{StaticResource SectionTitle}"/>
-      <Border Style="{StaticResource GroupBox}"><StackPanel>
-       <Grid MinHeight="44" ColumnSpacing="16">
-        <Grid.ColumnDefinitions><ColumnDefinition Width="150"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-        <TextBlock Text="Name" VerticalAlignment="Center"/>
-        <TextBox x:Name="NameBox" Grid.Column="1" Style="{StaticResource FormField}" TextAlignment="Right" TextChanged="Name_Changed" AutomationProperties.Name="Shortcut name"/>
-       </Grid>
-       <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}"/>
-       <Grid MinHeight="44" ColumnSpacing="16">
-        <Grid.ColumnDefinitions><ColumnDefinition Width="150"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-        <TextBlock Text="Profile folder" VerticalAlignment="Center"/>
-        <TextBox x:Name="FolderBox" Grid.Column="1" Style="{StaticResource FormField}" TextAlignment="Right" FontFamily="Consolas" AutomationProperties.Name="Profile folder"/>
-        <Button Grid.Column="2" Content="▱" Click="Folder_Click" ToolTipService.ToolTip="Show in File Explorer" AutomationProperties.Name="Show profile folder"/>
-       </Grid>
-       <StackPanel x:Name="IconSection" Margin="0,8,0,4" Spacing="8">
-        <TextBlock Text="Shortcut icon" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-        <ComboBox x:Name="IconBox" ItemsSource="{x:Bind IconPresets}" HorizontalAlignment="Stretch" AutomationProperties.Name="Shortcut icon">
-         <ComboBox.ItemTemplate><DataTemplate x:DataType="local:IconChoice"><StackPanel Orientation="Horizontal" Spacing="10">
-          <Image Source="{x:Bind Preview}" Width="24" Height="24"/><TextBlock Text="{x:Bind Name}" VerticalAlignment="Center"/>
-         </StackPanel></DataTemplate></ComboBox.ItemTemplate>
-        </ComboBox>
-       </StackPanel>
-      </StackPanel></Border>
-     </StackPanel>
-     <StackPanel x:Name="ChatsSection">
-      <TextBlock Text="Chats" Style="{StaticResource SectionTitle}"/>
-      <Border Style="{StaticResource GroupBox}"><StackPanel Spacing="10">
-       <Grid ColumnSpacing="16" MinHeight="42">
-        <Grid.ColumnDefinitions><ColumnDefinition Width="150"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-        <TextBlock Text="Reads chats from" VerticalAlignment="Center"/>
-        <ComboBox x:Name="SourceBox" Grid.Column="1" DisplayMemberPath="Label" HorizontalAlignment="Stretch"
-          SelectionChanged="Source_Changed" AutomationProperties.Name="Reads chats from"/>
-       </Grid>
-       <TextBlock x:Name="MergeNote" Text="Both profiles keep their own chats and gain the source's. Copies made into the source stay there; merging histories cannot be undone."
-         TextWrapping="Wrap" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-      </StackPanel></Border>
-     </StackPanel>
-     <StackPanel>
-      <TextBlock Text="Status" Style="{StaticResource SectionTitle}"/>
-      <Border Style="{StaticResource GroupBox}"><StackPanel Spacing="10" Padding="0,8">
-       <Grid x:Name="ShortcutStatusRow" ColumnSpacing="16">
-        <Grid.ColumnDefinitions><ColumnDefinition Width="100"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-        <TextBlock Text="Shortcut"/><TextBlock x:Name="ShortcutStatus" Grid.Column="1" TextAlignment="Right" TextTrimming="CharacterEllipsis" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-       </Grid>
-       <Grid ColumnSpacing="16">
-        <Grid.ColumnDefinitions><ColumnDefinition Width="100"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-        <TextBlock Text="Claude"/><TextBlock Text="{Binding StatusLabel}" Grid.Column="1" TextAlignment="Right" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-       </Grid>
-       <Button x:Name="SignInButton" Content="Complete browser sign-in…" Click="SignIn_Click" HorizontalAlignment="Right"
-        ToolTipService.ToolTip="Send a browser sign-in link to this profile if Windows opened it in the main Claude."/>
-      </StackPanel></Border>
-     </StackPanel>
-     <StackPanel>
-      <TextBlock Text="Plan usage" Style="{StaticResource SectionTitle}"/>
-      <Border Style="{StaticResource GroupBox}"><StackPanel Padding="0,8" Spacing="10">
-       <StackPanel Spacing="6" Visibility="{Binding BarsVisibility}">
-        <TextBlock Text="{Binding FiveHourText}" FontSize="12"/><ProgressBar Value="{Binding FiveHour}" Maximum="100" Foreground="#34C759"/>
-        <TextBlock Text="{Binding WeekText}" FontSize="12" Margin="0,8,0,0"/><ProgressBar Value="{Binding Week}" Maximum="100" Foreground="#34C759"/>
-        <TextBlock Text="{Binding FableText}" Visibility="{Binding FableVisibility}" FontSize="12" Margin="0,8,0,0"/>
-        <ProgressBar Value="{Binding Fable}" Visibility="{Binding FableVisibility}" Maximum="100" Foreground="#34C759"/>
-       </StackPanel>
-       <TextBlock Text="No usage reported yet" Visibility="{Binding NoUsageVisibility}" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-       <TextBlock Text="{Binding Problem}" Visibility="{Binding ProblemVisibility}" TextWrapping="Wrap" FontSize="12"/>
-      </StackPanel></Border>
-     </StackPanel>
-    </StackPanel>
-   </ScrollViewer>
-   <Grid Grid.Row="2" Padding="14" BorderThickness="0,1,0,0" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" ColumnSpacing="8">
-    <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-    <Button x:Name="DeleteButton" Content="Delete Shortcut…" Click="Delete_Click"/>
-    <Button Grid.Column="2" x:Name="StartButton" Content="Start Session" Click="Start_Click" IsEnabled="{Binding StartEnabled}" ToolTipService.ToolTip="{Binding StartTooltip}"/>
-    <Button Grid.Column="3" x:Name="OpenButton" Content="Open" Click="Open_Click"/>
-    <Button Grid.Column="4" x:Name="SaveButton" Content="Update Shortcut" Click="Save_Click" Style="{StaticResource AccentButtonStyle}"/>
-   </Grid>
+<Page x:Class="ClaudeGraft.MainPage" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:local="using:ClaudeGraft" FontFamily="{StaticResource MacFont}" FontSize="13" Foreground="{ThemeResource MacTextBrush}">
+<Grid><Grid.ColumnDefinitions><ColumnDefinition x:Name="SidebarColumn" Width="220"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+<Border x:Name="SidebarBorder" Background="{ThemeResource MacSidebarBrush}" BorderBrush="{ThemeResource MacDividerBrush}" BorderThickness="0,0,1,0">
+ <Grid Padding="10,7,10,0"><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+  <StackPanel Spacing="5">
+   <TextBlock Text="Claude" FontSize="12" FontWeight="SemiBold" Margin="10,8,0,3" Foreground="{ThemeResource MacTertiaryBrush}"/>
+   <Button x:Name="MainButton" Style="{StaticResource MacSidebarButton}" Click="Main_Click" Padding="10,5" Height="42" CornerRadius="8" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" AutomationProperties.Name="Claude, installed normally">
+    <StackPanel Orientation="Horizontal" Spacing="9"><FontIcon Glyph="&#xE80F;" FontSize="16" Margin="0,3,0,0" VerticalAlignment="Top"/><StackPanel><TextBlock Text="Claude" FontSize="13"/><TextBlock Text="Installed normally" FontSize="11" Opacity="0.7"/></StackPanel></StackPanel>
+   </Button>
+   <TextBlock Text="Shortcuts" FontSize="12" FontWeight="SemiBold" Margin="10,17,0,3" Foreground="{ThemeResource MacTertiaryBrush}"/>
+  </StackPanel>
+  <ScrollViewer Grid.Row="1" HorizontalScrollMode="Disabled" HorizontalScrollBarVisibility="Disabled"><StackPanel Spacing="5">
+   <ListView x:Name="ShortcutList" ItemsSource="{x:Bind Shortcuts}" SelectionChanged="Shortcut_SelectionChanged" SelectionMode="Single" ScrollViewer.HorizontalScrollMode="Disabled" ItemContainerStyle="{StaticResource MacSidebarItem}">
+    <ListView.ItemTemplate><DataTemplate x:DataType="local:ShortcutRow"><StackPanel Orientation="Horizontal" Spacing="9" AutomationProperties.Name="{x:Bind Name}"><FontIcon Glyph="&#xE71B;" FontSize="16" Margin="0,3,0,0" VerticalAlignment="Top" Opacity="0.85"/><StackPanel MaxWidth="145"><TextBlock Text="{x:Bind Name}" FontSize="13" TextTrimming="CharacterEllipsis"/><TextBlock Text="{x:Bind SourceLabel}" FontSize="11" TextTrimming="CharacterEllipsis" Opacity="0.7"/></StackPanel></StackPanel></DataTemplate></ListView.ItemTemplate>
+   </ListView>
+   <Button x:Name="NewShortcutButton" Style="{StaticResource MacPlainButton}" Click="Add_Click" Padding="10,5" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" AutomationProperties.Name="New Shortcut"><StackPanel Orientation="Horizontal" Spacing="9"><FontIcon Glyph="&#xE710;" FontSize="15"/><TextBlock Text="New Shortcut"/></StackPanel></Button>
+  </StackPanel></ScrollViewer>
+  <Grid Grid.Row="2" Padding="1,8" BorderBrush="{ThemeResource MacDividerBrush}" BorderThickness="0,1,0,0"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+   <Button Style="{StaticResource MacPlainButton}" Click="Support_Click" Padding="3,2" HorizontalAlignment="Left" ToolTipService.ToolTip="Claude Graft is free. A tip on Ko-fi is what keeps it worked on." AutomationProperties.Name="Support Claude Graft on Ko-fi"><StackPanel Orientation="Horizontal" Spacing="5"><FontIcon Glyph="&#xEB51;" FontSize="12"/><TextBlock Text="Support" FontSize="12"/></StackPanel></Button>
+   <Button Grid.Column="1" Style="{StaticResource MacPlainButton}" Click="Source_Click" Padding="3,2" ToolTipService.ToolTip="View the source on GitHub" AutomationProperties.Name="Source"><StackPanel Orientation="Horizontal" Spacing="5"><TextBlock Text="&lt;/&gt;" FontSize="11"/><TextBlock Text="Source" FontSize="12"/></StackPanel></Button>
   </Grid>
  </Grid>
-</Page>
+</Border>
+<Grid Grid.Column="1" x:Name="DetailPanel" Background="{ThemeResource MacWindowBrush}"><Grid.RowDefinitions><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+<ScrollViewer x:Name="DetailScroll" HorizontalScrollBarVisibility="Disabled" HorizontalScrollMode="Disabled"><StackPanel Spacing="23" Padding="20,21,20,22">
+ <InfoBar x:Name="Problem" Visibility="Collapsed" IsOpen="False" IsClosable="True" Severity="Error"/>
+ <StackPanel Spacing="8"><StackPanel Orientation="Horizontal" Spacing="7" Margin="10,0,0,0"><TextBlock x:Name="ShortcutHeader" Text="Shortcut" Style="{StaticResource MacSectionTitle}"/><Button Style="{StaticResource MacPlainButton}" MinHeight="16" Height="16" Padding="0" ToolTipService.ToolTip="Each shortcut opens Claude with its own login and profile folder. Naming an existing folder adopts that profile." AutomationProperties.Name="About shortcut"><FontIcon Glyph="&#xE946;" FontSize="13"/></Button></StackPanel>
+  <Border Style="{StaticResource MacGroup}"><StackPanel>
+   <Grid Height="36" ColumnSpacing="12"><Grid.ColumnDefinitions><ColumnDefinition Width="110"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><TextBlock Text="Name" VerticalAlignment="Center"/><TextBox x:Name="NameBox" Grid.Column="1" Style="{StaticResource MacField}" TextChanged="Name_Changed" AutomationProperties.Name="Shortcut name"/></Grid>
+   <Border Height="1" Background="{ThemeResource MacDividerBrush}"/>
+   <Grid Height="36" ColumnSpacing="6"><Grid.ColumnDefinitions><ColumnDefinition Width="110"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><TextBlock Text="Profile folder" VerticalAlignment="Center"/><TextBox x:Name="FolderBox" Grid.Column="1" Style="{StaticResource MacField}" FontFamily="Consolas" AutomationProperties.Name="Profile folder"/><Button Grid.Column="2" Style="{StaticResource MacPlainButton}" Padding="3" Click="Folder_Click" ToolTipService.ToolTip="Show in File Explorer" AutomationProperties.Name="Show profile folder"><FontIcon Glyph="&#xE8B7;" FontSize="15"/></Button></Grid>
+   <Grid x:Name="IconSection" ColumnSpacing="8" Padding="0,6,0,9"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><TextBlock Text="Shortcut icon" VerticalAlignment="Center"/>
+    <StackPanel Grid.Column="1" Spacing="1" HorizontalAlignment="Right">
+     <GridView x:Name="IconBox" ItemsSource="{x:Bind IconPresets}" Width="312" Height="104" Padding="0" SelectionMode="Single" SelectionChanged="Icon_Changed" IsItemClickEnabled="False" ItemContainerStyle="{StaticResource MacIconTile}" AutomationProperties.Name="Shortcut icon" ScrollViewer.HorizontalScrollMode="Disabled" ScrollViewer.VerticalScrollMode="Disabled" ScrollViewer.HorizontalScrollBarVisibility="Hidden" ScrollViewer.VerticalScrollBarVisibility="Hidden">
+      <GridView.ItemsPanel><ItemsPanelTemplate><ItemsWrapGrid Orientation="Horizontal" MaximumRowsOrColumns="6" ItemWidth="52" ItemHeight="52"/></ItemsPanelTemplate></GridView.ItemsPanel>
+      <GridView.ItemTemplate><DataTemplate x:DataType="local:IconChoice"><Image Source="{x:Bind Preview}" Width="38" Height="38" AutomationProperties.Name="{x:Bind Name}" ToolTipService.ToolTip="{x:Bind Name}"/></DataTemplate></GridView.ItemTemplate>
+     </GridView>
+     <TextBlock x:Name="IconLabel" FontSize="11" HorizontalAlignment="Right" Foreground="{ThemeResource MacSecondaryBrush}" Margin="0,0,3,0"/>
+    </StackPanel>
+   </Grid>
+  </StackPanel></Border>
+ </StackPanel>
+ <StackPanel x:Name="ChatsSection" Spacing="8"><StackPanel Orientation="Horizontal" Spacing="7" Margin="10,0,0,0"><TextBlock  Text="Chats" Style="{StaticResource MacSectionTitle}"/><Button Style="{StaticResource MacPlainButton}" MinHeight="16" Height="16" Padding="0" ToolTipService.ToolTip="Shares Claude Code history, connectors, extensions and preferences. Each profile keeps its own login." AutomationProperties.Name="About chats"><FontIcon Glyph="&#xE946;" FontSize="13"/></Button></StackPanel>
+  <Border Style="{StaticResource MacGroup}"><StackPanel>
+   <Grid Height="38" ColumnSpacing="12"><Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><TextBlock Text="Reads chats from" VerticalAlignment="Center"/><ComboBox x:Name="SourceBox" Grid.Column="1" Style="{StaticResource MacPicker}" DisplayMemberPath="Label" HorizontalAlignment="Stretch" VerticalAlignment="Center" SelectionChanged="Source_Changed" AutomationProperties.Name="Reads chats from"/><Border Grid.Column="1" Width="24" Height="24" CornerRadius="12" Background="{ThemeResource MacButtonBrush}" HorizontalAlignment="Right" VerticalAlignment="Center" IsHitTestVisible="False"><Path Data="M 2,4 L 5,1 L 8,4 M 2,7 L 5,10 L 8,7" Stroke="{ThemeResource MacSecondaryBrush}" StrokeThickness="1.3" StrokeStartLineCap="Round" StrokeEndLineCap="Round" HorizontalAlignment="Center" VerticalAlignment="Center"/></Border></Grid>
+   <TextBlock x:Name="MergeNote" Text="The two histories are merged rather than swapped. This profile keeps its own chats and gains the source's; both sidebars show the combined set. Copies already made into the source stay there — merging a history cannot be undone." TextWrapping="Wrap" FontSize="12" LineHeight="17" Margin="0,0,0,10" Foreground="{ThemeResource MacSecondaryBrush}"/>
+  </StackPanel></Border>
+ </StackPanel>
+ <StackPanel Spacing="8"><TextBlock Text="Status" Style="{StaticResource MacSectionTitle}" Margin="10,0,0,0"/>
+  <Border Style="{StaticResource MacGroup}"><StackPanel>
+   <Grid x:Name="ShortcutStatusRow" Height="34" ColumnSpacing="12"><Grid.ColumnDefinitions><ColumnDefinition Width="90"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><TextBlock Text="Shortcut" VerticalAlignment="Center"/><TextBlock x:Name="ShortcutStatus" Grid.Column="1" VerticalAlignment="Center" TextAlignment="Right" TextTrimming="CharacterEllipsis" Foreground="{ThemeResource MacSecondaryBrush}"/></Grid>
+   <Border x:Name="StatusDivider" Height="1" Background="{ThemeResource MacDividerBrush}"/>
+   <Grid Height="34" ColumnSpacing="12"><Grid.ColumnDefinitions><ColumnDefinition Width="90"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><TextBlock Text="Claude" VerticalAlignment="Center"/><TextBlock Text="{Binding StatusLabel}" Grid.Column="1" VerticalAlignment="Center" TextAlignment="Right" Foreground="{ThemeResource MacSecondaryBrush}"/></Grid>
+   <Button x:Name="SignInButton" Content="Complete browser sign-in…" Style="{StaticResource MacPlainButton}" Click="SignIn_Click" HorizontalAlignment="Right" FontSize="11" Margin="0,0,0,5" ToolTipService.ToolTip="Send a browser sign-in link to this profile if Windows opened it in the main Claude."/>
+  </StackPanel></Border>
+ </StackPanel>
+ <StackPanel Spacing="8"><StackPanel Orientation="Horizontal" Spacing="7" Margin="10,0,0,0"><TextBlock  Text="Plan usage" Style="{StaticResource MacSectionTitle}"/><Button Style="{StaticResource MacPlainButton}" MinHeight="16" Height="16" Padding="0" ToolTipService.ToolTip="Usage comes from this profile's account. Hover each limit to see its reset time." AutomationProperties.Name="About plan usage"><FontIcon Glyph="&#xE946;" FontSize="13"/></Button></StackPanel>
+  <Border Style="{StaticResource MacGroup}"><StackPanel Padding="0,4">
+   <StackPanel Visibility="{Binding BarsVisibility}"><Grid Height="30" ColumnSpacing="10" ToolTipService.ToolTip="{Binding FiveHourText}" ><Grid.ColumnDefinitions><ColumnDefinition Width="54"/><ColumnDefinition Width="*"/><ColumnDefinition Width="36"/></Grid.ColumnDefinitions><TextBlock Text="5 hours" FontSize="11" Foreground="{ThemeResource MacSecondaryBrush}" VerticalAlignment="Center"/><local:MacProgressBar Grid.Column="1" Style="{StaticResource MacProgress}" Value="{Binding FiveHour}" Maximum="100" VerticalAlignment="Center"/><TextBlock Grid.Column="2" Text="{Binding FiveHourPercent}" FontSize="11" Foreground="{ThemeResource MacSecondaryBrush}" TextAlignment="Right" VerticalAlignment="Center"/></Grid><Border Height="1" Background="{ThemeResource MacDividerBrush}"/><Grid Height="30" ColumnSpacing="10" ToolTipService.ToolTip="{Binding WeekText}" ><Grid.ColumnDefinitions><ColumnDefinition Width="54"/><ColumnDefinition Width="*"/><ColumnDefinition Width="36"/></Grid.ColumnDefinitions><TextBlock Text="Week" FontSize="11" Foreground="{ThemeResource MacSecondaryBrush}" VerticalAlignment="Center"/><local:MacProgressBar Grid.Column="1" Style="{StaticResource MacProgress}" Value="{Binding Week}" Maximum="100" VerticalAlignment="Center"/><TextBlock Grid.Column="2" Text="{Binding WeekPercent}" FontSize="11" Foreground="{ThemeResource MacSecondaryBrush}" TextAlignment="Right" VerticalAlignment="Center"/></Grid><Grid Height="30" ColumnSpacing="10" ToolTipService.ToolTip="{Binding FableText}" Visibility="{Binding FableVisibility}"><Grid.ColumnDefinitions><ColumnDefinition Width="54"/><ColumnDefinition Width="*"/><ColumnDefinition Width="36"/></Grid.ColumnDefinitions><TextBlock Text="Fable" FontSize="11" Foreground="{ThemeResource MacSecondaryBrush}" VerticalAlignment="Center"/><local:MacProgressBar Grid.Column="1" Style="{StaticResource MacProgress}" Value="{Binding Fable}" Maximum="100" VerticalAlignment="Center"/><TextBlock Grid.Column="2" Text="{Binding FablePercent}" FontSize="11" Foreground="{ThemeResource MacSecondaryBrush}" TextAlignment="Right" VerticalAlignment="Center"/></Grid></StackPanel>
+   <TextBlock Text="No usage reported yet" Visibility="{Binding NoUsageVisibility}" FontSize="12" Margin="0,8" Foreground="{ThemeResource MacSecondaryBrush}"/>
+   <TextBlock Text="{Binding Problem}" Visibility="{Binding ProblemVisibility}" TextWrapping="Wrap" FontSize="12"/>
+  </StackPanel></Border>
+ </StackPanel>
+</StackPanel></ScrollViewer>
+<Grid Grid.Row="1" Padding="14,11" Background="{ThemeResource MacWindowBrush}" ColumnSpacing="7"><Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+<Button x:Name="DeleteButton" Content="Delete Shortcut…" Click="Delete_Click"/><Button Grid.Column="2" x:Name="StartButton" Content="Start Session" Click="Start_Click" IsEnabled="{Binding StartEnabled}" ToolTipService.ToolTip="{Binding StartTooltip}"/><Button Grid.Column="3" x:Name="OpenButton" Content="Open" Click="Open_Click"/><Button Grid.Column="4" x:Name="SaveButton" Content="Update Shortcut" Click="Save_Click" Style="{StaticResource MacPrimaryButton}"/>
+</Grid>
+</Grid>
+</Grid></Page>

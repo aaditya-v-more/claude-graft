@@ -41,7 +41,11 @@ over the system's protocol handler.
 
 The reference's card-list manager has been replaced with the project's sidebar
 and detail layout, its twelve icon choices, and the original Support and Source
-links. Platform-specific omissions and live acceptance checks are listed in
+links. The Windows UI also reproduces the macOS window controls, default and
+minimum sizes, blue selection, grouped forms, compact buttons, two-row icon
+picker, role badges, usage bars and light/dark palettes. The window still uses
+Windows' move, resize and maximize behavior, and shortcut icons carry separate
+image sizes for Explorer and the desktop. Platform-specific omissions and live acceptance checks are listed in
 README.md so this branch can be reviewed honestly before merging.
 
 Local validation on Windows passed 189 core tests and the native UI smoke

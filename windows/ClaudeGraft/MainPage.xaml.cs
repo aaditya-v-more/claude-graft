@@ -10,7 +10,7 @@ namespace ClaudeGraft;
 public sealed partial class MainPage : Page
 {
     public ObservableCollection<ShortcutRow> Shortcuts { get; } = new();
-    public IReadOnlyList<IconChoice> IconPresets { get; } = ShortcutIcons.Choices();
+    public ObservableCollection<IconChoice> IconPresets { get; } = new();
     private readonly DispatcherTimer _timer = new() { Interval = TimeSpan.FromSeconds(5) };
     private ShortcutRow _main = null!;
     private ShortcutRow? _selected;
@@ -23,7 +23,13 @@ public sealed partial class MainPage : Page
     public MainPage()
     {
         InitializeComponent();
-        Loaded += (_, _) => { Reload(); _timer.Start(); };
+        Problem.Closed += (_, _) => Problem.Visibility = Visibility.Collapsed;
+        Loaded += async (_, _) =>
+        {
+            Reload(); _timer.Start(); _ = LoadIcons();
+            if (GraftPaths.ProfilesRootOverride is not null && Environment.GetCommandLineArgs().Contains("--review-settings"))
+                await OpenSettingsAsync();
+        };
         Unloaded += (_, _) => _timer.Stop();
         _timer.Tick += async (_, _) => await MarkRunning();
     }
@@ -50,15 +56,15 @@ public sealed partial class MainPage : Page
             InstalledName = row.Shortcut.InstalledName, IconPreset = row.Shortcut.IconPreset
         };
         DetailPanel.DataContext = row;
-        DetailTitle.Text = "Claude Graft";
         ShortcutHeader.Text = _draft is null ? "Claude" : "Shortcut";
         _lastName = NameBox.Text = row.Name;
         FolderBox.Text = row.Folder;
         NameBox.IsReadOnly = FolderBox.IsReadOnly = _draft is null;
         var editable = _draft is null ? Visibility.Collapsed : Visibility.Visible;
         IconSection.Visibility = ChatsSection.Visibility = DeleteButton.Visibility =
-            SaveButton.Visibility = ShortcutStatusRow.Visibility = editable;
-        IconBox.SelectedItem = IconPresets.FirstOrDefault(i => i.Name == _draft?.IconPreset) ?? IconPresets[0];
+            SaveButton.Visibility = ShortcutStatusRow.Visibility = StatusDivider.Visibility = editable;
+        IconBox.SelectedItem = IconPresets.FirstOrDefault(i => i.Name == _draft?.IconPreset);
+        IconLabel.Text = _draft?.IconPreset ?? "Original";
         if (_draft is not null)
         {
             SourceBox.ItemsSource = App.Store.AvailableSources(_draft)
@@ -74,6 +80,18 @@ public sealed partial class MainPage : Page
         SignInButton.IsEnabled = OpenButton.IsEnabled;
         ShortcutStatus.Text = created ? Installer.InstalledLink(_draft!) ?? "Shortcut needs updating" : "Not created yet";
         Problem.IsOpen = false;
+        Problem.Visibility = Visibility.Collapsed;
+        ShortcutList.SelectedItem = row == _main ? null : row;
+        if (row == _main)
+        {
+            MainButton.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.ColorHelper.FromArgb(255, 0, 101, 220));
+            MainButton.Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.White);
+        }
+        else
+        {
+            MainButton.ClearValue(BackgroundProperty);
+            MainButton.ClearValue(ForegroundProperty);
+        }
         _loading = false;
         Source_Changed(null!, null!);
         _ = LoadUsage(row, false);
@@ -91,6 +109,33 @@ public sealed partial class MainPage : Page
         Shortcuts.Add(row);
         ShortcutList.SelectedItem = row;
     }
+    public void AddShortcut() => Add_Click(this, new RoutedEventArgs());
+    public bool ToggleSidebar()
+    {
+        var show = SidebarBorder.Visibility != Visibility.Visible;
+        SidebarBorder.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+        SidebarColumn.Width = new GridLength(show ? 220 : 0);
+        return show;
+    }
+    public void RefreshUsage() => Refresh_Click(this, new RoutedEventArgs());
+    private async Task LoadIcons()
+    {
+        if (IconPresets.Count > 0) return;
+        try
+        {
+            var paths = await Task.Run(ShortcutIcons.PreviewPaths);
+            foreach (var icon in paths)
+                IconPresets.Add(new IconChoice(icon.Name, new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(new Uri(icon.Path))));
+            IconBox.SelectedItem = IconPresets.FirstOrDefault(i => i.Name == (_draft?.IconPreset ?? "Original"));
+        }
+        catch (Exception e) { ShowProblem("Could not load shortcut icons: " + e.Message); }
+    }
+    private void Support_Click(object sender, RoutedEventArgs e) => Links.Open(Links.Support);
+    private void Source_Click(object sender, RoutedEventArgs e) => Links.Open(Links.Source);
+    private void Icon_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        if (IconBox.SelectedItem is IconChoice icon) IconLabel.Text = icon.Name;
+    }
     private void Name_Changed(object sender, TextChangedEventArgs e)
     {
         if (_loading || _draft is null) return;
@@ -102,7 +147,7 @@ public sealed partial class MainPage : Page
         MergeNote.Visibility = SourceBox.SelectedItem is SourceOption { Source.Kind: not SourceKind.Own }
             ? Visibility.Visible : Visibility.Collapsed;
 
-    private void ShowProblem(string message) { Problem.Message = message; Problem.IsOpen = true; }
+    private void ShowProblem(string message) { Problem.Message = message; Problem.Visibility = Visibility.Visible; Problem.IsOpen = true; }
 
     private async Task MarkRunning()
     {
@@ -166,7 +211,7 @@ public sealed partial class MainPage : Page
             {
                 Id = _draft.Id, Name = NameBox.Text.Trim(), Folder = FolderBox.Text.Trim(),
                 Source = (SourceBox.SelectedItem as SourceOption)?.Source ?? ShortcutSource.Own,
-                IconPreset = (IconBox.SelectedItem as IconChoice)?.Name ?? "Original",
+                IconPreset = (IconBox.SelectedItem as IconChoice)?.Name ?? _draft.IconPreset,
                 InstalledName = _draft.InstalledName
             };
             if (Graft.ValidateWindowsName(candidate.Name) is string nameProblem) throw new IOException(nameProblem);
@@ -257,8 +302,9 @@ public sealed partial class MainPage : Page
     {
         dialog.XamlRoot = XamlRoot;
         dialog.RequestedTheme = Appearance.ToElementTheme(App.Settings.Theme);
-        dialog.CornerRadius = new CornerRadius(8);
-        dialog.Resources["OverlayCornerRadius"] = new CornerRadius(8);
+        dialog.CornerRadius = new CornerRadius(12);
+        dialog.Resources["OverlayCornerRadius"] = new CornerRadius(12);
+        MacDialogs.Prepare(dialog);
     }
     private async void Settings_Click(object sender, RoutedEventArgs e) => await OpenSettingsAsync();
     public async Task OpenSettingsAsync()

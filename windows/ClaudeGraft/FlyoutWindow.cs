@@ -31,11 +31,12 @@ public sealed class FlyoutWindow : Window
     private ISystemBackdropControllerWithTargets? _backdrop;
     private SystemBackdropConfiguration? _backdropConfig;
 
-    public FlyoutWindow(Action openManager, Action quit)
+    public FlyoutWindow(Action openManager, Action quit, Action showSettings)
     {
         Content = _view;
         _view.OpenManagerRequested += openManager;
         _view.QuitRequested += quit;
+        _view.OpenSettingsRequested += showSettings;
         _view.DismissRequested += Hide;
 
         // Borderless, always-on-top, out of the taskbar and the switcher. Not

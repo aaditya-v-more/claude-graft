@@ -105,16 +105,14 @@ public partial class App : Application
             // Nothing here wants the double click, so the single one fires at once.
             NoLeftClickDelay = true,
         };
-        // A left click opens the flyout — the account list with its usage, the
-        // Mac menu bar item's whole face — while the right click keeps the plain
-        // menu as a fallback that needs no window to draw.
+        // Both presses show the same account menu, as the macOS status item does.
         _tray.LeftClickCommand = new RelayCommand(ToggleFlyout);
-        _tray.RightClickCommand = new RelayCommand(ShowMenu);
+        _tray.RightClickCommand = new RelayCommand(ToggleFlyout);
         _tray.ForceCreate();
 
         // Built now, hidden, so the first left click shows it rather than paying
         // to construct a window and its backdrop before anything appears.
-        _flyout = new FlyoutWindow(ShowManager, Quit);
+        _flyout = new FlyoutWindow(ShowManager, Quit, ShowSettings);
 
         // A tray app comes up hidden by default — the notification-area icon is
         // the whole of it until asked for more. Turned off, it opens the manager
@@ -141,7 +139,7 @@ public partial class App : Application
         var priorForeground = GetForegroundWindow();
         OnUi(() =>
         {
-            _flyout ??= new FlyoutWindow(ShowManager, Quit);
+            _flyout ??= new FlyoutWindow(ShowManager, Quit, ShowSettings);
             _flyout.Toggle(anchor, priorForeground);
         });
     }
