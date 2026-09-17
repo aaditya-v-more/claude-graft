@@ -224,3 +224,7 @@
 "Toggle Sidebar" = "Toggle Sidebar";
 "Finder and pinned shortcuts use this icon. Running Claude windows use Claude's own icon." = "Finder and pinned shortcuts use this icon. Running Claude windows use Claude's own icon.";
 "Merges this profile's Claude Code chats with %@'s, and shares extensions and window state. Missing local MCP servers are copied; existing server settings are kept. Logins and permission choices stay separate. Choose permission modes in Claude's settings for each account; organization restrictions still apply." = "Merges this profile's Claude Code chats with %@'s, and shares extensions and window state. Missing local MCP servers are copied; existing server settings are kept. Logins and permission choices stay separate. Choose permission modes in Claude's settings for each account; organization restrictions still apply.";
+"Pinned chats and sort order sync when the linked Claude apps are closed and you open a shortcut." = "Pinned chats and sort order sync when the linked Claude apps are closed and you open a shortcut.";
+"Pinned chats and sort order are synced." = "Pinned chats and sort order are synced.";
+"Quit the linked Claude apps, then open a shortcut to sync the sidebar." = "Quit the linked Claude apps, then open a shortcut to sync the sidebar.";
+"Sidebar sync could not finish. It will retry when you next open a shortcut." = "Sidebar sync could not finish. It will retry when you next open a shortcut.";

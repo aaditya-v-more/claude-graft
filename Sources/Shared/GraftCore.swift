@@ -1511,7 +1511,9 @@ enum Graft {
         guard let data = try? JSONEncoder().encode(state) else { return }
         try? fm.createDirectory(at: mirrorStateFile.deletingLastPathComponent(),
                                 withIntermediateDirectories: true)
-        try? data.write(to: mirrorStateFile, options: .atomic)
+        if (try? data.write(to: mirrorStateFile, options: .atomic)) != nil {
+            SidebarSync.forgetPairs(except: Set(state.pairs.keys))
+        }
     }
 
     /// A byte no path can contain, so the two halves of a key always come
@@ -2967,7 +2969,14 @@ enum Graft {
 
     @discardableResult
     private static func launch(profile: URL, inBackground: Bool = false) -> Bool {
-        runTool("/usr/bin/open", launchArguments(for: profile, inBackground: inBackground)) == 0
+        SidebarSync.withLaunchLock {
+            if isRunning(profile: profile) {
+                if inBackground { return true }
+                return processIdentifier(of: profile).map { reveal(pid: $0) } ?? false
+            }
+            SidebarSync.synchronize(beforeOpening: profile)
+            return runTool("/usr/bin/open", launchArguments(for: profile, inBackground: inBackground)) == 0
+        }
     }
 
     /// Mirror, file, then write down what the pass left behind.

@@ -4413,6 +4413,103 @@ do {
     Diagnostics.who = ProcessInfo.processInfo.processName
 }
 
+section("Pinned chats and sidebar order")
+do {
+    typealias Side = SidebarSync.Snapshot
+    let old = Side(pins: ["local_a", "local_b"], order: ["local_a", "local_b"], sort: "recency")
+    let unpinned = Side(pins: ["local_b"], order: ["local_b"], sort: "recency")
+    let reordered = Side(pins: old.pins, order: old.order.reversed(), sort: "alpha", orderTime: 20)
+    let first = SidebarSync.merge(unpinned, old, baseline: nil)
+    check(Set(first.pins) == Set(old.pins), "the first sidebar sync keeps pins brought by either profile")
+    check(SidebarSync.merge(unpinned, old, baseline: old).pins == ["local_b"],
+          "unpinning in the borrower is carried to the source")
+    check(SidebarSync.merge(old, unpinned, baseline: old).pins == ["local_b"],
+          "unpinning in the source is carried to the borrower")
+    let none = Side(pins: [], order: [], sort: "recency")
+    check(SidebarSync.merge(none, old, baseline: old).pins.isEmpty,
+          "unpinning the last chats does not restore them from the other profile")
+    check(SidebarSync.merge(old, reordered, baseline: old).order == reordered.order,
+          "a reordered pinned section follows the source")
+    check(SidebarSync.merge(reordered, old, baseline: old).order == reordered.order,
+          "a reordered pinned section follows the borrower")
+    check(SidebarSync.merge(reordered, old, baseline: old).sort == "alpha",
+          "changing the Code sort mode propagates back to the source")
+    let other = Side(pins: ["local_a", "local_c"], order: ["local_c", "local_a"], sort: "created", orderTime: 30)
+    let both = SidebarSync.merge(reordered, other, baseline: old)
+    check(both.pins == ["local_a", "local_c"], "a concurrent new pin survives an unpin in the other profile")
+    check(both.order == ["local_c", "local_a"], "concurrent reorders use the more recently saved order")
+    check(both.sort == "created", "conflicting sort changes consistently prefer the chat source")
+    check(SidebarSync.merge(both, both, baseline: both).sameChoices(as: both),
+          "another sync does not change an agreed sidebar")
+    check(old.restricted(to: ["local_b"]).order == ["local_b"],
+          "a pair only considers chats shared by both profiles")
+    check(SidebarSync.replaceShared(["remote", "local_a", "project", "local_b"],
+          shared: ["local_a", "local_b"], wanted: ["local_b", "local_a"]) == ["remote", "local_b", "project", "local_a"],
+          "reordering shared pins preserves the positions of unrelated sidebar entries")
+
+    let previousSupport = Graft.applicationSupportOverride
+    let isolated = root.appending(path: "sidebar-support")
+    Graft.applicationSupportOverride = isolated
+    defer { Graft.applicationSupportOverride = previousSupport; SidebarSync.storageOverride = nil; Graft.runningClaudesOverride = { [] } }
+    let one = isolated.appending(path: "One"), two = isolated.appending(path: "Two")
+    let a = one.appending(path: "claude-code-sessions/account-one/org-one")
+    let b = two.appending(path: "claude-code-sessions/account-two/org-two")
+    for (profile, folder, account) in [(one,a,"account-one"),(two,b,"account-two")] {
+        try! fm.createDirectory(at: folder, withIntermediateDirectories: true)
+        try! JSONSerialization.data(withJSONObject: ["lastKnownAccountUuid":account]).write(to: profile.appending(path: "config.json"))
+        for id in ["local_a", "local_b"] {
+            try! JSONSerialization.data(withJSONObject: ["sessionId":id,"title":"Keep this title","isArchived":false])
+                .write(to: folder.appending(path: id + ".json"))
+        }
+    }
+    let key = Graft.pairKey(a,b)
+    Graft.saveMirrorState(Graft.MirrorState(pairs: [key: [:]]))
+    var disk = [one.path: none, two.path: old]
+    disk[one.path]!.scope = "account-one/org-one"
+    disk[two.path]!.scope = "account-two/org-two"
+    var reads = 0, writes = 0
+    var refuse = false
+    SidebarSync.storageOverride = { profiles, changes, shared in
+        if let changes {
+            writes += 1
+            if refuse { throw SidebarSync.Failure("test-write-failure") }
+            for profile in profiles { disk[profile.path] = changes[profile.path] }
+        } else { reads += 1 }
+        return disk
+    }
+    Graft.runningClaudesOverride = { [two] }
+    SidebarSync.synchronize(beforeOpening: one)
+    check(reads == 0 && writes == 0, "an open linked profile prevents even opening its sidebar database")
+    Graft.runningClaudesOverride = { [] }
+    SidebarSync.synchronize(beforeOpening: one)
+    check(writes == 1 && disk[one.path]!.sameChoices(as: old), "opening a closed shared profile synchronizes both sidebars")
+    let record = try! JSONSerialization.jsonObject(with: Data(contentsOf: a.appending(path: "local_a.json"))) as! [String:Any]
+    check(record["isStarred"] as? Bool == true && record["title"] as? String == "Keep this title"
+          && record["isArchived"] as? Bool == false, "pin metadata changes without altering a chat's title or archive state")
+    SidebarSync.synchronize(beforeOpening: two)
+    check(writes == 1, "an unchanged sidebar does not rewrite either database")
+    disk[one.path]!.pins = []; disk[one.path]!.order = []
+    refuse = true
+    let baseline = try! Data(contentsOf: isolated.appending(path: "ClaudeGraft/sidebar-sync.json"))
+    SidebarSync.synchronize(beforeOpening: two)
+    check((try! Data(contentsOf: isolated.appending(path: "ClaudeGraft/sidebar-sync.json"))) == baseline,
+          "a failed storage write cannot advance the sidebar baseline")
+    refuse = false
+    SidebarSync.synchronize(beforeOpening: two)
+    check(disk[two.path]!.pins.isEmpty, "the next opening retries an unpin after a failed write")
+    disk[one.path]!.scope = "different-account/other-org"
+    let before = writes
+    SidebarSync.synchronize(beforeOpening: one)
+    check(writes == before, "switching accounts cannot apply pins from the previous account's pair")
+    Graft.saveMirrorState(Graft.MirrorState())
+    let dropped = try! JSONSerialization.jsonObject(with: Data(contentsOf: isolated.appending(path: "ClaudeGraft/sidebar-sync.json"))) as! [String:Any]
+    check((dropped["pairs"] as? [String:Any])?.isEmpty == true,
+          "returning to independent histories forgets the old sidebar agreement")
+    let beforeReads = reads
+    SidebarSync.synchronize(beforeOpening: one)
+    check(reads == beforeReads, "independent profiles never open the sidebar helper")
+}
+
 print("\n\(checks - failures)/\(checks) checks passed")
 if failures > 0 {
     print("\(failures) FAILED")

@@ -66,6 +66,8 @@ compile() {
 echo "building launcher"
 compile "$APP/Contents/Resources/graft-launch" \
     "$ROOT/Sources/Shared/GraftCore.swift" \
+    "$ROOT/Sources/Shared/SidebarSync.swift" \
+    "$ROOT/Sources/Shared/SidebarStorage.swift" \
     "$ROOT/Sources/Shared/Diagnostics.swift" \
     "$ROOT/Sources/Shared/ManualUpdates.swift" \
     "$ROOT/Sources/Shared/ClaudeUpdateGate.swift" \
@@ -75,6 +77,8 @@ echo "building app"
 compile "$APP/Contents/MacOS/ClaudeGraft" \
     -F "$ROOT/vendor" -framework Sparkle \
     "$ROOT/Sources/Shared/GraftCore.swift" \
+    "$ROOT/Sources/Shared/SidebarSync.swift" \
+    "$ROOT/Sources/Shared/SidebarStorage.swift" \
     "$ROOT/Sources/Shared/Diagnostics.swift" \
     "$ROOT/Sources/Shared/ManualUpdates.swift" \
     "$ROOT/Sources/Shared/ClaudeUpdateGate.swift" \

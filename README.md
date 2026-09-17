@@ -240,6 +240,20 @@ source's desktop configuration. Existing definitions and later edits stay local,
 so changing a server in one profile does not change it in another. Account-linked
 connectors still need their own sign-in in each account.
 
+Shared Claude Code histories also share pinned chats, their pinned order and
+the Code sidebar's sort setting. Quit the linked Claude apps, then open either
+shortcut to sync those choices before its window opens. A running linked
+profile defers the sidebar sync until a later opening; both profiles must have
+opened their Code sidebar at least once. Chats outside the shared history,
+custom groups, Cowork settings and other account preferences stay local.
+
+The first sync keeps pins from both profiles. Later passes carry unpinning in
+either direction. If both profiles reorder pins between syncs, the newer order
+wins and other new pins are retained; conflicting sort choices prefer the chat
+source. Graft saves the previous sidebar settings locally before changing them.
+An unreadable or unfamiliar storage format leaves the sidebar alone and shows
+a retry message in the shortcut's settings.
+
 Claude Code prunes transcripts after 30 days while the desktop's records are
 permanent, so old chats can open to "Session not found on disk". That happens in
 a normal single-account setup too; raise `cleanupPeriodDays` in

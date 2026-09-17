@@ -11,6 +11,8 @@ mkdir -p "$BUILD"
 swiftc -swift-version 5 \
     -target "$(uname -m)-apple-macos${MACOS_DEPLOYMENT_TARGET:-13.0}" \
     "$ROOT/Sources/Shared/GraftCore.swift" \
+    "$ROOT/Sources/Shared/SidebarSync.swift" \
+    "$ROOT/Sources/Shared/SidebarStorage.swift" \
     "$ROOT/Sources/Shared/Diagnostics.swift" \
     "$ROOT/Sources/Shared/ManualUpdates.swift" \
     "$ROOT/Sources/Shared/ClaudeUpdateGate.swift" \
@@ -33,6 +35,8 @@ swiftc -swift-version 5 \
 swiftc -swift-version 5 \
     -target "$(uname -m)-apple-macos${MACOS_DEPLOYMENT_TARGET:-13.0}" \
     "$ROOT/Sources/Shared/GraftCore.swift" \
+    "$ROOT/Sources/Shared/SidebarSync.swift" \
+    "$ROOT/Sources/Shared/SidebarStorage.swift" \
     "$ROOT/Sources/Shared/Diagnostics.swift" \
     "$ROOT/Sources/Shared/ManualUpdates.swift" \
     "$ROOT/Sources/Shared/ClaudeUpdateGate.swift" \

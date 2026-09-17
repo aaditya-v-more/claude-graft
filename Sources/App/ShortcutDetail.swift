@@ -33,6 +33,7 @@ struct ShortcutDetail: View {
     /// What the last copy did, kept on screen because Claude may not be open
     /// to show the answer for itself.
     @State private var copiedNote: String?
+    @State private var sidebarNote: String?
 
     /// Set once the folder is typed by hand, so renaming stops rewriting it.
     @State private var folderIsCustom = false
@@ -98,6 +99,10 @@ struct ShortcutDetail: View {
                 if shortcut.source != .own {
                     Text(mergeNote)
                         .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text(sidebarNote ?? L10n.text("Pinned chats and sort order sync when the linked Claude apps are closed and you open a shortcut."))
+                        .font(.caption)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -415,6 +420,7 @@ struct ShortcutDetail: View {
         DispatchQueue.global(qos: .utility).async {
             let bundle = Installer.installedBundle(for: target)
             let running = Graft.isRunning(profile: target.profileDir)
+            let sidebar = SidebarSync.status(for: target.profileDir)
             let hasProfile = FileManager.default.fileExists(atPath: target.profileDir.path)
             // Only for a profile keeping its own chats. One reading from a
             // source is having its sidebar filled by the graft already, and
@@ -426,6 +432,7 @@ struct ShortcutDetail: View {
             DispatchQueue.main.async {
                 installedAt = bundle
                 isRunning = running
+                sidebarNote = sidebar
                 profileExists = hasProfile
                 // Kept whatever the answer was last time. Saying no to being
                 // asked silences the question at the door, not the offer in
