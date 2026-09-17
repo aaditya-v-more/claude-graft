@@ -28,10 +28,15 @@ jobs:
       - name: Test and package
         shell: pwsh
         run: ./windows/build.ps1 -Architecture ${{ matrix.architecture }}
+      - name: Build setup
+        shell: pwsh
+        run: ./windows/build-installer.ps1 -Architecture ${{ matrix.architecture }} -SkipBuild
       - name: Keep the Windows build for review
         uses: actions/upload-artifact@v4
         with:
           name: ClaudeGraft-windows-${{ matrix.architecture }}
           path: |
             windows/dist/*.zip
+            windows/dist/*-setup.exe
+            windows/dist/*-setup.exe.build.json
             windows/dist/*.sha256

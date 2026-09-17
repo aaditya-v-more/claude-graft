@@ -17,6 +17,22 @@ live in the package's LocalCache directory, while standalone profiles live
 under Roaming AppData. Graft discovers the matching location instead of mixing
 the two. Graft's own state lives in LocalAppData/ClaudeGraft.
 
+## Install
+
+Run the windows-x64-setup.exe download on an Intel or AMD PC, or the
+arm64 setup on Windows on ARM. The setup wizard installs Graft for your Windows
+account and adds it to the Start menu. A desktop shortcut and Open at Login are
+optional. Opening Graft from the Start menu shows the manager immediately.
+
+The installer includes the .NET and Windows App SDK runtimes, and checks for
+the Microsoft Visual C++ runtime. If that prerequisite is missing or too old,
+Microsoft's bundled installer runs first and may request administrator approval.
+The development setup executable is not code-signed.
+
+Remove Graft through Windows Installed apps. Uninstall removes the application
+files and shortcuts created by setup; it preserves your Claude profiles, chats,
+Graft settings, and generated profile launchers.
+
 ## Build and run
 
 Install the .NET 10 SDK on Windows, then run this from the repository root:
@@ -29,6 +45,18 @@ The script runs the isolated tests, publishes the app and its launcher with
 their runtimes, verifies the required files, and creates a ZIP and SHA-256
 checksum in windows/dist. Use -Architecture arm64 for Windows on ARM. It does
 not publish a release, install an application or change a system registration.
+
+To create the setup executable after publishing, run
+./windows/build-installer.ps1 -SkipBuild. It uses Inno Setup and verifies the
+signature on the Microsoft runtime before including it. Pass -Compiler with
+the full path to ISCC.exe to select a compiler explicitly. If none is installed,
+the script prepares a signature-verified portable compiler under windows/dist.
+The installer and its checksum are written to windows/dist.
+
+For an isolated install/uninstall check, build with -TestMode and pass that
+setup-test.exe to ./windows/test-installer.ps1 -Installer. This variant creates
+no installed-app entry or shell shortcuts, verifies the installed app in a
+disposable directory, and checks that uninstall preserves unrelated files.
 
 Extract the entire ZIP to a folder you intend to keep, then open ClaudeGraft.exe.
 The notification-area icon opens the account list; its menu opens the manager.
