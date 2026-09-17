@@ -3,10 +3,12 @@
 Run Claude Desktop profiles side by side, each with its own login, and share
 Claude Code history between them. The window follows the macOS app: profiles
 in the sidebar, the shortcut and chat settings on the right, and Support and
-Source at the bottom. The window uses the macOS layout and visual treatment:
-traffic-light window controls, blue sidebar selection, rounded grouped rows,
-compact action buttons and a two-row grid of six icon presets per row. Its
-default size is 820 by 560, with a 720 by 460 minimum, matching the Swift app.
+Source at the bottom. The app content keeps the macOS visual treatment:
+blue sidebar selection, rounded grouped rows, compact action buttons and a
+two-row grid of six icon presets per row. Windows supplies the standard title
+bar, close/minimize/maximize buttons, borders, system menu, resizing and Snap.
+There are no custom frame or caption hit-test handlers. The initial content
+area is 820 by 560, plus the native Windows frame.
 Support still goes to
 [the project's Ko-fi page](https://ko-fi.com/aadityavmore).
 
@@ -64,6 +66,10 @@ Run ClaudeGraft.exe --show to open the manager immediately. The complete folder
 is required; the executable alone is not a distribution. The Visual C++ v14
 runtime is required by the Windows App SDK if it is not already on the machine.
 
+The standard Close button and Alt+F4 close the manager window normally. The
+tray app remains available, and opening the manager again creates a fresh
+window. Quit Claude Graft in the tray menu exits the background app too.
+
 For a quicker development cycle:
 
 ```powershell
@@ -78,7 +84,8 @@ transcript directory. They never need a Claude login or contact the usage API.
 
 After publishing, run ./windows/test-ui.ps1 from the repository root for the
 native UI smoke test. It creates an isolated manager instance, checks the
-window controls, drag region, Support link and twelve-icon grid, then creates
+native window frame, system commands, close/reopen behavior, Support link and
+twelve-icon grid, then creates
 and renames a shortcut and verifies its saved icon and bundled runtime. Use
 -Theme Light -Preset Research to exercise the light appearance and a badged
 icon. Screenshots and fixtures remain in windows/dist for inspection.

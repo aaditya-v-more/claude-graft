@@ -1,15 +1,10 @@
 <Window x:Class="ClaudeGraft.MainWindow" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Title="Claude Graft">
-<Border x:Name="WindowBorder" BorderBrush="{ThemeResource MacFrameBrush}" BorderThickness="1" CornerRadius="12">
- <Grid x:Name="RootGrid" Background="{ThemeResource MacWindowBrush}">
+<Grid x:Name="RootGrid" Background="{ThemeResource MacWindowBrush}">
   <Grid.RowDefinitions><RowDefinition Height="52"/><RowDefinition Height="*"/></Grid.RowDefinitions>
-  <Grid x:Name="MacTitleBar">
-   <Grid.ColumnDefinitions><ColumnDefinition x:Name="TitleSidebarColumn" Width="220"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+  <Grid x:Name="ContentToolbar">
+   <Grid.ColumnDefinitions><ColumnDefinition x:Name="ToolbarSidebarColumn" Width="220"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
    <Border Background="{ThemeResource MacSidebarBrush}" BorderBrush="{ThemeResource MacDividerBrush}" BorderThickness="0,0,1,0"/>
-   <StackPanel x:Name="WindowLights" Orientation="Horizontal" Spacing="0" Margin="13,0,0,0" VerticalAlignment="Center">
-    <Button x:Name="CloseWindowButton" Style="{StaticResource MacTrafficLight}" Background="#FF5F57" Content="×" Click="CloseWindow_Click" ToolTipService.ToolTip="Close window" AutomationProperties.Name="Close window"/>
-    <Button x:Name="MinimizeWindowButton" Style="{StaticResource MacTrafficLight}" Background="#FEBC2E" Content="−" Click="Minimize_Click" ToolTipService.ToolTip="Minimize" AutomationProperties.Name="Minimize"/>
-    <Button x:Name="ZoomWindowButton" Style="{StaticResource MacTrafficLight}" Background="#28C840" Content="⤢" Click="Zoom_Click" ToolTipService.ToolTip="Maximize or restore" AutomationProperties.Name="Maximize or restore"/>
-   </StackPanel>
+
    <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right" Margin="0,0,12,0" VerticalAlignment="Center">
     <Button x:Name="NewShortcutToolbarButton" Style="{StaticResource MacToolbarButton}" Click="NewShortcut_Click" ToolTipService.ToolTip="New Shortcut (Ctrl+N)" AutomationProperties.Name="New Shortcut"><FontIcon Glyph="&#xE710;" FontSize="17"/></Button>
     <Button x:Name="ToggleSidebarButton" Style="{StaticResource MacToolbarButton}" Click="ToggleSidebar_Click" ToolTipService.ToolTip="Show or hide sidebar" AutomationProperties.Name="Show or hide sidebar"><Path Data="M3,1 L15,1 Q17,1 17,3 L17,13 Q17,15 15,15 L3,15 Q1,15 1,13 L1,3 Q1,1 3,1 Z M6,1 L6,15 M3,5 L4,5 M3,8 L4,8 M3,11 L4,11" Stroke="{ThemeResource MacSecondaryBrush}" StrokeThickness="1.5" StrokeLineJoin="Round" HorizontalAlignment="Center" VerticalAlignment="Center"/></Button>
@@ -18,5 +13,5 @@
   </Grid>
   <Frame x:Name="RootFrame" Grid.Row="1"/>
  </Grid>
-</Border>
+
 </Window>

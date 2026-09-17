@@ -41,10 +41,11 @@ over the system's protocol handler.
 
 The reference's card-list manager has been replaced with the project's sidebar
 and detail layout, its twelve icon choices, and the original Support and Source
-links. The Windows UI also reproduces the macOS window controls, default and
-minimum sizes, blue selection, grouped forms, compact buttons, two-row icon
-picker, role badges, usage bars and light/dark palettes. The window still uses
-Windows' move, resize and maximize behavior, and shortcut icons carry separate
+links. The Windows app content reproduces the macOS blue selection, grouped
+forms, compact buttons, two-row icon picker, role badges, usage bars and
+light/dark palettes. Its title bar, window buttons, system menu, frame, Snap,
+movement and resizing are supplied by Windows. Closing the manager destroys
+that window; the tray can create a new one. Shortcut icons carry separate
 image sizes for Explorer and the desktop. Platform-specific omissions and live acceptance checks are listed in
 README.md so this branch can be reviewed honestly before merging.
 

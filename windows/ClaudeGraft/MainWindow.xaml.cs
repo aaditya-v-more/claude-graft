@@ -1,7 +1,5 @@
 using System.Runtime.InteropServices;
 using ClaudeGraft.Core;
-using Microsoft.UI;
-using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Input;
 using Windows.Graphics;
@@ -11,23 +9,23 @@ namespace ClaudeGraft;
 
 public sealed partial class MainWindow : Window
 {
-    private readonly WindowChrome _chrome;
     private bool _sidebarVisible = true;
+    [DllImport("user32.dll")] private static extern uint GetDpiForWindow(nint window);
 
     public MainWindow()
     {
         InitializeComponent();
         var icon = Path.Combine(AppContext.BaseDirectory, "Assets", "AppIcon.ico");
         if (File.Exists(icon)) AppWindow.SetIcon(icon);
-        if (AppWindow.Presenter is OverlappedPresenter presenter) presenter.SetBorderAndTitleBar(false, false);
-        _chrome = new WindowChrome(this, () => _sidebarVisible);
+        // Keep the system caption and frame: Windows owns its buttons, Snap,
+        // resizing, system menu and keyboard commands.
+        ExtendsContentIntoTitleBar = false;
         ApplyAppearance();
         App.SettingsChanged += ApplyAppearance;
-        Closed += (_, _) => { App.SettingsChanged -= ApplyAppearance; _chrome.Dispose(); };
+        Closed += (_, _) => App.SettingsChanged -= ApplyAppearance;
 
-        var scale = _chrome.Scale;
-        AppWindow.Resize(new SizeInt32((int)(820 * scale), (int)(560 * scale)));
-        AppWindow.Closing += (sender, args) => { args.Cancel = true; sender.Hide(); };
+        var scale = GetDpiForWindow(WinRT.Interop.WindowNative.GetWindowHandle(this)) / 96.0;
+        AppWindow.ResizeClient(new SizeInt32((int)(820 * scale), (int)(560 * scale)));
         RootFrame.Navigate(typeof(MainPage));
 
         var add = new KeyboardAccelerator { Key = VirtualKey.N, Modifiers = VirtualKeyModifiers.Control };
@@ -45,25 +43,18 @@ public sealed partial class MainWindow : Window
         Show();
         if (RootFrame.Content is MainPage page) _ = page.OpenSettingsAsync();
     }
-    private void CloseWindow_Click(object sender, RoutedEventArgs e) => AppWindow.Hide();
-    private void Minimize_Click(object sender, RoutedEventArgs e) { if (AppWindow.Presenter is OverlappedPresenter p) p.Minimize(); }
-    private void Zoom_Click(object sender, RoutedEventArgs e)
-    {
-        if (AppWindow.Presenter is not OverlappedPresenter p) return;
-        if (p.State == OverlappedPresenterState.Maximized) p.Restore(); else p.Maximize();
-    }
     private void NewShortcut_Click(object sender, RoutedEventArgs e) { if (RootFrame.Content is MainPage p) p.AddShortcut(); }
     private void ToggleSidebar_Click(object sender, RoutedEventArgs e)
     {
         if (RootFrame.Content is not MainPage page) return;
         _sidebarVisible = page.ToggleSidebar();
-        TitleSidebarColumn.Width = new GridLength(_sidebarVisible ? 220 : 154);
+        ToolbarSidebarColumn.Width = new GridLength(_sidebarVisible ? 220 : 78);
         NewShortcutToolbarButton.Visibility = _sidebarVisible ? Visibility.Visible : Visibility.Collapsed;
     }
     private BackdropMaterial? _material;
     private void ApplyAppearance()
     {
-        WindowBorder.RequestedTheme = RootGrid.RequestedTheme = Appearance.ToElementTheme(App.Settings.Theme);
+        RootGrid.RequestedTheme = Appearance.ToElementTheme(App.Settings.Theme);
         if (_material != App.Settings.Backdrop)
         {
             SystemBackdrop = Appearance.ToBackdrop(App.Settings.Backdrop);

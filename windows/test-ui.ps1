@@ -11,6 +11,10 @@ if (-not ('GraftUiProbe' -as [type])) {
 using System;
 using System.Runtime.InteropServices;
 public static class GraftUiProbe {
+ [DllImport("user32.dll",EntryPoint="GetWindowLongW")] public static extern int GetWindowStyle(IntPtr h,int index);
+ [DllImport("user32.dll")] public static extern uint GetDpiForWindow(IntPtr h);
+ [DllImport("user32.dll")] public static extern IntPtr GetSystemMenu(IntPtr h,bool revert);
+ [DllImport("user32.dll")] public static extern bool IsWindow(IntPtr h);
  [StructLayout(LayoutKind.Sequential)] public struct Rect { public int Left,Top,Right,Bottom; }
  [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h,out Rect rect);
  [DllImport("user32.dll")] public static extern bool PrintWindow(IntPtr h,IntPtr dc,uint flags);
@@ -43,10 +47,6 @@ function Invoke-Element($Element) {
  if ($null -eq $Element -or -not $Element.Current.IsEnabled) { throw 'The expected control is unavailable.' }
  ([System.Windows.Automation.InvokePattern]$Element.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern)).Invoke()
 }
-function Hit-Test([double]$X,[double]$Y) {
- $packed=(([int]$Y -band 0xffff) -shl 16) -bor ([int]$X -band 0xffff)
- [GraftUiProbe]::SendMessage($process.MainWindowHandle,0x0084,[IntPtr]::Zero,[IntPtr]$packed).ToInt32()
-}
 try {
  Wait-Until { $process.Refresh(); $process.MainWindowHandle -ne 0 } 'The manager never opened.'
  $window=[System.Windows.Automation.AutomationElement]::FromHandle($process.MainWindowHandle)
@@ -54,17 +54,24 @@ try {
  $support=$window.FindFirst([System.Windows.Automation.TreeScope]::Descendants,
   [System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::NameProperty,'Support Claude Graft on Ko-fi'))
  if ($null -eq $support -or $support.Current.IsOffscreen) { throw 'The Support link is missing.' }
- foreach ($control in @('CloseWindowButton','MinimizeWindowButton','ZoomWindowButton','NewShortcutToolbarButton','ToggleSidebarButton')) {
-  $box=(Element $control).Current.BoundingRectangle
-  if ((Hit-Test ($box.X+$box.Width/2) ($box.Y+$box.Height/2)) -ne 1) { throw "The title bar swallows clicks on $control." }
+
+ foreach ($oldControl in @('CloseWindowButton','MinimizeWindowButton','ZoomWindowButton')) {
+  if ($null -ne (Element $oldControl)) { throw 'Custom caption controls are still present.' }
  }
- $scale=(Element 'CloseWindowButton').Current.BoundingRectangle.Height/26
- $box=$window.Current.BoundingRectangle
- if ((Hit-Test ($box.X+300*$scale) ($box.Y+25*$scale)) -ne 2) { throw 'The title bar is not draggable.' }
- Invoke-Element (Element 'ZoomWindowButton')
- Wait-Until { ([System.Windows.Automation.WindowPattern]$window.GetCurrentPattern([System.Windows.Automation.WindowPattern]::Pattern)).Current.WindowVisualState -eq [System.Windows.Automation.WindowVisualState]::Maximized } 'The green control did not maximize.'
- Invoke-Element (Element 'ZoomWindowButton')
- Wait-Until { ([System.Windows.Automation.WindowPattern]$window.GetCurrentPattern([System.Windows.Automation.WindowPattern]::Pattern)).Current.WindowVisualState -eq [System.Windows.Automation.WindowVisualState]::Normal } 'The green control did not restore.'
+ $style=[GraftUiProbe]::GetWindowStyle($process.MainWindowHandle,-16)
+ foreach ($nativeFlag in @(0x00C00000,0x00080000,0x00040000,0x00020000,0x00010000)) {
+  if (($style -band $nativeFlag) -ne $nativeFlag) { throw 'The standard Windows caption, frame or window buttons are missing.' }
+ }
+ if ([GraftUiProbe]::GetSystemMenu($process.MainWindowHandle,$false) -eq [IntPtr]::Zero) { throw 'The Windows system menu is missing.' }
+ $scale=[GraftUiProbe]::GetDpiForWindow($process.MainWindowHandle)/96.0
+ [void][GraftUiProbe]::SendMessage($process.MainWindowHandle,0x0112,[IntPtr]0xF030,[IntPtr]::Zero)
+ Wait-Until { ([System.Windows.Automation.WindowPattern]$window.GetCurrentPattern([System.Windows.Automation.WindowPattern]::Pattern)).Current.WindowVisualState -eq [System.Windows.Automation.WindowVisualState]::Maximized } 'The Windows maximize command did not maximize.'
+ [void][GraftUiProbe]::SendMessage($process.MainWindowHandle,0x0112,[IntPtr]0xF120,[IntPtr]::Zero)
+ Wait-Until { ([System.Windows.Automation.WindowPattern]$window.GetCurrentPattern([System.Windows.Automation.WindowPattern]::Pattern)).Current.WindowVisualState -eq [System.Windows.Automation.WindowVisualState]::Normal } 'The Windows restore command did not restore.'
+ [void][GraftUiProbe]::SendMessage($process.MainWindowHandle,0x0112,[IntPtr]0xF020,[IntPtr]::Zero)
+ Wait-Until { ([System.Windows.Automation.WindowPattern]$window.GetCurrentPattern([System.Windows.Automation.WindowPattern]::Pattern)).Current.WindowVisualState -eq [System.Windows.Automation.WindowVisualState]::Minimized } 'The Windows minimize command did not minimize.'
+ [void][GraftUiProbe]::SendMessage($process.MainWindowHandle,0x0112,[IntPtr]0xF120,[IntPtr]::Zero)
+ Wait-Until { (Element 'NewShortcutButton').Current.IsOffscreen -eq $false } 'The window did not restore after minimizing.'
  Invoke-Element (Element 'NewShortcutButton')
  Wait-Until { (Element 'SaveButton').Current.Name -eq 'Create Shortcut' } 'The shortcut form did not open.'
  $iconBox=Element 'IconBox'
@@ -108,6 +115,21 @@ try {
  try { [void][GraftUiProbe]::PrintWindow($process.MainWindowHandle,$dc,2) } finally { $graphics.ReleaseHdc($dc) }
  $bitmap.Save((Join-Path $root "$Theme-shortcut.png"),[System.Drawing.Imaging.ImageFormat]::Png)
  $graphics.Dispose(); $bitmap.Dispose()
- Write-Output "Passed: $Theme theme, window controls, drag region, twelve icons in two rows, icon selection, create, rename and seven icon sizes. Fixtures: $root"
+
+ $originalHandle=$process.MainWindowHandle
+ [void][GraftUiProbe]::SendMessage($process.MainWindowHandle,0x0010,[IntPtr]::Zero,[IntPtr]::Zero)
+ Wait-Until { -not [GraftUiProbe]::IsWindow($originalHandle) } 'Close hid the manager instead of closing its window.'
+ $reopen=Start-Process -FilePath $Executable -ArgumentList '--test-data-root', ('"' + $root + '"'), '--show' -WindowStyle Hidden -PassThru
+ Wait-Until { $process.Refresh(); $process.MainWindowHandle -ne 0 } 'The tray app did not create a new manager window.'
+ $window=[System.Windows.Automation.AutomationElement]::FromHandle($process.MainWindowHandle)
+ Wait-Until { $null -ne (Element 'NameBox') } 'The reopened manager did not load.'
+ $restoredShortcut=$window.FindFirst([System.Windows.Automation.TreeScope]::Descendants,
+  [System.Windows.Automation.AndCondition]::new($itemCondition,
+   [System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::NameProperty,'Work Account')))
+ if ($null -eq $restoredShortcut) { throw 'The saved shortcut disappeared after closing and reopening.' }
+ $reopenedHandle=$process.MainWindowHandle
+ [void][GraftUiProbe]::SendMessage($reopenedHandle,0x0112,[IntPtr]0xF060,[IntPtr]::Zero)
+ Wait-Until { -not [GraftUiProbe]::IsWindow($reopenedHandle) } 'The standard close system command was intercepted.'
+ Write-Output "Passed: $Theme theme, native caption/frame/system menu, minimize/maximize/restore/close/reopen, twelve icons, create, rename and icon sizes. Fixtures: $root"
 }
 finally { if (-not $KeepOpen -and -not $process.HasExited) { Stop-Process -Id $process.Id } }

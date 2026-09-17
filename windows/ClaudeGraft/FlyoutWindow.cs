@@ -59,8 +59,6 @@ public sealed class FlyoutWindow : Window
         AppWindow.IsShownInSwitchers = false;
         ApplyAppearance();
         App.SettingsChanged += ApplyAppearance;
-        StyleFrame();
-        RemoveNonClientFrame();
 
         // The list grows after it is shown, as each account's usage arrives and
         // its bars appear. The view is stretched to the window and cannot see its
@@ -110,7 +108,7 @@ public sealed class FlyoutWindow : Window
         AppWindow.Move(new PointInt32(_rect.X + full.X, _rect.Y + full.Y));
         AppWindow.Show(activateWindow: true);
         Activate();
-        StyleFrame();
+
         // A tray click leaves the shell in the foreground, not this process, so
         // the window comes up without focus and would never hear it being lost.
         // Pulling it to the foreground is what arms the click-away dismiss.
@@ -253,29 +251,6 @@ public sealed class FlyoutWindow : Window
         AppWindow.MoveAndResize(_rect);
     }
 
-    // Kept alive as a field: the subclass procedure is called by Windows for the
-    // life of the window, and a delegate handed to native code is collected the
-    // moment nothing managed references it.
-    private SubclassProc? _subclass;
-
-    /// The white rim is the window's non-client frame — outside the client area,
-    /// so no content painted over it and no border attribute took it off. Both the
-    /// apps that get this right, WPF and Electron, avoid the frame by being truly
-    /// transparent windows, which WinUI cannot be. What is left is to remove the
-    /// non-client area outright: on WM_NCCALCSIZE the whole window is claimed as
-    /// client, so there is no frame band left to paint — the borderless-Win32 move
-    /// WPF's WindowChrome makes underneath.
-    private void RemoveNonClientFrame()
-    {
-        var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
-        _subclass = (h, msg, w, l, id, data) =>
-        {
-            if (msg == WM_NCCALCSIZE && w != 0) return 0;   // client area == whole window
-            return DefSubclassProc(h, msg, w, l);
-        };
-        SetWindowSubclass(hwnd, _subclass, 1, 0);
-    }
-
     /// Theme and backdrop from the current settings, applied on build and again
     /// whenever they change.
     ///
@@ -332,32 +307,6 @@ public sealed class FlyoutWindow : Window
         BackdropMaterial.Acrylic when DesktopAcrylicController.IsSupported() => new DesktopAcrylicController(),
         _ => null,
     };
-
-    private void StyleFrame()
-    {
-        // Only the rounded corner. The light rim a backdrop window otherwise
-        // carries is gone another way — RemoveNonClientFrame drops the frame band
-        // it lived in — so there is nothing to fight here.
-        var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
-        int round = DWMWCP_ROUND;
-        DwmSetWindowAttribute(hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, ref round, sizeof(int));
-    }
-
-    private const int DWMWA_WINDOW_CORNER_PREFERENCE = 33;
-    private const int DWMWCP_ROUND = 2;
-    private const uint WM_NCCALCSIZE = 0x0083;
-
-    private delegate nint SubclassProc(nint hwnd, uint msg, nint wParam, nint lParam, nuint id, nuint refData);
-
-    [DllImport("comctl32.dll", SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool SetWindowSubclass(nint hwnd, SubclassProc proc, nuint id, nuint refData);
-
-    [DllImport("comctl32.dll")]
-    private static extern nint DefSubclassProc(nint hwnd, uint msg, nint wParam, nint lParam);
-
-    [DllImport("dwmapi.dll")]
-    private static extern int DwmSetWindowAttribute(nint hwnd, int attribute, ref int value, int size);
 
     [DllImport("dwmapi.dll")]
     private static extern int DwmFlush();

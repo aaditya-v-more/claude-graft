@@ -125,20 +125,7 @@
 <Style x:Key="MacPrimaryDialogButton" TargetType="Button" BasedOn="{StaticResource MacPrimaryButton}"/>
 <Style x:Key="DialogPrimaryButtonStyle" TargetType="Button" BasedOn="{StaticResource MacPrimaryButton}"/>
 <Style x:Key="DialogNeutralButtonStyle" TargetType="Button" BasedOn="{StaticResource MacButton}"/>
-<Style x:Key="MacTrafficLight" TargetType="Button">
- <Setter Property="Width" Value="20"/><Setter Property="Height" Value="26"/><Setter Property="MinWidth" Value="0"/><Setter Property="MinHeight" Value="0"/>
- <Setter Property="UseSystemFocusVisuals" Value="False"/>
- <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Button">
-  <Grid Background="Transparent">
-   <VisualStateManager.VisualStateGroups><VisualStateGroup x:Name="CommonStates">
-    <VisualState x:Name="Normal"/><VisualState x:Name="PointerOver"><VisualState.Setters><Setter Target="Mark.Opacity" Value="0.75"/></VisualState.Setters></VisualState>
-    <VisualState x:Name="Pressed"><VisualState.Setters><Setter Target="Dot.Opacity" Value="0.65"/><Setter Target="Mark.Opacity" Value="1"/></VisualState.Setters></VisualState>
-   </VisualStateGroup><VisualStateGroup x:Name="FocusStates"><VisualState x:Name="Unfocused"/><VisualState x:Name="PointerFocused"/><VisualState x:Name="Focused"><VisualState.Setters><Setter Target="Dot.Stroke" Value="{ThemeResource MacAccentBrush}"/><Setter Target="Dot.StrokeThickness" Value="1.5"/></VisualState.Setters></VisualState></VisualStateGroup></VisualStateManager.VisualStateGroups>
-   <Ellipse x:Name="Dot" Width="12" Height="12" Fill="{TemplateBinding Background}" Stroke="#22000000" StrokeThickness="0.6"/>
-   <ContentPresenter x:Name="Mark" Content="{TemplateBinding Content}" FontSize="10" FontWeight="SemiBold" Foreground="#80000000" Opacity="0" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-  </Grid>
- </ControlTemplate></Setter.Value></Setter>
-</Style>
+
 <Style x:Key="MacField" TargetType="TextBox">
  <Setter Property="FontFamily" Value="{StaticResource MacFont}"/><Setter Property="FontSize" Value="13"/>
  <Setter Property="MinHeight" Value="28"/><Setter Property="Padding" Value="3,2"/><Setter Property="TextAlignment" Value="Right"/>

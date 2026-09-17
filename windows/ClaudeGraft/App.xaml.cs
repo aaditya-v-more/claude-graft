@@ -176,7 +176,7 @@ public partial class App : Application
 
     private void ShowManager() => OnUi(() =>
     {
-        _window ??= new MainWindow();
+        _window ??= CreateManager();
         _window.Show();
     });
 
@@ -184,9 +184,19 @@ public partial class App : Application
     /// tray brings the window up first — a dialog needs a window to sit in.
     private void ShowSettings() => OnUi(() =>
     {
-        _window ??= new MainWindow();
+        _window ??= CreateManager();
         _window.ShowSettings();
     });
+
+    private MainWindow CreateManager()
+    {
+        var window = new MainWindow();
+        window.Closed += (_, _) =>
+        {
+            if (ReferenceEquals(_window, window)) _window = null;
+        };
+        return window;
+    }
 
     private void Quit() => OnUi(() =>
     {

@@ -18,6 +18,7 @@ public sealed partial class MainPage : Page
     private Shortcut? _draft;
     private bool _loading;
     private bool _busy;
+    private bool _loaded;
     private string _lastName = "";
 
     public MainPage()
@@ -26,11 +27,12 @@ public sealed partial class MainPage : Page
         Problem.Closed += (_, _) => Problem.Visibility = Visibility.Collapsed;
         Loaded += async (_, _) =>
         {
+            _loaded = true;
             Reload(); _timer.Start(); _ = LoadIcons();
             if (GraftPaths.ProfilesRootOverride is not null && Environment.GetCommandLineArgs().Contains("--review-settings"))
                 await OpenSettingsAsync();
         };
-        Unloaded += (_, _) => _timer.Stop();
+        Unloaded += (_, _) => { _loaded = false; _timer.Stop(); };
         _timer.Tick += async (_, _) => await MarkRunning();
     }
 
@@ -124,6 +126,7 @@ public sealed partial class MainPage : Page
         try
         {
             var paths = await Task.Run(ShortcutIcons.PreviewPaths);
+            if (!_loaded) return;
             foreach (var icon in paths)
                 IconPresets.Add(new IconChoice(icon.Name, new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(new Uri(icon.Path))));
             IconBox.SelectedItem = IconPresets.FirstOrDefault(i => i.Name == (_draft?.IconPreset ?? "Original"));
@@ -147,13 +150,18 @@ public sealed partial class MainPage : Page
         MergeNote.Visibility = SourceBox.SelectedItem is SourceOption { Source.Kind: not SourceKind.Own }
             ? Visibility.Visible : Visibility.Collapsed;
 
-    private void ShowProblem(string message) { Problem.Message = message; Problem.Visibility = Visibility.Visible; Problem.IsOpen = true; }
+    private void ShowProblem(string message)
+    {
+        if (!_loaded) return;
+        Problem.Message = message; Problem.Visibility = Visibility.Visible; Problem.IsOpen = true;
+    }
 
     private async Task MarkRunning()
     {
         try
         {
             var processes = await Task.Run(ClaudeProcesses.Enumerate);
+            if (!_loaded) return;
             foreach (var row in Shortcuts.Append(_main).Where(r => r is not null))
                 row.SetRunning(ClaudeProcesses.IsRunning(row.ProfileDir, processes));
         }
@@ -161,7 +169,11 @@ public sealed partial class MainPage : Page
     }
     private async Task LoadUsage(ShortcutRow row, bool interactive)
     {
-        try { row.SetUsage(await UsageMonitor.ReadAsync(row.ProfileDir, interactive)); }
+        try
+        {
+            var reading = await UsageMonitor.ReadAsync(row.ProfileDir, interactive);
+            if (_loaded) row.SetUsage(reading);
+        }
         catch (Exception e) { row.Problem = e.Message; }
     }
     private async void Refresh_Click(object sender, RoutedEventArgs e)
@@ -248,10 +260,10 @@ public sealed partial class MainPage : Page
             App.Store.Update(candidate);
             if (previous is not null && !previous.Name.Equals(candidate.Name, StringComparison.OrdinalIgnoreCase))
                 Installer.Uninstall(candidate, previous.Name);
-            Reload(candidate.Id);
+            if (_loaded) Reload(candidate.Id);
         }
         catch (Exception ex) { ShowProblem(ex.Message); }
-        finally { _busy = false; SaveButton.IsEnabled = true; }
+        finally { _busy = false; if (_loaded) SaveButton.IsEnabled = true; }
     }
 
     private async void Delete_Click(object sender, RoutedEventArgs e)
