@@ -94,6 +94,38 @@ symlink.
 Point the profile folder at one that already exists and the shortcut adopts it,
 which saves signing in again if you set something up by hand.
 
+## Bringing over chats from a previous login
+
+Sign a new shortcut into an account you used to reach by signing out of Claude
+and back in, and its sidebar comes up empty. Nothing has been lost. A chat store
+is keyed by account and each Claude reads only the folder for the account it
+holds, so both histories are sitting in the profile you did the switching in,
+and the new shortcut simply has none of its own yet.
+
+Graft notices and says so: which profile is holding them, how many, and the last
+few titles with the dates they were last active. It offers to bring them over
+from the shortcut's own view, and asks again when you press **Open**, where the
+question can be turned off for good. The offer stays in the window either way,
+so you can decide later rather than now.
+
+<img src="docs/assets/chats-elsewhere.png" width="605" alt="The Chats found elsewhere section, saying that Claude 2 is holding 188 chats for the account this profile is signed into that this one has not got, listing five of them with the dates they were last active, above a Copy Them Here button">
+
+Quit every Claude first, this profile's and every other one. An instance builds
+its sidebar as it starts and rewrites records as it runs, so anything copied
+underneath a running one is invisible at best. Graft checks, refuses, and names
+what to close.
+
+The originals stay exactly where they are. Nothing is taken out of the profile
+they came from, so it still has them if you sign back into that account there,
+and nothing already in this profile is written over. That is why the offer also
+stands for a profile that has chats of its own — the two sets are merged rather
+than either replacing the other — and why the count is always what this profile
+is missing, so it is the number that actually arrives.
+
+This is not the chat sharing below, which points one profile at another's
+history and keeps them in step. This is that account's own chats going to the
+profile signed into it, once.
+
 ## Usage in the menu bar
 
 The bar shows whichever account is currently open, the rest behind the tooltip.
@@ -187,25 +219,11 @@ profile with exactly what it had, down to anything it archived along the way —
 but the copies already in the source stay there. Merging two histories is the
 one thing here that cannot be undone.
 
-None of that is what a second account usually needs. If you have been switching
-accounts by signing out of Claude and back in, both histories are sitting in
-that one profile: a store is keyed by account and each Claude reads only the
-folder for the account it holds, so the shortcut you make for the second one
-comes up with an empty sidebar while its own chats stay next door. Graft says
-so — which profile has them, how many, and the last few titles with the dates
-they were last active — and offers to bring them over. It asks when you press
-**Open**, where **Do Not Show Again** stops the question, and it keeps the offer
-in the shortcut's own view for as long as anything is missing, so the answer can
-be later rather than now.
-
-Quit every Claude first, this profile's and everybody else's: an instance builds
-its sidebar as it starts and rewrites records as it runs, so anything copied
-underneath a running one is invisible at best. Graft checks, refuses, and names
-what to close. The originals stay exactly where they are, so the other profile
-still has them if you sign back into that account there, and nothing already
-here is written over — which is why the offer stands for a profile that has its
-own chats too, merging the two sets rather than replacing either. The count is
-always what this profile is missing, so it is the number that will arrive.
+None of that is what a second account usually needs. If the sidebar you are
+missing belongs to an account you used to reach by signing out of Claude, its
+chats are still in that profile and want copying across once rather than
+sharing — see [bringing over chats from a previous
+login](#bringing-over-chats-from-a-previous-login).
 
 `~/.claude` — settings, `CLAUDE.md`, skills, plugins, MCP servers, transcripts —
 is already shared by every instance, coming from `$HOME` rather than the profile.
