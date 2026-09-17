@@ -1,5 +1,6 @@
 <Page x:Class="ClaudeGraft.MainPage" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:local="using:ClaudeGraft" FontFamily="{StaticResource MacFont}" FontSize="13" Foreground="{ThemeResource MacTextBrush}">
-<Grid><Grid.ColumnDefinitions><ColumnDefinition x:Name="SidebarColumn" Width="220"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+<SplitView x:Name="ProfileNavigation" DisplayMode="Inline" IsPaneOpen="True" OpenPaneLength="220" PaneBackground="{ThemeResource MacSidebarBrush}">
+<SplitView.Pane>
 <Border x:Name="SidebarBorder" Background="{ThemeResource MacSidebarBrush}" BorderBrush="{ThemeResource MacDividerBrush}" BorderThickness="0,0,1,0">
  <Grid Padding="10,7,10,0"><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
   <StackPanel Spacing="5">
@@ -21,7 +22,8 @@
   </Grid>
  </Grid>
 </Border>
-<Grid Grid.Column="1" x:Name="DetailPanel" Background="{ThemeResource MacWindowBrush}"><Grid.RowDefinitions><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+</SplitView.Pane>
+<Grid x:Name="DetailPanel" Background="{ThemeResource MacWindowBrush}" SizeChanged="Detail_SizeChanged"><Grid.RowDefinitions><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
 <ScrollViewer x:Name="DetailScroll" HorizontalScrollBarVisibility="Disabled" HorizontalScrollMode="Disabled"><StackPanel Spacing="23" Padding="20,21,20,22">
  <InfoBar x:Name="Problem" Visibility="Collapsed" IsOpen="False" IsClosable="True" Severity="Error"/>
  <StackPanel Spacing="8"><StackPanel Orientation="Horizontal" Spacing="7" Margin="10,0,0,0"><TextBlock x:Name="ShortcutHeader" Text="Shortcut" Style="{StaticResource MacSectionTitle}"/><Button Style="{StaticResource MacPlainButton}" MinHeight="16" Height="16" Padding="0" ToolTipService.ToolTip="Each shortcut opens Claude with its own login and profile folder. Naming an existing folder adopts that profile." AutomationProperties.Name="About shortcut"><FontIcon Glyph="&#xE946;" FontSize="13"/></Button></StackPanel>
@@ -29,8 +31,8 @@
    <Grid Height="36" ColumnSpacing="12"><Grid.ColumnDefinitions><ColumnDefinition Width="110"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><TextBlock Text="Name" VerticalAlignment="Center"/><TextBox x:Name="NameBox" Grid.Column="1" Style="{StaticResource MacField}" TextChanged="Name_Changed" AutomationProperties.Name="Shortcut name"/></Grid>
    <Border Height="1" Background="{ThemeResource MacDividerBrush}"/>
    <Grid Height="36" ColumnSpacing="6"><Grid.ColumnDefinitions><ColumnDefinition Width="110"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><TextBlock Text="Profile folder" VerticalAlignment="Center"/><TextBox x:Name="FolderBox" Grid.Column="1" Style="{StaticResource MacField}" FontFamily="Consolas" AutomationProperties.Name="Profile folder"/><Button Grid.Column="2" Style="{StaticResource MacPlainButton}" Padding="3" Click="Folder_Click" ToolTipService.ToolTip="Show in File Explorer" AutomationProperties.Name="Show profile folder"><FontIcon Glyph="&#xE8B7;" FontSize="15"/></Button></Grid>
-   <Grid x:Name="IconSection" ColumnSpacing="8" Padding="0,6,0,9"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><TextBlock Text="Shortcut icon" VerticalAlignment="Center"/>
-    <StackPanel Grid.Column="1" Spacing="1" HorizontalAlignment="Right">
+   <Grid x:Name="IconSection" ColumnSpacing="8" RowSpacing="6" Padding="0,6,0,9"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions><TextBlock Text="Shortcut icon" VerticalAlignment="Center"/>
+    <StackPanel x:Name="IconChoices" Grid.Column="1" Spacing="1" HorizontalAlignment="Right">
      <GridView x:Name="IconBox" ItemsSource="{x:Bind IconPresets}" Width="312" Height="104" Padding="0" SelectionMode="Single" SelectionChanged="Icon_Changed" IsItemClickEnabled="False" ItemContainerStyle="{StaticResource MacIconTile}" AutomationProperties.Name="Shortcut icon" ScrollViewer.HorizontalScrollMode="Disabled" ScrollViewer.VerticalScrollMode="Disabled" ScrollViewer.HorizontalScrollBarVisibility="Hidden" ScrollViewer.VerticalScrollBarVisibility="Hidden">
       <GridView.ItemsPanel><ItemsPanelTemplate><ItemsWrapGrid Orientation="Horizontal" MaximumRowsOrColumns="6" ItemWidth="52" ItemHeight="52"/></ItemsPanelTemplate></GridView.ItemsPanel>
       <GridView.ItemTemplate><DataTemplate x:DataType="local:IconChoice"><Image Source="{x:Bind Preview}" Width="38" Height="38" AutomationProperties.Name="{x:Bind Name}" ToolTipService.ToolTip="{x:Bind Name}"/></DataTemplate></GridView.ItemTemplate>
@@ -66,4 +68,4 @@
 <Button x:Name="DeleteButton" Content="Delete Shortcut…" Click="Delete_Click"/><Button Grid.Column="2" x:Name="StartButton" Content="Start Session" Click="Start_Click" IsEnabled="{Binding StartEnabled}" ToolTipService.ToolTip="{Binding StartTooltip}"/><Button Grid.Column="3" x:Name="OpenButton" Content="Open" Click="Open_Click"/><Button Grid.Column="4" x:Name="SaveButton" Content="Update Shortcut" Click="Save_Click" Style="{StaticResource MacPrimaryButton}"/>
 </Grid>
 </Grid>
-</Grid></Page>
+</SplitView></Page>

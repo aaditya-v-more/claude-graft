@@ -44,8 +44,8 @@
         </StackPanel>
 
         <StackPanel Spacing="4">
-            <CheckBox x:Name="AutoStartSwitch" Content="Open at Login" MinHeight="24" FontSize="13" />
-            <CheckBox x:Name="StartHiddenSwitch" Content="Start in the menu bar" MinHeight="24" FontSize="13" />
+            <CheckBox x:Name="AutoStartSwitch" Content="Start with Windows" MinHeight="24" FontSize="13" />
+            <CheckBox x:Name="StartHiddenSwitch" Content="Start in the notification area" MinHeight="24" FontSize="13" />
         </StackPanel>
 
         <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}" />

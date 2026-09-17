@@ -1,14 +1,19 @@
 # Claude Graft for Windows
 
 Run Claude Desktop profiles side by side, each with its own login, and share
-Claude Code history between them. The window follows the macOS app: profiles
+Claude Code history between them. The window keeps the macOS app's organization: profiles
 in the sidebar, the shortcut and chat settings on the right, and Support and
 Source at the bottom. The app content keeps the macOS visual treatment:
 blue sidebar selection, rounded grouped rows, compact action buttons and a
 two-row grid of six icon presets per row. Windows supplies the standard title
 bar, close/minimize/maximize buttons, borders, system menu, resizing and Snap.
 There are no custom frame or caption hit-test handlers. The initial content
-area is 820 by 560, plus the native Windows frame.
+area is 820 by 560, plus the native Windows frame. The app and title bar follow
+the Windows app color mode by default, including changes while Graft is open.
+Settings can also pin both to Light or Dark. The tray surface follows the same
+choice. At narrower widths, the profile list uses a Windows overlay pane and
+the icon picker moves below its label so the form remains usable when snapped
+or resized. The sidebar button opens the pane; selecting a profile dismisses it.
 Support still goes to
 [the project's Ko-fi page](https://ko-fi.com/aadityavmore).
 
@@ -84,11 +89,15 @@ transcript directory. They never need a Claude login or contact the usage API.
 
 After publishing, run ./windows/test-ui.ps1 from the repository root for the
 native UI smoke test. It creates an isolated manager instance, checks the
-native window frame, system commands, close/reopen behavior, Support link and
+native window frame, matching title-bar and content themes, narrow/wide layout,
+system commands, close/reopen behavior, Support link and
 twelve-icon grid, then creates
 and renames a shortcut and verifies its saved icon and bundled runtime. Use
 -Theme Light -Preset Research to exercise the light appearance and a badged
-icon. Screenshots and fixtures remain in windows/dist for inspection.
+icon, or -CheckAppearance to switch Light, Dark and System through Settings
+while the app is running. The default is System; the checks read the Windows
+app mode without changing it. Screenshots and fixtures remain in windows/dist
+for inspection.
 
 ## Profiles and sign-in
 

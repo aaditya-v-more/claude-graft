@@ -58,7 +58,14 @@ public sealed class FlyoutWindow : Window
         AppWindow.SetPresenter(presenter);
         AppWindow.IsShownInSwitchers = false;
         ApplyAppearance();
+        _view.ActualThemeChanged += ViewThemeChanged;
         App.SettingsChanged += ApplyAppearance;
+        Closed += (_, _) =>
+        {
+            App.SettingsChanged -= ApplyAppearance;
+            _view.ActualThemeChanged -= ViewThemeChanged;
+            _backdrop?.Dispose();
+        };
 
         // The list grows after it is shown, as each account's usage arrives and
         // its bars appear. The view is stretched to the window and cannot see its
@@ -269,12 +276,7 @@ public sealed class FlyoutWindow : Window
         _view.RequestedTheme = Appearance.ToElementTheme(App.Settings.Theme);
 
         _backdropConfig ??= new SystemBackdropConfiguration { IsInputActive = true };
-        _backdropConfig.Theme = _view.ActualTheme switch
-        {
-            ElementTheme.Light => SystemBackdropTheme.Light,
-            ElementTheme.Dark => SystemBackdropTheme.Dark,
-            _ => SystemBackdropTheme.Default,
-        };
+        UpdateBackdropTheme();
 
         // The controller reads its theme from the config object it already holds,
         // so a theme change needs no rebuild — only a change of material does, and
@@ -295,6 +297,21 @@ public sealed class FlyoutWindow : Window
             }
             _appliedBackdrop = App.Settings.Backdrop;
         }
+    }
+
+    private void ViewThemeChanged(FrameworkElement sender, object args) => UpdateBackdropTheme();
+
+    private void UpdateBackdropTheme()
+    {
+        // System theme changes do not change the saved preference, but the
+        // separately owned backdrop must still follow the XAML surface.
+        if (_backdropConfig is not null)
+            _backdropConfig.Theme = _view.ActualTheme switch
+            {
+                ElementTheme.Light => SystemBackdropTheme.Light,
+                ElementTheme.Dark => SystemBackdropTheme.Dark,
+                _ => SystemBackdropTheme.Default,
+            };
     }
 
     /// The controller for a material, or null for Solid and for a material the

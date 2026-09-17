@@ -2,6 +2,7 @@ using System.Runtime.InteropServices;
 using ClaudeGraft.Core;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Windowing;
 using Windows.Graphics;
 using Windows.System;
 
@@ -9,7 +10,6 @@ namespace ClaudeGraft;
 
 public sealed partial class MainWindow : Window
 {
-    private bool _sidebarVisible = true;
     [DllImport("user32.dll")] private static extern uint GetDpiForWindow(nint window);
 
     public MainWindow()
@@ -25,8 +25,14 @@ public sealed partial class MainWindow : Window
         Closed += (_, _) => App.SettingsChanged -= ApplyAppearance;
 
         var scale = GetDpiForWindow(WinRT.Interop.WindowNative.GetWindowHandle(this)) / 96.0;
+        if (AppWindow.Presenter is OverlappedPresenter presenter)
+        {
+            presenter.PreferredMinimumWidth = (int)(480 * scale);
+            presenter.PreferredMinimumHeight = (int)(360 * scale);
+        }
         AppWindow.ResizeClient(new SizeInt32((int)(820 * scale), (int)(560 * scale)));
         RootFrame.Navigate(typeof(MainPage));
+        RootGrid.SizeChanged += (_, _) => UpdateNavigation();
 
         var add = new KeyboardAccelerator { Key = VirtualKey.N, Modifiers = VirtualKeyModifiers.Control };
         add.Invoked += (_, e) => { NewShortcut_Click(this, null!); e.Handled = true; };
@@ -47,14 +53,21 @@ public sealed partial class MainWindow : Window
     private void ToggleSidebar_Click(object sender, RoutedEventArgs e)
     {
         if (RootFrame.Content is not MainPage page) return;
-        _sidebarVisible = page.ToggleSidebar();
-        ToolbarSidebarColumn.Width = new GridLength(_sidebarVisible ? 220 : 78);
-        NewShortcutToolbarButton.Visibility = _sidebarVisible ? Visibility.Visible : Visibility.Collapsed;
+        page.ToggleSidebar();
+        UpdateNavigation();
+    }
+    private void Settings_Click(object sender, RoutedEventArgs e) => ShowSettings();
+    private void UpdateNavigation()
+    {
+        if (RootFrame.Content is not MainPage page) return;
+        page.AdaptNavigation(RootGrid.ActualWidth);
+        ToolbarSidebarColumn.Width = new GridLength(page.HasInlineSidebar ? 220 : 94);
     }
     private BackdropMaterial? _material;
     private void ApplyAppearance()
     {
         RootGrid.RequestedTheme = Appearance.ToElementTheme(App.Settings.Theme);
+        AppWindow.TitleBar.PreferredTheme = Appearance.ToTitleBarTheme(App.Settings.Theme);
         if (_material != App.Settings.Backdrop)
         {
             SystemBackdrop = Appearance.ToBackdrop(App.Settings.Backdrop);

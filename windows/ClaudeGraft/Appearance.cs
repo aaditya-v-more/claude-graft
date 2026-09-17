@@ -1,4 +1,5 @@
 using ClaudeGraft.Core;
+using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Media;
 
@@ -14,6 +15,14 @@ internal static class Appearance
         AppTheme.Light => ElementTheme.Light,
         AppTheme.Dark => ElementTheme.Dark,
         _ => ElementTheme.Default,
+    };
+
+    // The native caption defaults to Legacy (light), independently of XAML.
+    public static TitleBarTheme ToTitleBarTheme(AppTheme theme) => theme switch
+    {
+        AppTheme.Light => TitleBarTheme.Light,
+        AppTheme.Dark => TitleBarTheme.Dark,
+        _ => TitleBarTheme.UseDefaultAppMode,
     };
 
     /// The backdrop a window sets on itself. None returns null — the caller then

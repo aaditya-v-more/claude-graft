@@ -19,6 +19,8 @@ public sealed partial class MainPage : Page
     private bool _loading;
     private bool _busy;
     private bool _loaded;
+    private bool _wideNavigation = true;
+    private bool _widePaneOpen = true;
     private string _lastName = "";
 
     public MainPage()
@@ -99,10 +101,10 @@ public sealed partial class MainPage : Page
         _ = LoadUsage(row, false);
     }
 
-    private void Main_Click(object sender, RoutedEventArgs e) { ShortcutList.SelectedItem = null; Select(_main); }
+    private void Main_Click(object sender, RoutedEventArgs e) { ShortcutList.SelectedItem = null; Select(_main); DismissOverlay(); }
     private void Shortcut_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (!_loading && ShortcutList.SelectedItem is ShortcutRow row) Select(row);
+        if (!_loading && ShortcutList.SelectedItem is ShortcutRow row) { Select(row); DismissOverlay(); }
     }
     private void Add_Click(object sender, RoutedEventArgs e)
     {
@@ -112,12 +114,32 @@ public sealed partial class MainPage : Page
         ShortcutList.SelectedItem = row;
     }
     public void AddShortcut() => Add_Click(this, new RoutedEventArgs());
-    public bool ToggleSidebar()
+    public bool HasInlineSidebar => _wideNavigation && ProfileNavigation.IsPaneOpen;
+    public void ToggleSidebar()
     {
-        var show = SidebarBorder.Visibility != Visibility.Visible;
-        SidebarBorder.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
-        SidebarColumn.Width = new GridLength(show ? 220 : 0);
-        return show;
+        ProfileNavigation.IsPaneOpen = !ProfileNavigation.IsPaneOpen;
+        if (_wideNavigation) _widePaneOpen = ProfileNavigation.IsPaneOpen;
+    }
+    public void AdaptNavigation(double width)
+    {
+        var wide = width >= 760;
+        if (_wideNavigation == wide) return;
+        _wideNavigation = wide;
+        ProfileNavigation.DisplayMode = wide ? SplitViewDisplayMode.Inline : SplitViewDisplayMode.Overlay;
+        ProfileNavigation.IsPaneOpen = wide && _widePaneOpen;
+    }
+    private void DismissOverlay()
+    {
+        if (!_wideNavigation) ProfileNavigation.IsPaneOpen = false;
+    }
+    private void Detail_SizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        if (IconChoices is null) return;
+        var compact = e.NewSize.Width < 540;
+        Grid.SetRow(IconChoices, compact ? 1 : 0);
+        Grid.SetColumn(IconChoices, compact ? 0 : 1);
+        Grid.SetColumnSpan(IconChoices, compact ? 2 : 1);
+        IconChoices.HorizontalAlignment = compact ? HorizontalAlignment.Left : HorizontalAlignment.Right;
     }
     public void RefreshUsage() => Refresh_Click(this, new RoutedEventArgs());
     private async Task LoadIcons()

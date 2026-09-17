@@ -45,7 +45,10 @@ links. The Windows app content reproduces the macOS blue selection, grouped
 forms, compact buttons, two-row icon picker, role badges, usage bars and
 light/dark palettes. Its title bar, window buttons, system menu, frame, Snap,
 movement and resizing are supplied by Windows. Closing the manager destroys
-that window; the tray can create a new one. Shortcut icons carry separate
+that window; the tray can create a new one. The native title bar and the app
+follow the Windows app color mode by default. A native overlay pane replaces
+the inline sidebar at narrow widths, and the icon picker moves below its label
+to keep the form usable when snapped or resized. Shortcut icons carry separate
 image sizes for Explorer and the desktop. Platform-specific omissions and live acceptance checks are listed in
 README.md so this branch can be reviewed honestly before merging.
 

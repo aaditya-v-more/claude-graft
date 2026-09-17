@@ -9,7 +9,10 @@
     <Button x:Name="NewShortcutToolbarButton" Style="{StaticResource MacToolbarButton}" Click="NewShortcut_Click" ToolTipService.ToolTip="New Shortcut (Ctrl+N)" AutomationProperties.Name="New Shortcut"><FontIcon Glyph="&#xE710;" FontSize="17"/></Button>
     <Button x:Name="ToggleSidebarButton" Style="{StaticResource MacToolbarButton}" Click="ToggleSidebar_Click" ToolTipService.ToolTip="Show or hide sidebar" AutomationProperties.Name="Show or hide sidebar"><Path Data="M3,1 L15,1 Q17,1 17,3 L17,13 Q17,15 15,15 L3,15 Q1,15 1,13 L1,3 Q1,1 3,1 Z M6,1 L6,15 M3,5 L4,5 M3,8 L4,8 M3,11 L4,11" Stroke="{ThemeResource MacSecondaryBrush}" StrokeThickness="1.5" StrokeLineJoin="Round" HorizontalAlignment="Center" VerticalAlignment="Center"/></Button>
    </StackPanel>
-   <TextBlock Grid.Column="1" Text="Claude Graft" Margin="20,0,0,0" FontFamily="{StaticResource MacFont}" FontSize="17" FontWeight="SemiBold" Foreground="{ThemeResource MacTextBrush}" VerticalAlignment="Center"/>
+   <Grid Grid.Column="1" Margin="20,0,12,0"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+    <TextBlock Text="Claude Graft" FontFamily="{StaticResource MacFont}" FontSize="17" FontWeight="SemiBold" Foreground="{ThemeResource MacTextBrush}" VerticalAlignment="Center"/>
+    <Button x:Name="SettingsButton" Grid.Column="1" Style="{StaticResource MacToolbarButton}" Click="Settings_Click" VerticalAlignment="Center" ToolTipService.ToolTip="Settings (Ctrl+,)" AutomationProperties.Name="Settings"><FontIcon Glyph="&#xE713;" FontSize="17"/></Button>
+   </Grid>
   </Grid>
   <Frame x:Name="RootFrame" Grid.Row="1"/>
  </Grid>
