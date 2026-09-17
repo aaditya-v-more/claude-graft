@@ -51,6 +51,7 @@ is where you keep it. Graft installs it for you no more than it signs you in.
 
 macOS 13 or later. Universal, for Apple Silicon and Intel.
 The interface follows the macOS language, with English and Russian included.
+The shared-sidebar flow has been tested with Claude Desktop 2.110.1 on macOS 27.
 
 ## Install
 
@@ -312,6 +313,7 @@ in the profile it was merged into.
 ```
 ./build.sh     the app, into build.noindex/
 ./test.sh      checks run in a throwaway directory
+./test-sidebar.sh   sidebar storage checks in disposable Claude profiles
 ./release.sh   tests, builds universal, signs, packages
 
 Tools/render-diagrams.sh   the README's diagrams, into docs/assets
@@ -320,6 +322,11 @@ Tools/render-diagrams.sh   the README's diagrams, into docs/assets
 Swift toolchain from Xcode, no project file, no dependencies to install —
 Sparkle is fetched into `vendor/` on the first build, pinned to a version and a
 checksum. The version lives in one file, `VERSION`.
+
+The optional sidebar suite also needs Node and an installed Claude Desktop.
+It uses temporary profiles to check that pins, unpins, ordering and sort choices
+survive reopening the browser storage, while unrelated settings stay intact.
+The app itself has no Node installation requirement.
 
 `CLAUDE.md` has the notes that aren't obvious from the code: what Claude Desktop
 keeps where, the rules around borrowed credentials, and the several things that

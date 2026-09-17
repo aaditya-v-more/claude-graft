@@ -3,6 +3,43 @@
     <channel>
         <title>Claude Graft</title>
         <item>
+            <title>1.1.6</title>
+            <pubDate>Fri, 18 Sep 2026 02:18:25 +0530</pubDate>
+            <link>https://github.com/aaditya-v-more/claude-graft</link>
+            <sparkle:version>1.1.6</sparkle:version>
+            <sparkle:shortVersionString>1.1.6</sparkle:shortVersionString>
+            <sparkle:minimumAutoupdateVersion>1.1.0</sparkle:minimumAutoupdateVersion>
+            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+            <description><![CDATA[<h2>Your sidebar comes with you</h2>
+
+<p>Switching accounts shouldn't mean rebuilding your pinned list. Profiles that
+share Claude Code chats now keep their pins, pinned order and Code sort choice
+in sync. Unpin a chat in either profile and it stays unpinned in the other.</p>
+
+<p>To sync the sidebar, quit the linked Claude apps, then open either shortcut.
+If one is still open, Graft waits until the next opening and tells you what to
+close. Other chats, custom groups and account settings stay as they were.</p>
+
+<p>That weird transparent bar over the shortcut settings on macOS 27 is gone.
+The name and profile controls are clickable again. Shared profiles also keep
+their own permission choices, so sharing chats no longer replaces the settings
+you picked in Claude. Missing local MCP server definitions can still be copied
+over; existing server settings stay yours.</p>
+
+<p>Tested with Claude Desktop 2.110.1 on macOS 27, including real restarts,
+two-way pin and sort changes, and clearing the last pin. Still universal for
+Apple Silicon and Intel, with macOS 13 or later supported.</p>
+
+<h3>Coming from 1.0.x?</h3>
+
+<p>Shared profiles merge their chat histories on the next launch. Switching back
+to a profile's own chats keeps what it brought, but copies already merged into
+the source stay there. If you want an untouched copy, back up your Claude
+profile folders in <code>~/Library/Application Support</code> before updating.</p>
+]]></description>
+            <enclosure url="https://github.com/aaditya-v-more/claude-graft/releases/download/v1.1.6/ClaudeGraft-1.1.6.zip" length="4480105" type="application/octet-stream" sparkle:edSignature="sJqQXR0nYjNo1bzc7nTrOdZsRtzoaDb9nXlbQlGizC0/l5kgzfCM40N++P2gdiafGJSKHcGQsQimrmhg5yQ9CQ=="/>
+        </item>
+        <item>
             <title>1.1.3</title>
             <pubDate>Wed, 09 Sep 2026 22:15:41 +0530</pubDate>
             <link>https://github.com/aaditya-v-more/claude-graft</link>
