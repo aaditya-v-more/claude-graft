@@ -269,6 +269,12 @@ struct ShortcutDetail: View {
                 Text(shortcut.iconPreset.title)
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                Text("Finder and pinned shortcuts use this icon. Running Claude windows use Claude's own icon.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.trailing)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: 306)
             }
         }
     }
@@ -300,9 +306,11 @@ struct ShortcutDetail: View {
         default:
             let name = store.label(for: shortcut.source)
             return L10n.format("""
-                Merges this profile's Claude Code chats with %@'s, and shares its \
-                connectors, extensions and window state. Logins stay separate, so \
-                this shortcut can sign into a different account.
+                Merges this profile's Claude Code chats with %@'s, and shares \
+                extensions and window state. Missing local MCP servers are copied; \
+                existing server settings are kept. Logins and permission choices \
+                stay separate. Choose permission modes in Claude's settings for \
+                each account; organization restrictions still apply.
                 """, name)
         }
     }

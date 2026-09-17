@@ -397,8 +397,8 @@ do {
           "the login is not overwritten by the source's")
     check(config["userThemeMode"] as? String == "dark", "the theme is copied across")
     check(config["locale"] as? String == "en-GB", "so is the locale")
-    check(Graft.isSymlink(work.appending(path: "claude_desktop_config.json")),
-          "shared settings are linked")
+    check(!Graft.isSymlink(work.appending(path: "claude_desktop_config.json")),
+          "permission settings are never linked to another profile")
     check(!Graft.exists(work.appending(path: "extensions-blocklist.json")),
           "the per-organization blocklist is never linked")
 
@@ -424,6 +424,111 @@ do {
 }
 
 // MARK: - What a link cannot protect
+
+section("Each profile keeps its permission choices")
+do {
+    let source = makeProfile("Claude-Settings-Source", account: "AAAA", org: "ORG")
+    let profile = makeProfile("Claude-Settings-Own", account: "BBBB", org: "ORG")
+    let name = "claude_desktop_config.json"
+    let sourceFile = source.appending(path: name)
+    let ownFile = profile.appending(path: name)
+    func writeSettings(_ value: [String: Any], to url: URL) {
+        try! JSONSerialization.data(withJSONObject: value, options: .sortedKeys).write(to: url)
+    }
+    func settings(_ url: URL) -> NSDictionary {
+        (try? JSONSerialization.jsonObject(with: Data(contentsOf: url))) as? NSDictionary ?? [:]
+    }
+    let sourceSettings: [String: Any] = [
+        "mcpServers": ["shared": ["command": "source-server"]],
+        "preferences": ["bypassPermissionsOptInByAccount": ["AAAA": true]],
+    ]
+    let ownSettings: [String: Any] = [
+        "mcpServers": ["own": ["command": "own-server"]],
+        "preferences": ["bypassPermissionsOptInByAccount": ["BBBB": false]],
+        "globalShortcut": "disabled",
+    ]
+    writeSettings(sourceSettings, to: sourceFile)
+    writeSettings(ownSettings, to: ownFile)
+    let sourceBytes = try! Data(contentsOf: sourceFile)
+    Graft.graft(from: source, into: profile)
+    check(!Graft.isSymlink(ownFile), "sharing chats leaves a writable local settings file")
+    check(settings(ownFile)["preferences"] as? NSDictionary == ownSettings["preferences"] as? NSDictionary,
+          "a source's permission opt-in never replaces the borrowing profile's choices")
+    check((settings(ownFile)["mcpServers"] as? NSDictionary)?.count == 2,
+          "missing local MCP servers are copied without removing the profile's own servers")
+
+    var edited = ownSettings
+    edited["preferences"] = ["bypassPermissionsOptInByAccount": ["BBBB": true]]
+    edited["mcpServers"] = ["shared": ["command": "my-override"]]
+    // Claude saves settings by replacing the file; the next launch must not
+    // replace that permission choice with another link to the source.
+    try! fm.removeItem(at: ownFile)
+    writeSettings(edited, to: ownFile)
+    Graft.graft(from: source, into: profile)
+    check(settings(ownFile)["preferences"] as? NSDictionary == edited["preferences"] as? NSDictionary,
+          "a permission choice made after sharing survives the next launch")
+    check((settings(ownFile)["mcpServers"] as? NSDictionary)?["shared"] as? NSDictionary
+          == ["command": "my-override"] as NSDictionary,
+          "an existing MCP server keeps this profile's configuration")
+    check(try! Data(contentsOf: sourceFile) == sourceBytes,
+          "changing the borrowing profile's settings never writes to the source")
+    Graft.ungraft(profile)
+    check(settings(ownFile)["preferences"] as? NSDictionary == edited["preferences"] as? NSDictionary,
+          "returning to separate chats keeps the latest permission choice")
+
+    try! fm.removeItem(at: ownFile)
+    writeSettings(ownSettings, to: ownFile)
+    Graft.relink(target: sourceFile, at: ownFile)
+    Graft.graft(from: source, into: profile)
+    check(!Graft.isSymlink(ownFile), "an older settings link migrates to a real file")
+    check(settings(ownFile)["preferences"] as? NSDictionary == ownSettings["preferences"] as? NSDictionary,
+          "migration restores this profile's stashed permission choices")
+    check(settings(ownFile)["globalShortcut"] as? String == "disabled",
+          "migration preserves unrelated local preferences")
+    check(Graft.exists(Graft.stashURL(for: ownFile)), "migration retains the original backup")
+    Graft.ungraft(profile)
+
+    try! fm.removeItem(at: ownFile)
+    Graft.relink(target: sourceFile, at: ownFile)
+    Graft.graft(from: source, into: profile)
+    check(settings(ownFile)["preferences"] == nil,
+          "a legacy link without local settings never inherits permission grants")
+    check(!Graft.isSymlink(ownFile), "a legacy link without a stash is writable too")
+    check((settings(ownFile)["mcpServers"] as? NSDictionary)?.count == 1,
+          "a legacy link retains access to the source's local MCP servers")
+    let settledBytes = try! Data(contentsOf: ownFile)
+    let settledTime = Graft.modified(ownFile)
+    Graft.graft(from: source, into: profile)
+    check(try! Data(contentsOf: ownFile) == settledBytes && Graft.modified(ownFile) == settledTime,
+          "a repeated launch leaves already copied settings untouched")
+    check((try! fm.attributesOfItem(atPath: ownFile.path)[.posixPermissions] as? Int) == 0o600,
+          "copied server configuration is readable only by the profile's owner")
+
+    try! Data("{ incomplete".utf8).write(to: sourceFile)
+    Graft.graft(from: source, into: profile)
+    check(try! Data(contentsOf: ownFile) == settledBytes,
+          "a source caught mid-write cannot change local settings")
+    try! sourceBytes.write(to: sourceFile)
+
+    try! Data("{ incomplete".utf8).write(to: ownFile)
+    Graft.graft(from: source, into: profile)
+    check(try! Data(contentsOf: ownFile) == Data("{ incomplete".utf8),
+          "an unreadable local settings file is never treated as empty")
+    try! fm.removeItem(at: ownFile)
+    try! Data("{ incomplete".utf8).write(to: Graft.stashURL(for: ownFile))
+    Graft.relink(target: sourceFile, at: ownFile)
+    Graft.graft(from: source, into: profile)
+    check(Graft.isSymlink(ownFile), "migration leaves an unreadable backup recoverable")
+    check(try! Data(contentsOf: sourceFile) == sourceBytes,
+          "even a failed migration cannot overwrite the source's settings")
+    writeSettings(ownSettings, to: Graft.stashURL(for: ownFile))
+    try! fm.removeItem(at: sourceFile)
+    Graft.graft(from: source, into: profile)
+    check(!Graft.isSymlink(ownFile) && settings(ownFile) == ownSettings as NSDictionary,
+          "a broken legacy link can recover the profile's own settings from its backup")
+
+    for folder in [source, profile] { try? fm.removeItem(at: folder) }
+}
 
 // Claude writes config.json, and recreates chat directories, by renaming over
 // whatever is there. A rename leaves a real file where the symlink was, so the

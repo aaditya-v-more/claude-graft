@@ -210,6 +210,18 @@ always what this profile is missing, so it is the number that will arrive.
 `~/.claude` — settings, `CLAUDE.md`, skills, plugins, MCP servers, transcripts —
 is already shared by every instance, coming from `$HOME` rather than the profile.
 
+Desktop permission choices stay with each profile, including whether that
+account has opted into bypass permissions. Graft keeps
+`claude_desktop_config.json` as a real local file so Claude can save changes;
+older linked settings are migrated using the profile's saved original, without
+changing the source. Choose the permission mode in Claude for each account;
+organization restrictions still apply.
+
+When sharing chats, missing local MCP server definitions are copied from the
+source's desktop configuration. Existing definitions and later edits stay local,
+so changing a server in one profile does not change it in another. Account-linked
+connectors still need their own sign-in in each account.
+
 Claude Code prunes transcripts after 30 days while the desktop's records are
 permanent, so old chats can open to "Session not found on disk". That happens in
 a normal single-account setup too; raise `cleanupPeriodDays` in

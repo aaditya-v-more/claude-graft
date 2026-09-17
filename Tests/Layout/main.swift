@@ -60,6 +60,7 @@ final class LayoutWindow: NSWindow {
     }
 }
 
+for appearance in [NSAppearance.Name.aqua, .darkAqua] {
 for selection in [ContentView.mainProfileID, shortcut.id] {
     let root = ContentView(selection: selection)
         .environmentObject(Shared.store)
@@ -70,8 +71,14 @@ for selection in [ContentView.mainProfileID, shortcut.id] {
     let window = LayoutWindow(contentRect: NSRect(x: 100, y: 100, width: 820, height: 560),
                           styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
     window.contentView = hosting
+    window.appearance = NSAppearance(named: appearance)
     window.title = "Claude Graft layout check"
-    window.orderFront(nil)
+    if ProcessInfo.processInfo.environment["GRAFT_LAYOUT_VISIBLE"] == "1" {
+        window.orderFront(nil)
+    } else {
+        window.setFrameOrigin(NSPoint(x: -10000, y: -10000))
+        window.orderBack(nil)
+    }
     settle()
     var currentOffsets: [CGFloat: CGFloat] = [:]
     for state in ["current", "available", "error", "current-again"] {
@@ -93,8 +100,30 @@ for selection in [ContentView.mainProfileID, shortcut.id] {
                   && abs(hosting.bounds.height - size.height) <= 1,
                   "the window reaches the requested \(size) size")
             let views = descendants(hosting)
+            if let directory = ProcessInfo.processInfo.environment["GRAFT_LAYOUT_SNAPSHOTS"],
+               state == "current", size.width == 820 {
+                let output = URL(fileURLWithPath: directory)
+                    .appending(path: Bundle.main.preferredLocalizations.first ?? "en")
+                    .appending(path: appearance == .aqua ? "light" : "dark")
+                try! fm.createDirectory(at: output, withIntermediateDirectories: true)
+                let name = selection == ContentView.mainProfileID ? "main" : "shortcut"
+                if let bitmap = hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds) {
+                    hosting.cacheDisplay(in: hosting.bounds, to: bitmap)
+                    try! bitmap.representation(using: .png, properties: [:])!
+                        .write(to: output.appending(path: "\(name).png"))
+                }
+                let tree = views.map { "\(type(of: $0)) \(hosting.convert($0.bounds, from: $0))" }
+                try! tree.joined(separator: "\n").write(
+                    to: output.appending(path: "\(name)-views.txt"), atomically: true, encoding: .utf8)
+            }
             let split = views.compactMap { $0 as? NSSplitView }.first!
             let splitBounds = hosting.convert(split.bounds, from: split)
+            let titlebars = views.filter {
+                String(describing: type(of: $0)) == "NSTitlebarBackgroundView"
+                    && !$0.isHiddenOrHasHiddenAncestor && $0.bounds.height > 1
+            }
+            check(titlebars.isEmpty,
+                  "\(state), \(size): no extra titlebar covers the profile section heading")
             // A split view drawn underneath an inset still starts at y=0.
             // Its own bounds must instead begin below the entire status bar.
             check(splitBounds.minY >= 45, "\(state), \(size): profiles start below the update header")
@@ -120,6 +149,7 @@ for selection in [ContentView.mainProfileID, shortcut.id] {
         }
     }
     window.orderOut(nil)
+}
 }
 print("\(checks - failures)/\(checks) layout checks passed (\(Bundle.main.preferredLocalizations.joined(separator: ",")))")
 exit(failures == 0 ? 0 : 1)

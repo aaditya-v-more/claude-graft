@@ -76,7 +76,6 @@ enum Graft {
     /// list is either credential material, per-organization cache, or a store
     /// two running instances cannot both hold open. See README.
     static let sharedItems = [
-        "claude_desktop_config.json",
         "Claude Extensions",
         "Claude Extensions Settings",
         "extensions-installations.json",
@@ -1919,6 +1918,7 @@ enum Graft {
         for item in sharedItems {
             relink(target: source.appending(path: item), at: profile.appending(path: item))
         }
+        copyDesktopServers(from: source, into: profile)
         mirrorChatStores(from: source, into: profile)
         copyAppearance(from: source, into: profile)
     }
@@ -2202,6 +2202,64 @@ enum Graft {
         mirrorChatFolders(mine, theirs)
     }
 
+    /// Permission opt-ins live beside MCP definitions. Linking that file lets
+    /// one profile replace the other's choices, and relinking on every launch
+    /// discards changes Claude saved by renaming over the link.
+    static func copyDesktopServers(from source: URL, into profile: URL) {
+        guard !samePath(source, profile) else { return }
+        let name = "claude_desktop_config.json"
+        let destination = profile.appending(path: name)
+        let backup = stashURL(for: destination)
+        let linked = isSymlink(destination)
+        let local = linked ? backup : destination
+
+        func read(_ url: URL) -> [String: Any]? {
+            guard exists(url) else { return [:] }
+            return (try? Data(contentsOf: url))
+                .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+        }
+
+        // A backup caught mid-write is not permission to discard it. Keep the
+        // old link as well until both settings files can be read safely.
+        guard var own = read(local), let borrowed = read(source.appending(path: name)),
+              own["mcpServers"] == nil || own["mcpServers"] is [String: Any],
+              borrowed["mcpServers"] == nil || borrowed["mcpServers"] is [String: Any]
+        else {
+            Diagnostics.note("settings.unread", ["profile": profile.lastPathComponent])
+            return
+        }
+        var servers = own["mcpServers"] as? [String: Any] ?? [:]
+        var added = false
+        for (name, definition) in borrowed["mcpServers"] as? [String: Any] ?? [:]
+        where servers[name] == nil {
+            servers[name] = definition
+            added = true
+        }
+        guard linked || added else { return }
+        if added { own["mcpServers"] = servers }
+
+        // Renaming a complete sibling over the link replaces the link itself;
+        // a direct write through it would change the source's permissions.
+        let staged = profile.appending(path: ".graft-settings-\(UUID().uuidString).tmp")
+        defer { try? fm.removeItem(at: staged) }
+        do {
+            let data = try JSONSerialization.data(withJSONObject: own,
+                                                  options: [.prettyPrinted, .sortedKeys])
+            guard fm.createFile(atPath: staged.path, contents: data,
+                                attributes: [.posixPermissions: 0o600]) else {
+                throw CocoaError(.fileWriteUnknown)
+            }
+            guard rename(staged.path, destination.path) == 0 else {
+                throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+            }
+            Diagnostics.note("settings.local", ["profile": profile.lastPathComponent,
+                                                "replacedLink": linked])
+        } catch {
+            Diagnostics.note("settings.failed", ["profile": profile.lastPathComponent,
+                                                  "error": error.localizedDescription])
+        }
+    }
+
     /// Theme and locale sit in config.json beside this profile's credentials,
     /// so those two keys are copied rather than the file being linked.
     static func copyAppearance(from source: URL, into profile: URL) {
@@ -2376,6 +2434,7 @@ enum Graft {
         for item in sharedItems {
             unstash(profile.appending(path: item))
         }
+        unstash(profile.appending(path: "claude_desktop_config.json"))
         for store in chatStores {
             let dst = profile.appending(path: store)
             if isSymlink(dst) {

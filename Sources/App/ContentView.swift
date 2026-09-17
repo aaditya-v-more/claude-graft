@@ -9,6 +9,7 @@ struct ContentView: View {
     @State private var selection: UUID? = ContentView.mainProfileID
     @State private var pendingDeletion: UUID?
     @State private var problem: String?
+    @State private var sidebarVisible = true
 
     init(selection: UUID? = ContentView.mainProfileID) {
         _selection = State(initialValue: selection)
@@ -23,6 +24,20 @@ struct ContentView: View {
             ClaudeUpdateStatus()
             Divider()
             profiles
+        }
+        .toolbar {
+            ToolbarItemGroup(placement: .navigation) {
+                Button(action: add) {
+                    Label("New Shortcut", systemImage: "plus")
+                }
+                .keyboardShortcut("n", modifiers: .command)
+                .help("New shortcut")
+                Button { sidebarVisible.toggle() } label: {
+                    Label("Toggle Sidebar", systemImage: "sidebar.left")
+                }
+                .keyboardShortcut("s", modifiers: [.command, .option])
+                .help("Toggle Sidebar")
+            }
         }
         .confirmationDialog(deletionTitle,
                             isPresented: Binding(get: { pendingDeletion != nil },
@@ -43,29 +58,31 @@ struct ContentView: View {
     }
 
     private var profiles: some View {
-        NavigationSplitView {
-            sidebar
-                .navigationSplitViewColumnWidth(min: 200, ideal: 220, max: 280)
-                .safeAreaInset(edge: .bottom, spacing: 0) { sidebarFooter }
-                .toolbar {
-                    ToolbarItem {
-                        Button(action: add) {
-                            Label("New Shortcut", systemImage: "plus")
-                        }
-                        .keyboardShortcut("n", modifiers: .command)
-                        .help("New shortcut")
-                    }
-                }
-        } detail: {
-            if selection == Self.mainProfileID {
-                MainProfileDetail()
-            } else if let selection, let index = store.shortcuts.firstIndex(where: { $0.id == selection }) {
-                ShortcutDetail(shortcut: $store.shortcuts[index],
-                               requestDelete: { requestDeletion(of: selection) })
-                    .id(selection)
-            } else {
-                EmptyState(hasShortcuts: !store.shortcuts.isEmpty, add: add)
+        // This is a pane selector, not a navigation stack. NavigationSplitView
+        // installs a second titlebar backdrop below the notices on macOS 27,
+        // obscuring the first form section even with scroll effects hidden.
+        HSplitView {
+            if sidebarVisible {
+                sidebar
+                    .listStyle(.sidebar)
+                    .safeAreaInset(edge: .bottom, spacing: 0) { sidebarFooter }
+                    .frame(minWidth: 200, idealWidth: 220, maxWidth: 280)
             }
+            profileDetail
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+
+    @ViewBuilder
+    private var profileDetail: some View {
+        if selection == Self.mainProfileID {
+            MainProfileDetail()
+        } else if let selection, let index = store.shortcuts.firstIndex(where: { $0.id == selection }) {
+            ShortcutDetail(shortcut: $store.shortcuts[index],
+                           requestDelete: { requestDeletion(of: selection) })
+                .id(selection)
+        } else {
+            EmptyState(hasShortcuts: !store.shortcuts.isEmpty, add: add)
         }
     }
 

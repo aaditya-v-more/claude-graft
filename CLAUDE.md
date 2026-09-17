@@ -635,6 +635,13 @@ folder field pointed a shortcut at Claude's own profile.
 
 ## SwiftUI rules this app learned the hard way
 
+**The profile selector is a split view, not a navigation stack.** On macOS 27,
+`NavigationSplitView` below the notices adds another titlebar backdrop inside
+the detail pane. It covers the first section heading, and hiding scroll-edge
+effects or the toolbar background does not remove it. Use `HSplitView` with
+the toolbar on the outer view. The layout suite checks for this extra backdrop
+in both appearances, both languages and each supported window size.
+
 **Notices above the split view need their own layout space.** A top
 `safeAreaInset` on `NavigationSplitView` left its native sidebar and form
 drawing beneath the update banner. The first account and the top of the form
@@ -658,6 +665,16 @@ a background queue into `@State`.
 Observing them from the App value invalidates the whole scene on every poll.
 
 ## Facts about Claude Desktop that the code depends on
+
+**Desktop settings belong to each profile.** `claude_desktop_config.json`
+contains account-specific permission opt-ins alongside local MCP definitions.
+It must not be in `sharedItems`: relinking it on launch replaces permission
+choices Claude saved by renaming over the old link. `copyDesktopServers` adds
+missing MCP definitions to a real local file, keeping existing definitions and
+every local preference. A legacy link migrates from the saved original; without
+one, it imports only MCP definitions, never another profile's permission grants.
+An unreadable settings file or backup blocks the copy. The source is never
+written, and the backup remains until the ordinary ungraft cleanup.
 
 Chat history is `<store>/<accountUuid>/<orgUuid>/`, in both
 `claude-code-sessions` and `local-agent-mode-sessions`. An instance reads only
