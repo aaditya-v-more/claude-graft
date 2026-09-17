@@ -44,7 +44,7 @@ and detail layout, its twelve icon choices, and the original Support and Source
 links. Platform-specific omissions and live acceptance checks are listed in
 README.md so this branch can be reviewed honestly before merging.
 
-Local validation on Windows passed 186 core tests and the native UI smoke
+Local validation on Windows passed 189 core tests and the native UI smoke
 test, including creation and renaming of a real .lnk in a disposable desktop
 folder. The portable x64 build was opened and visually inspected. The installed
 Store version of Claude was discovered, launched with an empty workspace

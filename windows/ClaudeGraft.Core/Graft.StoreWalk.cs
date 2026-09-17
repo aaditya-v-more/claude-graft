@@ -5,6 +5,7 @@ namespace ClaudeGraft.Core;
 /// <summary>Which command line sessions one record speaks for.</summary>
 public sealed class RecordSessions
 {
+    public bool Readable { get; init; } = true;
     /// The session it holds now.
     public string? CliSessionId { get; init; }
     /// The sessions it grew out of. A conversation carried on past a compaction,
@@ -67,7 +68,8 @@ public static partial class Graft
                 return cached.sessions;
 
         var sessions = ReadRecordSessions(path);
-        lock (RecordCacheLock) _recordCache[path] = (stamp, size, sessions);
+        if (sessions.Readable)
+            lock (RecordCacheLock) _recordCache[path] = (stamp, size, sessions);
         return sessions;
     }
 
@@ -83,9 +85,9 @@ public static partial class Graft
             if (root.TryGetProperty("priorCliSessionIds", out var p) && p.ValueKind == JsonValueKind.Array)
                 foreach (var e in p.EnumerateArray())
                     if (e.ValueKind == JsonValueKind.String) prior.Add(e.GetString()!);
-            return new RecordSessions { CliSessionId = cli, Prior = prior };
+            return new RecordSessions { CliSessionId = cli, Prior = prior, Readable = cli is not null || prior.Count > 0 };
         }
-        catch { return new RecordSessions(); }
+        catch { return new RecordSessions { Readable = false }; }
     }
 
     /// Every directory under the profiles root holding a chat store — profiles
@@ -163,6 +165,7 @@ public static partial class Graft
     {
         var contents = new StoreContents();
         var walked = new HashSet<string>();
+        var unread = new HashSet<string>();
 
         foreach (var profile in SessionStoreProfiles())
         {
@@ -176,10 +179,17 @@ public static partial class Graft
                 {
                     if (org.StartsWith('.') || org.EndsWith(StashSuffix)) continue;
                     var orgDir = Path.Combine(accountDir, org);
-                    var names = SafeEntries(orgDir);
                     if (!Fs.IsDirectory(orgDir)) continue;
                     var resolved = Fs.Resolve(orgDir);
-                    contents.Stores.Add(resolved);
+                    List<string> names;
+                    try { names = Directory.EnumerateFileSystemEntries(orgDir).Select(p => Path.GetFileName(p)).ToList(); }
+                    catch
+                    {
+                        unread.Add(resolved);
+                        contents.Stores.Remove(resolved);
+                        continue;
+                    }
+                    var complete = true;
                     foreach (var name in names.OrderBy(n => n, StringComparer.Ordinal))
                     {
                         var file = Fs.Resolve(Path.Combine(orgDir, name));
@@ -187,6 +197,7 @@ public static partial class Graft
                         if (name.StartsWith("local_") && name.EndsWith(".json"))
                         {
                             var sessions = SessionsOfRecord(file);
+                            if (!sessions.Readable) { complete = false; continue; }
                             // The first store to hold it keeps it; letting the
                             // last win left the place a session was filed
                             // changing from pass to pass in the one file written
@@ -207,6 +218,10 @@ public static partial class Graft
                             catch { }
                         }
                     }
+                    // A partial read cannot authorize a withdrawal or a new
+                    // recovered copy, even when another alias reached this store.
+                    if (complete && !unread.Contains(resolved)) contents.Stores.Add(resolved);
+                    else { unread.Add(resolved); contents.Stores.Remove(resolved); }
                 }
             }
         }

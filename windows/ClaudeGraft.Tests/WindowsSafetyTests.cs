@@ -312,4 +312,24 @@ public sealed class WindowsSafetyTests : IDisposable
         Assert.NotNull(store.LoadError);
         Assert.Throws<IOException>(store.Save);
     }
+
+    [Theory(DisplayName = "unreadable sidebar records do not withdraw remembered chats on repeated sweeps")]
+    [InlineData("{broken")][InlineData("{}")][InlineData("{\"cliSessionId\":42}")]
+    public void UnreadableRecordDoesNotWithdraw(string content)
+    {
+        var profile = GraftPaths.Profile("Work");
+        var org = Path.Combine(profile, "claude-code-sessions", "account", "org");
+        Directory.CreateDirectory(org);
+        File.WriteAllText(Path.Combine(org, "local_record.json"), content);
+        var stateFile = Path.Combine(GraftPaths.OwnData, "session-records.json");
+        new SessionRecordState { Records = new() { ["remembered"] = Fs.Resolve(org) } }.Save(stateFile);
+        Assert.DoesNotContain(Fs.Resolve(org), Graft.SessionStoreContents().Stores);
+        Graft.FileMissingSessionRecords(new[] { profile }, _ => false);
+        Graft.FileMissingSessionRecords(new[] { profile }, _ => false);
+        var state = SessionRecordState.Load(stateFile);
+        Assert.Empty(state.Withdrawn);
+        Assert.Empty(state.Vanished);
+        Assert.Contains("remembered", state.Records.Keys);
+        Assert.Equal(content, File.ReadAllText(Path.Combine(org, "local_record.json")));
+    }
 }
