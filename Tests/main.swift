@@ -1686,6 +1686,45 @@ do {
     check(launchers.isEmpty, "and nothing in the app launches a Claude without asking who is there")
 }
 
+section("Opening the selected shortcut")
+do {
+    var shortcut = Shortcut(name: "Selected", source: .own)
+    shortcut.installedName = shortcut.name
+    let original = try! Installer.install(shortcut, sourceDir: nil)
+    check(try! ProfileOpener.destination(profile: shortcut.profileDir, shortcut: shortcut) == .shortcut(original),
+          "opening an installed shortcut selects its own bundle")
+    shortcut.name = "Unsaved name"
+    check(ProfileOpener.bundle(for: shortcut) == original,
+          "editing the display name still finds the previously installed shortcut")
+    let renamed = apps.appending(path: "Renamed in Finder.app")
+    try! fm.moveItem(at: original, to: renamed)
+    check(Installer.installedBundle(for: shortcut) == nil,
+          "a renamed bundle reproduces the old name lookup failure")
+    let resolved = try! ProfileOpener.destination(profile: shortcut.profileDir, shortcut: shortcut)
+    let renamedDestination: Bool
+    if case .shortcut(let bundle) = resolved { renamedDestination = Graft.samePath(bundle, renamed) }
+    else { renamedDestination = false }
+    check(renamedDestination,
+          "a Finder rename still opens the profile recorded inside the bundle")
+    let other = Shortcut(name: shortcut.name, source: .own)
+    let wrong = try! Installer.install(other, sourceDir: nil)
+    check(ProfileOpener.bundle(for: shortcut).map { Graft.samePath($0, renamed) } == true,
+          "a matching app name cannot redirect the click to another profile")
+    try! fm.removeItem(at: renamed)
+    check((try? ProfileOpener.destination(profile: shortcut.profileDir, shortcut: shortcut)) == nil,
+          "a missing shortcut fails instead of opening the default profile")
+    check((try? ProfileOpener.destination(profile: shortcut.profileDir, shortcut: nil)) == nil,
+          "a stale menu entry cannot fall back to the default profile either")
+    check((try? ProfileOpener.destination(profile: other.profileDir, shortcut: shortcut)) == nil,
+          "a shortcut for a different profile is refused")
+    check(try! ProfileOpener.destination(profile: Graft.mainProfile, shortcut: nil) == .main,
+          "only the actual default profile selects the default launch route")
+    try! Data("broken".utf8).write(to: wrong.appending(path: "Contents/Resources/graft.json"))
+    check(ProfileOpener.bundle(for: other) == nil,
+          "an unreadable profile description is not trusted because its name matches")
+    try? fm.removeItem(at: wrong)
+}
+
 // MARK: - Profiles lost during Claude's update restart
 
 section("Bringing back the profile an update left behind")

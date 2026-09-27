@@ -228,3 +228,5 @@
 "Pinned chats and sort order are synced." = "Закреплённые чаты и порядок сортировки синхронизированы.";
 "Quit the linked Claude apps, then open a shortcut to sync the sidebar." = "Закройте связанные приложения Claude, затем откройте ярлык для синхронизации боковой панели.";
 "Sidebar sync could not finish. It will retry when you next open a shortcut." = "Не удалось завершить синхронизацию боковой панели. Повторная попытка будет выполнена при следующем открытии ярлыка.";
+"This profile's shortcut could not be found. Open Claude Graft and update the shortcut, then try again." = "Не удалось найти ярлык этого профиля. Откройте Claude Graft, обновите ярлык и повторите попытку.";
+"The selected profile could not be opened. Try again after any Claude update finishes." = "Не удалось открыть выбранный профиль. Повторите попытку после завершения обновления Claude.";

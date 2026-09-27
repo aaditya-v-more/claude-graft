@@ -389,6 +389,16 @@ The dropdown asks with an `NSAlert`, not a `confirmationDialog`. It is an
 `NSPopover`, which gives up key window the moment anything else appears and
 takes any sheet it was hosting down with it.
 
+**A missing shortcut is never permission to open another profile.** The menu
+used to fall through to the default Claude when a renamed shortcut could not
+be found, producing a sidebar pass without any `launcher.run` for the requested
+profile. `ProfileOpener` checks the saved names and then `graft.json`'s profile
+path in the application directories; an unreadable or missing shortcut reports
+an error. Both shortcut Open buttons use it. LaunchServices is asked for a fresh
+launcher instance, leaving the launcher to reveal the existing Claude on that
+exact profile. `./test-opening.sh` exercises their launch path with the installed
+Claude and disposable profiles that are not signed in.
+
 **Opening a profile that is already open shows the Claude that is there.**
 Claude Desktop never calls `requestSingleInstanceLock`, so nothing on its side
 refuses a second process on one `--user-data-dir`: `open -n` twice was measured

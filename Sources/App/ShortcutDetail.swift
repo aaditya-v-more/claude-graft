@@ -418,7 +418,7 @@ struct ShortcutDetail: View {
     private func refresh() {
         let target = shortcut
         DispatchQueue.global(qos: .utility).async {
-            let bundle = Installer.installedBundle(for: target)
+            let bundle = ProfileOpener.bundle(for: target)
             let running = Graft.isRunning(profile: target.profileDir)
             let sidebar = SidebarSync.status(for: target.profileDir)
             let hasProfile = FileManager.default.fileExists(atPath: target.profileDir.path)
@@ -531,9 +531,10 @@ struct ShortcutDetail: View {
     }
 
     private func launch() {
-        guard let installedAt else { return }
-        NSWorkspace.shared.openApplication(at: installedAt,
-                                           configuration: NSWorkspace.OpenConfiguration())
+        guard installedAt != nil else { return }
+        ProfileOpener.open(profile: shortcut.profileDir, shortcut: shortcut) { failure in
+            error = failure?.localizedDescription
+        }
     }
 }
 
