@@ -32,7 +32,8 @@ struct MenuBarContent: View {
                     UsageRow(entry: entry,
                              starting: starting == entry.id,
                              open: { open(entry) },
-                             start: { startSession(entry) })
+                             start: { startSession(entry) },
+                             refresh: { usage.refresh(store, interactive: true, focus: entry.profile) })
                     if entry.id != usage.entries.last?.id {
                         Divider().padding(.leading, 14)
                     }
@@ -193,6 +194,7 @@ struct UsageRow: View {
     let starting: Bool
     let open: () -> Void
     let start: () -> Void
+    let refresh: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -234,26 +236,17 @@ struct UsageRow: View {
                     UsageBar(label: "Fable", percent: fable,
                              resets: usage.fableReset, dimmed: entry.isDimmed)
                 }
-                if entry.isDimmed {
-                    Text("Last seen \(Self.relative.localizedString(for: usage.sampled, relativeTo: Date()))")
-                        .font(.caption)
-                        .foregroundStyle(.tertiary)
-                }
+                UsageFreshness(entry: entry, refresh: refresh)
             } else {
                 Text("No usage reported yet")
                     .font(.caption)
                     .foregroundStyle(.tertiary)
+                UsageFreshness(entry: entry, refresh: refresh)
             }
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 9)
     }
-
-    private static let relative: RelativeDateTimeFormatter = {
-        let formatter = RelativeDateTimeFormatter()
-        formatter.unitsStyle = .short
-        return formatter
-    }()
 }
 
 struct UsageBar: View {
@@ -293,15 +286,73 @@ struct UsageBar: View {
                     .foregroundStyle(.secondary)
                     .frame(width: 36, alignment: .trailing)
             }
-            if let resets, let remaining = Graft.countdown(to: resets) {
-                Text("Resets in \(remaining)")
-                    .font(.caption2.monospacedDigit())
-                    .foregroundStyle(.tertiary)
-                    .padding(.leading, 60)
+            // On a clock of its own because SwiftUI only redraws a bar whose
+            // inputs changed. A Fable bar whose figures stayed put sat at one
+            // countdown for ten minutes beside a weekly one that kept counting,
+            // and a window drawn earlier disagreed with the dropdown by two.
+            if let resets {
+                TimelineView(.periodic(from: .now, by: 30)) { context in
+                    if let remaining = Graft.countdown(to: resets, from: context.date) {
+                        Text("Resets in \(remaining)")
+                            .font(.caption2.monospacedDigit())
+                            .foregroundStyle(.tertiary)
+                            .padding(.leading, 60)
+                    }
+                }
             }
         }
         .opacity(dimmed ? 0.45 : 1)
     }
+}
+
+/// When an account's figures were taken, where from, and a way to ask again.
+///
+/// Said under every account rather than only once a figure has gone stale:
+/// a bar that is quietly five minutes behind looks exactly like one that is
+/// current, and a figure read off the profile's own record when the service
+/// would not answer looks exactly like a live one.
+struct UsageFreshness: View {
+    let entry: UsageMonitor.Entry
+    let refresh: () -> Void
+    @ObservedObject private var monitor = Shared.usage
+
+    private var spinning: Bool {
+        monitor.isRefreshing && (monitor.refreshingProfile == nil || monitor.refreshingProfile == entry.id)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 4) {
+                // Ticks on its own, so "2 min ago" does not sit there for an
+                // hour between passes that changed nothing.
+                TimelineView(.periodic(from: .now, by: 30)) { context in
+                    Text(entry.freshness(now: context.date))
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
+                Spacer(minLength: 4)
+                Button(action: refresh) {
+                    if spinning {
+                        ProgressView().controlSize(.mini)
+                    } else {
+                        Image(systemName: "arrow.clockwise")
+                            .font(.caption2)
+                    }
+                }
+                .buttonStyle(.borderless)
+                .disabled(spinning)
+                .help("Ask Anthropic for this account's usage now")
+                .accessibilityLabel(L10n.text("Refresh usage"))
+            }
+            if let note = entry.note {
+                Text(note)
+                    .font(.caption2)
+                    .foregroundStyle(.orange)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
 }
 
 /// Graft's own updates, beside the switch for Claude's. The two are separate on

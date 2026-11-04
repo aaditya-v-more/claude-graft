@@ -1140,6 +1140,29 @@ refused was the one the dropdown had just started itself — so the obvious move
 open the dropdown and press Refresh because the number looks stale, was the one
 guaranteed to do nothing.
 
+An account in use moves while nobody looks, so the tick's five minutes is
+two for a profile whose Claude is open, and bringing a Claude to the front asks
+for its account at the strength opening the dropdown does — matched to the
+profile through its command line, the main one by having no `--user-data-dir`.
+A press on one account's refresh button is `focus`ed: that profile gets the
+press and the rest are read as a tick reads them, keychain prompt included.
+
+Every figure carries when it was really taken. A reused reading used to be
+stamped with the moment the pass ran, and a failed request returned the last
+live reading of any age marked the same way, so a bar an hour behind read as
+current. `refreshed` is the service's answer time or the profile's own sample
+time, the row says which of the two it is, and `note` says why when it is not a
+fresh live answer. Opening the dropdown mid-pass used to be dropped like a tick;
+`arrival` queues anything stronger than a tick, and a queued request keeps its
+own strength rather than being replayed as a press. A sample the profile wrote
+after the last live answer is the better figure and wins.
+
+Anything on screen that is worked out from the clock runs on a `TimelineView`
+of its own. SwiftUI redraws a view only when its inputs change, and a figure
+that has not moved is the same input every pass, so a reset countdown drawn in
+a plain body stood still for ten minutes while the weekly one beside it counted
+down.
+
 Starting a session is the one thing here that changes the number itself, so it
 calls `invalidate` for that profile before refreshing rather than trusting any
 cache window. That is ordered against the refresh by the serial queue both go
@@ -1261,6 +1284,14 @@ destination, a merge into a profile that has its own chats, a record whose
 stamp disagrees with its file, and a second run. The refusal while a Claude is
 open is the one clause the suite still stands alone for, since it is driven
 through an override — nothing in a temporary directory can be made to run.
+
+Usage freshness has been watched live with both Claudes closed: the label and
+its refresh button under every account in both places, the keychain fallback
+named in orange, one account's refresh leaving the other alone, Refresh Usage,
+a reopened dropdown asking again after a minute, and closed profiles advancing
+every five minutes. Not yet seen live: the two-minute cadence for an open
+Claude, and the refresh on bringing one to the front, both of which need a
+Claude running while the test is.
 
 Unproven: **Start Session** has never successfully opened a window. It POSTs one
 Haiku message with `max_tokens: 4` and Claude Code's system prompt, which these

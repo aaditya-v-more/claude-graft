@@ -1009,6 +1009,36 @@ do {
               "\(view) drops the reading its own Start Session has just made wrong")
     }
 
+    // A figure says when it was taken and where from. The profile's own
+    // record was written at `now`, and that is the time the row reports —
+    // not the moment the pass happened to run.
+    if let entry = monitor.entry(for: listed), let refreshed = entry.refreshed {
+        check(abs(refreshed.timeIntervalSince1970 * 1000 - now) < 1000 && !entry.isLive,
+              "a figure read off the profile's own record is dated by that record")
+        check(entry.freshness(now: refreshed.addingTimeInterval(600)).contains("own record"),
+              "and the row says it came from the profile rather than from Anthropic")
+    } else {
+        check(false, "a figure read off the profile's own record is dated by that record")
+    }
+    var current = UsageMonitor.Entry(name: "Live", profile: listed, usage: nil, isRunning: false)
+    current.isLive = true
+    current.refreshed = Date()
+    check(current.freshness() == L10n.format("Updated %@ from Anthropic", L10n.text("just now")),
+          "a live figure taken a moment ago says so")
+    check(UsageMonitor.Entry(name: "None", profile: listed, usage: nil, isRunning: false).freshness()
+            == L10n.text("Not refreshed yet"),
+          "and an account nobody has answered for yet says that instead of a time")
+
+    let rows = (try? String(contentsOf: views.appending(path: "MenuBarContent.swift"), encoding: .utf8)) ?? ""
+    let summary = (try? String(contentsOf: views.appending(path: "ShortcutDetail.swift"), encoding: .utf8)) ?? ""
+    check(rows.contains("UsageFreshness(entry: entry, refresh: refresh)")
+            && summary.contains("UsageFreshness(entry: entry, refresh: refresh)"),
+          "every account in the dropdown and the window says when its figure was taken and offers a refresh")
+    let bar = rows.components(separatedBy: "struct UsageBar").dropFirst().first?
+        .components(separatedBy: "struct UsageFreshness").first ?? ""
+    check(bar.contains("TimelineView") && bar.contains("from: context.date"),
+          "a reset countdown keeps counting even when the figure behind it has not changed")
+
     // A stale figure says nothing about the window that is running now.
     writeUsage(listed, [(now - 8 * 60 * 60 * 1000, 99, 99)])
     let second = UsageMonitor()
@@ -1562,6 +1592,43 @@ do {
           "a press arriving mid-pass waits for its turn rather than being lost")
     check(UsageMonitor.arrival(passInFlight: true, interactive: false) == .drop,
           "but a tick is worth dropping, since the pass will answer it anyway")
+    // Opening the dropdown is no press, and used to be dropped like a tick —
+    // so the figure someone opened it to see was whatever the timer's pass
+    // happened to reuse.
+    check(UsageMonitor.arrival(passInFlight: true, interactive: false, freshness: .recent) == .queue,
+          "opening the dropdown mid-pass waits for its turn too")
+    check(UsageMonitor.stronger(.recent, .now) == .now && UsageMonitor.stronger(.cached, .recent) == .recent,
+          "two requests waiting on one pass become one request for the stronger")
+
+    // An account in use moves while nobody looks; one closed does not.
+    check(!UsageMonitor.mayUseCache(age: 150, freshness: .cached, running: true),
+          "an open Claude's figure is asked for again within a couple of minutes")
+    check(UsageMonitor.mayUseCache(age: 150, freshness: .cached, running: false),
+          "while a closed one keeps the five-minute interval")
+    check(UsageMonitor.activeInterval >= 60,
+          "and even an open one is not asked more than once a minute by the timer")
+
+    // The profile's own record can be newer than the last live answer.
+    let fetched = Date()
+    check(UsageMonitor.prefersLocal(liveFetched: fetched, localSampled: fetched.addingTimeInterval(30)),
+          "a record the profile wrote after the last live answer is the better figure")
+    check(!UsageMonitor.prefersLocal(liveFetched: fetched, localSampled: fetched.addingTimeInterval(-30)),
+          "and an older one is not")
+    check(!UsageMonitor.prefersLocal(liveFetched: fetched, localSampled: nil),
+          "and no record at all leaves the live answer standing")
+
+    // Switching to a Claude is switching to that account.
+    let main = Graft.mainProfile
+    let two = Graft.applicationSupport.appending(path: "Claude-2")
+    let twenty = Graft.applicationSupport.appending(path: "Claude-20")
+    let binary = Graft.claudeApp.appending(path: "Contents/MacOS/Claude").path
+    check(UsageMonitor.profile(launchedBy: "\(binary) --user-data-dir=\(two.path)", among: [main, twenty, two])?.path
+            == two.path,
+          "a Claude brought forward is matched to the profile it was launched on")
+    check(UsageMonitor.profile(launchedBy: binary, among: [main, two])?.path == main.path,
+          "one launched with no profile at all is Claude's own")
+    check(UsageMonitor.profile(launchedBy: "\(binary) Helper --user-data-dir=\(two.path)", among: [two]) == nil,
+          "and a helper process is nobody's account")
 
     // Without backoff a refused call would be retried on the next tick, turning
     // one failure into a hundred and twenty attempts an hour.

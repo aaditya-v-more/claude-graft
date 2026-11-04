@@ -164,7 +164,9 @@ struct ShortcutDetail: View {
             }
 
             Section {
-                UsageSummary(entry: plan)
+                UsageSummary(entry: plan) {
+                    usage.refresh(store, interactive: true, focus: shortcut.profileDir)
+                }
             } header: {
                 SectionHeader(title: "Plan usage", info: UsageSummary.explanation(for: plan))
             }
@@ -544,6 +546,7 @@ struct ShortcutDetail: View {
 /// the one the menu bar is showing for the same account.
 struct UsageSummary: View {
     let entry: UsageMonitor.Entry?
+    let refresh: () -> Void
 
     private var dimmed: Bool { entry?.isDimmed ?? false }
 
@@ -557,10 +560,12 @@ struct UsageSummary: View {
                 UsageBar(label: "Fable", percent: fable,
                          resets: usage.fableReset, dimmed: dimmed)
             }
+            if let entry { UsageFreshness(entry: entry, refresh: refresh) }
         } else {
             Text("No usage reported yet")
                 .font(.callout)
                 .foregroundStyle(.secondary)
+            if let entry { UsageFreshness(entry: entry, refresh: refresh) }
         }
     }
 

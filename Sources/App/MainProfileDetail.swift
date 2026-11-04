@@ -64,7 +64,9 @@ struct MainProfileDetail: View {
             }
 
             Section {
-                UsageSummary(entry: plan)
+                UsageSummary(entry: plan) {
+                    usage.refresh(store, interactive: true, focus: Graft.mainProfile)
+                }
             } header: {
                 SectionHeader(title: "Plan usage", info: UsageSummary.explanation(for: plan))
             }

@@ -50,7 +50,6 @@
 "Installed normally" = "Установлен обычным способом";
 "Installs it and restarts. Nothing is asked." = "Установит обновление и перезапустит приложение без дополнительных вопросов.";
 "Its own chats" = "Собственные чаты";
-"Last seen %@" = "Последние данные: %@";
 "macOS has not granted access to the “Claude Safe Storage” keychain item. Choose Always Allow when it asks, and live usage starts working." = "macOS не предоставила доступ к записи «Claude Safe Storage» в Связке ключей. В системном запросе выберите «Разрешать всегда», чтобы получать актуальные данные об использовании.";
 "macOS needs this approved in System Settings › General › Login Items." = "Разрешите это в «Системные настройки» › «Основные» › «Объекты входа».";
 "Main Claude" = "Основной Claude";
@@ -233,3 +232,14 @@
 "Install Claude Graft %@" = "Установить Claude Graft %@";
 "Hold Claude Graft updates" = "Откладывать обновления Claude Graft";
 "Graft still checks every hour and says when a version is ready, in this menu and on its icon. Nothing downloads until you press Install." = "Graft по-прежнему проверяет обновления каждый час и сообщает о новой версии в этом меню и значком. Ничего не загружается, пока вы не нажмёте «Установить».";
+"%@ Showing the last figure Anthropic gave." = "%@ Показаны последние данные, полученные от Anthropic.";
+"%@ Showing what this profile last recorded itself." = "%@ Показаны данные, которые этот профиль записал сам.";
+"This profile has no saved login to ask Anthropic with." = "В этом профиле нет сохранённого входа для запроса к Anthropic.";
+"Live usage needs keychain access." = "Для актуальных данных нужен доступ к связке ключей.";
+"Anthropic's usage service did not answer." = "Служба использования Anthropic не ответила.";
+"Ask Anthropic for this account's usage now" = "Запросить у Anthropic использование этого аккаунта сейчас";
+"Refresh usage" = "Обновить использование";
+"Not refreshed yet" = "Ещё не обновлялось";
+"just now" = "только что";
+"Updated %@ from Anthropic" = "Обновлено %@, данные Anthropic";
+"Updated %@ from this profile's own record" = "Обновлено %@, по записи самого профиля";

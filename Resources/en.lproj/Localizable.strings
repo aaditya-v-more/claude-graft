@@ -50,7 +50,6 @@
 "Installed normally" = "Installed normally";
 "Installs it and restarts. Nothing is asked." = "Installs it and restarts. Nothing is asked.";
 "Its own chats" = "Its own chats";
-"Last seen %@" = "Last seen %@";
 "macOS has not granted access to the “Claude Safe Storage” keychain item. Choose Always Allow when it asks, and live usage starts working." = "macOS has not granted access to the “Claude Safe Storage” keychain item. Choose Always Allow when it asks, and live usage starts working.";
 "macOS needs this approved in System Settings › General › Login Items." = "macOS needs this approved in System Settings › General › Login Items.";
 "Main Claude" = "Main Claude";
@@ -233,3 +232,14 @@
 "Install Claude Graft %@" = "Install Claude Graft %@";
 "Hold Claude Graft updates" = "Hold Claude Graft updates";
 "Graft still checks every hour and says when a version is ready, in this menu and on its icon. Nothing downloads until you press Install." = "Graft still checks every hour and says when a version is ready, in this menu and on its icon. Nothing downloads until you press Install.";
+"%@ Showing the last figure Anthropic gave." = "%@ Showing the last figure Anthropic gave.";
+"%@ Showing what this profile last recorded itself." = "%@ Showing what this profile last recorded itself.";
+"This profile has no saved login to ask Anthropic with." = "This profile has no saved login to ask Anthropic with.";
+"Live usage needs keychain access." = "Live usage needs keychain access.";
+"Anthropic's usage service did not answer." = "Anthropic's usage service did not answer.";
+"Ask Anthropic for this account's usage now" = "Ask Anthropic for this account's usage now";
+"Refresh usage" = "Refresh usage";
+"Not refreshed yet" = "Not refreshed yet";
+"just now" = "just now";
+"Updated %@ from Anthropic" = "Updated %@ from Anthropic";
+"Updated %@ from this profile's own record" = "Updated %@ from this profile's own record";
