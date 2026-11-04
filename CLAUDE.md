@@ -1289,9 +1289,11 @@ Usage freshness has been watched live with both Claudes closed: the label and
 its refresh button under every account in both places, the keychain fallback
 named in orange, one account's refresh leaving the other alone, Refresh Usage,
 a reopened dropdown asking again after a minute, and closed profiles advancing
-every five minutes. Not yet seen live: the two-minute cadence for an open
-Claude, and the refresh on bringing one to the front, both of which need a
-Claude running while the test is.
+every five minutes. A second run with one Claude open covered the rest: the
+open account every two and a half minutes beside the closed one's five and a
+half, bringing that Claude forward asking for its account alone within a
+second, a return inside the minute reusing the figure, and switching between
+other apps asking for nothing.
 
 Unproven: **Start Session** has never successfully opened a window. It POSTs one
 Haiku message with `max_tokens: 4` and Claude Code's system prompt, which these
