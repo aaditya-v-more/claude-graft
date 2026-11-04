@@ -3,6 +3,30 @@
     <channel>
         <title>Claude Graft</title>
         <item>
+            <title>1.1.7</title>
+            <pubDate>Thu, 05 Nov 2026 00:41:04 +0530</pubDate>
+            <link>https://github.com/aaditya-v-more/claude-graft</link>
+            <sparkle:version>1.1.7</sparkle:version>
+            <sparkle:shortVersionString>1.1.7</sparkle:shortVersionString>
+            <sparkle:minimumAutoupdateVersion>1.1.0</sparkle:minimumAutoupdateVersion>
+            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+            <description><![CDATA[<h2>Update when you are ready</h2>
+
+<p>Graft has always installed its own updates as soon as they appear. That is
+still the default, but you can now turn on <strong>Hold Claude Graft
+updates</strong> in the menu bar or in Settings. Graft keeps checking every
+hour and shows a new version in the menu and on its icon, but downloads nothing
+until you press <strong>Install</strong>. Turn the hold off and updates go back
+to installing themselves.</p>
+
+<p>Opening a shortcut you have renamed now opens that profile. Before, Graft
+could fail to find the renamed shortcut and open your main Claude instead.</p>
+
+<p>Works on Apple Silicon and Intel, with macOS 13 or later supported.</p>
+]]></description>
+            <enclosure url="https://github.com/aaditya-v-more/claude-graft/releases/download/v1.1.7/ClaudeGraft-1.1.7.zip" length="4514229" type="application/octet-stream" sparkle:edSignature="eR/aDT60vo93QHMDQ49MS8D4rsNmUrFhUv5NQMuk9pNnLcdYoGmykyS/gSQfKEiRhUlayQQknQsJcOZM2aztAw=="/>
+        </item>
+        <item>
             <title>1.1.6</title>
             <pubDate>Fri, 18 Sep 2026 02:18:25 +0530</pubDate>
             <link>https://github.com/aaditya-v-more/claude-graft</link>
