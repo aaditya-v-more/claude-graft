@@ -43,12 +43,33 @@ enum QuitPolicy {
     }
 }
 
+/// What holding Graft's own updates changes, and what it leaves alone.
+///
+/// Off, which is where every copy starts and where every copy already out there
+/// stays, an update is found on Sparkle's schedule and installs itself. On, the
+/// schedule is Graft's instead: an hourly probe that learns a version exists
+/// and fetches nothing, so the only thing that can start a download is a person
+/// pressing the line that names it. A press installs without a further
+/// question either way — holding is about when, not about being asked twice.
+enum UpdatePolicy {
+    /// Sparkle's own timer, which downloads and installs whatever it finds.
+    static func sparkleChecksOnItsOwn(holding: Bool) -> Bool { !holding }
+
+    /// The status item only says so while an update is waiting on somebody.
+    /// Without a hold the version is known for the seconds before it installs
+    /// itself, and an icon changing for that long is noise.
+    static func showsInStatusItem(holding: Bool, available: String?) -> Bool {
+        holding && available != nil
+    }
+}
+
 /// The handful of preferences the menu bar exposes. Stored in UserDefaults,
 /// except for the login item, which is state macOS owns.
 final class AppSettings: ObservableObject {
     private enum Key {
         static let menuBar = "showInMenuBar"
         static let seeded = "defaultsSeeded"
+        static let holdUpdates = "holdUpdates"
     }
 
     private let defaults: UserDefaults
@@ -60,6 +81,13 @@ final class AppSettings: ObservableObject {
             // nothing left to click — not even a way to quit.
             if !showInMenuBar { NSApp?.setActivationPolicy(.regular) }
         }
+    }
+
+    /// Off unless somebody turns it on. Read with a plain `bool(forKey:)` on
+    /// purpose: a key nobody has written is every machine that installed this
+    /// release by updating, and those must go on updating exactly as before.
+    @Published var holdUpdates: Bool {
+        didSet { defaults.set(holdUpdates, forKey: Key.holdUpdates) }
     }
 
     /// Reflects what macOS reports, not a value of our own.
@@ -74,6 +102,7 @@ final class AppSettings: ObservableObject {
             defaults.set(true, forKey: Key.menuBar)
         }
         showInMenuBar = defaults.bool(forKey: Key.menuBar)
+        holdUpdates = defaults.bool(forKey: Key.holdUpdates)
         openAtLogin = AppSettings.loginItemEnabled
     }
 

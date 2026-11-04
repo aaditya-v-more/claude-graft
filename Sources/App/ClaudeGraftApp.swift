@@ -66,6 +66,7 @@ struct SettingsView: View {
                     set: { problem = settings.setOpenAtLogin($0) }))
                 Toggle("Show in Menu Bar", isOn: $settings.showInMenuBar)
                 ManualUpdateControl()
+                HoldUpdatesControl()
             } footer: {
                 Text(problem ?? L10n.text("""
                      The menu bar item keeps reporting usage after this window is \
@@ -110,7 +111,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Shared.manualUpdates.start(watching: Shared.store)
         Shared.updateRecovery.start(watching: Shared.store)
         Shared.claudeUpdates.start()
-        Shared.updater.start()
+        Shared.updater.start(holding: Shared.settings)
         // No prompts, no windows: filing records is a thing the menu bar
         // does on its own whether anyone is looking or not. Once, here —
         // the pass that matters runs in a shortcut's launcher, on its way

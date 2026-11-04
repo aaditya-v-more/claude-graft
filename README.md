@@ -89,7 +89,9 @@ window. It uses a few tokens and runs only when you press it.
 ## Updating
 
 Graft checks hourly and installs signed updates automatically. Use
-**Check for Claude Graft Updates** to check now.
+**Check for Claude Graft Updates** to check now. To choose when Graft updates,
+turn on **Hold Claude Graft updates**: it keeps checking, shows a new version in
+the menu bar, and installs it only when you press **Install**.
 
 To control Claude's updates, enable **Update Claude Desktop manually** in
 Graft's menu or Settings; it takes effect when each Claude next starts.

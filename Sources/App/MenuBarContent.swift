@@ -76,8 +76,10 @@ struct MenuBarContent: View {
             }
 
             if let version = updater.availableVersion {
-                Button { updater.checkForUpdates() } label: {
-                    Label("Claude Graft \(version) is available", systemImage: "arrow.down.circle")
+                Button { updater.install() } label: {
+                    Label(updater.isHolding ? L10n.format("Install Claude Graft %@", version)
+                                            : L10n.format("Claude Graft %@ is available", version),
+                          systemImage: "arrow.down.circle")
                         .font(.callout)
                 }
                 .buttonStyle(.link)
@@ -92,6 +94,7 @@ struct MenuBarContent: View {
                     set: { problem = settings.setOpenAtLogin($0) }))
                 Toggle("Show in Menu Bar", isOn: $settings.showInMenuBar)
                 ManualUpdateControl()
+                HoldUpdatesControl()
             }
             .toggleStyle(.checkbox)
             .padding(.horizontal, 14)
@@ -298,5 +301,23 @@ struct UsageBar: View {
             }
         }
         .opacity(dimmed ? 0.45 : 1)
+    }
+}
+
+/// Graft's own updates, beside the switch for Claude's. The two are separate on
+/// purpose: one holds back the app doing the reporting, the other every Claude.
+struct HoldUpdatesControl: View {
+    @EnvironmentObject private var settings: AppSettings
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Toggle("Hold Claude Graft updates", isOn: $settings.holdUpdates)
+            if settings.holdUpdates {
+                Text("Graft still checks every hour and says when a version is ready, in this menu and on its icon. Nothing downloads until you press Install.")
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .font(.callout)
+        .fixedSize(horizontal: false, vertical: true)
     }
 }

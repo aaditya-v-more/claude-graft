@@ -574,6 +574,26 @@ starts, which happened twice before it was understood. `willInstallUpdateOnQuit`
 also calls the immediate handler: Sparkle would otherwise wait for a quit that a
 menu bar app may not see for weeks.
 
+**A hold is the one way to stop that, and it is off unless somebody turns it
+on.** `holdUpdates` is read with a plain `bool(forKey:)`, so every machine that
+arrives by updating — none of which has the key — goes on installing silently
+as before. On, Sparkle's own schedule is turned off, because it downloads
+whatever it finds, and an hourly `checkForUpdateInformation` probe stands in for
+it: the feed is read, the version shown in the dropdown and on the status item,
+and nothing fetched. A press on that line runs the same background check the
+schedule would have, so there is still exactly one way a version arrives and it
+still asks nothing. The controller is built with `startingUpdater: false` and
+started only after the hold is applied, since Sparkle schedules its launch check
+as it starts and a hold arriving a moment late would let that check install the
+very thing being held. `UpdatePolicy` carries the rule.
+
+That press needs `SUAllowsAutomaticUpdates` in `Info.plist`. Without the key
+Sparkle allows background downloading only while its own schedule is on, so
+under a hold `automaticallyDownloadsUpdates` read false whatever had been set.
+The press then took the ask-first path and showed nothing: tested for real, it
+read the feed and stayed on the old version twice. With the schedule on, the
+key changes nothing, which is why the default path never showed the problem.
+
 **One update asks, and the asking lives in the feed rather than the code.**
 Every release installs itself without a word, which is the rule above and still
 the rule. 1.1.0 is the exception: it merges two chat histories into one and that

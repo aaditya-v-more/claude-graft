@@ -43,6 +43,11 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in self?.updateTitle() }
             .store(in: &watches)
+
+        Shared.updater.$availableVersion.combineLatest(Shared.updater.$isHolding)
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.updateTitle() }
+            .store(in: &watches)
     }
 
     // MARK: - The item itself
@@ -83,11 +88,18 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
     private func updateTitle() {
         guard let button = item?.button else { return }
         let updates = Shared.claudeUpdates
+        // Claude's own update outranks Graft's: it is the one that closes
+        // work, and the one with a confirmation waiting behind it.
+        let heldVersion = UpdatePolicy.showsInStatusItem(holding: Shared.updater.isHolding,
+                                                         available: Shared.updater.availableVersion)
+            ? Shared.updater.availableVersion : nil
         button.image = NSImage(systemSymbolName: updates.isUpdating ? "arrow.triangle.2.circlepath"
-                               : updates.availableVersion != nil ? "exclamationmark.circle.fill" : "circle.lefthalf.filled",
+                               : updates.availableVersion != nil ? "exclamationmark.circle.fill"
+                               : heldVersion != nil ? "arrow.down.circle.fill" : "circle.lefthalf.filled",
                                accessibilityDescription: "Claude Graft")
         let updateTip = updates.isUpdating ? L10n.text("Claude Desktop is updating")
             : updates.availableVersion.map { L10n.format("Claude Desktop %@ is available", $0) }
+            ?? heldVersion.map { L10n.format("Claude Graft %@ is available", $0) }
         guard let headline = usage.headlineEntry, let figures = headline.usage else {
             button.title = ""
             button.toolTip = updateTip ?? L10n.text("No usage reported yet")

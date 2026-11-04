@@ -1027,6 +1027,26 @@ do {
     settings.showInMenuBar = false
     let reopened = AppSettings(defaults: suite)
     check(!reopened.showInMenuBar, "and turning it off survives a restart")
+
+    // Every machine this lands on arrives by updating, with no key written
+    // for a setting that did not exist yet. Those must go on updating exactly
+    // as they did, so an absent key has to read as no hold.
+    check(!reopened.holdUpdates, "Graft's own updates are not held unless somebody holds them")
+    reopened.holdUpdates = true
+    check(AppSettings(defaults: suite).holdUpdates, "and a hold survives a restart")
+    reopened.holdUpdates = false
+    check(!AppSettings(defaults: suite).holdUpdates, "as does letting go of it")
+
+    check(UpdatePolicy.sparkleChecksOnItsOwn(holding: false),
+          "without a hold, Sparkle's schedule finds and installs updates as it always has")
+    check(!UpdatePolicy.sparkleChecksOnItsOwn(holding: true),
+          "with one, Sparkle's schedule is off, since it downloads whatever it finds")
+    check(UpdatePolicy.showsInStatusItem(holding: true, available: "9.9.9"),
+          "a held update shows on the status item")
+    check(!UpdatePolicy.showsInStatusItem(holding: false, available: "9.9.9"),
+          "an update about to install itself does not flicker the icon")
+    check(!UpdatePolicy.showsInStatusItem(holding: true, available: nil),
+          "and a hold with nothing waiting leaves the icon alone")
 }
 
 // MARK: - When the windows reset
@@ -1187,7 +1207,8 @@ do {
                        "Checking for Claude Graft Updates…", "Update Claude Desktop manually",
                        "Update Claude…", "Update Claude Desktop?", "Quit All Claude & Update",
                        "Chats found elsewhere", "Merge Them Here", "Copy Them Here",
-                       "Open Without Them", "Do Not Show Again", "Leave Closed", "Dismiss"]
+                       "Open Without Them", "Do Not Show Again", "Leave Closed", "Dismiss",
+                       "Hold Claude Graft updates", "Install Claude Graft %@"]
     check(rebasedKeys.allSatisfy { english[$0] != nil && russian[$0] != nil },
           "the update UI added upstream is localized too")
     let russianBundle = Bundle(path: repo.appending(path: "Resources/ru.lproj").path)!
@@ -1306,6 +1327,31 @@ do {
           "the dropdown's check installs rather than asking")
     check(!updater.contains("updater.checkForUpdates()"),
           "so Sparkle's own panel is never what a press puts on screen")
+
+    // A hold is only a hold if nothing else can download. Sparkle schedules
+    // its launch check as it starts, so a controller started before the hold
+    // was applied would fetch and install the held version on the way up.
+    check(updater.contains("startingUpdater: false") && updater.contains("controller.startUpdater()"),
+          "the updater is configured before it starts")
+    if let applied = updater.range(of: "apply(holding: settings.holdUpdates)"),
+       let started = updater.range(of: "controller.startUpdater()") {
+        check(applied.lowerBound < started.lowerBound,
+              "and the hold is in place before Sparkle's first check can run")
+    } else {
+        check(false, "and the hold is in place before Sparkle's first check can run")
+    }
+    check(updater.contains("checkForUpdateInformation()"),
+          "a hold looks for updates with a probe, which downloads nothing")
+    // Sparkle ties background downloading to its own schedule unless the
+    // bundle says otherwise, and a hold turns the schedule off. Without the
+    // key, pressing Install on a held version did nothing at all.
+    check(read("Resources/Info.plist").contains("<key>SUAllowsAutomaticUpdates</key><true/>"),
+          "a press installs a held version even with Sparkle's schedule off")
+    let menu = read("Sources/App/MenuBarContent.swift")
+    check(menu.contains("updater.install()") && menu.contains("HoldUpdatesControl()"),
+          "the dropdown offers the held version and the switch that holds it")
+    check(read("Sources/App/ClaudeGraftApp.swift").contains("HoldUpdatesControl()"),
+          "and so does the settings window")
 
     // The app carries links of its own to the site and the source, compiled
     // into copies that will never be built again. GitHub redirects a renamed

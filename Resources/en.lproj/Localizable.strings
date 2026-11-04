@@ -230,3 +230,6 @@
 "Sidebar sync could not finish. It will retry when you next open a shortcut." = "Sidebar sync could not finish. It will retry when you next open a shortcut.";
 "This profile's shortcut could not be found. Open Claude Graft and update the shortcut, then try again." = "This profile's shortcut could not be found. Open Claude Graft and update the shortcut, then try again.";
 "The selected profile could not be opened. Try again after any Claude update finishes." = "The selected profile could not be opened. Try again after any Claude update finishes.";
+"Install Claude Graft %@" = "Install Claude Graft %@";
+"Hold Claude Graft updates" = "Hold Claude Graft updates";
+"Graft still checks every hour and says when a version is ready, in this menu and on its icon. Nothing downloads until you press Install." = "Graft still checks every hour and says when a version is ready, in this menu and on its icon. Nothing downloads until you press Install.";
