@@ -997,6 +997,41 @@ conversation left its earlier half sitting there in plain sight. Five such
 records were on this machine, against three conversations. `StoreContents.superseded`
 is what a record says it has taken over, and nothing in it is ever filed.
 
+**And a conversation asked again is not a second conversation.** Editing a
+prompt or resuming a chat in the desktop starts a new command line session.
+Sometimes it copies the history and asks the edited prompt again; sometimes it
+is a fresh session where the same opening prompt was typed and then left. If
+the profile was grafted at the time, no record ever named the earlier one in
+`priorCliSessionIds`, so `superseded` could not see it and the sweep filed every
+attempt: one conversation turned up six times under one title, and the copies
+were only told apart by reading them.
+
+`resumedCopies` is the rule, and it asks three things of a session before
+calling it a copy of another with the same account, organization and folder.
+They open with the same prompt, and it says something: the first version matched
+on prompts alone and put three unrelated chats that only said "hi" out of sight.
+Every prompt typed in it was typed in the other, which holds more, or the same
+and was active later. And it did nothing the other did not — the first version
+also put away a retry holding the only finished draft of a PR comment, its
+counterpart overloaded at that turn, and the session holding an original
+implementation its counterpart only found and built on. A resumed copy keeps
+the line id of everything it copied, so a session's own work is exactly the
+answers the other has no id for; a file edited there rules it out, and a few
+sentences of its own — what a stopped attempt leaves behind — are allowed for.
+
+Prompts are what a person typed: a tool's output, an `isMeta` note and a stopped
+turn's `[Request interrupted by user]` line all arrive as `user` lines with a
+prompt id, and counting the last one kept the stopped stub and dropped the real
+conversation in four pairs out of four. Fingerprints are taken over the raw
+escaped bytes, because decoding every prompt made a cold pass two thirds slower.
+
+Checked against this machine's 302 sessions by reading every one the rule
+caught: the 28 that were copies did at most 173 bytes of answering of their own
+and edited nothing, the two real branches did 2,573 bytes with four edits and
+9,097 bytes, and the allowance sits between them. The rule now catches exactly
+those 28 and files the five it got wrong. It only decides filing; records
+already on disk stay where they are.
+
 **A Claude this app did not make is read, never written to.** Every profile in
 Application Support holding a chat store is worth reading, because the question
 a sweep asks is whether any Claude anywhere is already listing the session, and

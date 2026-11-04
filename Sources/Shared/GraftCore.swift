@@ -465,7 +465,127 @@ enum Graft {
     /// by carrying `assistant` anywhere, which is the only rule the shape
     /// above leaves standing.
     static func sessionFacts(inTranscriptAt url: URL, cliSessionId: String) -> SessionFacts? {
-        guard let data = try? Data(contentsOf: url, options: [.mappedIfSafe]) else { return nil }
+        readTranscript(at: url, cliSessionId: cliSessionId).facts
+    }
+
+    /// What a person typed, one fingerprint per prompt, in the order typed.
+    ///
+    /// Not the turns: a tool's output comes back as a `user` line too, and so
+    /// does the note Claude adds about a command that ran, and neither is
+    /// something anybody said. A prompt is a `user` line with a `promptId`
+    /// that answers no tool and is not marked `isMeta`, and its words are the
+    /// message content when that is a string, or its first text block when
+    /// the prompt came with an image. Whitespace is folded so a prompt pasted
+    /// again with a trailing newline is still the same prompt.
+    ///
+    /// Fingerprints rather than the text: these are kept on disk beside every
+    /// transcript, and a pasted log is no business of a cache.
+    static func promptsTyped(inTranscriptAt url: URL) -> [String] {
+        readTranscript(at: url, cliSessionId: url.deletingPathExtension().lastPathComponent).trace.prompts
+    }
+
+    /// What a session asked and what it answered, in the shape `resumedCopies`
+    /// compares. Kept beside every transcript in the cache, so it holds
+    /// fingerprints and sizes rather than anything anybody wrote.
+    struct ConversationTrace: Codable, Equatable {
+        /// What a person typed, in order. See `promptsTyped`.
+        var prompts: [String] = []
+        /// How much the opening prompt says, whitespace folded. A "hi" opens
+        /// a hundred unrelated chats and identifies none of them.
+        var openingSize = 0
+        /// Every answer that produced something, by its line's own id, with
+        /// how much it produced: the bytes of its text, and `editWeight` for
+        /// a file it changed. A resumed copy carries the lines of the history
+        /// it copied under their original ids, so what a session did that
+        /// another did not is exactly the ids the other lacks.
+        var work: [String: Int] = [:]
+
+        /// An edit is work however short its explanation, so one outweighs
+        /// any allowance for passing remarks.
+        static let editWeight = 1_000_000
+    }
+
+    /// FNV-1a over the words with their whitespace folded. Stable across
+    /// processes, which Swift's own hasher is not, and the cache outlives
+    /// every process that writes it.
+    static func promptFingerprint(_ words: String) -> String? {
+        let bytes = Array(words.utf8)
+        return promptFingerprint(bytes[...])
+    }
+
+    static func promptFingerprint(_ value: ArraySlice<UInt8>) -> String? {
+        fingerprint(value)?.print
+    }
+
+    /// The same, over a value still as JSON wrote it. Decoding first is what
+    /// a prompt's words would otherwise cost, and it was measured making a
+    /// cold pass two thirds slower: a compaction summary or a pasted log is
+    /// a prompt too. One writer escapes one text one way, so the escaped
+    /// bytes identify it as well as the words do; only the whitespace
+    /// escapes are folded, since those are what a re-paste changes.
+    private static func fingerprint(_ value: ArraySlice<UInt8>) -> (print: String, size: Int)? {
+        let backslash = UInt8(ascii: "\\")
+        var hash: UInt64 = 0xcbf2_9ce4_8422_2325
+        var wrote = false, gap = false, size = 0
+        func mix(_ byte: UInt8) {
+            if gap && wrote { hash ^= UInt64(UInt8(ascii: " ")); hash = hash &* 0x0000_0100_0000_01b3; size += 1 }
+            gap = false
+            wrote = true
+            size += 1
+            hash ^= UInt64(byte)
+            hash = hash &* 0x0000_0100_0000_01b3
+        }
+        var i = value.startIndex
+        while i < value.endIndex {
+            let byte = value[i]
+            if byte == backslash, i + 1 < value.endIndex {
+                let next = value[i + 1]
+                if next == UInt8(ascii: "n") || next == UInt8(ascii: "t") || next == UInt8(ascii: "r") {
+                    gap = true
+                } else {
+                    mix(byte)
+                    mix(next)
+                }
+                i += 2
+                continue
+            }
+            if byte == 0x20 || byte == 0x0a || byte == 0x09 || byte == 0x0d { gap = true } else { mix(byte) }
+            i += 1
+        }
+        return wrote ? (String(hash, radix: 16), size) : nil
+    }
+
+    /// Stopping a turn leaves a `user` line behind with a prompt id and no
+    /// mark of its own, worded `[Request interrupted by user]` or `… for tool
+    /// use]`. Nobody typed it, and a copy that differs from the conversation
+    /// it came from only by having been stopped is still a copy.
+    private static func startsWith(_ value: ArraySlice<UInt8>, _ prefix: StaticString) -> Bool {
+        let count = prefix.utf8CodeUnitCount
+        guard value.count >= count else { return false }
+        var i = value.startIndex
+        for offset in 0..<count {
+            if value[i] != prefix.utf8Start[offset] { return false }
+            i += 1
+        }
+        return true
+    }
+
+    private static func line(_ bytes: [UInt8], from lower: Int, to upper: Int,
+                             contains needle: StaticString) -> Bool {
+        let count = needle.utf8CodeUnitCount
+        guard upper - lower >= count else { return false }
+        var i = lower
+        while i + count <= upper {
+            var j = 0
+            while j < count, bytes[i + j] == needle.utf8Start[j] { j += 1 }
+            if j == count { return true }
+            i += 1
+        }
+        return false
+    }
+
+    static func readTranscript(at url: URL, cliSessionId: String) -> (facts: SessionFacts?, trace: ConversationTrace) {
+        guard let data = try? Data(contentsOf: url, options: [.mappedIfSafe]) else { return (nil, ConversationTrace()) }
         let bytes = [UInt8](data)
         let newline = UInt8(ascii: "\n")
 
@@ -479,6 +599,7 @@ enum Graft {
         // than an honest read; the record still needs something in them.
         var model = "claude-sonnet-5", effort = "medium", permissionMode = "auto", cwd = ""
         var promptIds: Set<String> = []
+        var trace = ConversationTrace()
         var branches: [String] = []
 
         var lineStart = 0
@@ -493,6 +614,11 @@ enum Graft {
             var stamp: String?, lineCwd: String?, mode: String?, branch: String?
             var promptId: String?, lineModel: String?, lineEffort: String?
             var bridgeId: String?, account: String?, organization: String?, customTitle: String?
+            var content: ArraySlice<UInt8>?, textBlock: ArraySlice<UInt8>?, answersTool = false
+            // An answer's `type` comes last on its line, after the text it
+            // carries, so what it produced is counted on every line and only
+            // kept once the line turns out to have been an answer.
+            var lineId: ArraySlice<UInt8>?, produced = 0, edited = false
 
             pairs(in: bytes, from: lineStart, to: lineEnd) { key, value in
                 func first(_ slot: inout String?) { if slot == nil { slot = text(value) } }
@@ -511,6 +637,22 @@ enum Graft {
                 else if matches(key, "ownerAccountUuid") { first(&account) }
                 else if matches(key, "ownerOrganizationUuid") { first(&organization) }
                 else if matches(key, "customTitle") { first(&customTitle) }
+                // Only on a prompt's own line, and only once each: an answer
+                // carries megabytes of text in these keys, and decoding it
+                // all is what would make a pass slow again.
+                else if matches(key, "content") { if type == "user", !answersTool, content == nil { content = value } }
+                else if matches(key, "text") {
+                    produced += value.count
+                    if type == "user", !answersTool, textBlock == nil { textBlock = value }
+                }
+                else if matches(key, "tool_use_id") { answersTool = true }
+                // The line's own id is its last: a tool's input nested in an
+                // answer comes before it and may carry one of its own.
+                else if matches(key, "uuid") { lineId = value }
+                else if matches(key, "name") {
+                    if matches(value, "Edit") || matches(value, "Write") || matches(value, "MultiEdit")
+                        || matches(value, "NotebookEdit") { edited = true }
+                }
             }
 
             if type == "bridge-session" {
@@ -538,15 +680,29 @@ enum Graft {
             if let mode { permissionMode = mode }
             if let branch, !branches.contains(branch) { branches.append(branch) }
             if let promptId { promptIds.insert(promptId) }
+            if type == "user", promptId != nil, !answersTool,
+               !line(bytes, from: lineStart, to: lineEnd, contains: "\"isMeta\":true"),
+               let words = content ?? textBlock, !startsWith(words, "[Request interrupted by user"),
+               let typed = fingerprint(words) {
+                if trace.prompts.isEmpty { trace.openingSize = typed.size }
+                trace.prompts.append(typed.print)
+            }
+            // An overloaded or failed request is written as an answer too, and
+            // produced nothing anybody would go back for.
+            if assistant, let lineId, produced > 0 || edited,
+               !line(bytes, from: lineStart, to: lineEnd, contains: "\"isApiErrorMessage\":true"),
+               let id = fingerprint(lineId)?.print {
+                trace.work[id, default: 0] += produced + (edited ? ConversationTrace.editWeight : 0)
+            }
         }
 
         guard !bridgeIds.isEmpty,
               let first = firstStamp, let last = lastStamp,
               let created = epochMilliseconds(first), let active = epochMilliseconds(last),
               !ownerAccount.isEmpty, !ownerOrganization.isEmpty
-        else { return nil }
+        else { return (nil, trace) }
 
-        return SessionFacts(cliSessionId: cliSessionId,
+        return (SessionFacts(cliSessionId: cliSessionId,
                             bridgeIds: bridgeIds,
                             ownerAccount: ownerAccount,
                             ownerOrganization: ownerOrganization,
@@ -558,7 +714,7 @@ enum Graft {
                             effort: effort,
                             permissionMode: permissionMode,
                             prompts: promptIds.count,
-                            branches: branches)
+                            branches: branches), trace)
     }
 
     /// The record that puts a session back in a sidebar, shaped like the
@@ -629,6 +785,9 @@ enum Graft {
         var modified: Double
         var size: Int
         var facts: SessionFacts?
+        /// Optional so a cache written before traces were kept still loads;
+        /// an entry without one is read again, once, rather than trusted.
+        var trace: ConversationTrace?
     }
 
     /// Parsed transcripts, kept on disk rather than only in memory.
@@ -747,6 +906,80 @@ enum Graft {
     }
 
     /// What one walk of the chat stores found.
+    /// The sessions that are only an earlier copy of a conversation another
+    /// session carries on, and are therefore never filed.
+    ///
+    /// Editing a prompt or resuming a conversation in the desktop starts a
+    /// new command line session. Sometimes that session copies the history
+    /// before it and asks the edited prompt again; sometimes it is a fresh
+    /// session where the same opening prompt was typed again and then left.
+    /// Either way the earlier one stays on disk with no record, and the
+    /// record that would have named it in `priorCliSessionIds` was never
+    /// written if the profile was grafted when it happened — so the sweep
+    /// filed it, and the same conversation turned up in a sidebar five and
+    /// six times under one title.
+    ///
+    /// A session is a copy of another of the same account, organisation and
+    /// folder when three things hold.
+    ///
+    /// They open with the same prompt, and it says something. A retry and a
+    /// resume both start where the original did; a chat that opened with "hi"
+    /// shares that with a hundred others, and the first version of this rule
+    /// put three unrelated greetings out of sight on the strength of it.
+    ///
+    /// Every prompt typed in it was typed in the other, which holds more, or
+    /// holds the same and was active later. Prompts rather than titles, which
+    /// collide on their own.
+    ///
+    /// And it did nothing the other did not. Asking the same questions is not
+    /// the same conversation when the answers differ: one copy turned out to
+    /// hold the only finished draft of a PR comment, its counterpart having
+    /// been overloaded at that turn, and another held the original
+    /// implementation that its counterpart only found and built on. Answers
+    /// are compared by line id, which a resumed copy keeps for every line it
+    /// copied, so the work a session did of its own is precisely what the
+    /// other has no id for. A file edited there is never a copy; a few
+    /// sentences of its own — "let me look at the files", a turn cut off — are
+    /// what a stopped attempt leaves behind and are allowed for.
+    ///
+    /// Measured against this machine's 302 sessions and read through one by
+    /// one. The 28 found to be copies did at most 173 bytes of answering of
+    /// their own and edited nothing; the two that were not did 2,573 bytes and
+    /// four edits, and 9,097 bytes. The allowance sits between the two.
+    ///
+    /// Only filing asks this. A record already on disk, whoever wrote it, is
+    /// left where it is: a copy filed before this rule existed is one to
+    /// archive by hand, not one for a pass to take out of a sidebar.
+    static let openingAtLeast = 20
+    static let ownWorkAllowance = 500
+
+    static func resumedCopies(_ sessions: [(facts: SessionFacts, trace: ConversationTrace)]) -> Set<String> {
+        var groups: [String: [(facts: SessionFacts, trace: ConversationTrace, asked: Set<String>)]] = [:]
+        for session in sessions where session.trace.openingSize >= openingAtLeast {
+            let key = [session.facts.ownerAccount, session.facts.ownerOrganization, session.facts.cwd,
+                       session.trace.prompts[0]].joined(separator: "\u{0}")
+            groups[key, default: []].append((session.facts, session.trace, Set(session.trace.prompts)))
+        }
+        var copies: Set<String> = []
+        for group in groups.values where group.count > 1 {
+            for copy in group {
+                let carriedOn = group.contains { other in
+                    guard other.facts.cliSessionId != copy.facts.cliSessionId,
+                          copy.asked.isSubset(of: other.asked) else { return false }
+                    let ownWork = copy.trace.work.reduce(0) { sum, answer in
+                        other.trace.work[answer.key] == nil ? sum + answer.value : sum
+                    }
+                    guard ownWork <= ownWorkAllowance else { return false }
+                    if other.asked.count > copy.asked.count { return true }
+                    return (other.facts.lastActivityAt, other.facts.cliSessionId)
+                        > (copy.facts.lastActivityAt, copy.facts.cliSessionId)
+                }
+                if carriedOn { copies.insert(copy.facts.cliSessionId) }
+            }
+        }
+        return copies
+    }
+
     struct StoreContents {
         /// The session a record describes, against the organisation directory
         /// the record sits in. The directory rather than the file name,
@@ -1247,117 +1480,133 @@ enum Graft {
             return answer
         }
 
+        // Read in full before anything is filed, because whether a session
+        // is a copy of another depends on every other session there is.
+        var readings: [(facts: SessionFacts, trace: ConversationTrace, lastWrite: Date)] = []
         for (dir, names) in transcripts {
             for name in names {
                 let transcript = dir.appending(path: name)
                 visited.insert(transcript.path)
                 let attributes = try? fm.attributesOfItem(atPath: transcript.path)
                 let lastWrite = attributes?[.modificationDate] as? Date ?? .distantPast
+                let reading = transcriptReading(at: transcript,
+                                                cliSessionId: String(name.dropLast(".jsonl".count)))
+                guard let facts = reading.facts else { continue }
+                readings.append((facts, reading.trace, lastWrite))
+            }
+        }
+        let copies = resumedCopies(readings.map { ($0.facts, $0.trace) })
+        var copiesHeldBack = 0
 
-                let facts = transcriptFacts(at: transcript,
-                                            cliSessionId: String(name.dropLast(".jsonl".count)))
-                guard let facts else { continue }
-                // A session opened and closed with nothing said in it never
-                // had a conversation to lose; listing it would put an empty
-                // chat in front of every sidebar for the asking.
-                guard facts.prompts > 0 else { continue }
-                // The records this app files are named for their session, so
-                // a marker naming one names the session outright. Nothing to
-                // infer, and nothing for an unreadable store to confuse.
-                if contents.deleted.contains(facts.cliSessionId) {
-                    withdrawn.insert(facts.cliSessionId)
-                    state.authored.removeValue(forKey: facts.cliSessionId)
-                    Diagnostics.note("sweep.withdraw", [
-                        "session": facts.cliSessionId, "because": "a deletion marker names it",
-                    ])
-                }
-                guard !withdrawn.contains(facts.cliSessionId) else { continue }
-                // A record that went missing this very pass is a question the
-                // next pass answers. Filing one now would answer it wrong:
-                // the record comes back under this app's name, the pass after
-                // finds it there, and a chat taken out of a sidebar is quietly
-                // put back by the thing that was meant to notice it going.
-                guard !missing.contains(facts.cliSessionId) else { continue }
-                // And a record in a store this pass could not open is a
-                // record, not an absence. The session is listed already; the
-                // pass just cannot see it from here.
-                guard !outOfSight.contains(facts.cliSessionId) else { continue }
-                // A conversation that carried on under a new command line
-                // session is one the sidebar lists under the id it carried on
-                // as. Its earlier transcript keeps sitting there with nobody's
-                // record naming it, so filing it puts the same conversation in
-                // the sidebar a second time — with the same title, the same
-                // folder, and none of what was done to the first, archiving
-                // included.
-                guard !contents.superseded.contains(facts.cliSessionId) else { continue }
-                let owner = owner(of: facts)
+        for (facts, _, lastWrite) in readings {
+            // A session opened and closed with nothing said in it never
+            // had a conversation to lose; listing it would put an empty
+            // chat in front of every sidebar for the asking.
+            guard facts.prompts > 0 else { continue }
+            // The records this app files are named for their session, so
+            // a marker naming one names the session outright. Nothing to
+            // infer, and nothing for an unreadable store to confuse.
+            if contents.deleted.contains(facts.cliSessionId) {
+                withdrawn.insert(facts.cliSessionId)
+                state.authored.removeValue(forKey: facts.cliSessionId)
+                Diagnostics.note("sweep.withdraw", [
+                    "session": facts.cliSessionId, "because": "a deletion marker names it",
+                ])
+            }
+            guard !withdrawn.contains(facts.cliSessionId) else { continue }
+            // A record that went missing this very pass is a question the
+            // next pass answers. Filing one now would answer it wrong:
+            // the record comes back under this app's name, the pass after
+            // finds it there, and a chat taken out of a sidebar is quietly
+            // put back by the thing that was meant to notice it going.
+            guard !missing.contains(facts.cliSessionId) else { continue }
+            // And a record in a store this pass could not open is a
+            // record, not an absence. The session is listed already; the
+            // pass just cannot see it from here.
+            guard !outOfSight.contains(facts.cliSessionId) else { continue }
+            // A conversation that carried on under a new command line
+            // session is one the sidebar lists under the id it carried on
+            // as. Its earlier transcript keeps sitting there with nobody's
+            // record naming it, so filing it puts the same conversation in
+            // the sidebar a second time — with the same title, the same
+            // folder, and none of what was done to the first, archiving
+            // included.
+            guard !contents.superseded.contains(facts.cliSessionId) else { continue }
+            let owner = owner(of: facts)
 
-                if recorded.contains(facts.cliSessionId) {
-                    // A record on disk that this app did not write belongs
-                    // to whoever did. One still holding byte for byte what a
-                    // pass filed here is this app's to keep current, and the
-                    // transcript moving on past it is the moment to do so.
-                    if let owner, let authored = state.authored[facts.cliSessionId] {
-                        switch sessionUpdateDecision(authored: authored,
-                                                     facts: facts,
-                                                     diskMatchesAuthored:
-                                                        recordOnDisk(matches: authored,
-                                                                     at: recordFile(for: facts, in: owner))) {
-                        case .leave:
-                            break
-                        case .takenOver:
-                            state.authored.removeValue(forKey: facts.cliSessionId)
-                        case .refresh:
-                            if rewriteSessionRecord(for: facts, into: owner) {
-                                state.authored[facts.cliSessionId] = facts
-                            }
+            if recorded.contains(facts.cliSessionId) {
+                // A record on disk that this app did not write belongs
+                // to whoever did. One still holding byte for byte what a
+                // pass filed here is this app's to keep current, and the
+                // transcript moving on past it is the moment to do so.
+                if let owner, let authored = state.authored[facts.cliSessionId] {
+                    switch sessionUpdateDecision(authored: authored,
+                                                 facts: facts,
+                                                 diskMatchesAuthored:
+                                                    recordOnDisk(matches: authored,
+                                                                 at: recordFile(for: facts, in: owner))) {
+                    case .leave:
+                        break
+                    case .takenOver:
+                        state.authored.removeValue(forKey: facts.cliSessionId)
+                    case .refresh:
+                        if rewriteSessionRecord(for: facts, into: owner) {
+                            state.authored[facts.cliSessionId] = facts
                         }
                     }
-                    continue
                 }
+                continue
+            }
 
-                guard let owner,
-                      case .file = sessionFiling(facts: facts,
-                                                 recorded: recorded,
-                                                 withdrawn: withdrawn,
-                                                 deletions: guessableDeletions,
-                                                 lastWrite: lastWrite,
-                                                 ownerProfile: owner,
-                                                 ownerIsRunning: running(owner),
-                                                 now: now,
-                                                 quietWindow: quietWindow)
-                else { continue }
+            // A conversation edited or resumed in the desktop goes on in
+            // a new command line session, and the one it left behind has
+            // nothing a record names it by. See `resumedCopies`.
+            if copies.contains(facts.cliSessionId) {
+                copiesHeldBack += 1
+                continue
+            }
 
-                // Nothing above knows what the store the record is headed for
-                // looked like, only what this session's own history says. A
-                // profile with its store stashed away has no sessions on
-                // record at all as far as a walk can tell, and a first pass
-                // has nothing remembered to contradict it.
-                let destination = recordFile(for: facts, in: owner).deletingLastPathComponent()
-                guard mayFileRecords(inOrganisation: destination,
-                                     storesRead: contents.stores) else {
-                    Diagnostics.note("sweep.refused", [
-                        "session": facts.cliSessionId,
-                        "destination": destination.path,
-                        "because": exists(destination)
-                            ? "the folder is there but this pass never read it"
-                            : "this app stashed the folder itself",
-                    ])
-                    continue
-                }
+            guard let owner,
+                  case .file = sessionFiling(facts: facts,
+                                             recorded: recorded,
+                                             withdrawn: withdrawn,
+                                             deletions: guessableDeletions,
+                                             lastWrite: lastWrite,
+                                             ownerProfile: owner,
+                                             ownerIsRunning: running(owner),
+                                             now: now,
+                                             quietWindow: quietWindow)
+            else { continue }
 
-                if writeSessionRecord(for: facts, into: owner) {
-                    Diagnostics.note("sweep.file", [
-                        "session": facts.cliSessionId,
-                        "owner": facts.ownerAccount,
-                        "into": owner.lastPathComponent,
-                        "title": facts.title,
-                        "cwd": facts.cwd,
-                    ])
-                    filed.append(facts)
-                    state.records[facts.cliSessionId] = destination.path
-                    state.authored[facts.cliSessionId] = facts
-                }
+            // Nothing above knows what the store the record is headed for
+            // looked like, only what this session's own history says. A
+            // profile with its store stashed away has no sessions on
+            // record at all as far as a walk can tell, and a first pass
+            // has nothing remembered to contradict it.
+            let destination = recordFile(for: facts, in: owner).deletingLastPathComponent()
+            guard mayFileRecords(inOrganisation: destination,
+                                 storesRead: contents.stores) else {
+                Diagnostics.note("sweep.refused", [
+                    "session": facts.cliSessionId,
+                    "destination": destination.path,
+                    "because": exists(destination)
+                        ? "the folder is there but this pass never read it"
+                        : "this app stashed the folder itself",
+                ])
+                continue
+            }
+
+            if writeSessionRecord(for: facts, into: owner) {
+                Diagnostics.note("sweep.file", [
+                    "session": facts.cliSessionId,
+                    "owner": facts.ownerAccount,
+                    "into": owner.lastPathComponent,
+                    "title": facts.title,
+                    "cwd": facts.cwd,
+                ])
+                filed.append(facts)
+                state.records[facts.cliSessionId] = destination.path
+                state.authored[facts.cliSessionId] = facts
             }
         }
 
@@ -1378,30 +1627,34 @@ enum Graft {
             "storesStashed": stashedStores.sorted(),
             "storesUnread": unreadStores.sorted(),
             "storesGone": goneStores.sorted(),
+            "resumedCopies": copiesHeldBack,
         ])
         saveTranscriptCache(visited: visited)
         return filed
     }
 
-    private static func transcriptFacts(at url: URL, cliSessionId: String) -> SessionFacts? {
+    private static func transcriptReading(at url: URL,
+                                          cliSessionId: String) -> (facts: SessionFacts?, trace: ConversationTrace) {
         let attributes = try? fm.attributesOfItem(atPath: url.path)
         let stamp = (attributes?[.modificationDate] as? Date ?? .distantPast).timeIntervalSince1970
         let size = (attributes?[.size] as? Int) ?? 0
 
         transcriptCacheLock.lock()
         loadTranscriptCache()
-        if let cached = transcriptCache[url.path], cached.modified == stamp, cached.size == size {
+        if let cached = transcriptCache[url.path], cached.modified == stamp, cached.size == size,
+           let trace = cached.trace {
             transcriptCacheLock.unlock()
-            return cached.facts
+            return (cached.facts, trace)
         }
         transcriptCacheLock.unlock()
 
-        let facts = sessionFacts(inTranscriptAt: url, cliSessionId: cliSessionId)
+        let reading = readTranscript(at: url, cliSessionId: cliSessionId)
         transcriptCacheLock.lock()
-        transcriptCache[url.path] = CachedTranscript(modified: stamp, size: size, facts: facts)
+        transcriptCache[url.path] = CachedTranscript(modified: stamp, size: size,
+                                                     facts: reading.facts, trace: reading.trace)
         transcriptCacheDirty = true
         transcriptCacheLock.unlock()
-        return facts
+        return reading
     }
 
     /// The bytes a set of facts files as a record. Written with sorted keys

@@ -2373,6 +2373,7 @@ func makeTranscript(session: String,
                     spoke: Bool = true,
                     first: String = "2026-08-29T17:00:00.000Z",
                     last: String = "2026-08-29T17:00:10.000Z",
+                    said: String? = nil,
                     extra: [String] = []) -> URL {
     let dir = Graft.claudeProjects.appending(path: "-Users-test-work")
     try! fm.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -2385,7 +2386,7 @@ func makeTranscript(session: String,
     if spoke {
         lines.append("{\"parentUuid\":null,\"isSidechain\":false,\"promptId\":\"prompt-one\","
                      + "\"cwd\":\"/Users/test/work\",\"permissionMode\":\"auto\",\"gitBranch\":\"main\","
-                     + "\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":\"hello\"},"
+                     + "\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":\"\(said ?? "hello from \(session)")\"},"
                      + "\"uuid\":\"u-1\",\"timestamp\":\"\(first)\"}")
         lines.append("{\"parentUuid\":\"u-1\",\"isSidechain\":false,\"cwd\":\"/Users/test/work\","
                      + "\"permissionMode\":\"auto\",\"gitBranch\":\"main\",\"type\":\"assistant\","
@@ -2922,6 +2923,131 @@ do {
     let both = Graft.sessions(ofRecordAt: homeOrg.appending(path: "local_18181818-1818-4181-8181-181818181818.json"))
     check(both.cliSessionId == carriedOn && both.prior == [earlier],
           "a record says which session it holds now and which it has taken over")
+}
+
+do {
+    // Editing a prompt or resuming a conversation starts a new session, and
+    // the one left behind has no record naming it if the profile was grafted
+    // at the time. Filing those put one conversation in a sidebar six times.
+    try? fm.removeItem(at: Graft.claudeProjects)
+    try? fm.removeItem(at: Graft.sessionRecordStateFile)
+
+    let account = "e8e8e8e8-e8e8-4e8e-8e8e-e8e8e8e8e8e8"
+    let org = "e9e9e9e9-e9e9-4e9e-8e9e-e9e9e9e9e9e9"
+    let home = makeProfile("Claude-Copies", account: account, org: org)
+    let homeOrg = home.appending(path: "claude-code-sessions")
+        .appending(path: account).appending(path: org)
+
+    func prompt(_ words: String, _ id: String, extra: String = "") -> String {
+        "{\"parentUuid\":null,\"promptId\":\"\(id)\",\"cwd\":\"/Users/test/work\","
+            + "\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":\"\(words)\"},"
+            + "\(extra)\"uuid\":\"\(id)-u\",\"timestamp\":\"2026-08-29T17:05:00.000Z\"}"
+    }
+
+    // What counts as a prompt, read off one transcript.
+    let reading = makeTranscript(session: "21212121-2121-4212-8212-212121212121", owner: account, org: org,
+                                 said: "Review the PR", extra: [
+        // A tool's output comes back as a user line, with a prompt id.
+        "{\"promptId\":\"p-2\",\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":"
+            + "[{\"tool_use_id\":\"t-1\",\"type\":\"tool_result\",\"content\":\"42 files\"}]},"
+            + "\"timestamp\":\"2026-08-29T17:01:00.000Z\"}",
+        // So does Claude's note about a command that ran.
+        prompt("<local-command-stdout>ok</local-command-stdout>", "p-3", extra: "\"isMeta\":true,"),
+        // And stopping a turn writes a line nobody typed.
+        "{\"promptId\":\"p-5\",\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":"
+            + "[{\"type\":\"text\",\"text\":\"[Request interrupted by user]\"}]},"
+            + "\"timestamp\":\"2026-08-29T17:01:30.000Z\"}",
+        // A prompt that came with an image carries its words in a text block.
+        "{\"promptId\":\"p-4\",\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":"
+            + "[{\"type\":\"image\",\"source\":{\"type\":\"base64\"}},{\"type\":\"text\",\"text\":\"What is this?\"}]},"
+            + "\"timestamp\":\"2026-08-29T17:02:00.000Z\"}",
+    ])
+    let typed = Graft.promptsTyped(inTranscriptAt: reading)
+    check(typed == [Graft.promptFingerprint("Review the PR"), Graft.promptFingerprint("What is this?")].compactMap { $0 },
+          "the prompts a person typed are read, and a tool's output, Claude's own notes and a stopped turn are not")
+    check(Graft.promptFingerprint("Review  the PR\n") == Graft.promptFingerprint("Review the PR"),
+          "a prompt pasted again with different spacing is still the same prompt")
+    try? fm.removeItem(at: reading)
+
+    // The rule on its own, over facts made up for it.
+    func facts(_ id: String, cwd: String = "/Users/test/work", owner: String = account,
+               last: Double) -> Graft.SessionFacts {
+        Graft.SessionFacts(cliSessionId: id, bridgeIds: ["cse_x"], ownerAccount: owner,
+                           ownerOrganization: org, title: "Same title", cwd: cwd,
+                           createdAt: 0, lastActivityAt: last, model: "m", effort: "e",
+                           permissionMode: "auto", prompts: 1, branches: [])
+    }
+    func trace(_ asked: [String], opening: Int = 40, work: [String: Int] = [:]) -> Graft.ConversationTrace {
+        Graft.ConversationTrace(prompts: asked, openingSize: opening, work: work)
+    }
+    let shared = ["h1": 4_000, "h2": 9_000]
+    let copies = Graft.resumedCopies([
+        (facts("kept", last: 5), trace(["a", "b", "c"], work: shared.merging(["k1": 6_000]) { $1 })),
+        (facts("retried", last: 9), trace(["a", "b"], work: shared.merging(["r1": 80]) { $1 })),
+        (facts("drafted", last: 9), trace(["a", "b"], work: shared.merging(["d1": 9_097]) { $1 })),
+        (facts("implemented", last: 9), trace(["a"], work: ["i1": 40 + Graft.ConversationTrace.editWeight])),
+        (facts("branch", last: 3), trace(["a", "d"])),
+        (facts("twin-old", last: 1), trace(["x"])),
+        (facts("twin-new", last: 2), trace(["x"])),
+        (facts("hi-one", last: 1), trace(["hi"], opening: 2)),
+        (facts("hi-two", last: 2), trace(["hi", "sync my profiles"], opening: 2)),
+        (facts("elsewhere", cwd: "/Users/test/other", last: 1), trace(["a"])),
+        (facts("someone-else", owner: "f0f0f0f0-f0f0-4f0f-8f0f-f0f0f0f0f0f0", last: 1), trace(["a"])),
+        (facts("other-opening", last: 1), trace(["b"])),
+    ])
+    check(copies.contains("retried"),
+          "a session whose every prompt a longer one also holds is a copy, however recently it was touched")
+    check(!copies.contains("kept"), "and the conversation holding them all is not")
+    check(!copies.contains("drafted"),
+          "the same questions are not the same conversation when one of them holds an answer the other lacks")
+    check(!copies.contains("implemented"), "and a session that edited a file is never a copy")
+    check(!copies.contains("branch"), "a branch that asked anything of its own is not a copy")
+    check(copies.contains("twin-old") && !copies.contains("twin-new"),
+          "of two sessions that asked exactly the same, the one active last is the one kept")
+    check(!copies.contains("hi-one"), "an opening that says nothing identifies no conversation")
+    check(!copies.contains("elsewhere") && !copies.contains("someone-else"),
+          "the same prompt in another folder or another account is another conversation")
+    check(!copies.contains("other-opening"),
+          "a retry starts where the original did, so a different opening is a different chat")
+
+    // And end to end, through a pass.
+    let longer = "22222222-2222-4222-8222-222222222222"
+    let retried = "23232323-2323-4232-8232-232323232323"
+    let branched = "24242424-2424-4242-8242-242424242424"
+    let answered = "25252525-2525-4252-8252-252525252525"
+    let greeted = "26262626-2626-4262-8262-262626262626"
+    _ = makeTranscript(session: longer, owner: account, org: org, title: "Multi-account sync",
+                       last: "2026-08-29T18:00:00.000Z", said: "Two accounts, one history?",
+                       extra: [prompt("Then test it", "p-9")])
+    _ = makeTranscript(session: retried, owner: account, org: org, title: "Multi-account sync",
+                       last: "2026-08-29T19:00:00.000Z", said: "Two accounts, one history?")
+    _ = makeTranscript(session: branched, owner: account, org: org, title: "Multi-account sync",
+                       said: "Two accounts, one history?",
+                       extra: [prompt("Give me a command to delete them", "p-8")])
+    // Asked only what the longer one asked, and answered it where the longer
+    // one did not: the draft that exists nowhere else.
+    let draft = String(repeating: "A finished comment, ready to paste. ", count: 30)
+    _ = makeTranscript(session: answered, owner: account, org: org, title: "Multi-account sync",
+                       said: "Two accounts, one history?", extra: [
+        "{\"parentUuid\":\"u-1\",\"cwd\":\"/Users/test/work\",\"message\":{\"id\":\"m-9\","
+            + "\"content\":[{\"type\":\"text\",\"text\":\"\(draft)\"}]},\"type\":\"assistant\","
+            + "\"uuid\":\"a-draft\",\"timestamp\":\"2026-08-29T17:20:00.000Z\"}",
+    ])
+    // And a greeting, which the longer one also happens to contain.
+    _ = makeTranscript(session: greeted, owner: account, org: org, said: "hi")
+    _ = makeTranscript(session: "27272727-2727-4272-8272-272727272727", owner: account, org: org,
+                       last: "2026-08-29T20:00:00.000Z", said: "hi",
+                       extra: [prompt("Now sync my profiles please", "p-7")])
+    let filed = Set(Graft.fileMissingSessionRecords(filingInto: [home], now: Date().addingTimeInterval(120))
+        .map(\.cliSessionId))
+    check(filed.isSuperset(of: [longer, branched]) && !filed.contains(retried),
+          "a pass files the conversation and its real branch, and not the copy it left behind")
+    check(filed.contains(answered),
+          "and files a retry that holds an answer of its own, since that answer is nowhere else")
+    check(filed.contains(greeted),
+          "and files a chat that only said hi, which is no copy of anything")
+    check(!Graft.exists(homeOrg.appending(path: "local_\(retried).json")),
+          "so the sidebar lists that conversation once")
 }
 
 do {
