@@ -18,6 +18,37 @@ Nothing that leaves this machine may name a tool, a model or a pipeline. That
 includes commit messages, the README and anything pushed. Write what a person
 would have written by hand.
 
+## Where working knowledge lives
+
+In this file, and nowhere else. Nothing about this project is kept in a private
+notes store beside the repository: a fact worth keeping is worth putting where
+everyone working on it reads it, and one kept privately goes stale where nobody
+sees it. The private record of this machine's profile layout went on saying the
+opposite of the truth for two months after the profiles had changed. When a fact
+about how to work here turns up, it is written into this file, in the section it
+belongs to.
+
+## Testing that can end the session doing it
+
+Work on this app is done from inside a Claude that Graft itself manages, so a
+test that quits or relaunches Graft, swaps in a development build, opens, quits
+or brings forward a Claude, or installs an update can stop the session running
+it halfway through. Those are written up as a plan in `dist/<topic>/HANDOFF.md`
+and run from outside it: the exact steps, what each should show and where to
+check it, what must not be touched, how to put the installed Graft back, and a
+table for the results. `dist/` because it is ignored and only `release.sh`
+clears it; every `./build.sh` clears `build.noindex/`, which has already taken
+one plan and its results with it.
+
+Done in place is everything that cannot disturb a running Claude: the suite, the
+layout checks, builds, read-only runs over this machine's data, and sandboxes
+cloned from it. A plan never releases, commits or touches a chat. A keychain
+prompt it meets is answered by the person whose keychain it is.
+
+The development machine has Claude's own profile and one shortcut, Claude 2,
+grafted from it. A plan may bring forward a Claude that is already open; it
+opens and quits none.
+
 ## Commands
 
     ./build.sh                 app + launcher into build.noindex/, this arch only
