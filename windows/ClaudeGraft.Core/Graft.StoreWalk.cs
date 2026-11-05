@@ -12,6 +12,8 @@ public sealed class RecordSessions
     /// or resumed, gets a new command line session and the record keeps the old
     /// ids here.
     public IReadOnlyList<string> Prior { get; init; } = Array.Empty<string>();
+    /// The source record's name, when Claude explicitly created a fork.
+    public string? ForkedFrom { get; init; }
 }
 
 /// <summary>What one walk of the chat stores found.</summary>
@@ -33,6 +35,8 @@ public sealed class StoreContents
     /// transcript sits on disk with no record naming it, which is what a session
     /// that closed without a record looks like from here.
     public HashSet<string> Superseded { get; } = new();
+    internal Dictionary<string, string> SessionsByRecord { get; } = new();
+    internal Dictionary<string, string> ForkSources { get; } = new();
 }
 
 public static partial class Graft
@@ -85,7 +89,9 @@ public static partial class Graft
             if (root.TryGetProperty("priorCliSessionIds", out var p) && p.ValueKind == JsonValueKind.Array)
                 foreach (var e in p.EnumerateArray())
                     if (e.ValueKind == JsonValueKind.String) prior.Add(e.GetString()!);
-            return new RecordSessions { CliSessionId = cli, Prior = prior, Readable = cli is not null || prior.Count > 0 };
+            string? source = root.TryGetProperty("forkedFromSessionId", out var f) && f.ValueKind == JsonValueKind.String
+                ? f.GetString() : null;
+            return new RecordSessions { CliSessionId = cli, Prior = prior, ForkedFrom = source, Readable = cli is not null || prior.Count > 0 };
         }
         catch { return new RecordSessions { Readable = false }; }
     }
@@ -202,8 +208,12 @@ public static partial class Graft
                             // last win left the place a session was filed
                             // changing from pass to pass in the one file written
                             // to be read afterwards.
-                            if (sessions.CliSessionId is string sid && !contents.Records.ContainsKey(sid))
-                                contents.Records[sid] = resolved;
+                            if (sessions.CliSessionId is string sid)
+                            {
+                                contents.Records.TryAdd(sid, resolved);
+                                contents.SessionsByRecord[Path.GetFileNameWithoutExtension(name)] = sid;
+                                if (sessions.ForkedFrom is string source) contents.ForkSources[sid] = source;
+                            }
                             foreach (var prior in sessions.Prior) contents.Superseded.Add(prior);
                         }
                         else if (name.StartsWith("deleted_"))

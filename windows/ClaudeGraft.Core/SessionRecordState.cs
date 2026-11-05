@@ -26,6 +26,11 @@ public sealed class SessionRecordState
     [JsonPropertyName("vanished")]
     public List<string> Vanished { get; set; } = new();
 
+    /// Both halves of a known fork, by CLI session. Remember them while both
+    /// records exist so rebuilding a lost store recovers the original as well.
+    [JsonPropertyName("forks")]
+    public Dictionary<string, string> Forks { get; set; } = new();
+
     // Every key is optional on the way in — System.Text.Json fills a missing
     // member with the initializer above rather than failing — so a state file
     // from a version before one of these existed loads with the rest, claiming
@@ -40,7 +45,8 @@ public sealed class SessionRecordState
         {
             var data = File.ReadAllBytes(path);
             var state = JsonSerializer.Deserialize<SessionRecordState>(data, Options);
-            if (state?.Records is null || state.Withdrawn is null || state.Authored is null || state.Vanished is null)
+            if (state?.Records is null || state.Withdrawn is null || state.Authored is null ||
+                state.Vanished is null || state.Forks is null)
                 throw new IOException("The session record state is unreadable; it has been left untouched.");
             return state;
         }

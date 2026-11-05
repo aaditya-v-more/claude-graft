@@ -1,3 +1,5 @@
+using System.Text.Json;
+using System.Text.Json.Nodes;
 using ClaudeGraft.Core;
 using Xunit;
 
@@ -46,7 +48,8 @@ public sealed class OrchestratorTests : IDisposable
     }
 
     private void MakeTranscript(string session, string account = Account, string org = Org,
-        string? title = null, bool spoke = true, string last = "2026-08-29T17:00:10.000Z")
+        string? title = null, bool spoke = true, string last = "2026-08-29T17:00:10.000Z",
+        string? said = null, string[]? extra = null)
     {
         var dir = Path.Combine(GraftPaths.ClaudeProjects, "proj");
         Directory.CreateDirectory(dir);
@@ -57,8 +60,9 @@ public sealed class OrchestratorTests : IDisposable
         };
         if (spoke)
         {
-            lines.Add("{\"promptId\":\"p1\",\"cwd\":\"/w\",\"permissionMode\":\"auto\",\"gitBranch\":\"main\"," +
-                      "\"type\":\"user\",\"message\":{\"role\":\"user\"},\"timestamp\":\"2026-08-29T17:00:00.000Z\"}");
+            lines.Add(JsonSerializer.Serialize(new { promptId = "p1", cwd = "/w", permissionMode = "auto",
+                gitBranch = "main", type = "user", message = new { role = "user", content = said ?? "hello from " + session },
+                timestamp = "2026-08-29T17:00:00.000Z" }));
             lines.Add("{\"cwd\":\"/w\",\"type\":\"assistant\",\"message\":{\"model\":\"claude-opus-5\"}," +
                       $"\"timestamp\":\"{last}\",\"effort\":\"max\"}}");
         }
@@ -68,11 +72,80 @@ public sealed class OrchestratorTests : IDisposable
         }
         if (title is not null)
             lines.Add($"{{\"type\":\"custom-title\",\"customTitle\":\"{title}\"}}");
+        if (extra is not null) lines.AddRange(extra);
         File.WriteAllText(Path.Combine(dir, session + ".jsonl"), string.Join("\n", lines) + "\n");
     }
 
     private static string RecordPath(string profile, string session, string account = Account, string org = Org) =>
         Path.Combine(profile, "claude-code-sessions", account, org, $"local_{session}.json");
+
+    private static string FollowUp(string words) => JsonSerializer.Serialize(new { type = "user", promptId = "p2",
+        cwd = "/w", message = new { role = "user", content = words }, timestamp = "2026-08-29T18:00:00.000Z" });
+
+    [Fact]
+    public void FilesRealBranchesAndUniqueWorkButDoesNotFileCopiesOrRemoveAnArchivedCopy()
+    {
+        const string opening = "Two accounts, one history?";
+        MakeTranscript("longer", said: opening, extra: [FollowUp("Then test it")]);
+        MakeTranscript("retried", said: opening, last: "2026-08-29T19:00:00.000Z");
+        MakeTranscript("archived", said: opening);
+        MakeTranscript("branch", said: opening, extra: [FollowUp("Give me commands to delete them")]);
+        MakeTranscript("draft", said: opening, extra: [
+            JsonSerializer.Serialize(new { type = "assistant", uuid = "a-draft",
+                message = new { content = new[] { new { type = "text", text = new string('d', 650) } } } })]);
+        MakeTranscript("edit", said: opening, extra: [
+            """{"type":"assistant","uuid":"a-edit","message":{"content":[{"type":"tool_use","name":"Edit"}]}}"""]);
+        MakeTranscript("hi", said: "hi");
+        MakeTranscript("other-hi", said: "hi", extra: [FollowUp("Now sync my profiles please")]);
+
+        // A previous release cached the same files before recording prompt fingerprints.
+        Assert.Empty(Graft.FileMissingSessionRecords([], NothingRunning));
+        var cacheFile = Path.Combine(GraftPaths.OwnData, "transcript-cache.json");
+        var cache = JsonNode.Parse(File.ReadAllText(cacheFile))!.AsObject();
+        foreach (var entry in cache) entry.Value!.AsObject().Remove("trace");
+        File.WriteAllText(cacheFile, cache.ToJsonString());
+        Graft.ResetCachesForTests();
+
+        var profile = MakeProfile("Claude");
+        var archived = RecordPath(profile, "archived");
+        const string archivedBytes = """{"cliSessionId":"archived","isArchived":true}""";
+        File.WriteAllText(archived, archivedBytes);
+        var filed = Graft.FileMissingSessionRecords([profile], NothingRunning).Select(f => f.CliSessionId).ToHashSet();
+        Assert.True(filed.SetEquals(["longer", "branch", "draft", "edit", "hi", "other-hi"]));
+        Assert.False(File.Exists(RecordPath(profile, "retried")));
+        Assert.Equal(archivedBytes, File.ReadAllText(archived));
+        Assert.DoesNotContain(opening, File.ReadAllText(cacheFile));
+        Graft.ResetCachesForTests();
+        Assert.Empty(Graft.FileMissingSessionRecords([profile], NothingRunning));
+    }
+
+    [Fact]
+    public void RemembersExplicitForkWhenBothRecordsDisappearAndRebuildsBoth()
+    {
+        const string opening = "Plan the move to the new computer";
+        MakeTranscript("original", said: opening);
+        MakeTranscript("fork", said: opening, extra: [FollowUp("And the routines on it?")]);
+        var first = MakeProfile("Claude-Old");
+        File.WriteAllText(RecordPath(first, "desktop-original"), """{"cliSessionId":"original"}""");
+        File.WriteAllText(RecordPath(first, "desktop-fork"),
+            """{"cliSessionId":"fork","forkedFromSessionId":"local_desktop-original"}""");
+
+        var stateFile = Path.Combine(GraftPaths.OwnData, "session-records.json");
+        Directory.CreateDirectory(GraftPaths.OwnData);
+        File.WriteAllText(stateFile, """{"withdrawn":["previously-deleted"]}""");
+        Assert.Empty(Graft.FileMissingSessionRecords([first], NothingRunning));
+        var state = SessionRecordState.Load(stateFile);
+        Assert.Contains("previously-deleted", state.Withdrawn);
+        Assert.Equal("original", state.Forks["fork"]);
+
+        Directory.Move(first, Path.Combine(_t.Path, "removed-profile"));
+        var next = MakeProfile("Claude-New");
+        Graft.ResetCachesForTests();
+        var refiled = Graft.FileMissingSessionRecords([next], NothingRunning);
+        Assert.True(refiled.Select(f => f.CliSessionId).ToHashSet().SetEquals(["original", "fork"]));
+        Assert.True(File.Exists(RecordPath(next, "original")));
+        Assert.True(File.Exists(RecordPath(next, "fork")));
+    }
 
     [Fact(DisplayName = "a transcript cannot create a recovered record outside its profile")]
     public void MalformedOrganizationIsSkipped()

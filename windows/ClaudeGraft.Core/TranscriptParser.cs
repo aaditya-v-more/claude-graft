@@ -1,4 +1,3 @@
-using System.Buffers.Text;
 using System.Globalization;
 using System.Text.Json;
 
@@ -17,12 +16,15 @@ public static class TranscriptParser
     /// Reads a transcript file. Null when no bridge line is in it: that is a
     /// session the terminal ran on its own, which was never going to be in a
     /// sidebar, so nothing is missing.
-    public static SessionFacts? SessionFacts(string path, string cliSessionId)
+    public static SessionFacts? SessionFacts(string path, string cliSessionId) =>
+        Read(path, cliSessionId).Facts;
+
+    internal static (SessionFacts? Facts, ConversationTrace Trace) Read(string path, string cliSessionId)
     {
         byte[] bytes;
         try { bytes = File.ReadAllBytes(path); }
-        catch { return null; }
-        return SessionFacts(bytes, cliSessionId);
+        catch { return (null, new()); }
+        return Read(bytes, cliSessionId);
     }
 
     private const byte Quote = (byte)'"';
@@ -30,7 +32,10 @@ public static class TranscriptParser
     private const byte Colon = (byte)':';
     private const byte Newline = (byte)'\n';
 
-    public static SessionFacts? SessionFacts(byte[] bytes, string cliSessionId)
+    public static SessionFacts? SessionFacts(byte[] bytes, string cliSessionId) =>
+        Read(bytes, cliSessionId).Facts;
+
+    internal static (SessionFacts? Facts, ConversationTrace Trace) Read(byte[] bytes, string cliSessionId)
     {
         var bridgeIds = new List<string>();
         string ownerAccount = "", ownerOrganization = "";
@@ -41,6 +46,7 @@ public static class TranscriptParser
         string model = "claude-sonnet-5", effort = "medium", permissionMode = "auto", cwd = "";
         var promptIds = new HashSet<string>();
         var branches = new List<string>();
+        var trace = new ConversationTrace();
 
         var lineStart = 0;
         while (lineStart < bytes.Length)
@@ -54,6 +60,10 @@ public static class TranscriptParser
             string? stamp = null, lineCwd = null, mode = null, branch = null;
             string? promptId = null, lineModel = null, lineEffort = null;
             string? bridgeId = null, account = null, organization = null, customTitle = null;
+            Range? content = null, textBlock = null, lineId = null;
+            var answersTool = false;
+            var edited = false;
+            long produced = 0;
 
             // The one field read out of order. An answer is written
             // {"parentUuid":…,"message":{…,"type":"message",…},"type":"assistant"},
@@ -85,6 +95,17 @@ public static class TranscriptParser
                 else if (KeyIs(key, "ownerAccountUuid")) First(ref account, value);
                 else if (KeyIs(key, "ownerOrganizationUuid")) First(ref organization, value);
                 else if (KeyIs(key, "customTitle")) First(ref customTitle, value);
+                else if (KeyIs(key, "content")) content ??= valStart..valEnd;
+                else if (KeyIs(key, "text"))
+                {
+                    produced += value.Length;
+                    textBlock ??= valStart..valEnd;
+                }
+                else if (KeyIs(key, "tool_use_id")) answersTool = true;
+                // The last UUID is the line's own; a tool input earlier on the line may have its own.
+                else if (KeyIs(key, "uuid")) lineId = valStart..valEnd;
+                else if (KeyIs(key, "name") && (value.SequenceEqual("Edit"u8) || value.SequenceEqual("Write"u8)
+                    || value.SequenceEqual("MultiEdit"u8) || value.SequenceEqual("NotebookEdit"u8))) edited = true;
             }
 
             if (type == "bridge-session")
@@ -120,6 +141,23 @@ public static class TranscriptParser
             if (branch is not null && !branches.Contains(branch)) branches.Add(branch);
             if (promptId is not null) promptIds.Add(promptId);
 
+            ReadOnlySpan<byte> line = bytes.AsSpan(lineStart, lineEnd - lineStart);
+            if (type == "user" && promptId is not null && !answersTool &&
+                line.IndexOf("\"isMeta\":true"u8) < 0 && (content ?? textBlock) is Range words)
+            {
+                ReadOnlySpan<byte> value = bytes.AsSpan(words);
+                if (!value.StartsWith("[Request interrupted by user"u8) && ConversationTrace.Fingerprint(value) is { } typed)
+                {
+                    if (trace.Prompts.Count == 0) trace.OpeningSize = typed.Size;
+                    trace.Prompts.Add(typed.Hash);
+                }
+            }
+            if (assistant && (edited || produced > 0) && lineId is Range uuid &&
+                line.IndexOf("\"isApiErrorMessage\":true"u8) < 0 && ConversationTrace.Fingerprint(bytes.AsSpan(uuid)) is { } answer)
+            {
+                trace.Work[answer.Hash] = trace.Work.GetValueOrDefault(answer.Hash) + produced +
+                    (edited ? ConversationTrace.EditWeight : 0);
+            }
             lineStart = lineEnd + 1;
         }
 
@@ -128,9 +166,9 @@ public static class TranscriptParser
             || EpochMilliseconds(firstStamp) is not double created
             || EpochMilliseconds(lastStamp) is not double active
             || ownerAccount.Length == 0 || ownerOrganization.Length == 0)
-            return null;
+            return (null, trace);
 
-        return new SessionFacts
+        return (new SessionFacts
         {
             CliSessionId = cliSessionId,
             BridgeIds = bridgeIds,
@@ -145,7 +183,7 @@ public static class TranscriptParser
             PermissionMode = permissionMode,
             Prompts = promptIds.Count,
             Branches = branches,
-        };
+        }, trace);
     }
 
     private static void First(ref string? slot, ReadOnlySpan<byte> value)
