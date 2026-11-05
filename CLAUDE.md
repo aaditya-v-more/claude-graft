@@ -53,7 +53,7 @@ opens and quits none.
 
     ./build.sh                 app + launcher into build.noindex/, this arch only
     GRAFT_UNIVERSAL=1 ./build.sh   both arches, joined with lipo
-    ./test.sh                  873 checks, all in a throwaway directory
+    ./test.sh                  880 checks, all in a throwaway directory
     ./release.sh [--install]   tests, builds universal, draws the icon, signs, packages
 
 ## Invariants
@@ -1137,6 +1137,28 @@ and edited nothing, the two real branches did 2,573 bytes with four edits and
 9,097 bytes, and the allowance sits between them. The rule now catches exactly
 those 28 and files the five it got wrong. It only decides filing; records
 already on disk stay where they are.
+
+**But a fork is a second conversation, and only its record says so.** Forking
+a chat — a side question, or a session handed off with this one's history —
+copies every line of the transcript, still stamped with the original's session
+id, and then asks something more. From transcripts alone that is a resumed copy
+with the roles reversed: the original holds nothing its fork lacks, so the rule
+reads the original as the copy. Run over this machine it held back two of the
+five originals that had forks. Nothing was lost, because a recorded session is never filed or touched and
+Claude writes a record for every fork and keeps the original's. The rule only
+matters on the day the records are gone, though, and they go all at once: a
+profile deleted, or a sign-in moving `<account>/<org>`. On that day the sweep
+files everything again from transcripts and would have brought back the fork
+alone.
+
+What tells the two apart is in the record. A fork gets a record of its own
+naming its source in `forkedFromSessionId`, by the source record's name; a
+resume keeps its record and moves the old session into `priorCliSessionIds`.
+Every pass reads those names and keeps the pairs in `session-records.json` as
+`forks`. They have to be learned while both records still stand, since the
+pass that needs them is the one where neither does. Neither half of a remembered
+pair is ever a copy of the other. A retry of either half still is, and on this
+machine the rule went from 29 copies to the 27 it should hold.
 
 **A Claude this app did not make is read, never written to.** Every profile in
 Application Support holding a chat store is worth reading, because the question

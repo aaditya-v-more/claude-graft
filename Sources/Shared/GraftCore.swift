@@ -942,6 +942,17 @@ enum Graft {
     /// sentences of its own — "let me look at the files", a turn cut off — are
     /// what a stopped attempt leaves behind and are allowed for.
     ///
+    /// A fork is the one exception, and only its record can say so. Forking a
+    /// chat — a side question, or a session handed off with this one's history
+    /// — copies every line, still stamped with the original's id, and then asks
+    /// something more, so from transcripts alone the original reads exactly as
+    /// a resumed copy of its fork, and two of this machine's originals did. But
+    /// a fork is a second conversation somebody asked for, and Claude gives it
+    /// a record of its own naming the source in `forkedFromSessionId`, which a
+    /// resume never does: a resume keeps its record and moves the old session
+    /// into `priorCliSessionIds`. Neither half of a pair in `forks` is ever a
+    /// copy of the other.
+    ///
     /// Measured against this machine's 302 sessions and read through one by
     /// one. The 28 found to be copies did at most 173 bytes of answering of
     /// their own and edited nothing; the two that were not did 2,573 bytes and
@@ -953,7 +964,8 @@ enum Graft {
     static let openingAtLeast = 20
     static let ownWorkAllowance = 500
 
-    static func resumedCopies(_ sessions: [(facts: SessionFacts, trace: ConversationTrace)]) -> Set<String> {
+    static func resumedCopies(_ sessions: [(facts: SessionFacts, trace: ConversationTrace)],
+                              forks: [String: String] = [:]) -> Set<String> {
         var groups: [String: [(facts: SessionFacts, trace: ConversationTrace, asked: Set<String>)]] = [:]
         for session in sessions where session.trace.openingSize >= openingAtLeast {
             let key = [session.facts.ownerAccount, session.facts.ownerOrganization, session.facts.cwd,
@@ -965,6 +977,8 @@ enum Graft {
             for copy in group {
                 let carriedOn = group.contains { other in
                     guard other.facts.cliSessionId != copy.facts.cliSessionId,
+                          forks[copy.facts.cliSessionId] != other.facts.cliSessionId,
+                          forks[other.facts.cliSessionId] != copy.facts.cliSessionId,
                           copy.asked.isSubset(of: other.asked) else { return false }
                     let ownWork = copy.trace.work.reduce(0) { sum, answer in
                         other.trace.work[answer.key] == nil ? sum + answer.value : sum
@@ -1006,6 +1020,18 @@ enum Graft {
         /// naming it — which is exactly what a session that closed without a
         /// record looks like from here.
         var superseded: Set<String> = []
+        /// The session every record holds, against the record's own name,
+        /// which is the only name a fork's record gives its source.
+        var sessionsByRecord: [String: String] = [:]
+        /// Every session a record says was forked, against the name of the
+        /// record it was forked from.
+        var forkedFrom: [String: String] = [:]
+
+        /// The forks whose source record this walk found, both halves as
+        /// sessions.
+        var forks: [String: String] {
+            forkedFrom.compactMapValues { sessionsByRecord[$0] }
+        }
     }
 
     /// Everything the chat stores on the machine hold, in one walk.
@@ -1045,6 +1071,10 @@ enum Graft {
                                 contents.records[session] = resolved
                             }
                             contents.superseded.formUnion(sessions.prior)
+                            if let session = sessions.cliSessionId {
+                                contents.sessionsByRecord[String(name.dropLast(".json".count))] = session
+                                if let source = sessions.forkedFrom { contents.forkedFrom[session] = source }
+                            }
                         } else if name.hasPrefix("deleted_") {
                             let marker = String(name.dropFirst("deleted_".count))
                             contents.deleted.insert(marker)
@@ -1069,6 +1099,9 @@ enum Graft {
         /// compaction, or resumed, gets a new command line session and the
         /// record keeps the old ids here.
         var prior: [String] = []
+        /// The record it was forked from, by name. A fork gets a record of its
+        /// own, where a resume keeps the one it had.
+        var forkedFrom: String?
     }
 
     static func sessions(ofRecordAt url: URL) -> RecordSessions {
@@ -1086,7 +1119,8 @@ enum Graft {
         let record = (try? Data(contentsOf: url))
             .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
         let sessions = RecordSessions(cliSessionId: record?["cliSessionId"] as? String,
-                                      prior: (record?["priorCliSessionIds"] as? [String]) ?? [])
+                                      prior: (record?["priorCliSessionIds"] as? [String]) ?? [],
+                                      forkedFrom: record?["forkedFromSessionId"] as? String)
 
         recordCacheLock.lock()
         recordCache[url.path] = (stamp, size, sessions)
@@ -1107,15 +1141,21 @@ enum Graft {
         var authored: [String: SessionFacts] = [:]
         /// Records missing on the last pass and not yet missing on a second.
         var vanished: [String] = []
+        /// Every fork seen while both its records stood, against the session
+        /// it came from. Remembered because the pass that needs it is the one
+        /// where neither record stands any more.
+        var forks: [String: String] = [:]
 
         init(records: [String: String] = [:],
              withdrawn: [String] = [],
              authored: [String: SessionFacts] = [:],
-             vanished: [String] = []) {
+             vanished: [String] = [],
+             forks: [String: String] = [:]) {
             self.records = records
             self.withdrawn = withdrawn
             self.authored = authored
             self.vanished = vanished
+            self.forks = forks
         }
 
         /// Every key is optional on the way in: a state file from a version
@@ -1127,6 +1167,7 @@ enum Graft {
             withdrawn = try container.decodeIfPresent([String].self, forKey: .withdrawn) ?? []
             authored = try container.decodeIfPresent([String: SessionFacts].self, forKey: .authored) ?? [:]
             vanished = try container.decodeIfPresent([String].self, forKey: .vanished) ?? []
+            forks = try container.decodeIfPresent([String: String].self, forKey: .forks) ?? [:]
         }
     }
 
@@ -1495,7 +1536,15 @@ enum Graft {
                 readings.append((facts, reading.trace, lastWrite))
             }
         }
-        let copies = resumedCopies(readings.map { ($0.facts, $0.trace) })
+        // Learned while both records of a fork stand, because the pass this
+        // matters to is one where neither does: a profile deleted, or a
+        // sign-in moving its folder, and every session in it filed again from
+        // its transcript alone. Judged that way the original is a copy its
+        // fork carried on, and only the fork would have come back.
+        state.forks.merge(contents.forks) { $1 }
+        let present = Set(readings.map(\.facts.cliSessionId))
+        state.forks = state.forks.filter { present.contains($0.key) || present.contains($0.value) }
+        let copies = resumedCopies(readings.map { ($0.facts, $0.trace) }, forks: state.forks)
         var copiesHeldBack = 0
 
         for (facts, _, lastWrite) in readings {
@@ -1628,6 +1677,7 @@ enum Graft {
             "storesUnread": unreadStores.sorted(),
             "storesGone": goneStores.sorted(),
             "resumedCopies": copiesHeldBack,
+            "forksKnown": state.forks.count,
         ])
         saveTranscriptCache(visited: visited)
         return filed

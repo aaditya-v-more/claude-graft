@@ -3246,6 +3246,25 @@ do {
     check(!copies.contains("other-opening"),
           "a retry starts where the original did, so a different opening is a different chat")
 
+    // A fork copies the whole conversation and asks more, which from the
+    // transcripts alone is exactly what a resumed copy looks like.
+    let forkedAway = [
+        (facts("original", last: 5), trace(["a", "b"], work: shared)),
+        (facts("forked", last: 9), trace(["a", "b", "f"], work: shared.merging(["f1": 3_000]) { $1 })),
+        (facts("retried-original", last: 1), trace(["a"], work: ["h1": 4_000])),
+    ]
+    check(Graft.resumedCopies(forkedAway).contains("original"),
+          "judged by transcripts alone, an original whose fork asked more reads as a copy of it")
+    let forkAware = Graft.resumedCopies(forkedAway, forks: ["forked": "original"])
+    check(!forkAware.contains("original") && !forkAware.contains("forked"),
+          "so neither half of a fork its record owns up to is ever a copy of the other")
+    check(forkAware.contains("retried-original"),
+          "while a retry of the original is still the copy it always was")
+    let freshFork = [(facts("source", last: 5), trace(["a", "b"], work: shared)),
+                     (facts("fresh-fork", last: 9), trace(["a", "b"], work: shared))]
+    check(Graft.resumedCopies(freshFork, forks: ["fresh-fork": "source"]).isEmpty,
+          "and a fork that has asked nothing of its own yet leaves its source standing")
+
     // And end to end, through a pass.
     let longer = "22222222-2222-4222-8222-222222222222"
     let retried = "23232323-2323-4232-8232-232323232323"
@@ -4519,6 +4538,52 @@ do {
     try? fm.removeItem(at: now)
     try? fm.removeItem(at: Graft.claudeProjects.appending(path: "-Users-test-work")
                         .appending(path: "\(session).jsonl"))
+}
+
+do {
+    // A fork copies the whole conversation, so once every record is gone at
+    // once — the profile deleted, a sign-in moving its folder — the original
+    // reads as a copy its fork carried on, and a pass filing both again from
+    // their transcripts would have brought back the fork alone.
+    let account = "4d4d4d4d-4d4d-4d4d-8d4d-4d4d4d4d4d4d"
+    let org = "4e4e4e4e-4e4e-4e4e-8e4e-4e4e4e4e4e4e"
+    let original = "4f4f4f4f-4f4f-4f4f-8f4f-4f4f4f4f4f4f"
+    let fork = "50505050-5050-4050-8050-505050505050"
+    let opening = "Plan the move to the new Mac"
+    makeTranscript(session: original, owner: account, org: org, title: "Mac move", said: opening)
+    makeTranscript(session: fork, owner: account, org: org, title: "Mac move (fork)",
+                   last: "2026-08-29T18:00:10.000Z", said: opening, extra: [
+        "{\"parentUuid\":\"a-1\",\"promptId\":\"p-side\",\"cwd\":\"/Users/test/work\","
+            + "\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":\"And the routines on it?\"},"
+            + "\"uuid\":\"u-side\",\"timestamp\":\"2026-08-29T18:00:00.000Z\"}",
+    ])
+    let was = makeProfile("Claude-Forked-Here", account: account, org: org)
+    let wasOrg = was.appending(path: "claude-code-sessions").appending(path: account).appending(path: org)
+    func record(_ name: String, holding session: String, forkedFrom source: String? = nil) {
+        var fields: [String: Any] = ["sessionId": name, "cliSessionId": session]
+        fields["forkedFromSessionId"] = source
+        try! JSONSerialization.data(withJSONObject: fields).write(to: wasOrg.appending(path: "\(name).json"))
+    }
+    record("local_desktop-original", holding: original)
+    record("local_desktop-fork", holding: fork, forkedFrom: "local_desktop-original")
+
+    let untouched = Graft.fileMissingSessionRecords(filingInto: [was], now: Date().addingTimeInterval(120))
+    check(untouched.isEmpty, "a fork and the conversation it came from, both on record, are left alone")
+    check(Graft.loadSessionRecordState().forks[fork] == original,
+          "and a pass remembers which one the fork came from while both records stand")
+
+    try? fm.removeItem(at: was)
+    let now = makeProfile("Claude-Forked-Now", account: account, org: org)
+    let refiled = Set(Graft.fileMissingSessionRecords(filingInto: [now], now: Date().addingTimeInterval(120))
+        .map(\.cliSessionId))
+    check(refiled == [original, fork],
+          "so with every record gone at once, the conversation a fork came from is filed again beside the fork")
+
+    try? fm.removeItem(at: now)
+    for session in [original, fork] {
+        try? fm.removeItem(at: Graft.claudeProjects.appending(path: "-Users-test-work")
+                            .appending(path: "\(session).jsonl"))
+    }
 }
 
 do {
