@@ -132,6 +132,11 @@ definitions, keeping existing definitions and later edits local. Account-linked
 connectors need a separate sign-in. Files under `~/.claude`, including skills,
 plugins and transcripts, are already shared by every instance.
 
+**VoiceOver and automation tools reach every control.** Each button, switch and
+field in Graft's window, menu and Settings says what it does and which account it
+acts on. Each also has a fixed identifier, such as `dropdown.Claude-2.open` or
+`settings.hold-updates`, that stays the same in every language.
+
 Old chats may show “Session not found on disk” after Claude Code prunes their
 transcripts. Raise `cleanupPeriodDays` in `~/.claude/settings.json` to keep them
 longer. Deleting a shortcut keeps its profile folder by default.
@@ -167,6 +172,7 @@ merges both histories. That saved set lets it return to its own chats later.
 ```sh
 ./build.sh                  # App in build.noindex/
 ./test.sh                   # Regression checks in a throwaway directory
+./test-layout.sh            # Window layout and VoiceOver checks; needs Accessibility access
 ./test-sidebar.sh           # Sidebar checks in disposable profiles
 ./release.sh                # Test, build universal, sign and package
 Tools/render-diagrams.sh    # Render these diagrams into docs/assets

@@ -48,10 +48,12 @@ struct ManualUpdateControl: View {
                 get: { settings.enabled }, set: { settings.setEnabled($0) }))
                 .disabled(settings.changing || updates.isUpdating)
                 .help("Stops automatic updates for Claude and every shortcut from their next launch. Graft checks for new versions; use Update Claude when your work is finished.")
+                .identified("manual-updates")
             // A failure stays on screen: a switch that did not take is not
             // something to find out about by hovering.
             if let problem = settings.problem {
                 Text(problem).foregroundStyle(.red)
+                    .identified("manual-updates.problem")
             }
         }
         .font(.callout)

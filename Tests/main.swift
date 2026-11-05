@@ -1807,6 +1807,19 @@ do {
         if text.contains("Graft.launch(") { launchers.append(file.lastPathComponent) }
     }
     check(launchers.isEmpty, "and nothing in the app launches a Claude without asking who is there")
+
+    // The layout suite walks every SwiftUI surface's accessibility tree and
+    // never reaches the status item, which is AppKit's and whose title is a
+    // figure that changes on every pass.
+    let menuBar = read("App/MenuBarController.swift")
+    check(menuBar.contains("setAccessibilityIdentifier(\"status-item\")"),
+          "the menu bar item can be asked for by a name that does not change with its figure")
+    check(menuBar.contains("setAccessibilityTitle([spoken, updateTip]"),
+          "and says in words whose figure it shows and what its symbol stands for")
+    check(menuBar.contains("window.setAccessibilityParent(NSApp)"),
+          "the open dropdown is among the app's windows, where a client looking for its controls searches")
+    check(!menuBar.contains("setAccessibilityWindows("),
+          "and the app's own list of windows is never replaced, which clearing again leaves empty")
 }
 
 section("Opening the selected shortcut")

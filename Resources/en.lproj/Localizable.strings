@@ -237,7 +237,7 @@
 "Live usage needs keychain access." = "Live usage needs keychain access.";
 "Anthropic's usage service did not answer." = "Anthropic's usage service did not answer.";
 "Ask Anthropic for this account's usage now" = "Ask Anthropic for this account's usage now";
-"Refresh usage" = "Refresh usage";
+"Refresh usage for %@" = "Refresh usage for %@";
 "Not refreshed yet" = "Not refreshed yet";
 "just now" = "just now";
 "Updated %@ from Anthropic" = "Updated %@ from Anthropic";
@@ -245,4 +245,12 @@
 "Show the icon of the Claude in front" = "Show the icon of the Claude in front";
 "Show the name of the Claude in front" = "Show the name of the Claude in front";
 "The menu bar shows which Claude you're using, beside that account's usage. The Dock can't: macOS calls every running Claude “Claude”." = "The menu bar shows which Claude you're using, beside that account's usage. The Dock can't: macOS calls every running Claude “Claude”.";
+"About %@" = "About %@";
+"Running" = "Running";
+"Start Session for %@" = "Start Session for %@";
+"Open %@" = "Open %@";
+"%ld%% used" = "%ld%% used";
+"%1$ld%% used, resets in %2$@" = "%1$ld%% used, resets in %2$@";
+"Reads chats from %@" = "Reads chats from %@";
 "%@, %ld%% of 5 hours" = "%@, %ld%% of 5 hours";
+"Claude Graft Menu" = "Claude Graft Menu";

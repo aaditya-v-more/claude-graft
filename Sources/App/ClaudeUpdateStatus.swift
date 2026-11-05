@@ -25,12 +25,16 @@ struct ClaudeUpdateStatus: View {
 
     var body: some View {
         HStack(spacing: 8) {
+            // The line beside it says everything the symbol does, and SwiftUI
+            // reads this one out as "Syncing".
             Image(systemName: waiting == nil ? "arrow.triangle.2.circlepath" : "arrow.down.circle.fill")
                 .foregroundColor(waiting == nil ? .secondary : .red)
+                .accessibilityHidden(true)
             line
                 .lineLimit(2)
                 .fixedSize(horizontal: false, vertical: true)
                 .help(ifAny: updater.problem ?? updater.status)
+                .identified("claude-update.status")
             Spacer(minLength: 8)
             action
         }
@@ -74,6 +78,7 @@ struct ClaudeUpdateStatus: View {
                 .controlSize(compact ? .small : .regular)
                 .disabled(updater.checking)
                 .help("Closes all Claude instances and ends their running workflows.")
+                .identified("claude-update.install")
         } else if compact {
             Button { updater.check() } label: {
                 if updater.checking {
@@ -85,9 +90,12 @@ struct ClaudeUpdateStatus: View {
             .buttonStyle(.borderless)
             .disabled(updater.checking)
             .help("Check for Claude Updates")
+            .accessibilityLabel(L10n.text("Check for Claude Updates"))
+            .identified("claude-update.check")
         } else {
             Button("Check for Claude Updates") { updater.check() }
                 .disabled(updater.checking)
+                .identified("claude-update.check")
         }
     }
 }

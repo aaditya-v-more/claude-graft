@@ -65,7 +65,9 @@ struct SettingsView: View {
                 Toggle("Open at Login", isOn: Binding(
                     get: { settings.openAtLogin },
                     set: { problem = settings.setOpenAtLogin($0) }))
+                    .identified("open-at-login")
                 Toggle("Show in Menu Bar", isOn: $settings.showInMenuBar)
+                    .identified("show-in-menu-bar")
                 FrontClaudeControl()
                     .disabled(!settings.showInMenuBar)
                 ManualUpdateControl()
@@ -84,6 +86,7 @@ struct SettingsView: View {
         .formStyle(.grouped)
         .frame(width: 420)
         .onAppear { settings.refreshLoginItem() }
+        .environment(\.controlSurface, ControlSurface.settings)
     }
 }
 

@@ -58,6 +58,7 @@ struct ShortcutDetail: View {
                 Section {
                     Label("Claude.app was not found.", systemImage: "exclamationmark.triangle")
                         .foregroundStyle(.secondary)
+                        .identified("claude-missing")
                 }
             }
 
@@ -67,14 +68,19 @@ struct ShortcutDetail: View {
                         guard installedAt == nil, !folderIsCustom else { return }
                         shortcut.folder = Shortcut.folderName(for: shortcut.name)
                     }
+                    .identified("name")
 
-                LabeledContent("Profile folder") {
+                LabeledContent {
                     HStack(spacing: 6) {
+                        // The field carries no title of its own, so without
+                        // this VoiceOver reads only whatever has been typed.
                         TextField("", text: $shortcut.folder)
                             .textFieldStyle(.plain)
                             .multilineTextAlignment(.trailing)
                             .font(.callout.monospaced())
                             .onChange(of: shortcut.folder) { _ in folderIsCustom = true }
+                            .accessibilityLabel(L10n.text("Profile folder"))
+                            .identified("folder")
                         Button {
                             NSWorkspace.shared.activateFileViewerSelecting([shortcut.profileDir])
                         } label: {
@@ -82,12 +88,18 @@ struct ShortcutDetail: View {
                         }
                         .buttonStyle(.borderless)
                         .help("Show in Finder")
+                        // SwiftUI reads the folder symbol out as "Move".
+                        .accessibilityLabel(L10n.text("Show in Finder"))
+                        .identified("show-in-finder")
                     }
+                } label: {
+                    // The field says it instead, or it is read out twice.
+                    Text("Profile folder").accessibilityHidden(true)
                 }
 
                 iconPicker
             } header: {
-                SectionHeader(title: "Shortcut", info: Self.shortcutNote)
+                SectionHeader(title: "Shortcut", info: Self.shortcutNote, id: "shortcut-info")
             }
 
             Section {
@@ -96,18 +108,21 @@ struct ShortcutDetail: View {
                         Text(store.label(for: source)).tag(source)
                     }
                 }
+                .identified("chat-source")
                 if shortcut.source != .own {
                     Text(mergeNote)
                         .font(.callout)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
+                        .identified("merge-note")
                     Text(sidebarNote ?? L10n.text("Pinned chats and sort order sync when the linked Claude apps are closed and you open a shortcut."))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
+                        .identified("sidebar-note")
                 }
             } header: {
-                SectionHeader(title: "Chats", info: sourceExplanation)
+                SectionHeader(title: "Chats", info: sourceExplanation, id: "chats-info")
             }
 
             if let found = elsewhere {
@@ -115,6 +130,7 @@ struct ShortcutDetail: View {
                     Text(foundNote(found))
                         .font(.callout)
                         .fixedSize(horizontal: false, vertical: true)
+                        .identified("elsewhere-note")
                     ForEach(found.chats, id: \.self) { chat in
                         LabeledContent {
                             Text(Self.chatDate.string(from: chat.lastActive))
@@ -126,16 +142,19 @@ struct ShortcutDetail: View {
                                 .lineLimit(1)
                                 .truncationMode(.tail)
                         }
+                        .spoken(chat.title, value: Self.chatDate.string(from: chat.lastActive))
                     }
                     HStack(spacing: 8) {
                         Button(L10n.text(found.merging ? "Merge Them Here" : "Copy Them Here")) {
                             adopt(found)
                         }
                         .disabled(copying)
+                        .identified("copy-chats")
                         if copying { ProgressView().controlSize(.small) }
                     }
                 } header: {
-                    SectionHeader(title: "Chats found elsewhere", info: Self.elsewhereNote)
+                    SectionHeader(title: "Chats found elsewhere", info: Self.elsewhereNote,
+                                  id: "elsewhere-info")
                 }
             }
 
@@ -147,11 +166,15 @@ struct ShortcutDetail: View {
                         .lineLimit(1)
                         .truncationMode(.middle)
                 }
+                .spoken(L10n.text("Shortcut"), value: installedAt.map { $0.path } ?? L10n.text("Not created yet"))
+                .identified("installed-at")
                 LabeledContent("Claude") {
                     Text(L10n.text(isRunning ? "Running on this profile" : "Not running"))
                         .font(.callout)
                         .foregroundStyle(.secondary)
                 }
+                .spoken("Claude", value: L10n.text(isRunning ? "Running on this profile" : "Not running"))
+                .identified("running")
                 if let copiedNote {
                     LabeledContent("Chats") {
                         Text(copiedNote)
@@ -160,6 +183,8 @@ struct ShortcutDetail: View {
                             .fixedSize(horizontal: false, vertical: true)
                             .multilineTextAlignment(.trailing)
                     }
+                    .spoken(L10n.text("Chats"), value: copiedNote)
+                    .identified("copied-note")
                 }
             }
 
@@ -168,7 +193,8 @@ struct ShortcutDetail: View {
                     usage.refresh(store, interactive: true, focus: shortcut.profileDir)
                 }
             } header: {
-                SectionHeader(title: "Plan usage", info: UsageSummary.explanation(for: plan))
+                SectionHeader(title: "Plan usage", info: UsageSummary.explanation(for: plan),
+                              id: "usage-info")
             }
         }
         .formStyle(.grouped)
@@ -176,6 +202,7 @@ struct ShortcutDetail: View {
             HStack(spacing: 8) {
                 Button(L10n.text(isDraft ? "Discard" : "Delete Shortcut…"),
                        role: .destructive, action: requestDelete)
+                    .identified("delete")
                 Spacer()
                 Button(action: startSession) {
                     if startingSession {
@@ -185,14 +212,20 @@ struct ShortcutDetail: View {
                     }
                 }
                 .disabled(startingSession)
-                InfoButton(Self.sessionNote)
+                // Named apart from its text, which a spinner replaces while
+                // the session is being started.
+                .accessibilityLabel(L10n.text("Start Session"))
+                .identified("start-session")
+                InfoButton(Self.sessionNote, about: "Start Session", id: "session-info")
 
                 Button("Open", action: open)
                     .disabled(installedAt == nil)
+                    .identified("open")
                 Button(L10n.text(installedAt == nil ? "Create Shortcut" : "Update Shortcut"),
                        action: install)
                     .keyboardShortcut(.defaultAction)
                     .disabled(shortcut.name.trimmingCharacters(in: .whitespaces).isEmpty || claudeMissing)
+                    .identified("install")
             }
             .padding(14)
             .background(.bar)
@@ -239,6 +272,7 @@ struct ShortcutDetail: View {
         } message: {
             Text(error ?? "")
         }
+        .controls(profile: shortcut.profileDir)
     }
 
     private var iconPicker: some View {
@@ -271,6 +305,7 @@ struct ShortcutDetail: View {
                         .accessibilityLabel(Text(preset.title))
                         .accessibilityValue(Text(preset == shortcut.iconPreset
                                                  ? L10n.text("Selected") : ""))
+                        .identified("icon.\(preset.rawValue)")
                     }
                 }
                 Text(shortcut.iconPreset.title)
@@ -554,17 +589,21 @@ struct UsageSummary: View {
         if let usage = entry?.usage {
             UsageBar(label: "5 hours", percent: usage.fiveHour,
                      resets: usage.fiveHourReset, dimmed: dimmed)
+                .identified("five-hour")
             UsageBar(label: "Week", percent: usage.week,
                      resets: usage.weekReset, dimmed: dimmed)
+                .identified("week")
             if let fable = usage.fable {
                 UsageBar(label: "Fable", percent: fable,
                          resets: usage.fableReset, dimmed: dimmed)
+                    .identified("fable")
             }
             if let entry { UsageFreshness(entry: entry, refresh: refresh) }
         } else {
             Text("No usage reported yet")
                 .font(.callout)
                 .foregroundStyle(.secondary)
+                .identified("no-usage")
             if let entry { UsageFreshness(entry: entry, refresh: refresh) }
         }
     }

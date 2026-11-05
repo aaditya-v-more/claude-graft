@@ -81,6 +81,9 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
         item.button?.imagePosition = .imageLeading
         item.button?.image = NSImage(systemSymbolName: "circle.lefthalf.filled",
                                      accessibilityDescription: "Claude Graft")
+        // The only handle a script has on the item: its title is a figure
+        // that changes on every pass, and the bar holds no other name for it.
+        item.button?.setAccessibilityIdentifier("status-item")
         self.item = item
         updateTitle()
     }
@@ -187,6 +190,24 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
         popover.behavior = .transient
         popover.delegate = self
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-        popover.contentViewController?.view.window?.makeKey()
+        guard let window = popover.contentViewController?.view.window else { return }
+        window.makeKey()
+        // The identifier is what a script asks for in every language.
+        window.setAccessibilityIdentifier(ControlSurface.dropdown)
+        // A popover has no title of its own, so VoiceOver announced a bare
+        // "popover" and nothing could ask for this one by name. The window
+        // server keeps its own copy of a window's name apart from the one
+        // VoiceOver reads, and a client that compared the two refused to act
+        // on a window where they disagreed, so both are set.
+        let name = L10n.text("Claude Graft Menu")
+        window.title = name
+        window.setAccessibilityTitle(name)
+        // AppKit hangs a popover under the status item and leaves it out of
+        // the app's windows, which is the only list most assistive clients
+        // search, so nothing inside the dropdown could be found or pressed.
+        // Parented to the app it is listed there too while it is open, and
+        // still reads as a popover. Replacing the list instead was measured
+        // leaving the app with no windows at all once it was cleared again.
+        window.setAccessibilityParent(NSApp)
     }
 }

@@ -237,7 +237,7 @@
 "Live usage needs keychain access." = "Для актуальных данных нужен доступ к связке ключей.";
 "Anthropic's usage service did not answer." = "Служба использования Anthropic не ответила.";
 "Ask Anthropic for this account's usage now" = "Запросить у Anthropic использование этого аккаунта сейчас";
-"Refresh usage" = "Обновить использование";
+"Refresh usage for %@" = "Обновить использование для %@";
 "Not refreshed yet" = "Ещё не обновлялось";
 "just now" = "только что";
 "Updated %@ from Anthropic" = "Обновлено %@, данные Anthropic";
@@ -245,4 +245,12 @@
 "Show the icon of the Claude in front" = "Показывать иконку активного Claude";
 "Show the name of the Claude in front" = "Показывать имя активного Claude";
 "The menu bar shows which Claude you're using, beside that account's usage. The Dock can't: macOS calls every running Claude “Claude”." = "Строка меню показывает, какой Claude вы используете, рядом с данными об использовании этой учётной записи. Dock так не умеет: macOS называет каждый запущенный Claude «Claude».";
+"About %@" = "Подробнее: %@";
+"Running" = "Запущен";
+"Start Session for %@" = "Запустить сессию для %@";
+"Open %@" = "Открыть %@";
+"%ld%% used" = "Использовано %ld%%";
+"%1$ld%% used, resets in %2$@" = "Использовано %1$ld%%, сброс через %2$@";
+"Reads chats from %@" = "Источник чатов: %@";
 "%@, %ld%% of 5 hours" = "%@, %ld%% за 5 часов";
+"Claude Graft Menu" = "Меню Claude Graft";
