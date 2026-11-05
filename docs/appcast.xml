@@ -3,6 +3,37 @@
     <channel>
         <title>Claude Graft</title>
         <item>
+            <title>1.1.8</title>
+            <pubDate>Fri, 06 Nov 2026 00:38:42 +0530</pubDate>
+            <link>https://github.com/aaditya-v-more/claude-graft</link>
+            <sparkle:version>1.1.8</sparkle:version>
+            <sparkle:shortVersionString>1.1.8</sparkle:shortVersionString>
+            <sparkle:minimumAutoupdateVersion>1.1.0</sparkle:minimumAutoupdateVersion>
+            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+            <description><![CDATA[<h2>See which Claude you are using</h2>
+
+<p>Every running Claude shows Claude's own name and icon in the Dock, so it was
+hard to tell which account was in front. The menu bar now shows it instead:
+while a Claude is in front, Graft's icon in the menu bar carries that
+shortcut's icon beside that account's usage. You can add its name in Settings,
+or turn either off.</p>
+
+<p>Usage figures now say when they were taken and where they came from, and
+each account has its own refresh button. An open Claude's account is checked
+more often, bringing a Claude to the front refreshes it, and Refresh Usage now
+always asks for a new figure.</p>
+
+<p>A conversation you edited, retried or resumed no longer shows up several
+times in a shared sidebar, and a chat you forked keeps both halves.</p>
+
+<p>Every control now works with VoiceOver and says which account it acts on,
+and the Claude update line at the top takes less room.</p>
+
+<p>Works on Apple Silicon and Intel, with macOS 13 or later supported.</p>
+]]></description>
+            <enclosure url="https://github.com/aaditya-v-more/claude-graft/releases/download/v1.1.8/ClaudeGraft-1.1.8.zip" length="4766274" type="application/octet-stream" sparkle:edSignature="GX2dJa4tXQd7cZw++jjRKX9ekpZ8WXjLni0tbkU4g44mRXr9D+MavTe6AruyyyBuJowLpa8yO9I7zO93MixoAw=="/>
+        </item>
+        <item>
             <title>1.1.7</title>
             <pubDate>Thu, 05 Nov 2026 00:41:04 +0530</pubDate>
             <link>https://github.com/aaditya-v-more/claude-graft</link>
