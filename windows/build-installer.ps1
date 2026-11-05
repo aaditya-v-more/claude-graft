@@ -2,9 +2,26 @@ param(
     [ValidateSet('x64','arm64')][string]$Architecture = 'x64',
     [string]$Compiler,
     [switch]$SkipBuild,
-    [switch]$TestMode
+    [switch]$TestMode,
+    [string]$PublishRoot,
+    [ValidatePattern('^[0-9A-Fa-f]{40}$')][string]$PublisherThumbprint,
+    [string]$SignTool,
+    [string]$TimestampUrl
 )
 $ErrorActionPreference = 'Stop'
+if ($PublisherThumbprint) {
+    if ($TestMode -or -not $SkipBuild -or -not $PublishRoot) {
+        throw 'Publisher signing requires -SkipBuild and -PublishRoot pointing to a separate, reviewed staging copy of the production payload.'
+    }
+    $tsa = $TimestampUrl -as [Uri]
+    if (-not $tsa -or -not $tsa.IsAbsoluteUri -or $tsa.Scheme -notin 'http','https' -or
+        $tsa.UserInfo -or $TimestampUrl -match '[\s"\x00-\x1f]') { throw 'Supply -TimestampUrl with the RFC 3161 timestamp service URL.' }
+    . (Join-Path $PSScriptRoot 'installer/PublisherSigning.ps1')
+    $SignTool = Get-GraftSignTool $SignTool
+    Assert-GraftSigningCertificate $PublisherThumbprint
+} elseif ($SignTool -or $TimestampUrl -or $PublishRoot) {
+    throw '-SignTool, -TimestampUrl and -PublishRoot require -PublisherThumbprint.'
+}
 if (-not $Compiler) {
     $command = Get-Command ISCC.exe -ErrorAction SilentlyContinue
     if ($command) { $Compiler = $command.Source }
@@ -37,12 +54,20 @@ if (-not $Compiler -or -not (Test-Path -LiteralPath $Compiler)) {
 }
 if (-not $SkipBuild) { & (Join-Path $PSScriptRoot 'build.ps1') -Architecture $Architecture }
 $published = Join-Path $PSScriptRoot "dist/ClaudeGraft-$Architecture"
+if ($PublisherThumbprint) {
+    $stage = Get-Item -LiteralPath $PublishRoot
+    if (-not $stage.PSIsContainer -or ($stage.Attributes -band [IO.FileAttributes]::ReparsePoint) -or
+        $stage.FullName.TrimEnd('\') -eq [IO.Path]::GetFullPath($published).TrimEnd('\')) { throw 'Use a separate release staging directory.' }
+    $published = $stage.FullName.TrimEnd('\')
+}
 foreach ($required in @('ClaudeGraft.exe','ClaudeGraft.pri','coreclr.dll','launcher/GraftLaunch.exe','launcher/coreclr.dll','vc-runtime.json')) {
     if (-not (Test-Path -LiteralPath (Join-Path $published $required))) { throw "Missing published file: $required" }
 }
-Copy-Item -LiteralPath (Join-Path $PSScriptRoot '../LICENSE') -Destination $published
-Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'README.md') -Destination $published
-Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'PORTING.md') -Destination $published
+if (-not $PublisherThumbprint) {
+    Copy-Item -LiteralPath (Join-Path $PSScriptRoot '../LICENSE') -Destination $published
+    Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'README.md') -Destination $published
+    Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'PORTING.md') -Destination $published
+}
 $runtime = Get-Content -LiteralPath (Join-Path $published 'vc-runtime.json') -Raw | ConvertFrom-Json
 if ($runtime.architecture -ne $Architecture -or $runtime.files.name -notcontains 'msvcp140.dll' -or
     $runtime.files.name -notcontains 'vcruntime140.dll') { throw 'Rebuild the published Visual C++ runtime.' }
@@ -55,8 +80,16 @@ foreach ($file in $runtime.files) {
 }
 $version = (Get-Content -LiteralPath (Join-Path $PSScriptRoot '../VERSION') -Raw).Trim()
 $destination = Join-Path $PSScriptRoot 'dist'
+if ($PublisherThumbprint) {
+    Sign-GraftPayload $published $SignTool $PublisherThumbprint $TimestampUrl
+    $destination = Join-Path $destination 'signed'
+}
 $arguments = @('/Qp', "/DAppVersion=$version", "/DArchitecture=$Architecture",
     "/DPublishRoot=$published", "/DInstallerOutput=$destination")
+if ($PublisherThumbprint) {
+    $arguments += '/DPublisherSigned=1'
+    $arguments += Get-GraftInnoSignToolArgument $SignTool $PublisherThumbprint $TimestampUrl
+}
 if ($TestMode) { $arguments += '/DTestMode=1' }
 $arguments += Join-Path $PSScriptRoot 'installer/ClaudeGraft.iss'
 & $Compiler @arguments
@@ -64,15 +97,25 @@ if ($LASTEXITCODE -ne 0) { throw "Installer compilation failed ($LASTEXITCODE)."
 $suffix = if ($TestMode) { '-test' } else { '' }
 $installer = Join-Path $destination "ClaudeGraft-$version-windows-$Architecture-setup$suffix.exe"
 if (-not (Test-Path -LiteralPath $installer)) { throw 'The compiler did not produce the expected setup executable.' }
-(Get-FileHash -LiteralPath $installer -Algorithm SHA256).Hash + '  ' + (Split-Path $installer -Leaf) |
+if ($PublisherThumbprint) {
+    Assert-GraftPublisherSignature $installer $PublisherThumbprint
+    & $SignTool verify /pa /all /tw $installer
+    if ($LASTEXITCODE -ne 0) { throw "SignTool could not verify the timestamped setup ($LASTEXITCODE)." }
+}
+$installerHash = (Get-FileHash -LiteralPath $installer -Algorithm SHA256).Hash
+$installerHash + '  ' + (Split-Path $installer -Leaf) |
     Set-Content -LiteralPath "$installer.sha256" -Encoding Ascii
-[ordered]@{
+$manifest = [ordered]@{
     version = $version
     architecture = $Architecture
     sourceCommit = (& git -C $PSScriptRoot rev-parse HEAD)
     sourceDirty = [bool](& git -C $PSScriptRoot status --porcelain)
-    installerSha256 = (Get-FileHash -LiteralPath $installer -Algorithm SHA256).Hash
+    installerSha256 = $installerHash
     runtimeVersion = $runtime.version
     runtimeFiles = $runtime.files
-} | ConvertTo-Json -Depth 3 | Set-Content -LiteralPath "$installer.build.json"
+}
+if ($PublisherThumbprint) {
+    $manifest.authenticode = @{ verified = $true; signerThumbprint = $PublisherThumbprint.ToUpperInvariant() }
+}
+$manifest | ConvertTo-Json -Depth 3 | Set-Content -LiteralPath "$installer.build.json" -Encoding UTF8
 Write-Output $installer

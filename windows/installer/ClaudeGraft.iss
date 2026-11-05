@@ -48,6 +48,10 @@ CloseApplications=yes
 CloseApplicationsFilter=ClaudeGraft.exe
 RestartApplications=no
 Uninstallable=yes
+#ifdef PublisherSigned
+SignTool=graftpublisher
+SignedUninstaller=yes
+#endif
 #ifdef TestMode
 CreateUninstallRegKey=no
 UsePreviousAppDir=no

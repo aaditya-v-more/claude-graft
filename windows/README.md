@@ -34,7 +34,9 @@ optional. Opening Graft from the Start menu shows the manager immediately.
 Graft installs without administrator rights. The installer and portable ZIP
 include the .NET, Windows App SDK and Visual C++ runtimes. Each profile's
 standalone launcher also carries the runtime files it needs.
-The development setup executable is not code-signed.
+Development builds are unsigned. Windows Smart App Control can block their
+setup or the installed manager. If Windows blocks a development build, keep
+the protection enabled and use a publisher-signed release when available.
 
 Remove Graft through Windows Installed apps. Uninstall removes the application
 files and shortcuts created by setup; it preserves your Claude profiles, chats,
@@ -69,12 +71,59 @@ the full path to ISCC.exe to select a compiler explicitly. If none is installed,
 the script prepares a signature-verified portable compiler under windows/dist.
 The installer and its checksum are written to windows/dist.
 
-For a release, bring the reviewed x64 and arm64 setup files for the current
-VERSION to the Mac that signs Graft. Run `bash windows/sign-release.sh /path/to/artifacts`
-after building the Mac app to obtain Sparkle's release tools. The script hashes
-each installer and signs its checksum and filename with the existing release
-key. Attach each setup EXE, its .sha256 and .sha256.sig files to the upstream
-GitHub release tagged vVERSION. Build checksums alone cannot authorize an update.
+### Publisher-signed setup
+
+Release builds require the maintainer’s publicly trusted code-signing certificate
+in `Cert:\CurrentUser\My` with access to its private key, Windows SDK SignTool and
+the CA’s RFC 3161 timestamp service. Set `GRAFT_WINDOWS_PUBLISHER_THUMBPRINT`
+to the public certificate thumbprint and `GRAFT_TIMESTAMP_URL` to that service.
+Use a fresh staging directory for each architecture. From a Windows SDK
+developer shell, after publishing x64, run
+
+~~~powershell
+$stage = Join-Path $env:TEMP ('graft-signed-x64-' + [guid]::NewGuid())
+Copy-Item -Recurse -LiteralPath ./windows/dist/ClaudeGraft-x64 -Destination $stage
+$tool = (Get-Command signtool.exe).Source
+$publisher = @{ PublisherThumbprint = $env:GRAFT_WINDOWS_PUBLISHER_THUMBPRINT
+    TimestampUrl = $env:GRAFT_TIMESTAMP_URL; SignTool = $tool }
+./windows/build-installer.ps1 -Architecture x64 -SkipBuild -PublishRoot $stage @publisher
+~~~
+
+The script reports dependency paths, signature status and SHA-256 hashes.
+Keep existing valid vendor signatures. For each unsigned file, obtain a
+vendor-signed build, or review its exact bytes against the locked dependency
+and confirm that its license permits redistribution under your signature.
+Electron and H.NotifyIcon include unsigned files. After that review, sign
+each approved **staged** file individually. For H.NotifyIcon.WinUI.dll, run
+
+~~~powershell
+$file = Join-Path $stage 'H.NotifyIcon.WinUI.dll'
+if ((Get-FileHash -LiteralPath $file).Hash -ne $approvedUpstreamSha256) { throw 'Unexpected dependency bytes.' }
+if ((Get-AuthenticodeSignature -LiteralPath $file).Status -ne 'NotSigned') { throw 'Review the existing signature.' }
+& $tool sign /s My /sha1 $publisher.PublisherThumbprint /fd SHA256 /tr $publisher.TimestampUrl /td SHA256 $file
+if ($LASTEXITCODE -ne 0) { throw 'Dependency signing failed.' }
+~~~
+
+Set `$approvedUpstreamSha256` from the independently verified original.
+Repeat the same build command with `-SkipBuild` and that staging directory.
+The script signs the manager, launcher and both copies of the core assembly.
+Inno signs setup and its uninstaller. SignTool verifies the finished setup
+before the build writes its checksum and publisher record under `windows/dist/signed`.
+Repeat for ARM64 using the ARM64 publish folder. Test both signed setups on
+protected Windows installations. [Microsoft’s Smart App Control signing guidance](https://learn.microsoft.com/en-us/windows/apps/develop/smart-app-control/code-signing-for-smart-app-control)
+
+On the release Mac, put both reviewed setups for the current VERSION and
+their `.build.json` files together. Install Python 3 and `osslsigncode`,
+and set `GRAFT_WINDOWS_PUBLISHER_THUMBPRINT` from the trusted publisher’s
+certificate. If the tool’s trust store needs additional issuing roots,
+set `GRAFT_AUTHENTICODE_CA_FILE` to a trusted PEM bundle for both the publisher
+and timestamp authorities. After building the Mac app to obtain Sparkle’s
+release tools, run `bash windows/sign-release.sh /path/to/artifacts`.
+It verifies both Windows signatures and hashes before signing their checksums
+and filenames with Graft’s update key. Attach the setup EXEs, .sha256 and
+.sha256.sig files to the upstream release tagged vVERSION.
+
+### Testing the build
 
 For an isolated install/uninstall check, build with -TestMode and pass that
 setup-test.exe to ./windows/test-installer.ps1 -Installer. This variant creates
