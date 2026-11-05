@@ -1123,6 +1123,39 @@ Claude Code's command line keeps **one** login for the whole machine in the
 keychain, so `CLAUDE_CONFIG_DIR` does not isolate accounts. That is why Start
 Session goes through each profile's own borrowed token rather than the CLI.
 
+**A running Claude shows the icon of the bundle it runs from, and nothing
+outside Claude can change that.** A shortcut's icon belongs to the shortcut; the
+process it starts is `/Applications/Claude.app`, so the tile in the Dock is
+Claude's own. The suggestion that keeps arriving is `app.dock.setIcon` from
+inside Claude, and Claude's own build shuts every way in, measured against
+4.16336.0: its Electron fuses refuse `ELECTRON_RUN_AS_NODE`, `NODE_OPTIONS` and
+`--inspect`, enforce the asar integrity hash and load only from the asar; the
+hardened runtime grants nothing for `DYLD_` variables or unsigned libraries; and
+the app itself refuses `--remote-debugging-port`, `--remote-debugging-pipe` and
+the `*-cmd-prefix` switches. What is left is editing `app.asar`, which is an app
+Graft did not create, breaks Anthropic's signature and is undone by the next
+update.
+
+Nor can another process set the tile. A shortcut that `exec`s Claude's binary
+from inside its own bundle looks as though it should keep the shortcut's tile,
+and was measured with two throwaway apps not doing so: LaunchServices records
+the shortcut at launch and swaps in the bundle the binary lives in the moment
+that binary checks in.
+
+Which leaves a copy of Claude per shortcut — the only thing that changes the
+running icon, and the reason it is not done. Its `Info.plist` is bound into the
+signature, so the icon could only be a Finder custom icon over an untouched
+copy; re-signing instead gives up the keychain groups and application
+identifier that Anthropic's provisioning profile grants. Claude's updater
+updates whichever bundle is running, taking the icon with it and splitting the
+versions. LaunchServices would hold several `com.anthropic.claudefordesktop`
+bundles and could open the main profile from a shortcut's copy. And Claude
+writes machine-wide paths derived from its own executable —
+`com.anthropic.claude_browser_extension.json` names
+`<bundle>/Contents/Helpers/chrome-native-host` — so one copy repoints Claude in
+Chrome for every profile. That is too much to risk for an icon. The limitation
+is stated beside the icon picker and in the README instead.
+
 ## Polling budget
 
 The thirty-second timer reads local files and checks what is running. The API
