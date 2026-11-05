@@ -2137,15 +2137,16 @@ enum Graft {
               let raw = root["samples"] as? [[String: Any]]
         else { return nil }
 
-        // Only samples carrying both figures are usable.
+        // Claude stopped writing the five-hour figure at the start of November
+        // 2026; requiring it pinned the menu to the last sample from before.
         var samples: [(time: Date, fiveHour: Int, week: Int, org: String?)] = []
         samples.reserveCapacity(raw.count)
         for sample in raw {
             guard let stamp = sample["t"] as? Double,
                   let values = sample["u"] as? [String: Any],
-                  let fiveHour = values["fh"] as? Int,
                   let week = values["sd"] as? Int
             else { continue }
+            let fiveHour = values["fh"] as? Int ?? 0
             samples.append((Date(timeIntervalSince1970: stamp / 1000), fiveHour, week, sample["org"] as? String))
         }
         guard let latest = samples.last else { return nil }

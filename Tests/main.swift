@@ -898,16 +898,19 @@ do {
     check(Graft.usage(of: profile)?.isStale == true,
           "a sample older than the five-hour window is stale")
 
-    // Claude has been seen to write samples with a missing figure.
+    // Claude now writes samples with the weekly figure alone.
     let partial: [String: Any] = [
         "version": 2,
-        "samples": [["t": now, "org": "ORG1", "u": ["sd": 5]],
-                    ["t": now - 1000, "org": "ORG1", "u": ["fh": 7, "sd": 8]]],
+        "samples": [["t": now - 1000, "org": "ORG1", "u": ["fh": 7, "sd": 8]],
+                    ["t": now - 500, "org": "ORG1", "u": ["sd": 5]],
+                    ["t": now, "org": "ORG1", "u": ["fh": 9]]],
     ]
     try! JSONSerialization.data(withJSONObject: partial)
         .write(to: profile.appending(path: "plan-usage-history.json"))
-    check(Graft.usage(of: profile)?.fiveHour == 7,
-          "a sample missing a figure is skipped for the last complete one")
+    check(Graft.usage(of: profile)?.week == 5,
+          "a sample with only the weekly figure is still the newest reading")
+    check(Graft.usage(of: profile)?.fiveHour == 0,
+          "and its missing five-hour figure reads as nothing used")
 
     try! Data("not json".utf8).write(to: profile.appending(path: "plan-usage-history.json"))
     check(Graft.usage(of: profile) == nil, "a corrupt history is ignored rather than fatal")
@@ -1179,8 +1182,10 @@ do {
     let expected = ISO8601DateFormatter().date(from: "2026-08-24T09:30:00Z")
     check(reading?.fiveHourReset == expected, "the reset time is exactly what was sent")
 
-    check(UsageAPI.reading(from: ["seven_day": ["utilization": 10]]) == nil,
-          "an answer without the five-hour window is refused")
+    let weekOnly = UsageAPI.reading(from: ["five_hour": NSNull(), "seven_day": ["utilization": 10]])
+    check(weekOnly?.week == 10, "an answer without the five-hour window is still read")
+    check(weekOnly?.fiveHour == 0 && weekOnly?.fiveHourReset == nil,
+          "and the missing window reads as nothing used, with no reset")
     check(UsageAPI.reading(from: [:]) == nil, "and so is an empty one")
 
     let epoch: [String: Any] = ["five_hour": ["utilization": 5, "resets_at": 1_800_000_000]]

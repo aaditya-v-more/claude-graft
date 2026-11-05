@@ -74,12 +74,15 @@ enum UsageAPI {
 
     /// Separated from the request so the shape of the answer can be tested.
     static func reading(from body: [String: Any]) -> Reading? {
-        guard let session = window(body["five_hour"]) else { return nil }
+        // Since November 2026 the service can leave the five-hour window out
+        // entirely; refusing such an answer froze the menu on old figures.
+        let session = window(body["five_hour"])
         let weekly = window(body["seven_day"])
+        guard session != nil || weekly != nil else { return nil }
         let fable = fableWindow(body["limits"])
-        return Reading(fiveHour: session.used,
+        return Reading(fiveHour: session?.used ?? 0,
                        week: weekly?.used ?? 0,
-                       fiveHourReset: session.resets,
+                       fiveHourReset: session?.resets,
                        weekReset: weekly?.resets,
                        plan: (body["subscription_type"] as? String)?.capitalized,
                        fable: fable?.used,
