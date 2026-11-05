@@ -44,6 +44,8 @@ Graft settings, and generated profile launchers.
 
 Install the .NET 10 SDK and Visual Studio C++ Build Tools on Windows. Include
 the target architecture's MSVC release redistributable (14.50.35719 or later).
+For a licensed offline Visual Studio layout, set `VCToolsRedistDir` to its
+`VC\Redist\MSVC\<version>` directory before running the build.
 Then run this from the repository root:
 
 ```powershell
@@ -61,7 +63,8 @@ signature-verified Microsoft DLLs from Visual Studio's redistributable CRT
 folder and records each DLL's SHA-256 in vc-runtime.json. Distributors must
 have the applicable Visual Studio redistribution rights.
 [Microsoft's redistribution terms](https://learn.microsoft.com/en-us/visualstudio/releases/2026/redistribution)
-apply to those files. Setup verifies the recorded hashes. Pass -Compiler with
+apply to those files. The installer build verifies each recorded hash before
+compiling setup. Pass -Compiler with
 the full path to ISCC.exe to select a compiler explicitly. If none is installed,
 the script prepares a signature-verified portable compiler under windows/dist.
 The installer and its checksum are written to windows/dist.
@@ -230,10 +233,14 @@ installation when no update policy has been set.
 
 The Windows interface currently uses English.
 
-The code and fixture tests cover sign-in forwarding and usage parsing. Actual
-two-account browser authentication, paid Start Session requests and live
-conversation sharing still need acceptance testing with disposable signed-in
-accounts. They are not exercised against a developer's existing profiles.
+To check browser sign-in, create two test shortcuts with **Its own chats**.
+Keep one signed into a recognizable test account. Start sign-in in the other,
+bring the first window forward, then finish in the browser. Select the
+initiating profile in Graft. Verify the account shown in both windows after
+each of the email, Google and company SSO flows. To check chat handoff, use
+a disposable shared conversation and continue it in the second account.
+The automated tests use fixtures for accounts, usage and paid Start Session
+requests.
 
 ## Diagnostics
 

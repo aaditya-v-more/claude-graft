@@ -7,9 +7,16 @@ $ErrorActionPreference = 'Stop'
 # Only Microsoft's redistributable release CRT is licensed for app-local deployment.
 # Use the version of the signed DLL, since its containing VS folder can have an older build number.
 $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
-if (-not (Test-Path -LiteralPath $vswhere)) { throw 'Install Visual Studio C++ Build Tools with the target architecture.' }
-$candidates = & $vswhere -products '*' -all -find "VC\Redist\MSVC\*\$Architecture\Microsoft.VC*.CRT\vcruntime140.dll"
-$runtime = $candidates | ForEach-Object { Get-Item -LiteralPath $_ } |
+$candidates = @(
+    if ($env:VCToolsRedistDir) {
+        Get-ChildItem -Path (Join-Path $env:VCToolsRedistDir "$Architecture\Microsoft.VC*.CRT\vcruntime140.dll") -File -ErrorAction SilentlyContinue
+    }
+    if (Test-Path -LiteralPath $vswhere) {
+        & $vswhere -products '*' -all -find "VC\Redist\MSVC\*\$Architecture\Microsoft.VC*.CRT\vcruntime140.dll" |
+            ForEach-Object { Get-Item -LiteralPath $_ }
+    }
+)
+$runtime = $candidates |
     Sort-Object { $_.VersionInfo.FileVersionRaw } -Descending | Select-Object -First 1
 if (-not $runtime -or $runtime.VersionInfo.FileVersionRaw -lt [version]'14.50.35719.0') {
     throw "Install Visual Studio C++ Build Tools with the $Architecture release CRT (14.50.35719 or later)."

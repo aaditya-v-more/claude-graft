@@ -44,6 +44,11 @@ jobs:
           ./windows/build-installer.ps1 -Architecture ${{ matrix.architecture }} -SkipBuild -TestMode
           $installer = Get-Item windows/dist/*-setup-test.exe
           ./windows/test-installer.ps1 -Installer $installer.FullName -SkipUi
+      - name: Verify production protocol registration on the disposable runner
+        shell: pwsh
+        run: |
+          $installer = Get-Item windows/dist/*-setup.exe
+          ./windows/test-hosted-registration.ps1 -Installer $installer.FullName
       - name: Keep the Windows build for review
         uses: actions/upload-artifact@v4
         with:
