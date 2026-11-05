@@ -85,8 +85,10 @@ echo "verified $STAMPED, arm64 + x86_64"
 codesign --verify --deep --strict "$APP"
 echo "signature verified, framework included"
 
-rm -rf "$DIST"
-mkdir -p "$DIST"
+# Only what this script builds is cleared. dist/ also holds the plans for tests
+# that have to run from outside a Claude, with their results and the build they
+# put back afterwards, and clearing the whole directory took one with it.
+rm -rf "$DIST/sparkle" "$DIST/homebrew-claude-graft" "$DIST"/ClaudeGraft-*.dmg
 mkdir -p "$DIST/sparkle"
 ZIP="$DIST/sparkle/ClaudeGraft-$VERSION.zip"
 ditto -c -k --keepParent "$APP" "$ZIP"
@@ -250,9 +252,10 @@ it is the one that was forgotten for four releases running.
 
 Then check the feed actually rebuilt. A push does not reliably queue a Pages
 build — one has already errored here, and another never started — and a feed
-still serving the old file means nobody is offered the update:
+still serving the old file means nobody is offered the update. The address
+redirects to the site's own domain, so the check has to follow it:
 
-  curl -s https://aaditya-v-more.github.io/claude-graft/appcast.xml | grep shortVersionString
+  curl -sL https://aaditya-v-more.github.io/claude-graft/appcast.xml | grep shortVersionString
 
 If it does not name this version, ask for a build and wait for it:
 

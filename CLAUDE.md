@@ -41,9 +41,9 @@ or brings forward a Claude, or installs an update can stop the session running
 it halfway through. Those are written up as a plan in `dist/<topic>/HANDOFF.md`
 and run from outside it: the exact steps, what each should show and where to
 check it, what must not be touched, how to put the installed Graft back, and a
-table for the results. `dist/` because it is ignored and only `release.sh`
-clears it; every `./build.sh` clears `build.noindex/`, which has already taken
-one plan and its results with it.
+table for the results. `dist/` because it is ignored and `release.sh` clears
+only what it builds there; every `./build.sh` clears `build.noindex/`, which has
+already taken one plan and its results with it.
 
 Done in place is everything that cannot disturb a running Claude: the suite, the
 layout checks, builds, read-only runs over this machine's data, and sandboxes
