@@ -131,7 +131,10 @@ no installed-app entry or shell shortcuts, verifies the installed app in a
 disposable directory, and checks that uninstall preserves unrelated files.
 
 Extract the entire ZIP to a folder you intend to keep, then open ClaudeGraft.exe.
-The notification-area icon opens the account list; its menu opens the manager.
+Click or right-click the notification-area icon to open the account list.
+If the icon is under **Show hidden icons**, Graft places its popup beside or
+above that panel when space allows. Choose **Open Claude Graft** to open the
+manager.
 Run ClaudeGraft.exe --show to open the manager immediately. The complete folder
 is required because the executable loads its runtime from that folder.
 
@@ -178,11 +181,14 @@ Pin a generated shortcut to the taskbar to keep its profile icon there. Each pin
 has a stable Windows identity and opens or brings forward the matching profile.
 Running Claude windows still appear under Claude Desktop’s taskbar group.
 
-Install with the setup wizard and use **Set up browser sign-in…** in a profile's
-details to open Windows Default apps. Select **Claude Graft** for the **CLAUDE**
-link type. Setup registers Graft as a choice for the current Windows user.
-Windows keeps the selection under your control. You can switch back to Claude
-Desktop in Default apps. The portable ZIP leaves link registration to setup.
+Install with the setup wizard, select a saved profile, and choose **Sign in to
+this profile**. Graft checks which app Windows uses for `claude:` links. If
+setup is needed, choose **Open Default apps**, select **Claude Graft** for the
+**CLAUDE** link type, then return to Graft and choose **Retry sign-in**. Once
+Graft is selected, the sign-in action opens or brings forward the chosen Claude
+Desktop profile. You can also open the profile using its desktop shortcut.
+Setup registers the link handler for your Windows account. You can switch back
+to Claude Desktop in Default apps.
 
 Start email, Google, or company SSO sign-in in the intended Claude window and
 finish in your browser. When the browser opens Claude Graft, select the profile

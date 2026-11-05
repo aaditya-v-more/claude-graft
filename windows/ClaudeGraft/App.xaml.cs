@@ -154,7 +154,7 @@ public partial class App : Application
         // as early as the click allows, so the flyout can hand focus back to the
         // app the person was in when it dismisses — before the click has had a
         // chance to move it to the shell.
-        var anchor = TrayAnchor.CursorNow();
+        var anchor = TrayAnchor.Capture(_tray?.TrayIcon.Id);
         var priorForeground = GetForegroundWindow();
         OnUi(() =>
         {

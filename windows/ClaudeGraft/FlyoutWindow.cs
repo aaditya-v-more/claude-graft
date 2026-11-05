@@ -24,7 +24,8 @@ public sealed class FlyoutWindow : Window
     private bool _hiding;
     private bool _animating;
     private bool _refitPending;
-    private PointInt32 _anchor;
+    private TrayAnchor _anchor;
+    private readonly OverlappedPresenter _presenter = OverlappedPresenter.Create();
     private FlyoutEdge _edge;
     private RectInt32 _rect;   // where the window rests, once the slide has settled
     private nint _priorForeground;   // the window to hand focus back to on dismiss
@@ -39,24 +40,22 @@ public sealed class FlyoutWindow : Window
         _view.OpenSettingsRequested += showSettings;
         _view.DismissRequested += Hide;
 
-        // Borderless, always-on-top, out of the taskbar and the switcher. Not
-        // the context-menu presenter it looks like it wants: that one shows
-        // without ever activating the window, so it never hears the click that
-        // lands elsewhere and never dismisses. A plain overlapped presenter
-        // activates when shown, which is what makes losing focus mean something.
-        var presenter = OverlappedPresenter.Create();
-        presenter.SetBorderAndTitleBar(false, false);
-        presenter.IsResizable = false;
-        presenter.IsMaximizable = false;
-        presenter.IsMinimizable = false;
-        // Deliberately not always-on-top: the taskbar is topmost, so a flyout
-        // that is not stays below it in z-order and is hidden by it while it
-        // slides in and out from behind — no frame where it draws over the bar,
-        // and no need to shuffle the taskbar's own z-order to get there. Brought
-        // to the foreground on show, it still sits above ordinary windows.
-        presenter.IsAlwaysOnTop = false;
-        AppWindow.SetPresenter(presenter);
-        AppWindow.IsShownInSwitchers = false;
+        // An overlapped presenter can take focus and light-dismiss on deactivation.
+        _presenter.SetBorderAndTitleBar(false, false);
+        _presenter.IsResizable = false;
+        _presenter.IsMaximizable = false;
+        _presenter.IsMinimizable = false;
+        AppWindow.SetPresenter(_presenter);
+        try { AppWindow.IsShownInSwitchers = false; }
+        catch (NotImplementedException)
+        {
+            // Desktops without an Explorer switcher reject the WinUI property.
+            // Give only this popup the corresponding Win32 tool-window style.
+            const int GWL_EXSTYLE = -20, WS_EX_TOOLWINDOW = 0x80, WS_EX_APPWINDOW = 0x40000;
+            var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
+            var style = GetWindowLongPtr(hwnd, GWL_EXSTYLE);
+            SetWindowLongPtr(hwnd, GWL_EXSTYLE, (style | WS_EX_TOOLWINDOW) & ~WS_EX_APPWINDOW);
+        }
         ApplyAppearance();
         _view.ActualThemeChanged += ViewThemeChanged;
         App.SettingsChanged += ApplyAppearance;
@@ -88,13 +87,13 @@ public sealed class FlyoutWindow : Window
         };
     }
 
-    public void Toggle(PointInt32 anchor, nint priorForeground)
+    internal void Toggle(TrayAnchor anchor, nint priorForeground)
     {
         if (_shown) Hide();
         else Show(anchor, priorForeground);
     }
 
-    private void Show(PointInt32 anchor, nint priorForeground)
+    private void Show(TrayAnchor anchor, nint priorForeground)
     {
         _anchor = anchor;
         _shown = true;
@@ -105,14 +104,12 @@ public sealed class FlyoutWindow : Window
         _view.Reload();
         Refit();   // sets _rect and puts the window at its resting corner
 
-        // The whole flyout slides in from behind the taskbar, the way
-        // EverythingToolbar does it: the window starts a full height below its
-        // rest, so it sits entirely behind the bar, and rises into place. It is
-        // not topmost, so the topmost taskbar hides the part still overlapping it
-        // and the flyout reads as emerging from the bar rather than sliding over
-        // it. The mica rides along because it is the window's own.
+        // A pinned icon slides out from underneath the taskbar. Inside Show hidden
+        // icons, that same z-order would put the popup behind Explorer's panel.
+        bool fromOverflow = anchor.Overflow.HasValue;
+        _presenter.IsAlwaysOnTop = fromOverflow;
         var full = FullOffset(extra: 0);
-        AppWindow.Move(new PointInt32(_rect.X + full.X, _rect.Y + full.Y));
+        if (!fromOverflow) AppWindow.Move(new PointInt32(_rect.X + full.X, _rect.Y + full.Y));
         AppWindow.Show(activateWindow: true);
         Activate();
 
@@ -120,6 +117,7 @@ public sealed class FlyoutWindow : Window
         // the window comes up without focus and would never hear it being lost.
         // Pulling it to the foreground is what arms the click-away dismiss.
         SetForegroundWindow(WinRT.Interop.WindowNative.GetWindowHandle(this));
+        if (fromOverflow) return;
 
         // The window is the whole motion; the content rides with it as one piece.
         // Parallaxing the content within the window was tried and dropped: the
@@ -139,6 +137,15 @@ public sealed class FlyoutWindow : Window
     private void Hide()
     {
         if (!_shown || _hiding) return;
+        if (_anchor.Overflow.HasValue)
+        {
+            // Sliding to the taskbar would cross the panel. Let a click outside
+            // keep focus on its target instead of handing it back to Explorer.
+            _shown = false;
+            AppWindow.Hide();
+            _presenter.IsAlwaysOnTop = false;
+            return;
+        }
         _hiding = true;
         // Dismiss is the reverse: the whole window slides back down behind the
         // taskbar and only then is put away. No fade — the bar swallows it.
@@ -244,7 +251,7 @@ public sealed class FlyoutWindow : Window
         // The scale of the monitor it will open on, not of the window as it sits
         // now: a hidden window keeps the DPI of wherever it last showed, which is
         // what made the placement wander.
-        var scale = TrayAnchor.ScaleFor(_anchor);
+        var scale = _anchor.Scale;
 
         _view.Measure(new Windows.Foundation.Size(double.PositiveInfinity, double.PositiveInfinity));
         var size = new SizeInt32(
@@ -252,7 +259,7 @@ public sealed class FlyoutWindow : Window
             (int)Math.Ceiling(_view.DesiredSize.Height * scale));
         if (size.Width <= 0 || size.Height <= 0) return;
 
-        var at = TrayAnchor.Place(size, _anchor, out _edge);
+        var at = _anchor.Place(size, out _edge);
         _rect = new RectInt32(at.X, at.Y, size.Width, size.Height);
         if (_animating) { _refitPending = true; return; }
         AppWindow.MoveAndResize(_rect);
@@ -330,6 +337,12 @@ public sealed class FlyoutWindow : Window
 
     [DllImport("user32.dll")]
     private static extern nint GetForegroundWindow();
+
+    [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW")]
+    private static extern nint GetWindowLongPtr(nint window, int index);
+
+    [DllImport("user32.dll", EntryPoint = "SetWindowLongPtrW")]
+    private static extern nint SetWindowLongPtr(nint window, int index, nint value);
 
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]

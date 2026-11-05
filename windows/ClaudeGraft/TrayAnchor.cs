@@ -1,133 +1,112 @@
+using System.Drawing;
 using System.Runtime.InteropServices;
 using Windows.Graphics;
 
 namespace ClaudeGraft;
 
-/// The screen edge the taskbar sits on, which is also the edge the flyout slides
-/// in from.
-internal enum FlyoutEdge { Bottom, Top, Left, Right }
-
-/// Where the flyout sits. A tray flyout belongs in the corner of the screen by
-/// the notification area, not under the pointer — which is how Windows' own
-/// volume and network flyouts behave, and what makes them land in the same place
-/// every time. Following the cursor instead put the flyout wherever on the icon
-/// the click happened to fall, which is the wander this replaces. The click point
-/// is still read, but only to choose which monitor's corner to use; the corner
-/// itself comes from the taskbar's edge, read from how the work area is inset
-/// from the monitor.
-internal static class TrayAnchor
+internal readonly record struct TrayAnchor(PointInt32 Point, Rectangle Screen, Rectangle Work,
+    double Scale, Rectangle? Overflow)
 {
-    private const int MarginDip = 12;
-
-    /// Where the pointer is now, in physical pixels — read at the moment of the
-    /// click, on the click's own thread, because by the time the window is built
-    /// and measured the pointer has moved and the flyout would open under it
-    /// rather than by the icon that was pressed.
-    public static PointInt32 CursorNow()
+    internal static TrayAnchor Capture(Guid? iconId)
     {
-        GetCursorPos(out var p);
-        return new PointInt32(p.X, p.Y);
+        // The click may be in an open overflow even when Explorer reports the
+        // chevron as the registered icon's position. Capture it before activating.
+        bool hasCursor = GetCursorPos(out var cursor);
+        var cursorAnchor = AtPoint(new PointInt32(cursor.X, cursor.Y));
+        if (hasCursor && cursorAnchor.Overflow.HasValue) return cursorAnchor;
+
+        // Keyboard invocation can leave the pointer on another monitor.
+        if (iconId is Guid id && id != Guid.Empty)
+        {
+            var icon = new IconIdentifier { Size = Marshal.SizeOf<IconIdentifier>(), Id = id };
+            if (Shell_NotifyIconGetRect(in icon, out var r) == 0 && r.Right > r.Left && r.Bottom > r.Top)
+                return AtPoint(new PointInt32(r.Left + (r.Right - r.Left) / 2, r.Top + (r.Bottom - r.Top) / 2));
+        }
+        return cursorAnchor;
     }
 
-    /// The scale of the monitor the flyout will open on, read from that monitor
-    /// rather than from the window. A window that is hidden, or was last shown on
-    /// another monitor, still reports that monitor's DPI to GetDpiForWindow, so
-    /// the size worked out from it lands wrong — the placement wobble that reads
-    /// as the flyout never quite sitting in the same spot.
-    public static double ScaleFor(PointInt32 anchor)
+    internal static TrayAnchor AtPoint(PointInt32 point)
     {
-        var point = new POINT { X = anchor.X, Y = anchor.Y };
-        var monitor = MonitorFromPoint(point, MONITOR_DEFAULTTONEAREST);
-        if (GetDpiForMonitor(monitor, MDT_EFFECTIVE_DPI, out var dpiX, out _) == 0)
-            return dpiX / 96.0;
-        return 1.0;
+        var monitor = MonitorFromPoint(new Point(point.X, point.Y), 2 /* MONITOR_DEFAULTTONEAREST */);
+        var info = new MonitorInfo { Size = Marshal.SizeOf<MonitorInfo>() };
+        GetMonitorInfo(monitor, ref info);
+        double scale = GetDpiForMonitor(monitor, 0 /* MDT_EFFECTIVE_DPI */, out var dpi, out _) == 0
+            ? dpi / 96.0 : 1.0;
+        return new(point, info.Screen.Rectangle, info.Work.Rectangle, scale, OverflowAt(point));
     }
 
-    /// The top-left corner, in physical pixels, for a window of <paramref name="size"/>,
-    /// on the monitor the icon at <paramref name="anchor"/> was clicked. The flyout
-    /// tucks into the corner of that monitor's work area nearest the notification
-    /// area: the far end of the taskbar — bottom-right for the usual bottom bar,
-    /// top-right for a top one, and the near bottom corner for a side bar.
-    public static PointInt32 Place(SizeInt32 size, PointInt32 anchor, out FlyoutEdge edge)
+    internal PointInt32 Place(SizeInt32 size, out FlyoutEdge edge)
     {
-        var point = new POINT { X = anchor.X, Y = anchor.Y };
-        var monitor = MonitorFromPoint(point, MONITOR_DEFAULTTONEAREST);
-        var margin = (int)Math.Round(MarginDip * ScaleFor(anchor));
-
-        var info = new MONITORINFO { cbSize = Marshal.SizeOf<MONITORINFO>() };
-        if (!GetMonitorInfo(monitor, ref info))
+        int margin = (int)Math.Round(12 * Scale);
+        if (Work.IsEmpty)
         {
             edge = FlyoutEdge.Bottom;
-            return new PointInt32(anchor.X - size.Width - margin, anchor.Y - size.Height - margin);
+            return new PointInt32(Point.X - size.Width - margin, Point.Y - size.Height - margin);
         }
-
-        var work = info.rcWork;
-        var full = info.rcMonitor;
-
-        // Which edge the taskbar occupies shows in the side the work area is
-        // pulled in from. The notification area sits at the far end of it, so the
-        // flyout goes to that corner. Bottom is the common case and the fallback.
-        int x, y;
-        if (work.top > full.top)             // taskbar on top — notification area top-right
-        {
-            edge = FlyoutEdge.Top;
-            x = work.right - size.Width - margin;
-            y = work.top + margin;
-        }
-        else if (work.left > full.left)      // taskbar on the left — tray at its foot
-        {
-            edge = FlyoutEdge.Left;
-            x = work.left + margin;
-            y = work.bottom - size.Height - margin;
-        }
-        else if (work.right < full.right)    // taskbar on the right
-        {
-            edge = FlyoutEdge.Right;
-            x = work.right - size.Width - margin;
-            y = work.bottom - size.Height - margin;
-        }
-        else                                 // taskbar on the bottom
-        {
-            edge = FlyoutEdge.Bottom;
-            x = work.right - size.Width - margin;
-            y = work.bottom - size.Height - margin;
-        }
-
-        // Keep every edge inside the work area on a screen too small to hold it.
-        x = Math.Clamp(x, work.left + margin, Math.Max(work.left + margin, work.right - size.Width - margin));
-        y = Math.Clamp(y, work.top + margin, Math.Max(work.top + margin, work.bottom - size.Height - margin));
-        return new PointInt32(x, y);
+        var at = TrayPlacement.Place(Screen, Work, new Size(size.Width, size.Height), margin, Overflow, out edge);
+        return new PointInt32(at.X, at.Y);
     }
 
-    private const uint MONITOR_DEFAULTTONEAREST = 2;
-    private const int MDT_EFFECTIVE_DPI = 0;
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct POINT { public int X; public int Y; }
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct RECT { public int left, top, right, bottom; }
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct MONITORINFO
+    // Windows 11 uses a XAML island; older versions of Explorer use a Win32
+    // overflow window. A hidden panel or one on another screen isn't an anchor.
+    private static Rectangle? OverflowAt(PointInt32 point)
     {
-        public int cbSize;
-        public RECT rcMonitor;
-        public RECT rcWork;
-        public uint dwFlags;
+        foreach (var name in new[] { "TopLevelWindowForOverflowXamlIsland", "NotifyIconOverflowWindow" })
+        {
+            nint window = 0;
+            while ((window = FindWindowEx(0, window, name, null)) != 0)
+                if (IsWindowVisible(window) && GetWindowRect(window, out var bounds)
+                    && bounds.Rectangle.Contains(point.X, point.Y))
+                    return bounds.Rectangle;
+        }
+        return null;
     }
 
-    [DllImport("user32.dll")]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool GetCursorPos(out POINT point);
+    [StructLayout(LayoutKind.Sequential)]
+    private struct Rect
+    {
+        public int Left, Top, Right, Bottom;
+        public readonly Rectangle Rectangle => Rectangle.FromLTRB(Left, Top, Right, Bottom);
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct MonitorInfo
+    {
+        public int Size;
+        public Rect Screen, Work;
+        public uint Flags;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct IconIdentifier
+    {
+        public int Size;
+        public nint Window;
+        public uint Icon;
+        public Guid Id;
+    }
+
+    [DllImport("shell32.dll", ExactSpelling = true)]
+    private static extern int Shell_NotifyIconGetRect(in IconIdentifier icon, out Rect rect);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern nint FindWindowEx(nint parent, nint after, string className, string? title);
 
     [DllImport("user32.dll")]
-    private static extern nint MonitorFromPoint(POINT point, uint flags);
+    private static extern bool IsWindowVisible(nint window);
 
     [DllImport("user32.dll")]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool GetMonitorInfo(nint monitor, ref MONITORINFO info);
+    private static extern bool GetWindowRect(nint window, out Rect rect);
+
+    [DllImport("user32.dll")]
+    private static extern bool GetCursorPos(out Point point);
+
+    [DllImport("user32.dll")]
+    private static extern nint MonitorFromPoint(Point point, uint flags);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern bool GetMonitorInfo(nint monitor, ref MonitorInfo info);
 
     [DllImport("shcore.dll")]
-    private static extern int GetDpiForMonitor(nint monitor, int dpiType, out uint dpiX, out uint dpiY);
+    private static extern int GetDpiForMonitor(nint monitor, int type, out uint x, out uint y);
 }

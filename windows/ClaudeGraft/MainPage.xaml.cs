@@ -3,6 +3,7 @@ using System.Diagnostics;
 using ClaudeGraft.Core;
 using ClaudeGraft.Platform;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 
 namespace ClaudeGraft;
@@ -18,6 +19,7 @@ public sealed partial class MainPage : Page
     private Shortcut? _draft;
     private bool _loading;
     private bool _busy;
+    private bool _signInPending;
     private bool _loaded;
     private bool _wideNavigation = true;
     private bool _widePaneOpen = true;
@@ -81,8 +83,14 @@ public sealed partial class MainPage : Page
         SaveButton.Content = created ? "Update Shortcut" : "Create Shortcut";
         DeleteButton.Content = created ? "Delete Shortcut…" : "Discard";
         OpenButton.IsEnabled = _draft is null || created;
-        SignInButton.IsEnabled = OpenButton.IsEnabled;
-        ShortcutStatus.Text = created ? Installer.InstalledLink(_draft!) ?? "Shortcut needs updating" : "Not created yet";
+        var installedLink = created ? Installer.InstalledLink(_original!) : null;
+        SignInButton.IsEnabled = _draft is null || installedLink is not null;
+        SetSignInLabel(row, "Sign in to this profile");
+        SignInNote.Text = SignInButton.IsEnabled
+            ? SignInInstructions(row)
+            : created ? "Choose Update Shortcut to restore this shortcut before signing in."
+            : "Choose Create Shortcut before signing in to this profile.";
+        ShortcutStatus.Text = created ? installedLink ?? "Shortcut needs updating" : "Not created yet";
         Problem.IsOpen = false;
         Problem.Visibility = Visibility.Collapsed;
         ShortcutList.SelectedItem = row == _main ? null : row;
@@ -225,12 +233,28 @@ public sealed partial class MainPage : Page
     }
     private async void Open_Click(object sender, RoutedEventArgs e)
     {
-        if (_selected is null) return;
-        var config = _original is null ? new GraftConfig { ProfileDir = _main.ProfileDir }
-            : App.Store.ConfigFor(_original);
+        if (_selected is not { } row || _busy) return;
+        try { await OpenSavedProfileAsync(row); }
+        catch (Exception ex) { ShowProblem(ex.Message); }
+    }
+
+    private async Task OpenSavedProfileAsync(ShortcutRow row)
+    {
+        var config = new GraftConfig { ProfileDir = GraftPaths.DefaultProfile };
+        if (row.Shortcut is { } shortcut)
+        {
+            // Edits in the form are drafts. Resolve the saved ID again in case
+            // another manager removed or moved it while Default apps was open.
+            var store = new ShortcutStore();
+            if (store.LoadError is not null) throw new IOException(store.LoadError);
+            if (store.Get(shortcut.Id) is not { InstalledName: not null } saved)
+                throw new IOException("Create this shortcut before opening its profile.");
+            if (!Fs.SamePath(saved.ProfileDir, row.ProfileDir))
+                throw new IOException("This shortcut’s saved folder changed. Reopen the manager and select it again.");
+            config = store.ConfigFor(saved);
+        }
         await Task.Run(() => DesktopInteraction.Open(config));
-        if (_loaded && _selected is not null && Fs.SamePath(_selected.ProfileDir, config.ProfileDir))
-            Source_Changed(null!, null!);
+        if (_loaded && row == _selected) Source_Changed(null!, null!);
     }
     private void Folder_Click(object sender, RoutedEventArgs e)
     {
@@ -320,19 +344,58 @@ public sealed partial class MainPage : Page
         catch (Exception ex) { ShowProblem(ex.Message); }
     }
 
+    private void SetSignInLabel(ShortcutRow row, string label)
+    {
+        SignInButton.Content = label;
+        AutomationProperties.SetName(SignInButton, $"{label} ({row.Name})");
+    }
+
+    private static string SignInInstructions(ShortcutRow row) =>
+        $"Start sign-in inside the Claude window for {row.Name}. When the browser returns to Graft, choose that profile.";
+
     private async void SignIn_Click(object sender, RoutedEventArgs e)
     {
-        var dialog = new ContentDialog { Title = "Set up browser sign-in",
-            Content = "Install Graft with its setup wizard, then select Claude Graft for CLAUDE links in Windows Default apps. After signing in through your browser, choose the running profile where you started. Other Claude links open in your main Claude. You can choose Claude Desktop again in Default apps at any time.",
-            PrimaryButtonText = "Open Default apps", CloseButtonText = "Cancel" };
-        PrepareDialog(dialog);
-        if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
+        if (_busy || _signInPending || !SignInButton.IsEnabled || _selected is not { } row) return;
+        _signInPending = true;
+        SignInButton.IsEnabled = false;
         try
         {
-            if (!await Windows.System.Launcher.LaunchUriAsync(new Uri("ms-settings:defaultapps?registeredAppUser=Claude%20Graft")))
-                ShowProblem("Open Windows Settings, select Apps and Default apps, and choose Claude Graft for CLAUDE links.");
+            var handler = await Task.Run(ClaudeLinkAssociation.Current);
+            if (!_loaded || row != _selected || _busy) return;
+            if (handler != ClaudeLinkHandler.Graft)
+            {
+                var unknown = handler == ClaudeLinkHandler.Unknown;
+                var dialog = new ContentDialog {
+                    Title = unknown ? "Check browser sign-in" : "Set up browser sign-in",
+                    Content = unknown
+                        ? $"Windows could not confirm which app opens CLAUDE links. If you already chose Claude Graft, open {row.Name} and start sign-in there. You can also check Default apps."
+                        : "In Windows Default apps, choose Claude Graft for CLAUDE links. If Claude Graft is missing, install it with the setup wizard. Then return here and retry sign-in.",
+                    PrimaryButtonText = unknown ? "Open profile" : "Open Default apps",
+                    SecondaryButtonText = unknown ? "Open Default apps" : "",
+                    CloseButtonText = "Cancel"
+                };
+                PrepareDialog(dialog);
+                var result = await dialog.ShowAsync();
+                if (!_loaded || row != _selected || result == ContentDialogResult.None) return;
+                if (!unknown || result == ContentDialogResult.Secondary)
+                {
+                    SetSignInLabel(row, "Retry sign-in");
+                    SignInNote.Text = "In Windows Default apps, choose Claude Graft for CLAUDE links. Return here and select Retry sign-in.";
+                    if (!await Windows.System.Launcher.LaunchUriAsync(new Uri("ms-settings:defaultapps?registeredAppUser=Claude%20Graft")))
+                        ShowProblem("Open Windows Settings → Apps → Default apps to choose Claude Graft for CLAUDE links.");
+                    return;
+                }
+            }
+            SetSignInLabel(row, "Sign in to this profile");
+            SignInNote.Text = SignInInstructions(row);
+            await OpenSavedProfileAsync(row);
         }
         catch (Exception ex) { ShowProblem(ex.Message); }
+        finally
+        {
+            _signInPending = false;
+            if (_loaded && row == _selected) SignInButton.IsEnabled = true;
+        }
     }
 
     private void PrepareDialog(ContentDialog dialog)

@@ -6,6 +6,20 @@ namespace ClaudeGraft.Tests;
 public class ClaudeLinkTests
 {
     [Theory]
+    [InlineData(0, "ClaudeGraft.Link", ClaudeLinkHandler.Graft)]
+    [InlineData(0, "claudegraft.link", ClaudeLinkHandler.Graft)]
+    [InlineData(0, "AppXClaudeDesktop", ClaudeLinkHandler.Other)]
+    [InlineData(0, @"Applications\ClaudeGraft.exe", ClaudeLinkHandler.Other)]
+    [InlineData(unchecked((int)0x80070483), "", ClaudeLinkHandler.Other)]
+    [InlineData(0, "", ClaudeLinkHandler.Unknown)]
+    [InlineData(1, "ClaudeGraft.Link", ClaudeLinkHandler.Unknown)]
+    [InlineData(unchecked((int)0x80070005), "", ClaudeLinkHandler.Unknown)]
+    public void SignInRecognizesTheHandlerWindowsActuallySelected(int status, string progId, ClaudeLinkHandler expected)
+    {
+        Assert.Equal(expected, ClaudeLinkAssociation.FromResult(status, progId));
+    }
+
+    [Theory]
     [InlineData("claude://login/google-auth?code=fixture&hop_nonce=fixture")]
     [InlineData("claude://claude.ai/sso-callback?state=fixture&error=access_denied")]
     [InlineData("claude://claude.ai/magic-link#fixture:fixture")]
