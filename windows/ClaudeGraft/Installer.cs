@@ -48,15 +48,24 @@ public static class Installer
         var path = LinkPath(shortcut.Name);
         Directory.CreateDirectory(DesktopDir);
         // Something already there that is not ours must not be clobbered.
-        if (File.Exists(path) && !IsOurs(path))
+        var replacing = File.Exists(path);
+        if (replacing && !IsOurs(path))
             throw new InstallException(InstallError.NameTaken, $"A shortcut named “{shortcut.Name}” already exists that Claude Graft did not create.");
 
         try
         {
             var store = new ShortcutStore();
             ShortcutManifest.Save(shortcut, store.ConfigFor(shortcut));
-            WriteLink(path, LauncherExe, "--config \"" + ShortcutManifest.FileFor(shortcut.Id) + "\"", ShortcutIcons.IconFor(shortcut),
-                      $"Open {shortcut.Name} — a Claude Desktop profile");
+            // Publish only after both the target and its pin identity are saved.
+            var temporary = Path.Combine(DesktopDir, $".graft-{Guid.NewGuid():N}.lnk");
+            try
+            {
+                WriteLink(temporary, LauncherExe, "--config \"" + ShortcutManifest.FileFor(shortcut.Id) + "\"", ShortcutIcons.IconFor(shortcut),
+                          $"Open {shortcut.Name} — a Claude Desktop profile");
+                ShellLinkIdentity.Set(temporary, shortcut.Id);
+                File.Move(temporary, path, overwrite: replacing);
+            }
+            finally { File.Delete(temporary); }
         }
         catch (Exception e)
         {

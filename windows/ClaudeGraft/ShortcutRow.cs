@@ -63,6 +63,7 @@ public sealed class ShortcutRow : INotifyPropertyChanged
     {
         _usage = entry;
         _usageKnown = true;
+        Notify(nameof(SampleText));
         foreach (var name in new[]
         {
             nameof(FiveHour), nameof(Week), nameof(FiveHourText), nameof(WeekText),
@@ -103,6 +104,9 @@ public sealed class ShortcutRow : INotifyPropertyChanged
     public int Pulse { get; private set; }
 
     public int FiveHour => _usage?.Usage?.FiveHour ?? 0;
+    public string SampleText => _usage?.Usage is Usage usage
+        ? $"{(_usage.IsLive ? "Last fetched" : "From Claude Desktop")} {usage.Sampled.ToLocalTime():g}"
+        : "";
     public int Week => _usage?.Usage?.Week ?? 0;
     public string FiveHourPercent => $"{FiveHour}%";
     public string WeekPercent => $"{Week}%";

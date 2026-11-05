@@ -60,7 +60,6 @@ public static partial class Graft
     /// two running instances cannot both hold open.
     public static readonly string[] SharedItems =
     {
-        "claude_desktop_config.json",
         "Claude Extensions",
         "Claude Extensions Settings",
         "extensions-installations.json",

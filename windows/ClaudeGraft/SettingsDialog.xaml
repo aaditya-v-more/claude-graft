@@ -46,6 +46,10 @@
         <StackPanel Spacing="4">
             <CheckBox x:Name="AutoStartSwitch" Content="Start with Windows" MinHeight="24" FontSize="13" />
             <CheckBox x:Name="StartHiddenSwitch" Content="Start in the notification area" MinHeight="24" FontSize="13" />
+            <CheckBox x:Name="HoldGraftUpdates" Content="Wait for me to install Graft updates" MinHeight="24" FontSize="13" />
+            <Button x:Name="GraftUpdateButton" Click="CheckGraftUpdates" Content="Check for Graft updates" />
+            <TextBlock x:Name="GraftUpdateStatus" TextWrapping="Wrap" Style="{ThemeResource CaptionTextBlockStyle}" />
+            <Button Click="OpenClaudeUpdates" Content="Claude Desktop updates…" />
         </StackPanel>
 
         <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}" />

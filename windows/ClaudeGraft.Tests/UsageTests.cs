@@ -39,6 +39,19 @@ public class UsageApiTests
 
 public class UsageDiskTests
 {
+    [Fact(DisplayName = "reopening the menu keeps the original fetch time and prefers a newer desktop sample")]
+    public void CachedSamplesKeepTheirAge()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var reading = new UsageApi.Reading { FiveHour = 21, Week = 34, Sampled = now.AddMinutes(-10) };
+        var disk = new Usage { FiveHour = 32, Week = 45, Sampled = now.AddMinutes(-5) };
+        var cached = UsageMonitor.LatestEntry(reading, null, now);
+        Assert.Equal(reading.Sampled, cached.Usage!.Sampled);
+        var newer = UsageMonitor.LatestEntry(reading, disk, now);
+        Assert.False(newer.IsLive);
+        Assert.Equal(disk.FiveHour, newer.Usage!.FiveHour);
+    }
+
     [Fact(DisplayName = "the latest sample's figures are the ones reported")]
     public void ReadsLatestSample()
     {

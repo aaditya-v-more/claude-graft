@@ -16,6 +16,7 @@ public static partial class Graft
         if (Fs.SamePath(Fs.Resolve(source), Fs.Resolve(profile))) return;
         Directory.CreateDirectory(profile);
 
+        SharedSettings.KeepDesktopSettingsLocal(profile, source);
         foreach (var item in SharedItems)
             Relink(Path.Combine(source, item), Path.Combine(profile, item));
         MirrorChatStores(source, profile);

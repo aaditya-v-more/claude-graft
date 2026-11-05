@@ -1,5 +1,6 @@
 param(
     [Parameter(Mandatory=$true)][string]$Installer,
+    [string]$FixtureRoot = (Join-Path $PSScriptRoot 'dist'),
     [switch]$SkipUi
 )
 $ErrorActionPreference = 'Stop'
@@ -7,7 +8,7 @@ $Installer = (Resolve-Path -LiteralPath $Installer).Path
 if (-not $Installer.EndsWith('-setup-test.exe',[StringComparison]::OrdinalIgnoreCase)) {
     throw 'Use the isolated -TestMode installer, not the user-facing setup.'
 }
-$workspaceDist = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot 'dist'))
+$workspaceDist = [IO.Path]::GetFullPath($FixtureRoot)
 $fixture = [IO.Path]::GetFullPath((Join-Path $workspaceDist ('installer-test-' + [guid]::NewGuid().ToString('N'))))
 $application = Join-Path $fixture 'app'
 if (-not $fixture.StartsWith($workspaceDist + [IO.Path]::DirectorySeparatorChar,[StringComparison]::OrdinalIgnoreCase)) {
@@ -19,13 +20,24 @@ Set-Content -LiteralPath $externalData -Value 'Keep chat and profile data.'
 $setup = Start-Process -FilePath $Installer -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES',
     '/NORESTART','/NOICONS',('/DIR="' + $application + '"'),('/LOG="' + (Join-Path $fixture 'install.log') + '"')) -WindowStyle Hidden -PassThru -Wait
 if ($setup.ExitCode -ne 0) { throw "Test installation failed ($($setup.ExitCode)). See $fixture/install.log." }
-foreach ($required in @('ClaudeGraft.exe','ClaudeGraft.pri','coreclr.dll','launcher/GraftLaunch.exe','launcher/coreclr.dll','unins000.exe')) {
+foreach ($required in @('ClaudeGraft.exe','ClaudeGraft.pri','coreclr.dll','launcher/GraftLaunch.exe','launcher/coreclr.dll','unins000.exe','vc-runtime.json')) {
     if (-not (Test-Path -LiteralPath (Join-Path $application $required))) { throw "Installed file missing: $required" }
+}
+$runtime = Get-Content -Raw -LiteralPath (Join-Path $application 'vc-runtime.json') | ConvertFrom-Json
+if ($runtime.files.name -notcontains 'vcruntime140.dll' -or $runtime.files.name -notcontains 'msvcp140.dll') {
+    throw 'The installed runtime manifest is incomplete.'
+}
+foreach ($file in $runtime.files) {
+    foreach ($directory in $application, (Join-Path $application 'launcher')) {
+        if ((Get-FileHash -LiteralPath (Join-Path $directory $file.name)).Hash -ne $file.sha256) {
+            throw "Installed Visual C++ runtime hash mismatch for $($file.name)."
+        }
+    }
 }
 if (Test-Path -LiteralPath 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\ClaudeGraft-Installer-Test_is1') {
     throw 'The isolated test unexpectedly registered an installed application.'
 }
-if (-not $SkipUi) { & (Join-Path $PSScriptRoot 'test-ui.ps1') -Executable (Join-Path $application 'ClaudeGraft.exe') }
+if (-not $SkipUi) { & (Join-Path $PSScriptRoot 'test-ui.ps1') -Executable (Join-Path $application 'ClaudeGraft.exe') -CheckLocalRuntime }
 $unmanagedFile = Join-Path $application 'user-file-must-stay.txt'
 Set-Content -LiteralPath $unmanagedFile -Value 'This was not installed by setup.'
 $uninstaller = [IO.Path]::GetFullPath((Join-Path $application 'unins000.exe'))
@@ -39,4 +51,4 @@ if (Test-Path -LiteralPath (Join-Path $application 'ClaudeGraft.exe')) { throw '
 if (-not (Test-Path -LiteralPath $externalData) -or -not (Test-Path -LiteralPath $unmanagedFile)) {
     throw 'Uninstall removed data outside its installation manifest.'
 }
-Write-Output "Passed: install, bundled runtimes, installed UI, uninstall, and preservation of unrelated files. Logs: $fixture"
+Write-Output "Passed: install, app-local runtimes, uninstall, and preservation of unrelated files. Logs: $fixture"

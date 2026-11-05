@@ -3,7 +3,8 @@ param(
  [ValidateSet('System','Dark','Light')][string]$Theme = 'System',
  [ValidateSet('Blue','Research')][string]$Preset = 'Blue',
  [switch]$KeepOpen,
- [switch]$CheckAppearance
+ [switch]$CheckAppearance,
+ [switch]$CheckLocalRuntime
 )
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes, System.Drawing
@@ -107,6 +108,22 @@ try {
  Wait-Until { $process.Refresh(); $process.MainWindowHandle -ne 0 } 'The manager never opened.'
  $window=[System.Windows.Automation.AutomationElement]::FromHandle($process.MainWindowHandle)
  Wait-Until { $null -ne (Element 'NameBox') } 'The main profile form never loaded.'
+ if ($CheckLocalRuntime) {
+  $appDirectory = Split-Path -Parent (Get-Item -LiteralPath $Executable).FullName
+  $manifest = Get-Content -LiteralPath (Join-Path $appDirectory 'vc-runtime.json') -Raw | ConvertFrom-Json
+  $process.Refresh()
+  # Some builds of WinUI use the OS hybrid CRT and load none of the optional
+  # VC redistributable DLLs at startup. Check their paths whenever they do.
+  $runtimeNames = @('coreclr.dll', 'Microsoft.UI.Xaml.dll') + $manifest.files.name
+  $loaded = @($process.Modules | Where-Object { $runtimeNames -contains $_.ModuleName })
+  if ($loaded.ModuleName -notcontains 'coreclr.dll' -or $loaded.ModuleName -notcontains 'Microsoft.UI.Xaml.dll') {
+   throw 'Could not verify the loaded .NET and WinUI runtimes.'
+  }
+  foreach ($module in $loaded) {
+   if ((Split-Path -Parent $module.FileName) -ne $appDirectory) { throw "Using external runtime: $($module.FileName)" }
+  }
+  Write-Output ("Loaded app-local runtimes: " + ($loaded.ModuleName -join ', '))
+ }
  $support=$window.FindFirst([System.Windows.Automation.TreeScope]::Descendants,
   [System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::NameProperty,'Support Claude Graft on Ko-fi'))
  if ($null -eq $support -or $support.Current.IsOffscreen) { throw 'The Support link is missing.' }
@@ -148,12 +165,16 @@ try {
  Invoke-Control 'SaveButton'
  $desktop=Join-Path $root 'profiles/Desktop'
  Wait-Until { Test-Path -LiteralPath (Join-Path $desktop 'Claude 2.lnk') } 'The shortcut was not created.'
+ $shellFolder = (New-Object -ComObject Shell.Application).NameSpace($desktop)
+ $originalPinId = $shellFolder.ParseName('Claude 2.lnk').ExtendedProperty('System.AppUserModel.ID')
  ([System.Windows.Automation.ValuePattern](Element 'NameBox').GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern)).SetValue('Work Account')
  Invoke-Control 'SaveButton'
  Wait-Until { (Test-Path -LiteralPath (Join-Path $desktop 'Work Account.lnk')) -and -not (Test-Path -LiteralPath (Join-Path $desktop 'Claude 2.lnk')) } 'Rename did not retain the new shortcut.'
  $stored=Get-Content -LiteralPath (Join-Path $root 'profiles/ClaudeGraft/shortcuts.json') -Raw | ConvertFrom-Json
  if (@($stored).Count -ne 1 -or $stored[0].name -ne 'Work Account' -or $stored[0].folder -ne 'Claude-2' -or $stored[0].iconPreset -ne $Preset) { throw 'Name, profile or icon changed during the rename.' }
  $id=([guid]$stored[0].id).ToString('N')
+ $renamedPinId = $shellFolder.ParseName('Work Account.lnk').ExtendedProperty('System.AppUserModel.ID')
+ if ($originalPinId -cne "ClaudeGraft.Profile.$id" -or $renamedPinId -cne $originalPinId) { throw 'The profile shortcut lost its taskbar pin identity on rename.' }
  if (-not (Test-Path -LiteralPath (Join-Path $root "profiles/ClaudeGraft/shortcuts/$id/graft.json"))) { throw 'Shortcut configuration is missing.' }
  $shell=New-Object -ComObject WScript.Shell
  $link=$shell.CreateShortcut((Join-Path $desktop 'Work Account.lnk'))

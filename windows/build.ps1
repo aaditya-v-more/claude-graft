@@ -8,16 +8,18 @@ Push-Location $PSScriptRoot
 try {
     if (-not $IsWindows -and $PSVersionTable.PSEdition -eq 'Core') { throw 'Build on Windows.' }
     if (-not $SkipTests) {
-        & dotnet test ClaudeGraft.Tests -c Release -p:RestoreLockedMode=true --nologo
+        & dotnet test ClaudeGraft.Tests -c Release -p:RestoreLockedMode=true --nologo -- RunConfiguration.TreatNoTestsAsError=true
         if ($LASTEXITCODE -ne 0) { throw 'Windows tests failed.' }
     }
     $platform = if ($Architecture -eq 'arm64') { 'ARM64' } else { 'x64' }
     $output = Join-Path $PSScriptRoot "dist/ClaudeGraft-$Architecture"
     & dotnet publish ClaudeGraft -c Release -p:Platform=$platform -r "win-$Architecture" --self-contained true -p:RestoreLockedMode=true -o $output --nologo
     if ($LASTEXITCODE -ne 0) { throw 'Windows publishing failed.' }
+    & (Join-Path $PSScriptRoot 'copy-vc-runtime.ps1') -Architecture $Architecture -PublishRoot $output
+    & (Join-Path $PSScriptRoot 'copy-sidebar-runtime.ps1') -Architecture $Architecture -PublishRoot $output
     foreach ($required in @('ClaudeGraft.exe', 'ClaudeGraft.pri', 'Assets/AppIcon.ico',
                             'coreclr.dll', 'Microsoft.UI.Xaml.dll',
-                            'launcher/GraftLaunch.exe', 'launcher/coreclr.dll')) {
+                            'launcher/GraftLaunch.exe', 'launcher/coreclr.dll', 'launcher/sidebar-runtime/electron.exe')) {
         if (-not (Test-Path -LiteralPath (Join-Path $output $required))) { throw "Missing published file: $required" }
     }
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot '../LICENSE') -Destination $output

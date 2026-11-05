@@ -8,8 +8,9 @@ it does not merge the fork's history, release workflow or macOS files.
 
 The separate C# core, WinUI tray integration, DPAPI access-token reader,
 chat-mirror decision table and transcript parser are useful foundations.
-A native Windows interface avoids carrying a second browser runtime, and a
-separate launcher preserves the project's shortcut behavior. Windows runtime
+A native Windows interface provides the manager and tray. A separate launcher
+opens profile shortcuts and can run the offline Chromium helper for sidebar
+storage on supported Claude versions. Windows runtime
 deployment follows [Microsoft's self-contained deployment guidance](https://learn.microsoft.com/en-us/windows/apps/package-and-deploy/self-contained-deploy/deploy-self-contained-apps).
 Installed Store packages are located with
 [GetPackagesByPackageFamily](https://learn.microsoft.com/en-us/windows/win32/api/appmodel/nf-appmodel-getpackagesbypackagefamily).
@@ -35,9 +36,9 @@ a browser-permission override.
 The reference only discovers Squirrel installations and sorts versions as
 text. This port also detects the Store package and its virtualized data
 directory, sorts standalone versions numerically, and sets the explicit
-profile environment override supported by the installed Claude build. Sign-in
-callbacks can be forwarded manually to the selected profile without taking
-over the system's protocol handler.
+profile environment override supported by the installed Claude build. Users
+can select Graft for Claude links in Windows Default apps. A browser sign-in
+opens a chooser of running profiles. Other links open the main Claude profile.
 
 The reference's card-list manager has been replaced with the project's sidebar
 and detail layout, its twelve icon choices, and the original Support and Source
@@ -52,9 +53,8 @@ to keep the form usable when snapped or resized. Shortcut icons carry separate
 image sizes for Explorer and the desktop. Platform-specific omissions and live acceptance checks are listed in
 README.md so this branch can be reviewed honestly before merging.
 
-Local validation on Windows passed 189 core tests and the native UI smoke
-test, including creation and renaming of a real .lnk in a disposable desktop
-folder. The portable x64 build was opened and visually inspected. The installed
-Store version of Claude was discovered, launched with an empty workspace
-profile, and observed creating its files there before that test process was
-closed. No existing signed-in profile was used for these checks.
+The Windows tests use disposable profiles. They cover routing, record recovery,
+usage, shared settings, and release verification. The native UI test creates
+and renames real .lnk files, and the sidebar integration test opens real
+Chromium storage. See [the Windows instructions](README.md) for the build,
+installer checks, and the checks that need signed-in accounts.

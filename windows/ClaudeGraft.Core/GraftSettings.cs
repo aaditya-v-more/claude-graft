@@ -26,6 +26,7 @@ public sealed class GraftSettings
     [JsonPropertyName("theme")] public AppTheme Theme { get; set; } = AppTheme.System;
     [JsonPropertyName("backdrop")] public BackdropMaterial Backdrop { get; set; } = BackdropMaterial.Mica;
     [JsonPropertyName("startHidden")] public bool StartHidden { get; set; } = true;
+    [JsonPropertyName("holdGraftUpdates")] public bool HoldGraftUpdates { get; set; }
 
     private static string SettingsFile => Path.Combine(GraftPaths.OwnData, "settings.json");
 

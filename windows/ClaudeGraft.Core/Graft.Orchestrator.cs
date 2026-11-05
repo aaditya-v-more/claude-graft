@@ -103,10 +103,15 @@ public static partial class Graft
 
     /// Where a session's record lives, resolved through any graft link on the
     /// way, because where a link points is where both windows read.
-    private static string RecordFile(SessionFacts facts, string profile)
+    private static string? RecordFile(SessionFacts facts, string profile)
     {
-        var orgDir = Fs.Resolve(Path.Combine(profile, "claude-code-sessions", facts.OwnerAccount, facts.OwnerOrganization));
-        return Path.Combine(orgDir, $"local_{facts.CliSessionId}.json");
+        // Account and organization are transcript data. A malformed component or a
+        // redirected store must never send a recovered record outside its profile.
+        foreach (var component in new[] { facts.OwnerAccount, facts.OwnerOrganization, facts.CliSessionId })
+            if (ValidateWindowsName(component) is not null || component.StartsWith('.')) return null;
+        var file = Path.Combine(profile, "claude-code-sessions", facts.OwnerAccount,
+            facts.OwnerOrganization, $"local_{facts.CliSessionId}.json");
+        return Fs.SamePath(Fs.Resolve(file), Path.Combine(Fs.Resolve(profile), Path.GetRelativePath(profile, file))) ? file : null;
     }
 
     private static bool RecordOnDiskMatches(SessionFacts facts, string file)
@@ -126,13 +131,13 @@ public static partial class Graft
     public static bool WriteSessionRecord(SessionFacts facts, string profile)
     {
         var file = RecordFile(facts, profile);
-        if (Fs.Exists(file)) return false;
+        if (file is null || Fs.Exists(file)) return false;
         var data = SessionRecordData(facts);
         if (data is null) return false;
         try
         {
             Directory.CreateDirectory(Path.GetDirectoryName(file)!);
-            AtomicWrite.Bytes(file, data);
+            AtomicWrite.Bytes(file, data, overwrite: false);
             return true;
         }
         catch { return false; }
@@ -145,7 +150,9 @@ public static partial class Graft
     {
         var data = SessionRecordData(facts);
         if (data is null) return false;
-        try { AtomicWrite.Bytes(RecordFile(facts, profile), data); return true; }
+        var file = RecordFile(facts, profile);
+        if (file is null) return false;
+        try { AtomicWrite.Bytes(file, data); return true; }
         catch { return false; }
     }
 
@@ -325,12 +332,13 @@ public static partial class Graft
                 if (contents.Superseded.Contains(facts.CliSessionId)) continue;
 
                 var owner = Owner(facts);
+                if (owner is null || RecordFile(facts, owner) is not string file) continue;
 
                 if (recorded.Contains(facts.CliSessionId))
                 {
-                    if (owner is not null && state.Authored.TryGetValue(facts.CliSessionId, out var authored))
+                    if (state.Authored.TryGetValue(facts.CliSessionId, out var authored))
                     {
-                        switch (DecideUpdate(authored, facts, RecordOnDiskMatches(authored, RecordFile(facts, owner))))
+                        switch (DecideUpdate(authored, facts, RecordOnDiskMatches(authored, file)))
                         {
                             case SessionUpdate.Leave: break;
                             case SessionUpdate.TakenOver: state.Authored.Remove(facts.CliSessionId); break;
@@ -342,11 +350,10 @@ public static partial class Graft
                     continue;
                 }
 
-                if (owner is null) continue;
                 if (DecideFiling(facts, recorded, withdrawn, guessableDeletions, lastWrite,
                         owner, Running(owner), now, quietWindow) != SessionFiling.File) continue;
 
-                var destination = Path.GetDirectoryName(RecordFile(facts, owner))!;
+                var destination = Path.GetDirectoryName(file)!;
                 if (!MayFileRecords(destination, contents.Stores))
                 {
                     Diagnostics.Note("sweep.refused", new Dictionary<string, object?>
@@ -367,8 +374,6 @@ public static partial class Graft
                         ["session"] = facts.CliSessionId,
                         ["owner"] = facts.OwnerAccount,
                         ["into"] = Path.GetFileName(owner),
-                        ["title"] = facts.Title,
-                        ["cwd"] = facts.Cwd,
                     });
                     filed.Add(facts);
                     state.Records[facts.CliSessionId] = destination;

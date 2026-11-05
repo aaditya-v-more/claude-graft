@@ -74,6 +74,15 @@ public sealed class OrchestratorTests : IDisposable
     private static string RecordPath(string profile, string session, string account = Account, string org = Org) =>
         Path.Combine(profile, "claude-code-sessions", account, org, $"local_{session}.json");
 
+    [Fact(DisplayName = "a transcript cannot create a recovered record outside its profile")]
+    public void MalformedOrganizationIsSkipped()
+    {
+        var profile = MakeProfile("Claude");
+        MakeTranscript("sess1", org: "../../../../outside");
+        Assert.Empty(Graft.FileMissingSessionRecords([profile], NothingRunning));
+        Assert.False(Directory.Exists(Path.Combine(_t.Path, "outside")));
+    }
+
     [Fact(DisplayName = "a transcript with no record is filed into the profile holding its account")]
     public void FilesMissing()
     {

@@ -20,6 +20,11 @@
     <ApplicationIcon>Assets\AppIcon.ico</ApplicationIcon>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="..\Platform\GraftRelease.cs" Link="Platform\GraftRelease.cs" />
+    <EmbeddedResource Include="..\..\Resources\Info.plist" LogicalName="Graft.ReleaseTrust" />
+    <PackageReference Include="BouncyCastle.Cryptography" Version="2.7.0" GeneratePathProperty="true" />
+    <None Include="$(PkgBouncyCastle_Cryptography)\LICENSE.md" Link="licenses\BouncyCastle.md"
+          CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Content Include="Assets\**" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Manifest Include="$(ApplicationManifest)" />
     <Compile Include="..\Platform\DesktopInteraction.cs" Link="Platform\DesktopInteraction.cs" />

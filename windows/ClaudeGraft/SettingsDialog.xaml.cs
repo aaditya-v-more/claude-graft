@@ -22,6 +22,13 @@ public sealed partial class SettingsDialog : ContentDialog
         BackdropBox.SelectedIndex = (int)current.Backdrop;
         AutoStartSwitch.IsChecked = AutoStart.IsEnabled();
         StartHiddenSwitch.IsChecked = current.StartHidden;
+        HoldGraftUpdates.IsChecked = current.HoldGraftUpdates;
+        if (App.GraftUpdates is { } updates)
+        {
+            Opened += (_, _) => { updates.Changed += RefreshGraftUpdate; RefreshGraftUpdate(); };
+            Closed += (_, _) => updates.Changed -= RefreshGraftUpdate;
+        }
+        RefreshGraftUpdate();
 
         var version = Assembly.GetExecutingAssembly().GetName().Version;
         VersionText.Text = version is null
@@ -35,9 +42,29 @@ public sealed partial class SettingsDialog : ContentDialog
         Theme = (AppTheme)ThemeBox.SelectedIndex,
         Backdrop = (BackdropMaterial)BackdropBox.SelectedIndex,
         StartHidden = StartHiddenSwitch.IsChecked == true,
+        HoldGraftUpdates = HoldGraftUpdates.IsChecked == true,
     };
 
     /// Whether the person asked to start with Windows — applied to the Startup
     /// folder separately from the settings file.
     public bool AutoStartEnabled => AutoStartSwitch.IsChecked == true;
+
+    internal bool RequestedClaudeUpdates { get; set; }
+    private void OpenClaudeUpdates(object sender, Microsoft.UI.Xaml.RoutedEventArgs e)
+    {
+        RequestedClaudeUpdates = true;
+        Hide();
+    }
+
+    private async void CheckGraftUpdates(object sender, Microsoft.UI.Xaml.RoutedEventArgs e)
+    {
+        if (App.GraftUpdates is { } updates) await updates.CheckAsync(userInitiated: true);
+    }
+
+    private void RefreshGraftUpdate()
+    {
+        GraftUpdateButton.IsEnabled = App.GraftUpdates?.CanCheck == true;
+        GraftUpdateButton.Content = App.GraftUpdates?.ButtonText ?? "Check for Graft updates";
+        GraftUpdateStatus.Text = App.GraftUpdates?.Status ?? "";
+    }
 }

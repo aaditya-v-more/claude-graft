@@ -22,6 +22,7 @@ public static partial class Graft
     {
         var state = LoadMirrorState();
         state.Pairs = state.Pairs.Where(kv => !stale.Contains(kv.Key)).ToDictionary(kv => kv.Key, kv => kv.Value);
+        SidebarSync.ForgetPairs(stale);
         SaveMirrorState(state);
     }
 
@@ -111,6 +112,7 @@ public static partial class Graft
     {
         using var stateLock = StateLock.Acquire();
         Diagnostics.Note("ungraft.begin", new Dictionary<string, object?> { ["profile"] = Path.GetFileName(profile) });
+        SharedSettings.KeepDesktopSettingsLocal(profile, source: null);
         UnmirrorChatStores(profile);
         foreach (var item in SharedItems)
         {

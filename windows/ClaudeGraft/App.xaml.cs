@@ -23,6 +23,7 @@ public partial class App : Application
     /// open windows re-dress themselves without being hunted down individually.
     public static GraftSettings Settings { get; private set; } = new();
     public static event Action? SettingsChanged;
+    internal static GraftUpdateManager? GraftUpdates { get; private set; }
 
     public static void ApplySettings(GraftSettings updated)
     {
@@ -31,7 +32,8 @@ public partial class App : Application
         // flashes it even when the material is the same.
         if (updated.Theme == Settings.Theme
             && updated.Backdrop == Settings.Backdrop
-            && updated.StartHidden == Settings.StartHidden) return;
+            && updated.StartHidden == Settings.StartHidden
+            && updated.HoldGraftUpdates == Settings.HoldGraftUpdates) return;
 
         Settings = updated;
         updated.Save();
@@ -40,6 +42,7 @@ public partial class App : Application
 
     private TaskbarIcon? _tray;
     private MainWindow? _window;
+    private ClaudeLinkWindow? _linkWindow;
     private FlyoutWindow? _flyout;
 
     // The tray's click callbacks arrive on H.NotifyIcon's message-window
@@ -49,8 +52,12 @@ public partial class App : Application
 
     public App()
     {
+        var arguments = Environment.GetCommandLineArgs();
+        var handlesLink = arguments.Length > 1 && arguments[1] == "--open-link";
         UnhandledException += (_, e) =>
         {
+            // An exception in the protocol process can contain a browser callback.
+            if (handlesLink) return;
             try
             {
                 Directory.CreateDirectory(GraftPaths.OwnData);
@@ -59,7 +66,7 @@ public partial class App : Application
             catch { }
         };
         InitializeComponent();
-        DebugSettings.IsXamlResourceReferenceTracingEnabled = Environment.GetCommandLineArgs().Contains("--test-data-root");
+        DebugSettings.IsXamlResourceReferenceTracingEnabled = !handlesLink && arguments.Contains("--test-data-root");
         DebugSettings.XamlResourceReferenceFailed += (_, e) =>
         {
             try { Directory.CreateDirectory(GraftPaths.OwnData); File.AppendAllText(Path.Combine(GraftPaths.OwnData, "xaml-errors.txt"), e.Message + "\n"); }
@@ -70,6 +77,13 @@ public partial class App : Application
     protected override void OnLaunched(LaunchActivatedEventArgs args)
     {
         var arguments = Environment.GetCommandLineArgs();
+        if (arguments.Length > 1 && arguments[1] == "--open-link")
+        {
+            _linkWindow = new ClaudeLinkWindow(arguments.Length == 3 ? arguments[2] : null);
+            _linkWindow.Closed += (_, _) => Exit();
+            _ = _linkWindow.OpenAsync();
+            return;
+        }
         var testIndex = Array.IndexOf(arguments, "--test-data-root");
         if (testIndex >= 0 && testIndex + 1 < arguments.Length)
         {
@@ -118,6 +132,11 @@ public partial class App : Application
         // the whole of it until asked for more. Turned off, it opens the manager
         // straight away, for someone who would rather see the window on launch.
         if (!Settings.StartHidden) ShowManager();
+        if (testIndex < 0)
+        {
+            GraftUpdates = new GraftUpdateManager(Quit);
+            GraftUpdates.Start();
+        }
         if (Store.LoadError is null && testIndex < 0)
             foreach (var shortcut in Store.Shortcuts)
                 try { Installer.Install(shortcut); } catch (Exception e) { Diagnostics.Note("shortcut.refresh.failed", new Dictionary<string, object?> { ["error"] = e.GetType().Name }); }

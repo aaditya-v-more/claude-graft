@@ -62,13 +62,13 @@ public sealed class SessionRecordState
 /// </summary>
 public static class AtomicWrite
 {
-    public static void Bytes(string path, byte[] data)
+    public static void Bytes(string path, byte[] data, bool overwrite = true)
     {
         var tmp = path + ".tmp-" + Guid.NewGuid().ToString("N");
         try
         {
             File.WriteAllBytes(tmp, data);
-            File.Move(tmp, path, overwrite: true);
+            File.Move(tmp, path, overwrite);
         }
         finally { if (File.Exists(tmp)) File.Delete(tmp); }
     }

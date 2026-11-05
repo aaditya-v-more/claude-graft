@@ -17,6 +17,7 @@ public static class UsageApi
 
     public sealed record Reading
     {
+        public DateTimeOffset Sampled { get; init; } = DateTimeOffset.UtcNow;
         public required int FiveHour { get; init; }
         public required int Week { get; init; }
         public DateTimeOffset? FiveHourReset { get; init; }

@@ -31,9 +31,9 @@ arm64 setup on Windows on ARM. The setup wizard installs Graft for your Windows
 account and adds it to the Start menu. A desktop shortcut and Open at Login are
 optional. Opening Graft from the Start menu shows the manager immediately.
 
-The installer includes the .NET and Windows App SDK runtimes, and checks for
-the Microsoft Visual C++ runtime. If that prerequisite is missing or too old,
-Microsoft's bundled installer runs first and may request administrator approval.
+Graft installs without administrator rights. The installer and portable ZIP
+include the .NET, Windows App SDK and Visual C++ runtimes. Each profile's
+standalone launcher also carries the runtime files it needs.
 The development setup executable is not code-signed.
 
 Remove Graft through Windows Installed apps. Uninstall removes the application
@@ -42,7 +42,9 @@ Graft settings, and generated profile launchers.
 
 ## Build and run
 
-Install the .NET 10 SDK on Windows, then run this from the repository root:
+Install the .NET 10 SDK and Visual Studio C++ Build Tools on Windows. Include
+the target architecture's MSVC release redistributable (14.50.35719 or later).
+Then run this from the repository root:
 
 ```powershell
 ./windows/build.ps1
@@ -54,11 +56,22 @@ checksum in windows/dist. Use -Architecture arm64 for Windows on ARM. It does
 not publish a release, install an application or change a system registration.
 
 To create the setup executable after publishing, run
-./windows/build-installer.ps1 -SkipBuild. It uses Inno Setup and verifies the
-signature on the Microsoft runtime before including it. Pass -Compiler with
+./windows/build-installer.ps1 -SkipBuild. The build copies unmodified,
+signature-verified Microsoft DLLs from Visual Studio's redistributable CRT
+folder and records each DLL's SHA-256 in vc-runtime.json. Distributors must
+have the applicable Visual Studio redistribution rights.
+[Microsoft's redistribution terms](https://learn.microsoft.com/en-us/visualstudio/releases/2026/redistribution)
+apply to those files. Setup verifies the recorded hashes. Pass -Compiler with
 the full path to ISCC.exe to select a compiler explicitly. If none is installed,
 the script prepares a signature-verified portable compiler under windows/dist.
 The installer and its checksum are written to windows/dist.
+
+For a release, bring the reviewed x64 and arm64 setup files for the current
+VERSION to the Mac that signs Graft. Run `bash windows/sign-release.sh /path/to/artifacts`
+after building the Mac app to obtain Sparkle's release tools. The script hashes
+each installer and signs its checksum and filename with the existing release
+key. Attach each setup EXE, its .sha256 and .sha256.sig files to the upstream
+GitHub release tagged vVERSION. Build checksums alone cannot authorize an update.
 
 For an isolated install/uninstall check, build with -TestMode and pass that
 setup-test.exe to ./windows/test-installer.ps1 -Installer. This variant creates
@@ -68,8 +81,7 @@ disposable directory, and checks that uninstall preserves unrelated files.
 Extract the entire ZIP to a folder you intend to keep, then open ClaudeGraft.exe.
 The notification-area icon opens the account list; its menu opens the manager.
 Run ClaudeGraft.exe --show to open the manager immediately. The complete folder
-is required; the executable alone is not a distribution. The Visual C++ v14
-runtime is required by the Windows App SDK if it is not already on the machine.
+is required because the executable loads its runtime from that folder.
 
 The standard Close button and Alt+F4 close the manager window normally. The
 tray app remains available, and opening the manager again creates a fresh
@@ -110,12 +122,24 @@ Its launcher has a stable copy of the runtime and a separate graft.json
 description, so it keeps working when the manager is closed. The main Claude
 profile cannot be renamed, repointed or removed.
 
-Windows sends claude:// browser callbacks to Claude's registered main instance.
-If a second account's browser sign-in opens the wrong window, copy the link
-behind the browser's Open Claude button and use Complete browser sign-in in
-that profile's details. This forwards the link to the already-open profile;
-Claude validates its own login state. Graft does not replace Claude's protocol
-registration, store callback links, or refresh account tokens.
+Pin a generated shortcut to the taskbar to keep its profile icon there. Each pin
+has a stable Windows identity and opens or brings forward the matching profile.
+Running Claude windows still appear under Claude Desktop’s taskbar group.
+
+Install with the setup wizard and use **Set up browser sign-in…** in a profile's
+details to open Windows Default apps. Select **Claude Graft** for the **CLAUDE**
+link type. Setup registers Graft as a choice for the current Windows user.
+Windows keeps the selection under your control. You can switch back to Claude
+Desktop in Default apps. The portable ZIP leaves link registration to setup.
+
+Start email, Google, or company SSO sign-in in the intended Claude window and
+finish in your browser. When the browser opens Claude Graft, select the profile
+where you started and press **Continue sign-in**. Windows provides one callback
+for all profiles. The chooser lists running profiles, leaves the choice empty,
+and rechecks the process before handing the link to Claude. If the profile
+closed, reopen it and start sign-in again. Other Claude links open in the main
+Claude. Sign-in links are kept in memory for this handoff and omitted from
+Graft diagnostics.
 
 Live usage borrows only the access token through Windows DPAPI. The five-hour,
 weekly and optional Fable limits come from Anthropic. Refresh honors the service's
@@ -135,26 +159,76 @@ junctions cannot represent files. Edits are reconciled at launch; a conflict
 keeps the losing file beside the destination as a .graft-conflict file. Original
 settings are retained in .graft-own stashes for restoration.
 
+Claude Desktop permission choices stay local to each profile. Graft copies
+missing MCP server definitions into the local desktop configuration and keeps
+existing definitions. Profiles from early Windows builds recover their original
+desktop settings from the saved backup when available.
+
+If you used two accounts in the original Claude profile, sign into the account
+you want in a shortcut set to **Its own chats**. In the manager, select the
+shortcut and choose **Review chats…** when Graft finds that account's missing
+history. Recent titles and dates help you check the offer. Quit all Claude
+Desktop instances, then choose **Copy them here** or **Merge them here**. Graft
+copies missing records and deletion markers once. Existing chats, their local
+edits, and the original history stay where they are.
+
 Opening a profile already running brings its window forward. Opening another
 profile that shares its chats asks first. Quit the affected Claudes before
 moving a profile or changing chat sharing. Removing a shortcut keeps its data
 unless deletion is explicitly selected. Corrupt state, unreadable records and
 an unavailable process list never count as permission to remove surviving data.
 
+### Pins and sidebar order
+
+Close every Claude window that shares the history, then open one of its
+shortcuts. Graft synchronizes pins, unpins, pinned order and the Code sort
+choice for shared conversations. Each profile keeps its other sidebar entries
+and account settings. The shortcut's chat settings show whether synchronization
+finished or needs another launch.
+
+Sidebar synchronization is enabled for Claude Desktop 4.16336.0 on Windows.
+Its Chromium engine is 152.0.7977.167. Graft packages a checksum-verified,
+offline copy of Electron 44.9.3 to open the storage with the same engine.
+The compressed runtime is about 151 MiB on x64 and 149 MiB on ARM64. A different
+Claude version or an unfamiliar database format leaves the sidebar choices
+with each profile. The integration check opens two disposable Chromium
+databases in fresh processes and verifies that unrelated browser records survive.
+
 ## Platform boundaries
 
 The Swift app, macOS launcher and their tests stay in Sources, Tests and the
-existing shell scripts. Everything used by the Windows app is under windows.
+existing shell scripts. The Windows package uses the same sidebar storage
+script as the Mac launcher. Windows-specific sources live under windows.
 The C# core is shared only by the Windows manager, launcher and tests. The root
 VERSION and MIT license are the common project metadata.
 
-The macOS Sparkle updater, managed Claude update flow and update-restart
-recovery remain macOS integrations. This Windows build is updated by replacing
-its extracted folder while Graft is closed; Claude Desktop updates through its
-own installation channel. It does not claim to prevent or recover Claude's
-updater from interrupting active work. Automatic discovery and import of
-same-account chats left in another profile, and Russian interface localization,
-are not yet included in the Windows interface.
+Setup installs check GitHub for Graft updates at launch and hourly. Graft
+verifies the signature with its embedded release key and the checksum of the
+download before it runs per-user setup, then reopens. In Settings, choose
+**Wait for me to install Graft updates** to check on schedule and install when
+you choose. Portable copies offer to open the setup wizard when an update is
+available. To keep using a portable copy, replace its extracted folder while
+Graft is closed.
+
+Open **Settings → Claude Desktop updates** from the manager or tray to check the
+installed MSIX against Anthropic’s Windows feed. If a release is available,
+Graft lists the Claude profiles it needs to close. On confirmation, it downloads
+the package, verifies its signature and identity, and asks those processes to
+quit. A new process or a profile that stays open stops the update. Windows
+installs the signed package for this user and Graft verifies the installed
+version. You reopen Claude when you are ready. Older standalone installations
+use Claude’s own update command.
+
+**Enable manual updates** sets Claude’s per-user `disableAutoUpdates` policy
+where Windows permits it. Restart each Claude when convenient for the new
+setting to take effect. **Restore automatic updates** removes the value Graft
+set. Choose it before uninstalling Graft if you want Claude to resume updating
+itself. An existing user or machine update policy is managed by its administrator.
+If Windows makes the per-user policy key read-only, an administrator must
+configure the pause. Graft can still check for updates and offer a one-time
+installation when no update policy has been set.
+
+The Windows interface currently uses English.
 
 The code and fixture tests cover sign-in forwarding and usage parsing. Actual
 two-account browser authentication, paid Start Session requests and live

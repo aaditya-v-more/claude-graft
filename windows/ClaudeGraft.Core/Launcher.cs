@@ -33,6 +33,7 @@ public static class Launcher
         if (conflicts.Count > 0 && !(confirmSharing?.Invoke(conflicts) ?? false)) return;
         Graft.Apply(config);
         Graft.MirrorKnownPairs();
+        SidebarSync.BeforeOpening(config.ProfileDir);
         var filing = new List<string> { config.ProfileDir, GraftPaths.DefaultProfile };
         if (config.SourceDir is not null) filing.Add(config.SourceDir);
         Graft.FileMissingSessionRecords(filing, ClaudeProcesses.IsRunning);
@@ -77,27 +78,13 @@ public static class Launcher
         }
         if (callback is not null)
         {
-            if (!ValidCallback(callback)) throw new IOException("Paste the claude:// sign-in link from the browser.");
+            if (!ValidCallback(callback)) throw new IOException("This Claude sign-in link was not recognized.");
             start.ArgumentList.Add(callback);
         }
         return start;
     }
 
-    public static bool ValidCallback(string value) => value.Length < 16384 && !value.Any(char.IsControl)
-        && Uri.TryCreate(value, UriKind.Absolute, out var uri) && uri.Scheme == "claude"
-        && (uri.Host == "claude.ai" || uri.Host == "claude.com") && string.IsNullOrEmpty(uri.UserInfo);
-
-    public static void CompleteSignIn(GraftConfig config, string callback)
-    {
-        using var stateLock = StateLock.Acquire();
-        Graft.ValidateProfilePath(config.ProfileDir, allowDefault: true);
-        if (!ClaudeProcesses.IsRunning(config.ProfileDir))
-            throw new IOException("Open this profile and start its browser sign-in first.");
-        var exe = ClaudeExe() ?? throw new IOException("Claude Desktop could not be found.");
-        // Electron forwards the link to this profile's existing process.
-        // Callback contents never enter Graft's state or diagnostics.
-        Process.Start(StartInfo(exe, config.ProfileDir, callback));
-    }
+    public static bool ValidCallback(string value) => ClaudeLinks.Classify(value) == ClaudeLinkKind.SignIn;
 
     // MARK: - Reveal
 

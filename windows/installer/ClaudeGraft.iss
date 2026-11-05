@@ -37,7 +37,12 @@ SetupIconFile=..\ClaudeGraft\Assets\AppIcon.ico
 UninstallDisplayIcon={app}\ClaudeGraft.exe
 LicenseFile=..\..\LICENSE
 WizardStyle=modern
+#ifdef TestMode
+Compression=zip/1
+#else
 Compression=lzma2/normal
+LZMANumBlockThreads=4
+#endif
 SolidCompression=yes
 CloseApplications=yes
 CloseApplicationsFilter=ClaudeGraft.exe
@@ -58,7 +63,6 @@ Name: "startup"; Description: "Open at Login"; GroupDescription: "Startup:"; Fla
 
 [Files]
 Source: "{#PublishRoot}\*"; DestDir: "{app}"; Excludes: "*.pdb"; Flags: ignoreversion recursesubdirs createallsubdirs
-Source: "{#VcRedist}"; DestName: "vc_redist.{#Architecture}.exe"; Flags: dontcopy
 
 [Icons]
 #ifndef TestMode
@@ -69,52 +73,23 @@ Name: "{userstartup}\Claude Graft"; Filename: "{app}\ClaudeGraft.exe"; WorkingDi
 
 [Run]
 Filename: "{app}\ClaudeGraft.exe"; Parameters: "--show"; Description: "Open Claude Graft"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\ClaudeGraft.exe"; Flags: nowait skipifnotsilent; Check: WasGraftUpdate
 
 [Code]
-function RuntimeInRegistry(RootKey: Integer): Boolean;
-var
-  Key: String;
-  Installed, Major, Minor, Build: Cardinal;
+function WasGraftUpdate: Boolean;
 begin
-  Key := 'SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\{#Architecture}';
-  Result :=
-    RegQueryDWordValue(RootKey, Key, 'Installed', Installed) and (Installed = 1) and
-    RegQueryDWordValue(RootKey, Key, 'Major', Major) and
-    RegQueryDWordValue(RootKey, Key, 'Minor', Minor) and
-    RegQueryDWordValue(RootKey, Key, 'Bld', Build);
-  if Result then
-    Result := (Major > 14) or ((Major = 14) and
-      ((Minor > 50) or ((Minor = 50) and (Build >= 35719))));
+  Result := ExpandConstant('{param:GRAFTUPDATE|0}') = '1';
 end;
 
-function NeedsRuntime: Boolean;
-begin
-  Result := not (RuntimeInRegistry(HKLM32) or RuntimeInRegistry(HKLM64));
-end;
-
-function PrepareToInstall(var NeedsRestart: Boolean): String;
-var
-  ExitCode: Integer;
-begin
-  Result := '';
-  if not NeedsRuntime then
-    exit;
-#ifdef TestMode
-  Result := 'The installer test requires the Visual C++ runtime already installed.';
-#else
-  ExtractTemporaryFile('vc_redist.{#Architecture}.exe');
-  WizardForm.StatusLabel.Caption := 'Installing the Microsoft Visual C++ runtime...';
-  if not Exec(ExpandConstant('{tmp}\vc_redist.{#Architecture}.exe'),
-      '/install /passive /norestart', '', SW_SHOWNORMAL,
-      ewWaitUntilTerminated, ExitCode) then
-  begin
-    Result := 'The Microsoft Visual C++ runtime could not be started: ' + SysErrorMessage(ExitCode);
-    exit;
-  end;
-  if ExitCode = 3010 then
-    NeedsRestart := True
-  else if (ExitCode <> 0) and ((ExitCode <> 1638) or NeedsRuntime) then
-    Result := 'The Microsoft Visual C++ runtime was not installed (code ' +
-      IntToStr(ExitCode) + '). Run setup again to retry.';
+#ifndef TestMode
+[Registry]
+; Register a candidate only. Windows asks the user to select the default.
+Root: HKCU; Subkey: "Software\Classes\ClaudeGraft.Link"; ValueType: string; ValueName: ""; ValueData: "Claude Graft link"; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\ClaudeGraft.Link"; ValueType: string; ValueName: "URL Protocol"; ValueData: ""
+Root: HKCU; Subkey: "Software\Classes\ClaudeGraft.Link\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: """{app}\ClaudeGraft.exe"",0"
+Root: HKCU; Subkey: "Software\Classes\ClaudeGraft.Link\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\ClaudeGraft.exe"" --open-link ""%1"""
+Root: HKCU; Subkey: "Software\ClaudeGraft\Capabilities"; ValueType: string; ValueName: "ApplicationName"; ValueData: "Claude Graft"; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\ClaudeGraft\Capabilities"; ValueType: string; ValueName: "ApplicationDescription"; ValueData: "Choose the Claude profile for a browser sign-in."
+Root: HKCU; Subkey: "Software\ClaudeGraft\Capabilities\URLAssociations"; ValueType: string; ValueName: "claude"; ValueData: "ClaudeGraft.Link"
+Root: HKCU; Subkey: "Software\RegisteredApplications"; ValueType: string; ValueName: "Claude Graft"; ValueData: "Software\ClaudeGraft\Capabilities"; Flags: uninsdeletevalue
 #endif
-end;

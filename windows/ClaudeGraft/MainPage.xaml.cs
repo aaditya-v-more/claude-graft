@@ -168,9 +168,15 @@ public sealed partial class MainPage : Page
             FolderBox.Text = Shortcut.FolderName(NameBox.Text);
         _lastName = NameBox.Text;
     }
-    private void Source_Changed(object sender, SelectionChangedEventArgs e) =>
+    private void Source_Changed(object sender, SelectionChangedEventArgs e)
+    {
         MergeNote.Visibility = SourceBox.SelectedItem is SourceOption { Source.Kind: not SourceKind.Own }
             ? Visibility.Visible : Visibility.Collapsed;
+        SidebarStatus.Text = MergeNote.Visibility == Visibility.Visible && _selected is not null
+            ? SidebarSync.StatusFor(_selected.ProfileDir) ?? "" : "";
+        SidebarStatus.Visibility = SidebarStatus.Text.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
+        if (!_loading) _ = FindRecoverableChats();
+    }
 
     private void ShowProblem(string message)
     {
@@ -202,6 +208,7 @@ public sealed partial class MainPage : Page
     {
         if (_selected is not null) await LoadUsage(_selected, true);
         await MarkRunning();
+        await FindRecoverableChats();
     }
     private async void Start_Click(object sender, RoutedEventArgs e)
     {
@@ -216,12 +223,14 @@ public sealed partial class MainPage : Page
         catch (Exception ex) { row.Problem = ex.Message; }
         finally { row.Starting = false; }
     }
-    private void Open_Click(object sender, RoutedEventArgs e)
+    private async void Open_Click(object sender, RoutedEventArgs e)
     {
         if (_selected is null) return;
         var config = _original is null ? new GraftConfig { ProfileDir = _main.ProfileDir }
             : App.Store.ConfigFor(_original);
-        _ = Task.Run(() => DesktopInteraction.Open(config));
+        await Task.Run(() => DesktopInteraction.Open(config));
+        if (_loaded && _selected is not null && Fs.SamePath(_selected.ProfileDir, config.ProfileDir))
+            Source_Changed(null!, null!);
     }
     private void Folder_Click(object sender, RoutedEventArgs e)
     {
@@ -313,21 +322,15 @@ public sealed partial class MainPage : Page
 
     private async void SignIn_Click(object sender, RoutedEventArgs e)
     {
-        if (_selected is null) return;
-        var input = new TextBox { PlaceholderText = "claude://…", MaxLength = 16384, IsSpellCheckEnabled = false, AcceptsReturn = false };
-        var body = new StackPanel { Spacing = 12 };
-        body.Children.Add(new TextBlock { Text = "Start sign-in in this Claude profile. If the browser opens the main Claude instead, copy the link behind its Open Claude button and paste it here.", TextWrapping = TextWrapping.Wrap });
-        body.Children.Add(input);
-        var dialog = new ContentDialog { Title = "Complete browser sign-in", Content = body,
-            PrimaryButtonText = "Send to this profile", CloseButtonText = "Cancel" };
+        var dialog = new ContentDialog { Title = "Set up browser sign-in",
+            Content = "Install Graft with its setup wizard, then select Claude Graft for CLAUDE links in Windows Default apps. After signing in through your browser, choose the running profile where you started. Other Claude links open in your main Claude. You can choose Claude Desktop again in Default apps at any time.",
+            PrimaryButtonText = "Open Default apps", CloseButtonText = "Cancel" };
         PrepareDialog(dialog);
         if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
-        var callback = input.Text.Trim();
-        input.Text = "";
         try
         {
-            var config = _original is null ? new GraftConfig { ProfileDir = _main.ProfileDir } : App.Store.ConfigFor(_original);
-            await Task.Run(() => Launcher.CompleteSignIn(config, callback));
+            if (!await Windows.System.Launcher.LaunchUriAsync(new Uri("ms-settings:defaultapps?registeredAppUser=Claude%20Graft")))
+                ShowProblem("Open Windows Settings, select Apps and Default apps, and choose Claude Graft for CLAUDE links.");
         }
         catch (Exception ex) { ShowProblem(ex.Message); }
     }
@@ -345,7 +348,14 @@ public sealed partial class MainPage : Page
     {
         var dialog = new SettingsDialog(App.Settings);
         PrepareDialog(dialog);
-        if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
+        ContentDialogResult action;
+        do
+        {
+            dialog.RequestedClaudeUpdates = false;
+            action = await dialog.ShowAsync();
+            if (dialog.RequestedClaudeUpdates) await ClaudeUpdateDialog.ShowAsync(XamlRoot);
+        } while (dialog.RequestedClaudeUpdates);
+        if (action != ContentDialogResult.Primary) return;
         try { AutoStart.Set(dialog.AutoStartEnabled); App.ApplySettings(dialog.Result); }
         catch (Exception ex) { ShowProblem(ex.Message); }
     }

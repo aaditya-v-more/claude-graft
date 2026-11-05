@@ -74,6 +74,7 @@
                                 <TextBlock Text="{x:Bind FableText, Mode=OneWay}" Visibility="{x:Bind FableVisibility, Mode=OneWay}" FontSize="12" />
                                 <local:MacProgressBar Value="{x:Bind Fable, Mode=OneWay}" Visibility="{x:Bind FableVisibility, Mode=OneWay}" Maximum="100" />
                             </StackPanel>
+                            <TextBlock Text="{x:Bind SampleText, Mode=OneWay}" Visibility="{x:Bind BarsVisibility, Mode=OneWay}" FontSize="11" />
                             <TextBlock Text="No usage reported yet" Visibility="{x:Bind NoUsageVisibility, Mode=OneWay}" FontSize="12" />
 
                             <!-- Why the last Start Session could not open a window,

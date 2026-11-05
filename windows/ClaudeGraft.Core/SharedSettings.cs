@@ -2,7 +2,7 @@ using System.Text.Json;
 
 namespace ClaudeGraft.Core;
 
-public static class SharedSettings
+public static partial class SharedSettings
 {
     private sealed record State(string Source, string Digest, bool HadOwn);
     private static string StatePath(string path) => Graft.StashPath(path) + ".share.json";

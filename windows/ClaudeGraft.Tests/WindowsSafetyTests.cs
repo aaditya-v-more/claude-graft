@@ -213,7 +213,7 @@ public sealed class WindowsSafetyTests : IDisposable
     [Fact(DisplayName = "a sign-in callback remains a single literal argument")]
     public void CallbackArgument()
     {
-        const string callback = "claude://claude.ai/oauth?code=fixture&state=fixture";
+        const string callback = "claude://claude.ai/sso-callback?code=fixture&state=fixture";
         var start = Launcher.StartInfo("Claude.exe", GraftPaths.Profile("Work"), callback);
         Assert.Equal(callback, start.ArgumentList[1]);
         Assert.Equal(2, start.ArgumentList.Count);

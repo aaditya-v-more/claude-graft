@@ -37,26 +37,26 @@ if (-not $Compiler -or -not (Test-Path -LiteralPath $Compiler)) {
 }
 if (-not $SkipBuild) { & (Join-Path $PSScriptRoot 'build.ps1') -Architecture $Architecture }
 $published = Join-Path $PSScriptRoot "dist/ClaudeGraft-$Architecture"
-foreach ($required in @('ClaudeGraft.exe','ClaudeGraft.pri','coreclr.dll','launcher/GraftLaunch.exe','launcher/coreclr.dll')) {
+foreach ($required in @('ClaudeGraft.exe','ClaudeGraft.pri','coreclr.dll','launcher/GraftLaunch.exe','launcher/coreclr.dll','vc-runtime.json')) {
     if (-not (Test-Path -LiteralPath (Join-Path $published $required))) { throw "Missing published file: $required" }
 }
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot '../LICENSE') -Destination $published
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'README.md') -Destination $published
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'PORTING.md') -Destination $published
-$prerequisites = Join-Path $PSScriptRoot 'dist/prerequisites'
-New-Item -ItemType Directory -Force -Path $prerequisites | Out-Null
-$runtime = Join-Path $prerequisites "vc_redist.$Architecture.exe"
-if (-not (Test-Path -LiteralPath $runtime)) {
-    Invoke-WebRequest -Uri "https://aka.ms/vc14/vc_redist.$Architecture.exe" -OutFile $runtime
-}
-$signature = Get-AuthenticodeSignature -LiteralPath $runtime
-if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notmatch '(^|, )O=Microsoft Corporation(,|$)') {
-    throw 'The Microsoft runtime signature is not valid; the installer was not created.'
+$runtime = Get-Content -LiteralPath (Join-Path $published 'vc-runtime.json') -Raw | ConvertFrom-Json
+if ($runtime.architecture -ne $Architecture -or $runtime.files.name -notcontains 'msvcp140.dll' -or
+    $runtime.files.name -notcontains 'vcruntime140.dll') { throw 'Rebuild the published Visual C++ runtime.' }
+foreach ($file in $runtime.files) {
+    foreach ($directory in $published, (Join-Path $published 'launcher')) {
+        if ((Get-FileHash -LiteralPath (Join-Path $directory $file.name)).Hash -ne $file.sha256) {
+            throw "Published Visual C++ runtime hash mismatch for $($file.name)."
+        }
+    }
 }
 $version = (Get-Content -LiteralPath (Join-Path $PSScriptRoot '../VERSION') -Raw).Trim()
 $destination = Join-Path $PSScriptRoot 'dist'
 $arguments = @('/Qp', "/DAppVersion=$version", "/DArchitecture=$Architecture",
-    "/DPublishRoot=$published", "/DVcRedist=$runtime", "/DInstallerOutput=$destination")
+    "/DPublishRoot=$published", "/DInstallerOutput=$destination")
 if ($TestMode) { $arguments += '/DTestMode=1' }
 $arguments += Join-Path $PSScriptRoot 'installer/ClaudeGraft.iss'
 & $Compiler @arguments
@@ -65,13 +65,14 @@ $suffix = if ($TestMode) { '-test' } else { '' }
 $installer = Join-Path $destination "ClaudeGraft-$version-windows-$Architecture-setup$suffix.exe"
 if (-not (Test-Path -LiteralPath $installer)) { throw 'The compiler did not produce the expected setup executable.' }
 (Get-FileHash -LiteralPath $installer -Algorithm SHA256).Hash + '  ' + (Split-Path $installer -Leaf) |
-    Set-Content -LiteralPath "$installer.sha256"
+    Set-Content -LiteralPath "$installer.sha256" -Encoding Ascii
 [ordered]@{
     version = $version
     architecture = $Architecture
     sourceCommit = (& git -C $PSScriptRoot rev-parse HEAD)
+    sourceDirty = [bool](& git -C $PSScriptRoot status --porcelain)
     installerSha256 = (Get-FileHash -LiteralPath $installer -Algorithm SHA256).Hash
-    runtimeVersion = (Get-Item -LiteralPath $runtime).VersionInfo.FileVersion
-    runtimeSha256 = (Get-FileHash -LiteralPath $runtime -Algorithm SHA256).Hash
-} | ConvertTo-Json | Set-Content -LiteralPath "$installer.build.json"
+    runtimeVersion = $runtime.version
+    runtimeFiles = $runtime.files
+} | ConvertTo-Json -Depth 3 | Set-Content -LiteralPath "$installer.build.json"
 Write-Output $installer

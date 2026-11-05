@@ -101,23 +101,21 @@ public static class UsageMonitor
     public static async Task<UsageEntry> ReadAsync(string profile, bool interactive = false)
     {
         var reading = await LiveAsync(profile, interactive).ConfigureAwait(false);
-        if (reading is null)
-        {
-            // The endpoint has never answered for this profile, so there is no
-            // live figure to stand on; the on-disk history is all there is.
-            var disk = AsCurrentFigure(Graft.UsageOf(profile), DateTimeOffset.UtcNow);
-            return new UsageEntry { Usage = disk, IsLive = false };
-        }
+        return LatestEntry(reading, Graft.UsageOf(profile), DateTimeOffset.UtcNow);
+    }
 
-        var org = Graft.UsageOf(profile)?.Organization;
+    internal static UsageEntry LatestEntry(UsageApi.Reading? reading, Usage? disk, DateTimeOffset now)
+    {
+        if (reading is null || disk?.Sampled > reading.Sampled)
+            return new UsageEntry { Usage = AsCurrentFigure(disk, now), IsLive = false };
         return new UsageEntry
         {
             Usage = new Usage
             {
                 FiveHour = reading.FiveHour,
                 Week = reading.Week,
-                Organization = org,
-                Sampled = DateTimeOffset.UtcNow,
+                Organization = disk?.Organization,
+                Sampled = reading.Sampled,
                 FiveHourReset = reading.FiveHourReset,
                 WeekReset = reading.WeekReset,
                 Fable = reading.Fable,
@@ -175,7 +173,7 @@ public static class UsageMonitor
             {
                 var state = State(profile);
                 state.LastLive = reading;
-                state.LiveAt = DateTimeOffset.UtcNow;
+                state.LiveAt = reading.Sampled;
                 state.Invalidated = false;
                 state.BackoffUntil = default;
                 state.RetryUntil = default;
