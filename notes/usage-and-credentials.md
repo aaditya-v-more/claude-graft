@@ -7,7 +7,13 @@ Where the usage figures come from, how the token is read out of Claude's safe st
 **Credentials are borrowed, never taken.** Only the access token is decrypted,
 never the refresh token: Anthropic rotates those and using one signs Claude
 Desktop out. Nothing is written back to Claude's config, cookies or keychain.
-The token goes to `api.anthropic.com` and nowhere else.
+Claude's safe-storage key does seal two things of Graft's making, both for
+[shared usage](shared-usage.md): the Code environment it writes into a closed
+profile, and the logins signed in from the pane, kept in Graft's own
+`pool/accounts.json`. A token goes to `api.anthropic.com` and nowhere else. The
+one other address is `platform.claude.com`, which a sign-in from the pane sends
+the browser's one-time code to, and what it answers with is a login of Graft's
+own, never one of Claude's.
 
 **The keychain is asked once, and only when asking is the way through.** Every
 read tries silently first, so a build already on the item's ACL never sees a

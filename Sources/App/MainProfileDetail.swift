@@ -85,6 +85,8 @@ struct MainProfileDetail: View {
                 SectionHeader(title: "Plan usage", info: UsageSummary.explanation(for: plan),
                               id: "usage-info")
             }
+
+            SharedUsageSection(claude: UsagePoolController.mainKey)
         }
         .formStyle(.grouped)
         .safeAreaInset(edge: .bottom) {

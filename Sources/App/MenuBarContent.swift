@@ -40,6 +40,7 @@ struct MenuBarContent: View {
                     }
                 }
             }
+            SharedChats()
 
             Divider().padding(.vertical, 6)
 

@@ -62,7 +62,13 @@ opens and quits none.
     ./test-layout.sh               window layout from outside, both languages; needs Accessibility
     ./test-opening.sh              launch paths against disposable, signed-out profiles
     ./test-sidebar.sh              sidebar sync against real Chromium storage; needs Claude and Node
+    ./test-relay.sh                the shared-usage relay over loopback, against a stand-in service
     ./release.sh [--install]       tests, builds universal, draws the icon, signs, packages
+
+With only the Command Line Tools installed, the macOS 27 SDK they default to
+cannot compile the app's SwiftUI; put
+`SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk` in front of
+any of these. The why is in [notes/updates-and-releases.md](notes/updates-and-releases.md).
 
 ## Rules
 
@@ -109,12 +115,29 @@ opens and quits none.
 
 ### Usage and credentials — [notes/usage-and-credentials.md](notes/usage-and-credentials.md)
 
-- **Credentials are borrowed, never taken.** Only the access token is decrypted; nothing is written back; the token goes to `api.anthropic.com` alone.
+- **Credentials are borrowed, never taken.** Only the access token is decrypted; nothing is written back; a token goes to `api.anthropic.com` alone, and `platform.claude.com` sees only a pane sign-in's one-time code.
 - **The keychain is asked once, and only when asking is the way through** — `ClaudeCredentials.mayRaiseDialog`, made silent by `SecKeychainSetUserInteractionAllowed`.
 - **Only a person starts a session.** The suite fails on a fourth caller or one wired to `onAppear`, `onReceive` or a timer.
 - **One account, one figure:** both detail views read `UsageMonitor.entry(for:)`.
 - **No five-hour limit is not 0%:** `fiveHour` is nil for such an account, never zero; the menu bar shows its week as `W`, and Start Session is hidden.
 - **Polling:** `mayUseCache` gives five minutes to a tick, two for an open profile, a minute for the dropdown, two seconds for a press; `arrival` queues rather than drops; failures back off and `Retry-After` wins.
+
+### Shared usage — [notes/shared-usage.md](notes/shared-usage.md)
+
+- **Only `POST /v1/messages` changes accounts.** Everything else a conversation owns keeps the sender's token, and the Chat tab is never shared.
+- **What cannot change accounts goes out as it came,** byte for byte: an upgrade is spliced after its `101`, a chunked body forwarded as it arrives. Remote Control needs no syncing.
+- **Lending belongs to the Claude that borrows** — `usage-sharing.json`. One account is counted once, under the first of its names that can lend; the borrower's own account adds nothing.
+- **Claude Code is reached through `HTTPS_PROXY` and `NODE_EXTRA_CA_CERTS`, never an address,** and the port never moves from 47823.
+- **The lines go only into a closed Claude,** under `SidebarSync.withLaunchLock`; a launcher swaps only the exact value `pool/environment.json` expects. `PoolEnvironment.swift` alone names the file.
+- **The lines take nothing away:** a proxy or certificate a person set is left alone, and copies in `scopedEnvVars` come out whenever the profile is found closed.
+- **No relay is worse than no sharing.** `graft-relay` outlives Graft; a launcher that cannot reach it opens without the lines, and the lines come out before the relay goes.
+- **The authority vouches for `api.anthropic.com` alone,** its key deleted once it has signed and the identity imported with `kSecImportToMemoryOnly`, which is why sharing needs macOS 15.
+- **A sender is the SHA-256 of its bearer** against its profile's token cache; a request nobody owns passes through, and a pane sign-in's refresh token is never read.
+- **Which account answers:** room is under 98% of five hours and 99% of the week, soonest weekly reset first; a conversation stays while its cache lives, and a choice from the dropdown outranks both until a day of quiet.
+- **A conversation carrying reasoning stays where it was written:** `carriesBoundReasoning` holds it past its cache and moves it only when that account has no room, then leaves it there; a model is bound unless `reasoningTravels` names it.
+- **A borrowed login's refusal is retried, never shown:** a 429 moves on, a 401 marks that login refused, and a 400, 403 or 404 sends the request home.
+- **Some requests never move:** a body naming `"file_id":`, `"container":` or `"mcp_servers":`, or one that is encoded.
+- **The dropdown's front Claude is `FrontmostClaude`'s,** and its watch on the relay ends in `popoverDidClose`, never in the view.
 
 ### Interface — [notes/interface.md](notes/interface.md)
 

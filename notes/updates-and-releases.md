@@ -45,6 +45,14 @@ to tell them apart. Opening the wrong one gives two instances polling the same
 profiles, racing for the same keychain prompt, and a Sparkle that updates a
 bundle nobody installed. Seen for real, which is why the directory was renamed.
 
+**The Command Line Tools' default SDK cannot build the app.** With only the
+Command Line Tools installed, the macOS 27 SDK they default to cannot expand
+SwiftUI's `@State` — the compiler reports that the plugin for `SwiftUIMacros`
+was not found — so anything that compiles the app fails in `SettingsView`
+before it reaches a line of this project. The 26.5 SDK beside it works:
+`SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk` in front of
+any of the commands.
+
 ## Claude Desktop's own updates
 
 **An update restart is not permission to undo a quit.** Claude's ShipIt

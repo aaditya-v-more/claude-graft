@@ -53,6 +53,8 @@ enum Shared {
     static let updateRecovery = UpdateRecoveryMonitor()
     static let manualUpdates = ManualUpdateSettings()
     static let claudeUpdates = ClaudeDesktopUpdater()
+    static let usagePool = UsagePoolController()
+    static let accountSignIn = AccountSignIn(pool: usagePool)
 }
 
 struct SettingsView: View {
@@ -121,6 +123,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Shared.manualUpdates.start(watching: Shared.store)
         Shared.updateRecovery.start(watching: Shared.store)
         Shared.claudeUpdates.start()
+        // Before anything that might wait on the network: a Claude connected to
+        // the pool after a restart has no Claude Code until the relay is back.
+        Shared.usagePool.start(store: Shared.store, usage: Shared.usage)
         Shared.updater.start(holding: Shared.settings)
         // No prompts, no windows: filing records is a thing the menu bar
         // does on its own whether anyone is looking or not. Once, here —

@@ -40,6 +40,18 @@ Graft.runningClaudesOverride = { [] }
 Shared.usage.mayPromptUnasked = false
 let shortcut = Shortcut(name: "Claude 2")
 Shared.store.shortcuts = [shortcut, Shortcut(name: "Claude 3", source: .own)]
+// Claude's pane with accounts to draw on, one of them a Claude and one signed
+// in here, written before the pool first reads them. Attached rather than
+// started: nothing in here may run a relay or touch a Code environment.
+let lentAccount = PoolAccount(id: UsagePoolController.accountPrefix + "lent-account", accountUuid: "lent-account",
+                              email: "lent@example.com", organizationName: nil, scopes: ["user:inference"],
+                              expires: Date().addingTimeInterval(3e7), added: Date(), sealed: "")
+try fm.createDirectory(at: UsagePool.accountsFile.deletingLastPathComponent(), withIntermediateDirectories: true)
+try JSONEncoder().encode([lentAccount]).write(to: UsagePool.accountsFile)
+try JSONEncoder().encode(UsageSharing(lenders: [
+    UsagePoolController.mainKey: [UsagePoolController.key(for: shortcut), lentAccount.id],
+])).write(to: UsagePool.settingsFile)
+Shared.usagePool.attach(store: Shared.store, usage: Shared.usage)
 let app = NSApplication.shared
 app.setActivationPolicy(.accessory)
 // Without it AppKit never starts answering accessibility requests, and the
@@ -239,6 +251,18 @@ for selection in [ContentView.mainProfileID, shortcut.id] {
                       "\(place): each sidebar row can be asked for by its profile")
                 check(state != "available" || element("window.claude-update.install", in: tree) != nil,
                       "\(place): a waiting Claude update can be asked for by name")
+                if main {
+                    let lent = scope + "lender.\(shortcut.profileDir.lastPathComponent)"
+                    check(element(lent, in: tree)?.name == "Claude 2",
+                          "\(place): an account Claude draws on is read out under its own name")
+                    check(element(lent + ".remove", in: tree)?.name == L10n.format("Stop drawing on %@", "Claude 2"),
+                          "\(place): the button taking an account away says which account, not “Remove”")
+                    check(element(scope + "lender.lent-account.remove", in: tree)?.name
+                            == L10n.format("Stop drawing on %@", "lent@example.com"),
+                          "\(place): an account signed in here is named by its email")
+                    check(element(scope + "shared-usage.add", in: tree) != nil,
+                          "\(place): adding an account can be asked for by name")
+                }
             }
             if let directory = ProcessInfo.processInfo.environment["GRAFT_LAYOUT_SNAPSHOTS"],
                state == "current", size.width == 820 {
@@ -380,6 +404,29 @@ check(element("dropdown.\(Graft.mainProfile.lastPathComponent).account", in: row
         == "Max, \(L10n.text("Running"))",
       "a running Claude's heading says so")
 rows.orderOut(nil)
+
+// Drawn from figures, since in here no relay has carried a conversation.
+let claude2 = UsagePoolController.key(for: shortcut)
+let conversations = hosted(ConversationList(chats: [
+    UsagePoolController.Chat(id: "first-session", title: "Plan the next release", claude: UsagePoolController.mainKey,
+                             servedBy: claude2, assigned: nil, choices: [UsagePoolController.mainKey, claude2],
+                             lastAt: now, passedOver: false),
+    UsagePoolController.Chat(id: "second-session", title: nil, claude: UsagePoolController.mainKey,
+                             servedBy: UsagePoolController.mainKey, assigned: claude2,
+                             choices: [UsagePoolController.mainKey, claude2],
+                             lastAt: now.addingTimeInterval(-60), passedOver: true),
+])
+.frame(width: 320)
+.environment(\.controlSurface, ControlSurface.dropdown), title: "Conversations check")
+let conversationTree = checkAccessibility(conversations, surface: ControlSurface.dropdown, "conversations in the dropdown")
+let moving = element("dropdown.conversation.first-session.account", in: conversationTree)
+check(moving?.name == L10n.format("Account answering “%@”", "Plan the next release"),
+      "the menu moving a conversation says which conversation it moves, not only an account")
+check(moving?.value == "Claude 2", "and it says which account answers that conversation now")
+check(element("dropdown.conversation.second-session", in: conversationTree)?.value
+        == L10n.format("%@ had no room", "Claude 2"),
+      "a conversation the chosen account could not take says so out loud as well as in orange")
+conversations.orderOut(nil)
 
 let settingsWindow = hosted(SettingsView().environmentObject(Shared.settings), title: "Settings check")
 let settingsTree = checkAccessibility(settingsWindow, surface: ControlSurface.settings, "Settings")

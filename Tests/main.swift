@@ -1,4 +1,5 @@
 import AppKit
+import CryptoKit
 import Foundation
 
 // Every test runs against a throwaway Application Support and Applications
@@ -5223,6 +5224,479 @@ do {
     let beforeReads = reads
     SidebarSync.synchronize(beforeOpening: one)
     check(reads == beforeReads, "independent profiles never open the sidebar helper")
+}
+
+// MARK: - Usage pool
+
+section("Usage pool")
+
+do {
+    let now = Date(timeIntervalSince1970: 1_800_000_000)
+    let hour: TimeInterval = 60 * 60
+    let day = 24 * hour
+    let prefix = "anthropic-ratelimit-unified-"
+    func stamp(_ offset: TimeInterval) -> String { String(Int(now.timeIntervalSince1970 + offset)) }
+
+    let read = PoolLimits.parse([
+        (prefix + "5h-utilization", "0.42"), (prefix + "5h-reset", stamp(2 * hour)),
+        (prefix + "7d-utilization", "0.9"), (prefix + "7d-reset", stamp(3 * day)),
+        (prefix + "status", "allowed"),
+    ], now: now)
+    check(read?.fiveHour == 0.42 && read?.week == 0.9,
+          "an answer's headers give the account's two windows as fractions")
+    check(read?.weekReset == now.addingTimeInterval(3 * day) && read?.fiveHourReset == now.addingTimeInterval(2 * hour),
+          "and when each resets, in seconds since 1970")
+    check(read != nil && read?.refusedUntil == nil, "an allowed answer leaves the account open")
+    check(PoolLimits.parse([(prefix + "status", "rejected")], now: now)?.refusedUntil == now.addingTimeInterval(60),
+          "a refusal that names no reset closes the account for a minute")
+    check(PoolLimits.parse([("content-type", "application/json")], now: now) == nil,
+          "an answer that never reached the model teaches nothing about the account")
+    check(PoolLimits.parse([("Anthropic-RateLimit-Unified-5h-Utilization", "0.5")], now: now)?.fiveHour == 0.5,
+          "header names are matched whatever their case")
+    let percent = PoolLimits(fiveHourPercent: 34, fiveHourReset: nil, weekPercent: 71, weekReset: nil, observed: now)
+    check(abs(percent.fiveHour - 0.34) < 1e-9 && abs(percent.week - 0.71) < 1e-9,
+          "the usage endpoint's percentages become the same fractions")
+
+    func limits(five: Double = 0.1, fiveReset: TimeInterval? = nil, week: Double = 0.1,
+                weekReset: TimeInterval?, refused: TimeInterval? = nil) -> PoolLimits {
+        PoolLimits(fiveHour: five, fiveHourReset: fiveReset.map { now + $0 }, week: week,
+                   weekReset: weekReset.map { now + $0 }, refusedUntil: refused.map { now + $0 },
+                   observed: now)
+    }
+    func order(_ accounts: [PoolPolicy.Account], prefer: [String] = []) -> [String] {
+        PoolPolicy.order(own: "own", accounts: accounts, prefer: prefer, now: now)
+    }
+    let soon = PoolPolicy.Account(id: "soon", limits: limits(weekReset: day), usable: true)
+    let later = PoolPolicy.Account(id: "later", limits: limits(weekReset: 5 * day), usable: true)
+    let own = PoolPolicy.Account(id: "own", limits: limits(weekReset: 3 * day), usable: true)
+    check(order([later, own, soon]) == ["soon", "own", "later"],
+          "the account whose week resets soonest is asked first, its own included")
+    let spent = PoolPolicy.Account(id: "soon", limits: limits(five: 0.99, fiveReset: 2 * hour, weekReset: day),
+                                   usable: true)
+    check(order([later, own, spent]) == ["own", "later"],
+          "an account with its five hours spent is passed over until they reset")
+    let rolled = PoolPolicy.Account(id: "soon", limits: limits(five: 0.99, fiveReset: -hour, weekReset: day),
+                                    usable: true)
+    check(order([later, own, rolled]).first == "soon",
+          "and is back at the front once the window it spent has reset")
+    let weekGone = PoolPolicy.Account(id: "soon", limits: limits(week: 1, weekReset: day), usable: true)
+    check(!order([own, weekGone]).contains("soon"), "a spent week is passed over too")
+    let refusing = PoolPolicy.Account(id: "soon", limits: limits(weekReset: day, refused: 30 * 60), usable: true)
+    check(!order([own, refusing]).contains("soon"),
+          "an account the service refused is left alone until the time it named")
+    let unheard = PoolPolicy.Account(id: "unheard", limits: nil, usable: true)
+    check(order([unheard, later]) == ["later", "unheard", "own"],
+          "an account nobody has heard from goes after every one with a known reset")
+    check(order([PoolPolicy.Account(id: "other", limits: nil, usable: true),
+                 PoolPolicy.Account(id: "own", limits: nil, usable: true)]) == ["own", "other"],
+          "with nothing known about anyone, a request stays with the account that sent it")
+    check(order([own, PoolPolicy.Account(id: "soon", limits: limits(weekReset: day), usable: false)]) == ["own"],
+          "an account whose login cannot be used lends nothing")
+    let fullOwn = PoolPolicy.Account(id: "own", limits: limits(five: 1, fiveReset: hour, weekReset: 3 * day),
+                                     usable: true)
+    check(order([fullOwn, later]) == ["later", "own"],
+          "a sender with no room of its own is still the last resort, so the service decides")
+    check(order([later, own, soon], prefer: ["later"]).first == "later",
+          "a conversation stays on the account holding its prompt cache")
+    check(order([own, spent, later], prefer: ["soon"]).first == "own",
+          "but not on one that has since run out of room")
+    check(order([later, own, soon], prefer: ["own", "later"]) == ["own", "later", "soon"],
+          "a conversation moved by hand goes where it was put, ahead of where its cache is")
+    check(PoolPolicy.cacheLifetime(of: Data(#"{"cache_control":{"type":"ephemeral","ttl":"1h"}}"#.utf8)) == 3600,
+          "a request that asked for an hour of cache keeps its conversation where it is for an hour")
+    check(PoolPolicy.cacheLifetime(of: Data(#"{"cache_control":{"type":"ephemeral"}}"#.utf8)) == 300,
+          "and one that did not, for the five minutes a cache lasts by default")
+    check(PoolPolicy.nextWeekReset(now - day, now: now) == now + 6 * day,
+          "a weekly reset that has passed is followed by one a week later")
+
+    check(PoolPolicy.outcome(status: 429, headers: [("retry-after", "30")], borrowed: true, now: now)
+            == .exhausted(until: now + 30),
+          "a refusal for lack of room moves on, for as long as the service asked")
+    check(PoolPolicy.outcome(status: 429, headers: [(prefix + "status", "rejected"), (prefix + "reset", stamp(hour))],
+                             borrowed: false, now: now) == .exhausted(until: now + hour),
+          "or until the reset it named")
+    check(PoolPolicy.outcome(status: 401, headers: [], borrowed: true, now: now) == .loginRefused,
+          "a borrowed login that is refused is not lent again")
+    check(PoolPolicy.outcome(status: 401, headers: [], borrowed: false, now: now) == .deliver,
+          "a sender's own refusal reaches it untouched")
+    check([400, 403, 404].allSatisfy {
+              PoolPolicy.outcome(status: $0, headers: [], borrowed: true, now: now) == .refusedForAccount },
+          "a request another account cannot serve goes back to the one it came from")
+    check([400, 403, 404].allSatisfy {
+              PoolPolicy.outcome(status: $0, headers: [], borrowed: false, now: now) == .deliver },
+          "and on that account it is delivered as the service answered it")
+    check([200, 500, 529].allSatisfy {
+              PoolPolicy.outcome(status: $0, headers: [], borrowed: true, now: now) == .deliver },
+          "an answer, or a service that is down for everyone, is passed straight back")
+
+    check(PoolRequest.isInference(method: "POST", target: "/v1/messages?beta=true"),
+          "a message to the model is the request worth moving")
+    check(!PoolRequest.isInference(method: "POST", target: "/v1/messages/count_tokens?beta=true"),
+          "counting tokens is not")
+    check(!PoolRequest.isInference(method: "GET", target: "/v1/messages"), "nor is anything but a POST")
+    check(!PoolRequest.isInference(method: "POST", target: "/api/oauth/profile"),
+          "nor anything under the account's own API")
+    let upload = Data(#"{"model":"claude-x","messages":[{"content":[{"type":"document","source":{"type":"file","file_id":"file_1"}}]}]}"#.utf8)
+    check(PoolRequest.mustStayWithSender(body: upload, contentEncoding: nil),
+          "a request naming an uploaded file stays with the account holding the file")
+    let quoted = Data(#"{"messages":[{"content":"what is \"file_id\": for"}]}"#.utf8)
+    check(!PoolRequest.mustStayWithSender(body: quoted, contentEncoding: nil),
+          "the same key quoted inside a prompt pins nothing")
+    check(PoolRequest.mustStayWithSender(body: quoted, contentEncoding: "gzip"),
+          "a compressed body cannot be read, so it is not moved")
+    check(!PoolRequest.mustStayWithSender(body: quoted, contentEncoding: "identity"),
+          "an uncompressed one can be")
+    let reasoned = Data(#"{"model":"claude-sonnet-5-5","messages":[{"role":"assistant","content":[{"type":"thinking","thinking":"…","signature":"x"}]}]}"#.utf8)
+    check(PoolRequest.carriesBoundReasoning(body: reasoned),
+          "a conversation carrying reasoning back is held to the account that wrote it")
+    check(PoolRequest.carriesBoundReasoning(body: Data(#"{"model":"claude-haiku-5-5","messages":[{"content":[{"type":"redacted_thinking","data":"x"}]}]}"#.utf8)),
+          "and so is one carrying reasoning the service wrote out of sight")
+    check(!PoolRequest.carriesBoundReasoning(body: Data(#"{"model":"claude-sonnet-5-5","thinking":{"type":"adaptive"},"messages":[{"role":"user","content":"hi"}]}"#.utf8)),
+          "a new conversation asking to reason has none yet to lose, so it may go anywhere")
+    check(!PoolRequest.carriesBoundReasoning(body: Data(#"{"model":"claude-sonnet-5-5","messages":[{"content":"what does \"type\":\"thinking\" mean"}]}"#.utf8)),
+          "the words quoted inside a prompt hold nothing")
+    check(!PoolRequest.carriesBoundReasoning(body: Data(String(decoding: reasoned, as: UTF8.self)
+              .replacingOccurrences(of: "claude-sonnet-5-5", with: "claude-opus-5-5[1m]").utf8)),
+          "a model whose reasoning was seen surviving the move is routed as before")
+    check(PoolRequest.carriesBoundReasoning(body: Data(String(decoding: reasoned, as: UTF8.self)
+              .replacingOccurrences(of: "claude-sonnet-5-5", with: "claude-next-1").utf8)),
+          "while one nobody has measured is taken to be bound")
+    check(PoolRequest.model(in: upload) == "claude-x", "the model is read off the request for the record")
+    check(PoolRequest.bearer(in: [("authorization", "Bearer abc ")]) == "abc",
+          "the bearer is found whatever the field's case")
+    check(PoolRequest.bearer(in: [("Authorization", "Basic abc")]) == nil, "and only a bearer counts")
+
+    let sent = HTTPHead.parse(Data("""
+        POST /v1/messages?beta=true HTTP/1.1\r
+        Host: api.anthropic.com\r
+        Content-Length: 12\r
+        Connection: keep-alive, x-hop\r
+        X-Hop: 1\r
+        Authorization: Bearer mine\r
+        X-Claude-Code-Session-Id: s1\r
+        \r
+
+        """.utf8))
+    check(sent?.requestBody == .length(12), "a request's length is read from its head")
+    check(HTTPHead.parse(Data("POST / HTTP/1.1\r\nContent-Length: 3\r\nContent-Length: 4\r\n\r\n".utf8))?
+            .requestBody == nil,
+          "two lengths that disagree are refused rather than guessed between")
+    check(HTTPHead.parse(Data("POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n".utf8))?.requestBody
+            == .chunked,
+          "a chunked request is read as chunks")
+    check(HTTPHead.parse(Data("GET /ws HTTP/1.1\r\nConnection: keep-alive, Upgrade\r\nUpgrade: websocket\r\n\r\n".utf8))?
+            .asksToUpgrade == true,
+          "a request for a socket is known as one, so the relay passes it on rather than rebuilding it")
+    check(HTTPHead.parse(Data("GET /ws HTTP/1.1\r\nUpgrade: websocket\r\n\r\n".utf8))?.asksToUpgrade == false,
+          "while an Upgrade the connection does not name asks for nothing a server would honour")
+    let stream = HTTPHead.parse(Data("HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\n\r\n".utf8))
+    check(stream?.responseBody(to: "POST") == .untilClose,
+          "a stream with neither a length nor chunks runs until the connection closes")
+    check(stream?.responseBody(to: "HEAD") == HTTPBody.none, "an answer to HEAD has no body whatever it says")
+    check(HTTPHead.parse(Data("HTTP/1.1 204 No Content\r\nContent-Length: 10\r\n\r\n".utf8))?
+            .responseBody(to: "POST") == HTTPBody.none,
+          "and neither has a 204")
+    if let sent {
+        let lent = String(decoding: HTTPMessage.request(sent, body: Data("hello".utf8),
+                                                        authorization: "Bearer theirs"), as: UTF8.self)
+        check(lent.contains("Authorization: Bearer theirs\r\n") && !lent.contains("mine"),
+              "a lent request carries the lender's token and not the sender's")
+        check(lent.contains("X-Claude-Code-Session-Id: s1\r\n"), "every end-to-end field goes on as it came")
+        check(!lent.lowercased().contains("x-hop") && !lent.lowercased().contains("connection:"),
+              "the hop's own fields, and any it names, do not")
+        check(lent.contains("Content-Length: 5\r\n") && lent.hasSuffix("\r\n\r\nhello"),
+              "the body goes whole, with a length of its own")
+        let kept = String(decoding: HTTPMessage.request(sent, body: Data("hello".utf8), authorization: nil),
+                          as: UTF8.self)
+        check(kept.contains("Authorization: Bearer mine\r\n"), "a request kept by its sender keeps its own token")
+    }
+
+    let wire = Data("5\r\nhello\r\n6;x=1\r\n world\r\n0\r\nTrailer: y\r\n\r\nNEXT".utf8)
+    var framing = ChunkedFraming()
+    var payload: Data? = Data()
+    var used = 0
+    var malformed = false
+    for byte in wire where !framing.isDone {
+        do { used += try framing.consume(Data([byte]), collecting: &payload) } catch { malformed = true; break }
+    }
+    check(!malformed && framing.isDone && payload == Data("hello world".utf8),
+          "a chunked body is read whole however its bytes arrive")
+    check(used == wire.count - 4, "and nothing after its end is taken from the next message")
+    var broken = ChunkedFraming()
+    var ignored: Data?
+    check((try? broken.consume(Data("zz\r\n".utf8), collecting: &ignored)) == nil, "a chunk size that is not hex is refused")
+
+    let member = PoolMember(id: "main", name: "Claude", identify: [UsagePool.digest("token")], token: "token",
+                            limits: percent)
+    let command = PoolCommand(configure: PoolConfiguration(enabled: true, members: [member]))
+    let delivered = (try? JSONEncoder().encode(command))
+        .flatMap { try? JSONDecoder().decode(PoolCommand.self, from: $0) }
+    check(delivered?.configure == command.configure, "the pool reaches the relay exactly as Graft described it")
+    check(UsagePool.digest("abc") == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+          "a login is known to the relay by its SHA-256 alone")
+    check(PoolEnvironment.lines == ["HTTPS_PROXY": "http://127.0.0.1:47823",
+                                    "NODE_EXTRA_CA_CERTS": UsagePool.certificateFile.path],
+          "Claude Code is pointed at a port on this Mac alone, and told to trust the relay's own certificate")
+    check(UsagePool.certificateFile.path.hasSuffix("ClaudeGraft/pool/relay-ca.pem"),
+          "which is kept with Graft's state")
+
+    let pool = UsagePoolController()
+    let main = UsagePoolController.mainKey
+    check(pool.sharing == UsageSharing() && pool.accounts.isEmpty,
+          "a machine that never shared usage has nothing set up")
+    pool.addLender("second", to: main)
+    check(pool.lenders(of: main) == ["second"], "a Claude is given an account to draw on")
+    pool.addLender("second", to: main)
+    pool.addLender(main, to: main)
+    check(pool.lenders(of: main) == ["second"], "once, and never itself")
+    check(UsagePoolController().lenders(of: main) == ["second"], "what each Claude draws on is kept between launches")
+    check(pool.lenders(of: "second").isEmpty, "lending to a Claude does not make it a borrower")
+    pool.removeLender("second", from: main)
+    check(pool.sharing.lenders.isEmpty, "a Claude given nothing has no entry left")
+
+    func account(_ id: String, uuid: String?, sealed: String) -> PoolAccount {
+        PoolAccount(id: id, accountUuid: uuid, email: "\(uuid ?? "x")@example.com", organizationName: nil,
+                    scopes: [AccountSignIn.scope], expires: now + 365 * day, added: now, sealed: sealed)
+    }
+    pool.add(account("account:a", uuid: "a", sealed: "first"), to: main)
+    pool.add(account("account:other-id", uuid: "a", sealed: "second"), to: main)
+    check(pool.accounts.count == 1 && pool.accounts.first?.id == "account:a" && pool.accounts.first?.sealed == "second",
+          "one account signed in twice is one entry, holding the newer login")
+    check(pool.lenders(of: main) == ["account:a"], "and is lent once")
+    check(pool.name(of: "account:a") == "a@example.com" && pool.name(of: main) == "Claude",
+          "a signed-in account goes by its address, Claude's own profile by its name")
+    pool.add(account("account:a", uuid: "a", sealed: "third"), to: "elsewhere")
+    pool.removeLender("account:a", from: main)
+    check(pool.accounts.count == 1, "an account another Claude still draws on is kept")
+    pool.removeLender("account:a", from: "elsewhere")
+    check(pool.accounts.isEmpty && UsagePoolController().accounts.isEmpty,
+          "and goes, login and all, when nothing draws on it any more")
+
+    try? fm.createDirectory(at: Graft.mainProfile, withIntermediateDirectories: true)
+    let mainConfig = Graft.mainProfile.appending(path: "config.json")
+    let hadConfig = fm.fileExists(atPath: mainConfig.path)
+    if !hadConfig {
+        try! Data(#"{"lastKnownAccountUuid":"a"}"#.utf8).write(to: mainConfig)
+        check(pool.sameAccount(as: main, besides: "elsewhere") == nil,
+              "nothing is known of a Claude's account until a pass has read it, which no view does")
+        pool.learnAccounts(UsagePoolController.readAccounts([(main, Graft.mainProfile)]))
+        pool.add(account("account:a", uuid: "a", sealed: "s"), to: "elsewhere")
+        check(pool.sameAccount(as: "account:a", besides: "elsewhere") == main,
+              "an account signed in here that a Claude already holds is named as the same account")
+        check(pool.sameAccount(as: "account:a", besides: main) == nil, "but not to the Claude that holds it")
+        pool.removeLender("account:a", from: "elsewhere")
+        try? fm.removeItem(at: mainConfig)
+    }
+
+    // Sealing the way Claude's own store seals, with a key made up here.
+    let key = Data((0..<16).map { UInt8($0 * 7 + 1) })
+    let plain = Data(#"{"A":"1"}"#.utf8)
+    let sealed = ClaudeCredentials.seal(plain, key: key)
+    check(sealed.flatMap { ClaudeCredentials.unseal($0, key: key) } == plain,
+          "a value sealed with Claude's key opens with it")
+    check(sealed != nil && sealed == ClaudeCredentials.seal(plain, key: key)
+            && Data(base64Encoded: sealed!)?.prefix(3) == Data("v10".utf8),
+          "and seals the same every time, in Claude's own format, so a launcher can recognise it")
+    check(ClaudeCodeEnvironment.seal(["B": "/x/y", "A": "1"], key: key)
+            .flatMap { ClaudeCredentials.unseal($0, key: key) } == Data(#"{"A":"1","B":"/x/y"}"#.utf8),
+          "variables are written compact and in order, slashes left alone, the way Claude writes them")
+
+    let profiles = support.appending(path: "PoolProfiles")
+    func profile(_ name: String, _ object: [String: Any]?) -> URL {
+        let url = profiles.appending(path: name)
+        try? fm.removeItem(at: url)
+        try! fm.createDirectory(at: url, withIntermediateDirectories: true)
+        if let object {
+            try! JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted])
+                .write(to: url.appending(path: PoolEnvironment.fileName))
+        }
+        return url
+    }
+    func seal(_ variables: [String: String]) -> String { ClaudeCodeEnvironment.seal(variables, key: key)! }
+    func variables(_ value: String?) -> [String: String]? {
+        value.flatMap { ClaudeCredentials.unseal($0, key: key) }
+            .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: String] }
+    }
+    let lines = PoolEnvironment.lines
+
+    let empty = profile("empty", nil)
+    if case .entry(let entry, let holding) = ClaudeCodeEnvironment.read(empty, wanted: true, key: key) {
+        check(!holding && entry.plain == nil && variables(entry.pooled) == lines,
+              "a Claude with no Code environment yet gets one holding just the two lines")
+    } else { check(false, "a Claude with no Code environment yet gets one holding just the two lines") }
+
+    let existing = ["FOO": "bar", "PATH_EXTRA": "/opt/x"]
+    let kept = profile("kept", ["envVars": seal(existing), "tmpDirOverride": NSNull()])
+    if case .entry(let entry, let holding) = ClaudeCodeEnvironment.read(kept, wanted: true, key: key) {
+        check(!holding && entry.plain == seal(existing), "what a Claude already holds is recognised byte for byte")
+        check(variables(entry.pooled) == existing.merging(lines) { $1 },
+              "and the lines go in beside its own variables, which stay as they were")
+    } else { check(false, "what a Claude already holds is recognised byte for byte") }
+
+    let holdingProfile = profile("holding", ["envVars": seal(existing.merging(lines) { $1 })])
+    if case .entry(let entry, let holding) = ClaudeCodeEnvironment.read(holdingProfile, wanted: false, key: key) {
+        check(holding && variables(entry.plain) == existing,
+              "a Claude holding the lines can be given back exactly what it had without them")
+    } else { check(false, "a Claude holding the lines can be given back exactly what it had without them") }
+    let bare = profile("bare", ["envVars": seal(lines)])
+    if case .entry(let entry, true) = ClaudeCodeEnvironment.read(bare, wanted: false, key: key) {
+        check(entry.plain == nil, "and one that had nothing before gets nothing back")
+    } else { check(false, "and one that had nothing before gets nothing back") }
+
+    let corporate = profile("corporate", ["envVars": seal(["https_proxy": "http://proxy.example:8080"])])
+    check(ClaudeCodeEnvironment.read(corporate, wanted: true, key: key) == .conflict("HTTPS_PROXY"),
+          "a proxy of the person's own is theirs, whatever its case, and is left alone")
+    let scopedOwn = seal([:])
+    let scoped = profile("scoped", ["envVars": scopedOwn,
+                                    "scopedEnvVars": ClaudeCredentials.seal(
+                                        Data(#"{"acct":{"scope":{"NODE_EXTRA_CA_CERTS":"/mine.pem"}}}"#.utf8),
+                                        key: key)!])
+    check(ClaudeCodeEnvironment.read(scoped, wanted: true, key: key) == .conflict("NODE_EXTRA_CA_CERTS"),
+          "and so is a certificate set for one folder, which would win over the lines without a word")
+    let garbled = profile("garbled", ["envVars": "not sealed at all"])
+    check(ClaudeCodeEnvironment.read(garbled, wanted: true, key: key) == .unreadable,
+          "an environment that will not open is not read as an empty one")
+    check(ClaudeCodeEnvironment.read(kept, wanted: true, key: Data(repeating: 9, count: 16)) == .unreadable,
+          "nor is one sealed with a key Graft does not have")
+    let torn = profile("torn", ["envVars": seal(existing)])
+    fm.createFile(atPath: torn.appending(path: PoolEnvironment.fileName + ".journal").path, contents: Data())
+    check(ClaudeCodeEnvironment.read(torn, wanted: true, key: key) == .unreadable,
+          "nor one Claude was part way through writing")
+
+    // The swap a launcher makes, which needs no key at all.
+    func field(_ profile: URL) -> String? { PoolEnvironment.field(in: profile).value }
+    func journal(_ entries: [URL: PoolEnvironment.Entry]) {
+        var written = PoolEnvironment.Journal()
+        for (url, entry) in entries { written.profiles[PoolEnvironment.key(for: url)] = entry }
+        PoolEnvironment.writeJournal(written)
+    }
+    let swap = profile("swap", ["envVars": "P", "other": ["kept": true]])
+    journal([swap: PoolEnvironment.Entry(wanted: true, plain: "P", pooled: "Q")])
+    PoolEnvironment.settle(beforeOpening: swap) { true }
+    check(field(swap) == "Q", "a Claude that wants the lines is given them as it opens")
+    let rest = (try? JSONSerialization.jsonObject(with: Data(contentsOf: swap.appending(path: PoolEnvironment.fileName))))
+        as? [String: Any]
+    check((rest?["other"] as? [String: Bool])?["kept"] == true, "and nothing else in the file changes")
+    let mode = (try? fm.attributesOfItem(atPath: swap.appending(path: PoolEnvironment.fileName).path))?[.posixPermissions] as? Int
+    check(mode == 0o600, "which stays readable by this user alone")
+    PoolEnvironment.settle(beforeOpening: swap) { false }
+    check(field(swap) == "P", "a Claude whose relay cannot be started opens without the lines rather than without Claude Code")
+    journal([swap: PoolEnvironment.Entry(wanted: false, plain: nil, pooled: "P")])
+    var asked = false
+    PoolEnvironment.settle(beforeOpening: swap) { asked = true; return true }
+    check(field(swap) == nil && rest?["other"] != nil && !asked,
+          "lines no longer wanted come out, a field that was not there before goes, and nobody asks after the relay")
+    let edited = profile("edited", ["envVars": "edited since"])
+    journal([edited: PoolEnvironment.Entry(wanted: true, plain: "P", pooled: "Q")])
+    PoolEnvironment.settle(beforeOpening: edited) { true }
+    check(field(edited) == "edited since", "an environment changed since Graft read it is left for Graft to read again")
+    let tornSwap = profile("tornSwap", ["envVars": "P"])
+    fm.createFile(atPath: tornSwap.appending(path: PoolEnvironment.fileName + ".journal").path, contents: Data())
+    journal([tornSwap: PoolEnvironment.Entry(wanted: true, plain: "P", pooled: "Q")])
+    PoolEnvironment.settle(beforeOpening: tornSwap) { true }
+    try? fm.removeItem(at: tornSwap.appending(path: PoolEnvironment.fileName + ".journal"))
+    check(field(tornSwap) == "P", "and so is one Claude was part way through writing")
+
+    // A whole pass, as Graft runs it.
+    PoolEnvironment.writeJournal(PoolEnvironment.Journal())
+    let closed = profile("closed", ["envVars": seal(existing)])
+    let opened = profile("open", ["envVars": seal(existing)])
+    var states = ClaudeCodeEnvironment.settle(wanted: [closed: true, opened: true], key: key, relay: "/relay",
+                                              relayReady: true, running: { $0 == opened })
+    check(states[PoolEnvironment.key(for: closed)] == .on && variables(field(closed)) == existing.merging(lines) { $1 },
+          "a closed Claude is given the lines straight away")
+    check(states[PoolEnvironment.key(for: opened)] == .waiting && variables(field(opened)) == existing,
+          "an open one is left alone until it next starts, and says so")
+    check(PoolEnvironment.readJournal().relay == "/relay"
+            && PoolEnvironment.readJournal().profiles[PoolEnvironment.key(for: opened)]?.wanted == true,
+          "which is the launcher's to do, from what Graft left it")
+    states = ClaudeCodeEnvironment.settle(wanted: [:], key: key, relay: "/relay", relayReady: true,
+                                          running: { _ in false })
+    check(states[PoolEnvironment.key(for: closed)] == .off && states[PoolEnvironment.key(for: opened)] == .off
+            && variables(field(closed)) == existing && variables(field(opened)) == existing,
+          "a Claude that stops borrowing has its own environment back, exactly")
+    check(PoolEnvironment.readJournal().profiles.isEmpty, "and nothing is left for a launcher to do")
+    states = ClaudeCodeEnvironment.settle(wanted: [closed: true], key: key, relay: nil, relayReady: false,
+                                          running: { _ in false })
+    check(states[PoolEnvironment.key(for: closed)] == .waiting && variables(field(closed)) == existing,
+          "with no relay to send it to, a Claude is not pointed at one")
+    _ = ClaudeCodeEnvironment.settle(wanted: [:], key: key, relay: nil, relayReady: false, running: { _ in false })
+
+    // A copy Claude made of the lines for one folder, which it lays over the
+    // profile-wide ones and which would otherwise outlive them.
+    func scopedField(_ object: [String: Any]) -> String {
+        ClaudeCredentials.seal(try! JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]), key: key)!
+    }
+    func scopedVariables(_ profile: URL) -> [String: Any]? {
+        let outer = (try? JSONSerialization.jsonObject(
+            with: Data(contentsOf: profile.appending(path: PoolEnvironment.fileName)))) as? [String: Any]
+        return (outer?[PoolEnvironment.scopedField] as? String)
+            .flatMap { ClaudeCredentials.unseal($0, key: key) }
+            .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+    }
+    let copiedScopes: [String: Any] = ["acct": [":machine:builtin_local": lines.merging(["FOO": "bar"]) { $1 },
+                                                "builtin_local": ["OWN": "1"]]]
+    let copied = profile("copied", ["envVars": seal(existing), "scopedEnvVars": scopedField(copiedScopes)])
+    check(ClaudeCodeEnvironment.holdsLines(copied, key: key),
+          "lines copied into a folder's own environment still point Claude Code at the relay")
+    states = ClaudeCodeEnvironment.settle(wanted: [copied: false], key: key, relay: "/relay", relayReady: true,
+                                          running: { $0 == copied })
+    check(states[PoolEnvironment.key(for: copied)] == .leaving
+            && PoolEnvironment.readJournal().profiles[PoolEnvironment.key(for: copied)] != nil,
+          "so a Claude holding them that way keeps the relay, until it closes")
+    states = ClaudeCodeEnvironment.settle(wanted: [copied: false], key: key, relay: "/relay", relayReady: true,
+                                          running: { _ in false })
+    let scopesAfter = scopedVariables(copied)?["acct"] as? [String: [String: String]]
+    check(states[PoolEnvironment.key(for: copied)] == .off
+            && scopesAfter?[":machine:builtin_local"] == ["FOO": "bar"]
+            && scopesAfter?["builtin_local"] == ["OWN": "1"]
+            && variables(field(copied)) == existing,
+          "and once it closes the copies come out, leaving everything else in every folder as it was")
+    _ = ClaudeCodeEnvironment.settle(wanted: [:], key: key, relay: nil, relayReady: false, running: { _ in false })
+
+    let verifier = AccountSignIn.randomToken()
+    check(verifier.count == 43 && !verifier.contains { "+/=".contains($0) },
+          "a sign-in's secrets are thirty-two random bytes, written the way a URL can carry them")
+    let authorize = AccountSignIn.authorizeURL(redirect: "http://localhost:4321/callback", verifier: verifier,
+                                               state: "st")
+    let query = URLComponents(url: authorize, resolvingAgainstBaseURL: false)?.queryItems ?? []
+    func item(_ name: String) -> String? { query.first { $0.name == name }?.value }
+    check(authorize.host == "claude.com" && item("scope") == "user:inference"
+            && item("redirect_uri") == "http://localhost:4321/callback" && item("state") == "st"
+            && item("client_id") == AccountSignIn.clientID,
+          "an account is signed in for model requests alone, back to this Mac")
+    let challenge = Data(SHA256.hash(data: Data(verifier.utf8))).base64EncodedString()
+        .replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_")
+        .replacingOccurrences(of: "=", with: "")
+    check(item("code_challenge") == challenge && item("code_challenge_method") == "S256",
+          "and the code that comes back is worth nothing without the secret that stayed here")
+    check(!authorize.absoluteString.contains(verifier), "which never leaves this Mac")
+    check(AccountSignIn.page("<b>&").contains("&lt;b&gt;&amp;"), "the page the browser comes back to shows text, never markup")
+
+    let repo = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+    func sources(_ folder: String) -> [String] {
+        let directory = repo.appending(path: folder)
+        let names = (try? fm.contentsOfDirectory(atPath: directory.path)) ?? []
+        return names.filter { $0.hasSuffix(".swift") }
+            .compactMap { try? String(contentsOf: directory.appending(path: $0), encoding: .utf8) }
+    }
+    let everything = sources("Sources/App") + sources("Sources/Relay") + sources("Sources/Shared")
+    let named = ["Sources/App", "Sources/Relay", "Sources/Shared"].flatMap { folder in
+        ((try? fm.contentsOfDirectory(atPath: repo.appending(path: folder).path)) ?? [])
+            .filter { name in
+                (try? String(contentsOf: repo.appending(path: folder).appending(path: name), encoding: .utf8))?
+                    .contains("ccd-environment-config") == true
+            }
+    }
+    check(!everything.isEmpty && named == ["PoolEnvironment.swift"],
+          "Claude's Code environment is named in one place, and only that place writes it")
+    let signInSource = sources("Sources/App").first { $0.contains("final class AccountSignIn") } ?? ""
+    check(!signInSource.isEmpty && !signInSource.contains("\"refresh_token\""),
+          "the refresh token a sign-in returns is never read")
+    let notes = sources("Sources/Relay").flatMap { $0.components(separatedBy: "\n") }
+        .filter { $0.contains("Diagnostics.note") }
+    check(!notes.isEmpty && notes.allSatisfy { !$0.lowercased().contains("token") && !$0.lowercased().contains("bearer") },
+          "the relay never writes a login into the diagnostics log")
 }
 
 print("\n\(checks - failures)/\(checks) checks passed")

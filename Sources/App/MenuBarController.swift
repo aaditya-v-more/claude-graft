@@ -186,6 +186,7 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
         popover.behavior = .transient
         popover.delegate = self
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+        Shared.usagePool.watch()
         guard let window = popover.contentViewController?.view.window else { return }
         window.makeKey()
         // The identifier is what a script asks for in every language.
@@ -205,5 +206,12 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
         // still reads as a popover. Replacing the list instead was measured
         // leaving the app with no windows at all once it was cleared again.
         window.setAccessibilityParent(NSApp)
+    }
+
+    /// Paired with the watch above here rather than in the view: a view's
+    /// disappearance inside a popover is not reliably reported, and a watch
+    /// that is never let go keeps the pool on its fast timer for good.
+    func popoverDidClose(_ notification: Notification) {
+        Shared.usagePool.unwatch()
     }
 }

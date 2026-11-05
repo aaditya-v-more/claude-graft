@@ -72,7 +72,8 @@ echo "built universal"
 
 # What was actually produced, asked of the bundle rather than assumed. A single
 # slice here would be a download that cannot run on half the Macs there are.
-for binary in "$APP/Contents/MacOS/ClaudeGraft" "$APP/Contents/Resources/graft-launch"; do
+for binary in "$APP/Contents/MacOS/ClaudeGraft" "$APP/Contents/Resources/graft-launch" \
+    "$APP/Contents/Resources/graft-relay"; do
     for arch in arm64 x86_64; do
         lipo -archs "$binary" | grep -qw "$arch" \
             || { echo "$(basename "$binary") is missing its $arch slice." >&2; exit 1; }

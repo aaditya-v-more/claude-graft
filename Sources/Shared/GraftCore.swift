@@ -3320,6 +3320,9 @@ enum Graft {
                 return processIdentifier(of: profile).map { reveal(pid: $0) } ?? false
             }
             SidebarSync.synchronize(beforeOpening: profile)
+            PoolEnvironment.settle(beforeOpening: profile) {
+                PoolEnvironment.ensureRelay(PoolEnvironment.readJournal().relay)
+            }
             return runTool("/usr/bin/open", launchArguments(for: profile, inBackground: inBackground)) == 0
         }
     }

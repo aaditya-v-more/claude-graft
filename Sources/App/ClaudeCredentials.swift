@@ -5,11 +5,13 @@ import Security
 /// Borrows the access token Claude Desktop already holds for a profile, so
 /// usage can be read for that account from Anthropic's own API.
 ///
-/// Read-only, and deliberately narrow:
+/// Deliberately narrow:
 ///
 /// * only the access token is decoded — never the refresh token, because
 ///   Anthropic rotates those and using one would sign Claude Desktop out;
-/// * nothing is ever written back to Claude's config, cookies or keychain;
+/// * nothing is ever written back to Claude's login, cookies or keychain. The
+///   key seals one thing: the two lines in a Claude's Code environment that
+///   sharing usage needs, written the way Claude writes that field itself;
 /// * the token goes to `api.anthropic.com` and nowhere else.
 ///
 /// The `Claude Safe Storage` item is guarded by an ACL naming the exact builds
@@ -246,12 +248,56 @@ enum ClaudeCredentials {
         return output
     }
 
+    // MARK: - Sealed values
+
+    /// What Electron's safe storage makes of a string on macOS: `v10`, then
+    /// AES-128-CBC under the key above with the same IV every time. One
+    /// plaintext therefore always seals to one value, which is what lets a
+    /// launcher recognise a value Graft prepared without being able to read it.
+    static func seal(_ plain: Data, key: Data) -> String? {
+        let iv = Data(repeating: 0x20, count: kCCBlockSizeAES128)
+        var output = Data(count: plain.count + kCCBlockSizeAES128)
+        var written = 0
+        let capacity = output.count
+        let status = output.withUnsafeMutableBytes { out in
+            plain.withUnsafeBytes { input in
+                key.withUnsafeBytes { keyBytes in
+                    iv.withUnsafeBytes { ivBytes in
+                        CCCrypt(CCOperation(kCCEncrypt), CCAlgorithm(kCCAlgorithmAES),
+                                CCOptions(kCCOptionPKCS7Padding),
+                                keyBytes.baseAddress, key.count,
+                                ivBytes.baseAddress,
+                                input.baseAddress, plain.count,
+                                out.baseAddress, capacity, &written)
+                    }
+                }
+            }
+        }
+        guard status == kCCSuccess else { return nil }
+        output.count = written
+        return (Data("v10".utf8) + output).base64EncodedString()
+    }
+
+    static func unseal(_ sealed: String, key: Data) -> Data? {
+        Data(base64Encoded: sealed).flatMap { decrypt($0, key: key) }
+    }
+
     // MARK: - The token
 
     /// Nil when this profile has no login cached at all.
     static func token(for profile: URL,
                       prompting: Prompting,
                       requiring scopes: [String] = [usageScope]) throws -> Token? {
+        guard let all = try tokens(for: profile, prompting: prompting) else { return nil }
+        let best = all.filter { $0.isCurrent && $0.covers(scopes) }.max { $0.expires < $1.expires }
+        guard let best else { throw Failure.expired }
+        return best
+    }
+
+    /// Every entry the profile's cache holds, current or not. The usage pool
+    /// needs the lot: Claude hands Claude Code one of these, and which one is
+    /// Claude's business, so a request is recognised by any of them.
+    static func tokens(for profile: URL, prompting: Prompting) throws -> [Token]? {
         let config = Graft.configJSON(of: profile)
         let encoded = cacheKeys.compactMap { config[$0] as? String }.first
         guard let encoded, let blob = Data(base64Encoded: encoded) else { return nil }
@@ -265,21 +311,16 @@ enum ClaudeCredentials {
 
         // The cache holds one entry per client, organization and scope set. The
         // key carries the scopes; the entry carries the token itself.
-        var best: Token?
-        for (composite, value) in cache {
+        return cache.compactMap { composite, value in
             guard let entry = value as? [String: Any],
                   let token = entry["token"] as? String,
                   let expires = entry["expiresAt"] as? Double
-            else { continue }
-            let candidate = Token(value: token,
-                                  expires: Date(timeIntervalSince1970: expires / 1000),
-                                  plan: entry["subscriptionType"] as? String,
-                                  scopes: Self.scopes(in: composite))
-            guard candidate.isCurrent, candidate.covers(scopes) else { continue }
-            if best == nil || candidate.expires > best!.expires { best = candidate }
+            else { return nil }
+            return Token(value: token,
+                         expires: Date(timeIntervalSince1970: expires / 1000),
+                         plan: entry["subscriptionType"] as? String,
+                         scopes: Self.scopes(in: composite))
         }
-        guard let best else { throw Failure.expired }
-        return best
     }
 
     /// Scopes are appended to the cache key after the api host.

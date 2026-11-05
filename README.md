@@ -98,6 +98,44 @@ shortcut's icon sits beside that account's usage. Turn on **Show the name of
 the Claude in front** to add its name as well. The Dock can't do this, because
 macOS gives every running Claude the stock name and icon.
 
+## Sharing usage between accounts
+
+Any Claude can draw on your other accounts for its Claude Code requests, and you
+keep working in the same Claude. Select it in Graft's window and, under **Shared
+usage**, choose **Add an Account**: pick another Claude you already have, or
+**Sign In to Another Account…** to add one through your browser without making a
+shortcut for it. Chats, artifacts, connectors and Claude in Chrome stay with that
+Claude's own account; only the model's answers come out of the others'
+allowance. An account that is already one of your Claudes is marked as such.
+
+Each request goes to the account whose weekly limit resets soonest, as long as
+its five-hour window has room, and moves on when that runs out. A conversation
+stays on one account while its cached context is still warm there, five minutes
+after its last turn or an hour when Claude Code asked for the longer cache, so
+that context is not paid for twice. The menu bar lists recent Claude Code
+conversations with the account answering each, the Claude in front first; pick
+another account beside one to move it.
+
+Graft sets Claude Code up for this in that Claude's own Code environment, only
+ever while the Claude is closed: straight away if it is, otherwise once it quits,
+so sharing starts the next time it opens. Removing the last account takes the
+setting out the same way. A proxy or certificate you set there yourself is left
+alone, and the pane says that nothing is shared.
+
+The Chat tab talks to claude.ai directly and always uses its own account.
+Requests that use an uploaded file, a code execution container or a connector
+run by Anthropic stay on the account that sent them, since those belong to it.
+An account lent by another Claude uses the login that Claude last saved, so open
+it now and then; one signed in from Graft lasts a year. Signing in sends only the
+browser's one-time code to `platform.claude.com`, and the login it returns goes
+only to `api.anthropic.com`. Graft runs a small relay on `127.0.0.1` for this,
+which needs macOS 15. Keep **Open at Login** on: after a restart, a Claude set up
+this way has no Claude Code until the relay is back. Before deleting Graft,
+remove the accounts and let each of those Claudes close once while Graft runs.
+
+Read Anthropic's terms for your plans before sharing them. A request answered by
+another account carries your conversation to that account.
+
 ## Updating
 
 Graft checks hourly and installs signed updates automatically. Use
@@ -180,6 +218,7 @@ merges both histories. That saved set lets it return to its own chats later.
 ./test.sh                   # Regression checks in a throwaway directory
 ./test-layout.sh            # Window layout and VoiceOver checks; needs Accessibility access
 ./test-sidebar.sh           # Sidebar checks in disposable profiles
+./test-relay.sh             # The usage relay over loopback, against a stand-in API
 ./release.sh                # Test, build universal, sign and package
 Tools/render-diagrams.sh    # Render these diagrams into docs/assets
 ```

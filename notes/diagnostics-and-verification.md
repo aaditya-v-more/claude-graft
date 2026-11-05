@@ -103,6 +103,24 @@ old refreshed it within the second, so the refresh moved with the lookup. Two
 Claudes swapping places in front is the one case not yet seen, since Claude 2
 stayed closed.
 
+Shared usage has run against both accounts on this machine. Desktop's Claude
+Code 2.1.317, started as Claude's own profile the way Desktop starts it with the
+two lines added, went through the built relay on a spare port and had all three
+of its model requests answered by Claude 2, whose weekly reset was sooner. The
+limits that came back were Claude 2's — 1% and 0%, against Claude's 33% and
+19% — which is the account answering rather than the relay's word for it.
+Lending per Claude, choices from the dropdown, the hold for as long as a cache
+lives and one account counted once are driven by `./test-relay.sh` against a
+stand-in service; the environment, the swap a launcher makes and every refusal
+are driven by the suite over sealed files in a throwaway directory. A socket
+upgraded through the relay and a chunked request answered while it is still
+being written are driven there too, against the stand-in. Not yet
+seen: Graft writing the lines into a real Claude and a Code-tab session through
+them, a sign-in from the pane end to end, and the dropdown's conversations on
+real sessions with the Claude in front first, and Claude in Chrome and Remote
+Control on a shared conversation. `dist/usage-pool/HANDOFF.md` is
+that plan.
+
 Unproven: **Start Session** has never successfully opened a window. It POSTs one
 Haiku message with `max_tokens: 4` and Claude Code's system prompt, which these
 tokens are minted for. If that turns out to be wrong the API's own error message

@@ -71,7 +71,16 @@ compile "$APP/Contents/Resources/graft-launch" \
     "$ROOT/Sources/Shared/Diagnostics.swift" \
     "$ROOT/Sources/Shared/ManualUpdates.swift" \
     "$ROOT/Sources/Shared/ClaudeUpdateGate.swift" \
+    "$ROOT/Sources/Shared/UsagePool.swift" \
+    "$ROOT/Sources/Shared/PoolEnvironment.swift" \
     "$ROOT/Sources/Launcher/main.swift"
+
+# A process of its own so that it goes on answering while Graft is quit: a
+# Claude told to use a proxy that is not there cannot reach the service at all.
+echo "building relay"
+compile "$APP/Contents/Resources/graft-relay" \
+    "$ROOT"/Sources/Shared/*.swift \
+    "$ROOT"/Sources/Relay/*.swift
 
 echo "building app"
 compile "$APP/Contents/MacOS/ClaudeGraft" \
@@ -82,6 +91,8 @@ compile "$APP/Contents/MacOS/ClaudeGraft" \
     "$ROOT/Sources/Shared/Diagnostics.swift" \
     "$ROOT/Sources/Shared/ManualUpdates.swift" \
     "$ROOT/Sources/Shared/ClaudeUpdateGate.swift" \
+    "$ROOT/Sources/Shared/UsagePool.swift" \
+    "$ROOT/Sources/Shared/PoolEnvironment.swift" \
     "$ROOT"/Sources/App/*.swift
 
 echo "embedding Sparkle"

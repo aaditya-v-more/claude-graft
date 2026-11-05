@@ -196,6 +196,11 @@ struct ShortcutDetail: View {
                 SectionHeader(title: "Plan usage", info: UsageSummary.explanation(for: plan),
                               id: "usage-info")
             }
+
+            // A shortcut not created yet has no profile for anything to reach.
+            if installedAt != nil {
+                SharedUsageSection(claude: UsagePoolController.key(for: shortcut))
+            }
         }
         .formStyle(.grouped)
         .safeAreaInset(edge: .bottom) {
