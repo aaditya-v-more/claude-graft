@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 
 /// Polls each profile's plan usage.
@@ -24,12 +25,46 @@ final class UsageMonitor: ObservableObject {
         /// True when the figures came from the API rather than from disk.
         var isLive = false
         var plan: String?
+        /// When the figures shown were actually taken: the moment the service
+        /// answered, or the moment the profile wrote its own record. Never the
+        /// moment a pass happened to run, which is what every reused reading
+        /// used to be stamped with — a figure five minutes old presented as one
+        /// taken just now, and an hour-old one after a failure presented the
+        /// same way.
+        var refreshed: Date?
+        /// Why these are not a live figure from this pass, in a sentence, or
+        /// nil when they are. The fallback is never taken in silence.
+        var note: String?
+
+        /// When the figure was taken and where from, for the line under it.
+        func freshness(now: Date = Date()) -> String {
+            guard let refreshed else { return L10n.text("Not refreshed yet") }
+            let when = now.timeIntervalSince(refreshed) < 45
+                ? L10n.text("just now")
+                : Entry.relative.localizedString(for: refreshed, relativeTo: now)
+            return isLive
+                ? L10n.format("Updated %@ from Anthropic", when)
+                : L10n.format("Updated %@ from this profile's own record", when)
+        }
+
+        private static let relative: RelativeDateTimeFormatter = {
+            let formatter = RelativeDateTimeFormatter()
+            formatter.unitsStyle = .short
+            return formatter
+        }()
 
         /// A live figure was taken just now, so only one read off disk can be
         /// old enough to be worth warning about.
         var isDimmed: Bool {
             guard let usage else { return false }
             return !isLive && usage.isStale
+        }
+
+        /// The figures, when they still say something about the window now. A
+        /// figure read off disk hours ago does not, and the bar leaves it out.
+        var currentUsage: Graft.Usage? {
+            guard let usage, isLive || !usage.isStale else { return nil }
+            return usage
         }
     }
 
@@ -60,8 +95,13 @@ final class UsageMonitor: ObservableObject {
     /// way. Only ever one: two presses waiting on the same answer are one
     /// press.
     private struct Waiting {
+        /// Kept rather than assumed. A queued request used to be replayed as a
+        /// press whatever it had been, so merely opening the dropdown mid-pass
+        /// skipped the backoff and put a spinner up.
+        var interactive: Bool
         var prompting: ClaudeCredentials.Prompting
         var freshness: Freshness
+        var focus: URL?
         weak var store: ShortcutStore?
     }
     private var waiting: Waiting?
@@ -69,10 +109,21 @@ final class UsageMonitor: ObservableObject {
     /// True while a pass someone asked for is running, so a button can say so.
     /// Timer ticks leave it alone — a spinner every thirty seconds is noise.
     @Published private(set) var isRefreshing = false
+    /// The one profile that pass is about, or nil when it is about all of
+    /// them, so only that row's button spins.
+    @Published private(set) var refreshingProfile: String?
 
     /// The API is polled far less often than the disk, and only per profile.
     private var liveCache: [String: (fetched: Date, reading: UsageAPI.Reading)] = [:]
+    /// What went wrong the last time a profile's figures were asked for, kept
+    /// until an answer comes back so every pass in between can say so.
+    private var lastFailure: [String: String] = [:]
     static let liveInterval: TimeInterval = 5 * 60
+    /// A Claude that is open is a Claude being used, and its figures move
+    /// while nobody looks. Five minutes behind an account in use is what made
+    /// the bar read like it had stopped; one closed moves only when something
+    /// else spends it, and keeps the longer interval.
+    static let activeInterval: TimeInterval = 2 * 60
 
     /// How current the figures need to be for whoever is asking.
     enum Freshness {
@@ -101,12 +152,38 @@ final class UsageMonitor: ObservableObject {
     /// swallow a double-click.
     static let nowInterval: TimeInterval = 2
 
-    static func mayUseCache(age: TimeInterval, freshness: Freshness) -> Bool {
+    static func mayUseCache(age: TimeInterval, freshness: Freshness, running: Bool = false) -> Bool {
         switch freshness {
-        case .cached: return age < liveInterval
+        case .cached: return age < (running ? activeInterval : liveInterval)
         case .recent: return age < recentInterval
         case .now: return age < nowInterval
         }
+    }
+
+    /// Which of two requests asks for more. Two waiting on one pass are one
+    /// request for the stronger of them.
+    static func stronger(_ a: Freshness, _ b: Freshness) -> Freshness {
+        func rank(_ f: Freshness) -> Int { f == .now ? 2 : f == .recent ? 1 : 0 }
+        return rank(a) >= rank(b) ? a : b
+    }
+
+    /// A profile writes its own record while it runs. When that is newer than
+    /// the last answer from the service, it is the better figure — a reading
+    /// held in the cache used to win regardless, so the bar stayed behind an
+    /// account the profile itself had just reported on.
+    static func prefersLocal(liveFetched: Date, localSampled: Date?) -> Bool {
+        guard let localSampled else { return false }
+        return localSampled > liveFetched
+    }
+
+    /// Which profile a Claude process belongs to, from its command line. The
+    /// main profile is the one launched with no `--user-data-dir` at all.
+    static func profile(launchedBy command: String, among profiles: [URL]) -> URL? {
+        guard Graft.isClaudeProcess(command) else { return nil }
+        if Graft.isDefaultInstance(command) {
+            return profiles.first { Graft.samePath($0, Graft.mainProfile) }
+        }
+        return profiles.first { Graft.carriesDataDir(command, $0) }
     }
 
     /// What becomes of a request that arrives while a pass is already running.
@@ -118,9 +195,13 @@ final class UsageMonitor: ObservableObject {
     /// discarded without a trace.
     enum Arrival { case start, queue, drop }
 
-    static func arrival(passInFlight: Bool, interactive: Bool) -> Arrival {
+    /// Opening the dropdown is not a press, and was dropped like a tick — so
+    /// the figure someone opened it to see was whatever the timer's pass in
+    /// flight happened to reuse, up to five minutes old. Anything asking for
+    /// more than a tick does now waits its turn.
+    static func arrival(passInFlight: Bool, interactive: Bool, freshness: Freshness = .cached) -> Arrival {
         guard passInFlight else { return .start }
-        return interactive ? .queue : .drop
+        return interactive || freshness != .cached ? .queue : .drop
     }
 
     /// A failed call must not simply be retried on the next thirty-second tick:
@@ -153,16 +234,23 @@ final class UsageMonitor: ObservableObject {
     /// With nothing open there is no such answer, so it falls back to whichever
     /// is closest to its limit.
     var headlineEntry: Entry? {
-        let usable = entries.filter { entry in
-            guard let usage = entry.usage else { return false }
-            return entry.isLive || !usage.isStale
-        }
+        let usable = entries.filter { $0.currentUsage != nil }
         let running = usable.filter(\.isRunning)
         let pool = running.isEmpty ? usable : running
         return pool.max { ($0.usage?.fiveHour ?? 0) < ($1.usage?.fiveHour ?? 0) }
     }
 
     var headline: Int? { headlineEntry?.usage?.fiveHour }
+
+    /// The account the menu bar is about, and whether it is named there.
+    ///
+    /// Named, it is the Claude in front whatever its figures say. Unnamed, the
+    /// tightest window open is the right figure to show; with a name beside
+    /// it, another account's figure would be read as that account's own.
+    func statusEntry(front: URL?) -> (entry: Entry, named: Bool)? {
+        if let front, let named = entry(for: front) { return (named, true) }
+        return headlineEntry.map { ($0, false) }
+    }
 
     /// What the last pass found for one profile, for a view that shows a single
     /// account rather than all of them.
@@ -191,6 +279,15 @@ final class UsageMonitor: ObservableObject {
         self.timer = timer
     }
 
+    /// Bringing a Claude to the front is switching to that account, which is
+    /// the moment its figure matters. Only that profile is asked, and only as
+    /// often as someone looking may ask, so flicking between windows costs at
+    /// most one request a minute. `FrontmostClaude` reports the switch, since
+    /// the name in the bar needs the same lookup.
+    func claudeCameForward(_ profile: URL, store: ShortcutStore) {
+        refresh(store, freshness: .recent, focus: profile)
+    }
+
     /// Used by the tests to drive the menu bar figure without a filesystem.
     func setEntriesForTesting(_ replacement: [Entry]) { entries = replacement }
 
@@ -202,10 +299,14 @@ final class UsageMonitor: ObservableObject {
     /// is a separate question with a separate answer, because opening the
     /// dropdown should be allowed to ask for access without also being allowed
     /// to hammer the endpoint on every open.
+    ///
+    /// `focus` narrows the request to one profile: it gets the freshness asked
+    /// for, and every other profile is read as a tick would read it.
     func refresh(_ store: ShortcutStore,
                  interactive: Bool = false,
                  prompting: ClaudeCredentials.Prompting? = nil,
-                 freshness: Freshness? = nil) {
+                 freshness: Freshness? = nil,
+                 focus: URL? = nil) {
         var targets: [(name: String, profile: URL, shortcut: UUID?)] = [
             (name: "Claude", profile: Graft.mainProfile, shortcut: nil)
         ]
@@ -217,14 +318,29 @@ final class UsageMonitor: ObservableObject {
         // Opening the dropdown wants a current figure but must not skip the
         // backoff: a failing endpoint would then be asked again on every open.
         let wanted = freshness ?? (interactive ? .now : .cached)
+        // A press about one account may ask the keychain for that account; the
+        // others are read the way a tick would read them.
+        let elsewhere: ClaudeCredentials.Prompting = mayPromptUnasked ? .onceIfShut : .no
 
-        if interactive { isRefreshing = true }
+        if interactive {
+            isRefreshing = true
+            refreshingProfile = focus?.path
+        }
 
-        switch Self.arrival(passInFlight: inFlight, interactive: interactive) {
+        switch Self.arrival(passInFlight: inFlight, interactive: interactive, freshness: wanted) {
         case .drop:
             return
         case .queue:
-            waiting = Waiting(prompting: asking, freshness: wanted, store: store)
+            if let earlier = waiting {
+                waiting = Waiting(interactive: earlier.interactive || interactive,
+                                  prompting: interactive ? asking : earlier.prompting,
+                                  freshness: Self.stronger(earlier.freshness, wanted),
+                                  focus: earlier.focus.flatMap { a in focus.flatMap { Graft.samePath(a, $0) ? a : nil } },
+                                  store: store)
+            } else {
+                waiting = Waiting(interactive: interactive, prompting: asking,
+                                  freshness: wanted, focus: focus, store: store)
+            }
             return
         case .start:
             break
@@ -236,27 +352,43 @@ final class UsageMonitor: ObservableObject {
             var locked = false
             let fresh = targets.map { target -> Entry in
                 let onDisk = Graft.usage(of: target.profile)
+                let running = Graft.isRunning(profile: target.profile)
+                let focused = focus.map { Graft.samePath($0, target.profile) } ?? true
                 var entry = Entry(name: target.name,
                                   profile: target.profile,
                                   usage: onDisk,
-                                  isRunning: Graft.isRunning(profile: target.profile),
+                                  isRunning: running,
                                   shortcut: target.shortcut)
-                if let live = self.live(for: target.profile,
-                                        interactive: interactive,
-                                        freshness: wanted,
-                                        prompting: asking,
+                entry.refreshed = onDisk?.sampled
+                let outcome = self.live(for: target.profile,
+                                        interactive: interactive && focused,
+                                        freshness: focused ? wanted : .cached,
+                                        running: running,
+                                        prompting: focused ? asking : elsewhere,
                                         problem: &problem,
-                                        locked: &locked) {
+                                        locked: &locked)
+                if let live = outcome.reading, let fetched = outcome.fetched,
+                   !Self.prefersLocal(liveFetched: fetched, localSampled: onDisk?.sampled) {
                     entry.usage = Graft.Usage(fiveHour: live.fiveHour,
                                               week: live.week,
                                               organization: onDisk?.organization,
-                                              sampled: Date(),
+                                              sampled: fetched,
                                               fiveHourReset: live.fiveHourReset,
                                               weekReset: live.weekReset,
                                               fable: live.fable,
                                               fableReset: live.fableReset)
                     entry.isLive = true
                     entry.plan = live.plan
+                    entry.refreshed = fetched
+                    entry.note = outcome.failure.map {
+                        L10n.format("%@ Showing the last figure Anthropic gave.", $0)
+                    }
+                } else if onDisk != nil {
+                    entry.note = outcome.failure.map {
+                        L10n.format("%@ Showing what this profile last recorded itself.", $0)
+                    }
+                } else {
+                    entry.note = outcome.failure
                 }
                 return entry
             }
@@ -269,11 +401,13 @@ final class UsageMonitor: ObservableObject {
 
                 if let queued = self.waiting, let store = queued.store {
                     self.waiting = nil
-                    self.refresh(store, interactive: true,
-                                 prompting: queued.prompting, freshness: queued.freshness)
+                    self.refresh(store, interactive: queued.interactive,
+                                 prompting: queued.prompting, freshness: queued.freshness,
+                                 focus: queued.focus)
                 } else {
                     self.waiting = nil
                     self.isRefreshing = false
+                    self.refreshingProfile = nil
                 }
             }
         }
@@ -297,6 +431,8 @@ final class UsageMonitor: ObservableObject {
         if let problem { report["problem"] = problem }
         report["profiles"] = entries.map { entry -> [String: Any] in
             var row: [String: Any] = ["name": entry.name, "live": entry.isLive]
+            if let refreshed = entry.refreshed { row["refreshedAt"] = stamp.string(from: refreshed) }
+            if let note = entry.note { row["note"] = note }
             if let usage = entry.usage {
                 row["fiveHour"] = usage.fiveHour
                 row["week"] = usage.week
@@ -327,18 +463,29 @@ final class UsageMonitor: ObservableObject {
         queue.async { [weak self] in self?.liveCache[profile.path] = nil }
     }
 
+    /// What asking for one profile's live figures came to: the reading to
+    /// show, if there is one, when it was really taken, and — when this pass
+    /// did not get a current answer — why not.
+    private struct LiveOutcome {
+        var reading: UsageAPI.Reading?
+        var fetched: Date?
+        var failure: String?
+    }
+
     /// Cached hard: one call per profile per interval, and never a prompt on a
     /// background pass.
     private func live(for profile: URL,
                       interactive: Bool,
                       freshness: Freshness,
+                      running: Bool,
                       prompting: ClaudeCredentials.Prompting,
                       problem: inout String?,
-                      locked: inout Bool) -> UsageAPI.Reading? {
+                      locked: inout Bool) -> LiveOutcome {
         let now = Date()
-        if let cached = liveCache[profile.path],
-           Self.mayUseCache(age: now.timeIntervalSince(cached.fetched), freshness: freshness) {
-            return cached.reading
+        let cached = liveCache[profile.path]
+        if let cached,
+           Self.mayUseCache(age: now.timeIntervalSince(cached.fetched), freshness: freshness, running: running) {
+            return LiveOutcome(reading: cached.reading, fetched: cached.fetched)
         }
 
         let waiting = backoff[profile.path]
@@ -348,29 +495,39 @@ final class UsageMonitor: ObservableObject {
                               serverAsked: serverAskedToWait.contains(profile.path))
         else {
             if interactive { problem = waitingMessage(until: waiting?.until) }
-            return liveCache[profile.path]?.reading
+            let why = [lastFailure[profile.path], waitingMessage(until: waiting?.until)]
+                .compactMap { $0 }.joined(separator: " ")
+            return LiveOutcome(reading: cached?.reading, fetched: cached?.fetched, failure: why)
         }
 
         do {
             guard let token = try ClaudeCredentials.token(for: profile, prompting: prompting)
-            else { return nil }
+            else {
+                return LiveOutcome(failure: L10n.text("This profile has no saved login to ask Anthropic with."))
+            }
             let reading = try UsageAPI.fetch(token: token.value)
-            liveCache[profile.path] = (Date(), reading)
+            let fetched = Date()
+            liveCache[profile.path] = (fetched, reading)
             backoff[profile.path] = nil
+            lastFailure[profile.path] = nil
             serverAskedToWait.remove(profile.path)
-            return reading
+            return LiveOutcome(reading: reading, fetched: fetched)
         } catch {
             // Falling back to the on-disk figures is the normal outcome here,
-            // so only an explicit request reports why. The keychain being shut
-            // is worth surfacing quietly either way, since it is one click to
-            // fix and everything live depends on it.
+            // so only an explicit request raises it to the dropdown's problem
+            // line. The row itself always says, quietly. The keychain being
+            // shut is worth surfacing either way, since it is one click to fix
+            // and everything live depends on it.
+            let why: String
             switch error {
             case ClaudeCredentials.Failure.noKeychainAccess,
                  ClaudeCredentials.Failure.keychainDeclined:
                 locked = true
+                why = L10n.text("Live usage needs keychain access.")
             default:
-                break
+                why = L10n.text("Anthropic's usage service did not answer.")
             }
+            lastFailure[profile.path] = why
             if interactive { problem = (error as? LocalizedError)?.errorDescription }
 
             var retryAfter: TimeInterval?
@@ -381,7 +538,7 @@ final class UsageMonitor: ObservableObject {
             let failures = (backoff[profile.path]?.failures ?? 0) + 1
             let delay = Self.retryDelay(afterFailures: failures, retryAfter: retryAfter)
             backoff[profile.path] = (Date().addingTimeInterval(delay), failures)
-            return liveCache[profile.path]?.reading
+            return LiveOutcome(reading: cached?.reading, fetched: cached?.fetched, failure: why)
         }
     }
 

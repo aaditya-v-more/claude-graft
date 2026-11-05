@@ -11,12 +11,15 @@ mkdir -p "$BUILD"
 swiftc -swift-version 5 \
     -target "$(uname -m)-apple-macos${MACOS_DEPLOYMENT_TARGET:-13.0}" \
     "$ROOT/Sources/Shared/GraftCore.swift" \
+    "$ROOT/Sources/Shared/SidebarSync.swift" \
+    "$ROOT/Sources/Shared/SidebarStorage.swift" \
     "$ROOT/Sources/Shared/Diagnostics.swift" \
     "$ROOT/Sources/Shared/ManualUpdates.swift" \
     "$ROOT/Sources/Shared/ClaudeUpdateGate.swift" \
     "$ROOT/Sources/App/Model.swift" \
     "$ROOT/Sources/App/ChatConflict.swift" \
     "$ROOT/Sources/App/Installer.swift" \
+    "$ROOT/Sources/App/ProfileOpener.swift" \
     "$ROOT/Sources/App/Settings.swift" \
     "$ROOT/Sources/App/UsageAPI.swift" \
     "$ROOT/Sources/App/SessionStarter.swift" \
@@ -25,6 +28,7 @@ swiftc -swift-version 5 \
     "$ROOT/Sources/App/UpdateRecovery.swift" \
     "$ROOT/Sources/App/ClaudeUpdateFlow.swift" \
     "$ROOT/Sources/App/ClaudeDesktopUpdater.swift" \
+    "$ROOT/Sources/App/FrontClaude.swift" \
     "$ROOT/Tests/main.swift" \
     -o "$BUILD/tests"
 
@@ -33,6 +37,8 @@ swiftc -swift-version 5 \
 swiftc -swift-version 5 \
     -target "$(uname -m)-apple-macos${MACOS_DEPLOYMENT_TARGET:-13.0}" \
     "$ROOT/Sources/Shared/GraftCore.swift" \
+    "$ROOT/Sources/Shared/SidebarSync.swift" \
+    "$ROOT/Sources/Shared/SidebarStorage.swift" \
     "$ROOT/Sources/Shared/Diagnostics.swift" \
     "$ROOT/Sources/Shared/ManualUpdates.swift" \
     "$ROOT/Sources/Shared/ClaudeUpdateGate.swift" \

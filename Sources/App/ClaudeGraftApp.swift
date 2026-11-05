@@ -47,6 +47,7 @@ enum Shared {
     static let store = ShortcutStore()
     static let settings = AppSettings()
     static let usage = UsageMonitor()
+    static let frontmost = FrontmostClaude()
     static let updater = Updater()
     static let sessionRecords = SessionRecords()
     static let updateRecovery = UpdateRecoveryMonitor()
@@ -64,8 +65,13 @@ struct SettingsView: View {
                 Toggle("Open at Login", isOn: Binding(
                     get: { settings.openAtLogin },
                     set: { problem = settings.setOpenAtLogin($0) }))
+                    .identified("open-at-login")
                 Toggle("Show in Menu Bar", isOn: $settings.showInMenuBar)
+                    .identified("show-in-menu-bar")
+                FrontClaudeControl()
+                    .disabled(!settings.showInMenuBar)
                 ManualUpdateControl()
+                HoldUpdatesControl()
             } footer: {
                 Text(problem ?? L10n.text("""
                      The menu bar item keeps reporting usage after this window is \
@@ -80,6 +86,7 @@ struct SettingsView: View {
         .formStyle(.grouped)
         .frame(width: 420)
         .onAppear { settings.refreshLoginItem() }
+        .environment(\.controlSurface, ControlSurface.settings)
     }
 }
 
@@ -107,10 +114,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // the window or the dropdown.
         Shared.usage.mayPromptUnasked = !Shared.startHidden
         Shared.usage.start(watching: Shared.store)
+        Shared.frontmost.onActivation = { profile in
+            Shared.usage.claudeCameForward(profile, store: Shared.store)
+        }
+        Shared.frontmost.start(watching: Shared.store)
         Shared.manualUpdates.start(watching: Shared.store)
         Shared.updateRecovery.start(watching: Shared.store)
         Shared.claudeUpdates.start()
-        Shared.updater.start()
+        Shared.updater.start(holding: Shared.settings)
         // No prompts, no windows: filing records is a thing the menu bar
         // does on its own whether anyone is looking or not. Once, here —
         // the pass that matters runs in a shortcut's launcher, on its way

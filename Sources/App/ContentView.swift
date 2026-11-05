@@ -9,6 +9,7 @@ struct ContentView: View {
     @State private var selection: UUID? = ContentView.mainProfileID
     @State private var pendingDeletion: UUID?
     @State private var problem: String?
+    @State private var sidebarVisible = true
 
     init(selection: UUID? = ContentView.mainProfileID) {
         _selection = State(initialValue: selection)
@@ -23,6 +24,22 @@ struct ContentView: View {
             ClaudeUpdateStatus()
             Divider()
             profiles
+        }
+        .toolbar {
+            ToolbarItemGroup(placement: .navigation) {
+                Button(action: add) {
+                    Label("New Shortcut", systemImage: "plus")
+                }
+                .keyboardShortcut("n", modifiers: .command)
+                .help("New shortcut")
+                .identified("new-shortcut")
+                Button { sidebarVisible.toggle() } label: {
+                    Label("Toggle Sidebar", systemImage: "sidebar.left")
+                }
+                .keyboardShortcut("s", modifiers: [.command, .option])
+                .help("Toggle Sidebar")
+                .identified("toggle-sidebar")
+            }
         }
         .confirmationDialog(deletionTitle,
                             isPresented: Binding(get: { pendingDeletion != nil },
@@ -40,32 +57,37 @@ struct ContentView: View {
         } message: {
             Text(problem ?? "")
         }
+        // Last, so the toolbar and the dialogs hanging off this view are
+        // inside it too.
+        .environment(\.controlSurface, ControlSurface.window)
     }
 
     private var profiles: some View {
-        NavigationSplitView {
-            sidebar
-                .navigationSplitViewColumnWidth(min: 200, ideal: 220, max: 280)
-                .safeAreaInset(edge: .bottom, spacing: 0) { sidebarFooter }
-                .toolbar {
-                    ToolbarItem {
-                        Button(action: add) {
-                            Label("New Shortcut", systemImage: "plus")
-                        }
-                        .keyboardShortcut("n", modifiers: .command)
-                        .help("New shortcut")
-                    }
-                }
-        } detail: {
-            if selection == Self.mainProfileID {
-                MainProfileDetail()
-            } else if let selection, let index = store.shortcuts.firstIndex(where: { $0.id == selection }) {
-                ShortcutDetail(shortcut: $store.shortcuts[index],
-                               requestDelete: { requestDeletion(of: selection) })
-                    .id(selection)
-            } else {
-                EmptyState(hasShortcuts: !store.shortcuts.isEmpty, add: add)
+        // This is a pane selector, not a navigation stack. NavigationSplitView
+        // installs a second titlebar backdrop below the notices on macOS 27,
+        // obscuring the first form section even with scroll effects hidden.
+        HSplitView {
+            if sidebarVisible {
+                sidebar
+                    .listStyle(.sidebar)
+                    .safeAreaInset(edge: .bottom, spacing: 0) { sidebarFooter }
+                    .frame(minWidth: 200, idealWidth: 220, maxWidth: 280)
             }
+            profileDetail
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+
+    @ViewBuilder
+    private var profileDetail: some View {
+        if selection == Self.mainProfileID {
+            MainProfileDetail()
+        } else if let selection, let index = store.shortcuts.firstIndex(where: { $0.id == selection }) {
+            ShortcutDetail(shortcut: $store.shortcuts[index],
+                           requestDelete: { requestDeletion(of: selection) })
+                .id(selection)
+        } else {
+            EmptyState(hasShortcuts: !store.shortcuts.isEmpty, add: add)
         }
     }
 
@@ -118,6 +140,8 @@ struct ContentView: View {
                     Image(systemName: "house")
                         .foregroundStyle(.secondary)
                 }
+                .spoken("Claude", value: L10n.text("Installed normally"))
+                .identified("sidebar.\(Graft.mainProfile.lastPathComponent)")
                 .tag(Self.mainProfileID)
             }
 
@@ -136,6 +160,8 @@ struct ContentView: View {
                         Image(systemName: shortcut.source == .own ? "circle" : "link")
                             .foregroundStyle(.secondary)
                     }
+                    .spoken(shortcut.name, value: sidebarValue(for: shortcut))
+                    .identified("sidebar.\(shortcut.profileDir.lastPathComponent)")
                     .tag(shortcut.id)
                     .contextMenu {
                         Button(L10n.text(store.isDraft(shortcut) ? "Discard" : "Delete Shortcut…"),
@@ -151,6 +177,7 @@ struct ContentView: View {
                     .foregroundStyle(.secondary)
             }
             .buttonStyle(.plain)
+            .identified("sidebar.new-shortcut")
             .padding(.vertical, 2)
         }
         .onDeleteCommand { if let selection { requestDeletion(of: selection) } }
@@ -166,14 +193,24 @@ struct ContentView: View {
             HStack(spacing: 0) {
                 FooterLink("Support", icon: "heart", url: Links.support,
                            help: "Claude Graft is free. A tip on Ko-fi is what keeps it worked on.")
+                    .identified("support")
                 Spacer(minLength: 8)
                 FooterLink("Source", icon: "chevron.left.forwardslash.chevron.right", url: Links.source,
                            help: Links.source.absoluteString)
+                    .identified("source")
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 8)
         }
         .background(.bar)
+    }
+
+    /// What the line under the name and the symbol beside it say between
+    /// them, the symbol being the only thing that marks a borrowed history.
+    private func sidebarValue(for shortcut: Shortcut) -> String {
+        if shortcut.installedName == nil { return L10n.text("Not created yet") }
+        if shortcut.source == .own { return store.label(for: .own) }
+        return L10n.format("Reads chats from %@", store.label(for: shortcut.source))
     }
 
     private func add() {
@@ -192,14 +229,17 @@ private struct EmptyState: View {
             Image(systemName: "square.on.square.dashed")
                 .font(.system(size: 34, weight: .light))
                 .foregroundStyle(.tertiary)
+                .accessibilityHidden(true)
             Text(L10n.text(hasShortcuts ? "Select a shortcut" : "No shortcuts yet"))
                 .font(.title3)
+                .accessibilityAddTraits(.isHeader)
             Text("Each shortcut opens Claude on its own account,\nand can borrow another account's Claude Code chats.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
             if !hasShortcuts {
                 Button("New Shortcut", action: add)
+                    .identified("empty.new-shortcut")
                     .padding(.top, 4)
             }
         }

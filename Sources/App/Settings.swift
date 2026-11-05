@@ -43,12 +43,35 @@ enum QuitPolicy {
     }
 }
 
+/// What holding Graft's own updates changes, and what it leaves alone.
+///
+/// Off, which is where every copy starts and where every copy already out there
+/// stays, an update is found on Sparkle's schedule and installs itself. On, the
+/// schedule is Graft's instead: an hourly probe that learns a version exists
+/// and fetches nothing, so the only thing that can start a download is a person
+/// pressing the line that names it. A press installs without a further
+/// question either way — holding is about when, not about being asked twice.
+enum UpdatePolicy {
+    /// Sparkle's own timer, which downloads and installs whatever it finds.
+    static func sparkleChecksOnItsOwn(holding: Bool) -> Bool { !holding }
+
+    /// The status item only says so while an update is waiting on somebody.
+    /// Without a hold the version is known for the seconds before it installs
+    /// itself, and an icon changing for that long is noise.
+    static func showsInStatusItem(holding: Bool, available: String?) -> Bool {
+        holding && available != nil
+    }
+}
+
 /// The handful of preferences the menu bar exposes. Stored in UserDefaults,
 /// except for the login item, which is state macOS owns.
 final class AppSettings: ObservableObject {
     private enum Key {
         static let menuBar = "showInMenuBar"
         static let seeded = "defaultsSeeded"
+        static let holdUpdates = "holdUpdates"
+        static let frontIcon = "showFrontIcon"
+        static let frontName = "showFrontName"
     }
 
     private let defaults: UserDefaults
@@ -60,6 +83,29 @@ final class AppSettings: ObservableObject {
             // nothing left to click — not even a way to quit.
             if !showInMenuBar { NSApp?.setActivationPolicy(.regular) }
         }
+    }
+
+    /// Off unless somebody turns it on. Read with a plain `bool(forKey:)` on
+    /// purpose: a key nobody has written is every machine that installed this
+    /// release by updating, and those must go on updating exactly as before.
+    @Published var holdUpdates: Bool {
+        didSet { defaults.set(holdUpdates, forKey: Key.holdUpdates) }
+    }
+
+    /// On unless somebody turns it off, an update included, so a key nobody
+    /// has written reads as on. It widens the item too, but by one icon, and
+    /// only while a Claude is in front — the moment somebody running several
+    /// of them needs to know which one it is.
+    @Published var showFrontIcon: Bool {
+        didSet { defaults.set(showFrontIcon, forKey: Key.frontIcon) }
+    }
+
+    /// Off unless somebody turns it on. The name can widen the item six times
+    /// as far as the icon does, and a bar with no room left drops an item
+    /// rather than squeezing it, so nobody's usage figure disappears because of
+    /// a release they did not ask this of.
+    @Published var showFrontName: Bool {
+        didSet { defaults.set(showFrontName, forKey: Key.frontName) }
     }
 
     /// Reflects what macOS reports, not a value of our own.
@@ -74,6 +120,9 @@ final class AppSettings: ObservableObject {
             defaults.set(true, forKey: Key.menuBar)
         }
         showInMenuBar = defaults.bool(forKey: Key.menuBar)
+        holdUpdates = defaults.bool(forKey: Key.holdUpdates)
+        showFrontIcon = defaults.object(forKey: Key.frontIcon) as? Bool ?? true
+        showFrontName = defaults.bool(forKey: Key.frontName)
         openAtLogin = AppSettings.loginItemEnabled
     }
 

@@ -28,16 +28,21 @@ struct MainProfileDetail: View {
                 Section {
                     Label("Claude.app was not found.", systemImage: "exclamationmark.triangle")
                         .foregroundStyle(.secondary)
+                        .identified("claude-missing")
                 }
             }
 
             Section {
                 LabeledContent("Name", value: "Claude")
-                LabeledContent("Profile folder") {
+                    .spoken(L10n.text("Name"), value: "Claude")
+                    .identified("name")
+                LabeledContent {
                     HStack(spacing: 6) {
                         Text("Claude")
                             .font(.callout.monospaced())
                             .foregroundStyle(.secondary)
+                            .spoken(L10n.text("Profile folder"), value: Graft.mainProfile.lastPathComponent)
+                            .identified("folder")
                         Button {
                             NSWorkspace.shared.activateFileViewerSelecting([Graft.mainProfile])
                         } label: {
@@ -45,14 +50,21 @@ struct MainProfileDetail: View {
                         }
                         .buttonStyle(.borderless)
                         .help("Show in Finder")
+                        // SwiftUI reads the folder symbol out as "Move".
+                        .accessibilityLabel(L10n.text("Show in Finder"))
+                        .identified("show-in-finder")
                     }
+                } label: {
+                    // Said with the folder's name instead, which is not a row
+                    // of its own and so cannot carry it the way Name does.
+                    Text("Profile folder").accessibilityHidden(true)
                 }
             } header: {
                 SectionHeader(title: "Claude", info: L10n.text("""
                     The Claude you installed, launched the ordinary way. Graft does \
                     not create or modify it — shortcuts borrow from it, and it can \
                     never be renamed, re-pointed or deleted from here.
-                    """))
+                    """), id: "profile-info")
             }
 
             Section("Status") {
@@ -61,12 +73,17 @@ struct MainProfileDetail: View {
                         .font(.callout)
                         .foregroundStyle(.secondary)
                 }
+                .spoken("Claude", value: L10n.text(isRunning ? "Running on this profile" : "Not running"))
+                .identified("running")
             }
 
             Section {
-                UsageSummary(entry: plan)
+                UsageSummary(entry: plan) {
+                    usage.refresh(store, interactive: true, focus: Graft.mainProfile)
+                }
             } header: {
-                SectionHeader(title: "Plan usage", info: UsageSummary.explanation(for: plan))
+                SectionHeader(title: "Plan usage", info: UsageSummary.explanation(for: plan),
+                              id: "usage-info")
             }
         }
         .formStyle(.grouped)
@@ -81,11 +98,16 @@ struct MainProfileDetail: View {
                     }
                 }
                 .disabled(startingSession)
-                InfoButton(ShortcutDetail.sessionNote)
+                // Named apart from its text, which a spinner replaces while
+                // the session is being started.
+                .accessibilityLabel(L10n.text("Start Session"))
+                .identified("start-session")
+                InfoButton(ShortcutDetail.sessionNote, about: "Start Session", id: "session-info")
 
                 Button("Open", action: open)
                 .keyboardShortcut(.defaultAction)
                 .disabled(claudeMissing)
+                .identified("open")
             }
             .padding(14)
             .background(.bar)
@@ -111,6 +133,7 @@ struct MainProfileDetail: View {
         } message: {
             Text(error ?? "")
         }
+        .controls(profile: Graft.mainProfile)
     }
 
     /// Every shortcut grafted from main reads the files this is about to open,

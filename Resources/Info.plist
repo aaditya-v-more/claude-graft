@@ -26,5 +26,10 @@
     <key>SUFeedURL</key><string>https://aaditya-v-more.github.io/claude-graft/appcast.xml</string>
     <key>SUPublicEDKey</key><string>TncOVOd5VFXtXoAD5/KoGC2ea9ls2tO3amPVx5jtty8=</string>
     <key>SUEnableAutomaticChecks</key><true/>
+    <!-- Without this, Sparkle allows downloading in the background only while
+         its own schedule is on. Holding updates turns the schedule off, so the
+         press that installs a held version went down the ask-first path and
+         nothing appeared at all. With the schedule on, this changes nothing. -->
+    <key>SUAllowsAutomaticUpdates</key><true/>
 </dict>
 </plist>

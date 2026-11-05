@@ -5,9 +5,17 @@ import SwiftUI
 /// under every section as a paragraph of grey text.
 struct InfoButton: View {
     let text: String
+    let topic: String
+    let id: String
     @State private var showing = false
 
-    init(_ text: String) { self.text = text }
+    /// `topic` is what VoiceOver says the explanation is about, since the
+    /// symbol is all there is to see and SwiftUI reads that one as "Error".
+    init(_ text: String, about topic: String, id: String) {
+        self.text = text
+        self.topic = topic
+        self.id = id
+    }
 
     var body: some View {
         Button { showing.toggle() } label: {
@@ -17,6 +25,8 @@ struct InfoButton: View {
         }
         .buttonStyle(.plain)
         .help(text)
+        .accessibilityLabel(L10n.format("About %@", L10n.text(topic)))
+        .identified(id)
         .popover(isPresented: $showing, arrowEdge: .bottom) {
             Text(text)
                 .font(.callout)
@@ -29,13 +39,14 @@ struct InfoButton: View {
 
 /// A section heading with its explanation tucked behind the "!".
 struct SectionHeader: View {
-    let title: LocalizedStringKey
+    let title: String
     let info: String
+    let id: String
 
     var body: some View {
         HStack(spacing: 5) {
-            Text(title)
-            InfoButton(info)
+            Text(L10n.text(title))
+            InfoButton(info, about: title, id: id)
             Spacer()
         }
     }

@@ -397,8 +397,8 @@ do {
           "the login is not overwritten by the source's")
     check(config["userThemeMode"] as? String == "dark", "the theme is copied across")
     check(config["locale"] as? String == "en-GB", "so is the locale")
-    check(Graft.isSymlink(work.appending(path: "claude_desktop_config.json")),
-          "shared settings are linked")
+    check(!Graft.isSymlink(work.appending(path: "claude_desktop_config.json")),
+          "permission settings are never linked to another profile")
     check(!Graft.exists(work.appending(path: "extensions-blocklist.json")),
           "the per-organization blocklist is never linked")
 
@@ -424,6 +424,111 @@ do {
 }
 
 // MARK: - What a link cannot protect
+
+section("Each profile keeps its permission choices")
+do {
+    let source = makeProfile("Claude-Settings-Source", account: "AAAA", org: "ORG")
+    let profile = makeProfile("Claude-Settings-Own", account: "BBBB", org: "ORG")
+    let name = "claude_desktop_config.json"
+    let sourceFile = source.appending(path: name)
+    let ownFile = profile.appending(path: name)
+    func writeSettings(_ value: [String: Any], to url: URL) {
+        try! JSONSerialization.data(withJSONObject: value, options: .sortedKeys).write(to: url)
+    }
+    func settings(_ url: URL) -> NSDictionary {
+        (try? JSONSerialization.jsonObject(with: Data(contentsOf: url))) as? NSDictionary ?? [:]
+    }
+    let sourceSettings: [String: Any] = [
+        "mcpServers": ["shared": ["command": "source-server"]],
+        "preferences": ["bypassPermissionsOptInByAccount": ["AAAA": true]],
+    ]
+    let ownSettings: [String: Any] = [
+        "mcpServers": ["own": ["command": "own-server"]],
+        "preferences": ["bypassPermissionsOptInByAccount": ["BBBB": false]],
+        "globalShortcut": "disabled",
+    ]
+    writeSettings(sourceSettings, to: sourceFile)
+    writeSettings(ownSettings, to: ownFile)
+    let sourceBytes = try! Data(contentsOf: sourceFile)
+    Graft.graft(from: source, into: profile)
+    check(!Graft.isSymlink(ownFile), "sharing chats leaves a writable local settings file")
+    check(settings(ownFile)["preferences"] as? NSDictionary == ownSettings["preferences"] as? NSDictionary,
+          "a source's permission opt-in never replaces the borrowing profile's choices")
+    check((settings(ownFile)["mcpServers"] as? NSDictionary)?.count == 2,
+          "missing local MCP servers are copied without removing the profile's own servers")
+
+    var edited = ownSettings
+    edited["preferences"] = ["bypassPermissionsOptInByAccount": ["BBBB": true]]
+    edited["mcpServers"] = ["shared": ["command": "my-override"]]
+    // Claude saves settings by replacing the file; the next launch must not
+    // replace that permission choice with another link to the source.
+    try! fm.removeItem(at: ownFile)
+    writeSettings(edited, to: ownFile)
+    Graft.graft(from: source, into: profile)
+    check(settings(ownFile)["preferences"] as? NSDictionary == edited["preferences"] as? NSDictionary,
+          "a permission choice made after sharing survives the next launch")
+    check((settings(ownFile)["mcpServers"] as? NSDictionary)?["shared"] as? NSDictionary
+          == ["command": "my-override"] as NSDictionary,
+          "an existing MCP server keeps this profile's configuration")
+    check(try! Data(contentsOf: sourceFile) == sourceBytes,
+          "changing the borrowing profile's settings never writes to the source")
+    Graft.ungraft(profile)
+    check(settings(ownFile)["preferences"] as? NSDictionary == edited["preferences"] as? NSDictionary,
+          "returning to separate chats keeps the latest permission choice")
+
+    try! fm.removeItem(at: ownFile)
+    writeSettings(ownSettings, to: ownFile)
+    Graft.relink(target: sourceFile, at: ownFile)
+    Graft.graft(from: source, into: profile)
+    check(!Graft.isSymlink(ownFile), "an older settings link migrates to a real file")
+    check(settings(ownFile)["preferences"] as? NSDictionary == ownSettings["preferences"] as? NSDictionary,
+          "migration restores this profile's stashed permission choices")
+    check(settings(ownFile)["globalShortcut"] as? String == "disabled",
+          "migration preserves unrelated local preferences")
+    check(Graft.exists(Graft.stashURL(for: ownFile)), "migration retains the original backup")
+    Graft.ungraft(profile)
+
+    try! fm.removeItem(at: ownFile)
+    Graft.relink(target: sourceFile, at: ownFile)
+    Graft.graft(from: source, into: profile)
+    check(settings(ownFile)["preferences"] == nil,
+          "a legacy link without local settings never inherits permission grants")
+    check(!Graft.isSymlink(ownFile), "a legacy link without a stash is writable too")
+    check((settings(ownFile)["mcpServers"] as? NSDictionary)?.count == 1,
+          "a legacy link retains access to the source's local MCP servers")
+    let settledBytes = try! Data(contentsOf: ownFile)
+    let settledTime = Graft.modified(ownFile)
+    Graft.graft(from: source, into: profile)
+    check(try! Data(contentsOf: ownFile) == settledBytes && Graft.modified(ownFile) == settledTime,
+          "a repeated launch leaves already copied settings untouched")
+    check((try! fm.attributesOfItem(atPath: ownFile.path)[.posixPermissions] as? Int) == 0o600,
+          "copied server configuration is readable only by the profile's owner")
+
+    try! Data("{ incomplete".utf8).write(to: sourceFile)
+    Graft.graft(from: source, into: profile)
+    check(try! Data(contentsOf: ownFile) == settledBytes,
+          "a source caught mid-write cannot change local settings")
+    try! sourceBytes.write(to: sourceFile)
+
+    try! Data("{ incomplete".utf8).write(to: ownFile)
+    Graft.graft(from: source, into: profile)
+    check(try! Data(contentsOf: ownFile) == Data("{ incomplete".utf8),
+          "an unreadable local settings file is never treated as empty")
+    try! fm.removeItem(at: ownFile)
+    try! Data("{ incomplete".utf8).write(to: Graft.stashURL(for: ownFile))
+    Graft.relink(target: sourceFile, at: ownFile)
+    Graft.graft(from: source, into: profile)
+    check(Graft.isSymlink(ownFile), "migration leaves an unreadable backup recoverable")
+    check(try! Data(contentsOf: sourceFile) == sourceBytes,
+          "even a failed migration cannot overwrite the source's settings")
+    writeSettings(ownSettings, to: Graft.stashURL(for: ownFile))
+    try! fm.removeItem(at: sourceFile)
+    Graft.graft(from: source, into: profile)
+    check(!Graft.isSymlink(ownFile) && settings(ownFile) == ownSettings as NSDictionary,
+          "a broken legacy link can recover the profile's own settings from its backup")
+
+    for folder in [source, profile] { try? fm.removeItem(at: folder) }
+}
 
 // Claude writes config.json, and recreates chat directories, by renaming over
 // whatever is there. A rename leaves a real file where the symlink was, so the
@@ -904,6 +1009,36 @@ do {
               "\(view) drops the reading its own Start Session has just made wrong")
     }
 
+    // A figure says when it was taken and where from. The profile's own
+    // record was written at `now`, and that is the time the row reports —
+    // not the moment the pass happened to run.
+    if let entry = monitor.entry(for: listed), let refreshed = entry.refreshed {
+        check(abs(refreshed.timeIntervalSince1970 * 1000 - now) < 1000 && !entry.isLive,
+              "a figure read off the profile's own record is dated by that record")
+        check(entry.freshness(now: refreshed.addingTimeInterval(600)).contains("own record"),
+              "and the row says it came from the profile rather than from Anthropic")
+    } else {
+        check(false, "a figure read off the profile's own record is dated by that record")
+    }
+    var current = UsageMonitor.Entry(name: "Live", profile: listed, usage: nil, isRunning: false)
+    current.isLive = true
+    current.refreshed = Date()
+    check(current.freshness() == L10n.format("Updated %@ from Anthropic", L10n.text("just now")),
+          "a live figure taken a moment ago says so")
+    check(UsageMonitor.Entry(name: "None", profile: listed, usage: nil, isRunning: false).freshness()
+            == L10n.text("Not refreshed yet"),
+          "and an account nobody has answered for yet says that instead of a time")
+
+    let rows = (try? String(contentsOf: views.appending(path: "MenuBarContent.swift"), encoding: .utf8)) ?? ""
+    let summary = (try? String(contentsOf: views.appending(path: "ShortcutDetail.swift"), encoding: .utf8)) ?? ""
+    check(rows.contains("UsageFreshness(entry: entry, refresh: refresh)")
+            && summary.contains("UsageFreshness(entry: entry, refresh: refresh)"),
+          "every account in the dropdown and the window says when its figure was taken and offers a refresh")
+    let bar = rows.components(separatedBy: "struct UsageBar").dropFirst().first?
+        .components(separatedBy: "struct UsageFreshness").first ?? ""
+    check(bar.contains("TimelineView") && bar.contains("from: context.date"),
+          "a reset countdown keeps counting even when the figure behind it has not changed")
+
     // A stale figure says nothing about the window that is running now.
     writeUsage(listed, [(now - 8 * 60 * 60 * 1000, 99, 99)])
     let second = UsageMonitor()
@@ -922,6 +1057,36 @@ do {
     settings.showInMenuBar = false
     let reopened = AppSettings(defaults: suite)
     check(!reopened.showInMenuBar, "and turning it off survives a restart")
+
+    // Every machine this lands on arrives by updating, with no key written
+    // for a setting that did not exist yet. Those must go on updating exactly
+    // as they did, so an absent key has to read as no hold.
+    check(!reopened.holdUpdates, "Graft's own updates are not held unless somebody holds them")
+    reopened.holdUpdates = true
+    check(AppSettings(defaults: suite).holdUpdates, "and a hold survives a restart")
+    reopened.holdUpdates = false
+    check(!AppSettings(defaults: suite).holdUpdates, "as does letting go of it")
+
+    // The name widens the item, and a full bar drops an item rather than
+    // squeezing it, so an update must not turn it on for anybody.
+    check(!reopened.showFrontName, "the Claude in front is not named unless somebody asks for it")
+    reopened.showFrontName = true
+    check(AppSettings(defaults: suite).showFrontName, "and asking for it survives a restart")
+    // The icon is the other way round, and an update has no key for it either.
+    check(reopened.showFrontIcon, "the icon of the Claude in front is shown unless somebody turns it off")
+    reopened.showFrontIcon = false
+    check(!AppSettings(defaults: suite).showFrontIcon, "and turning it off survives a restart")
+
+    check(UpdatePolicy.sparkleChecksOnItsOwn(holding: false),
+          "without a hold, Sparkle's schedule finds and installs updates as it always has")
+    check(!UpdatePolicy.sparkleChecksOnItsOwn(holding: true),
+          "with one, Sparkle's schedule is off, since it downloads whatever it finds")
+    check(UpdatePolicy.showsInStatusItem(holding: true, available: "9.9.9"),
+          "a held update shows on the status item")
+    check(!UpdatePolicy.showsInStatusItem(holding: false, available: "9.9.9"),
+          "an update about to install itself does not flicker the icon")
+    check(!UpdatePolicy.showsInStatusItem(holding: true, available: nil),
+          "and a hold with nothing waiting leaves the icon alone")
 }
 
 // MARK: - When the windows reset
@@ -1077,12 +1242,13 @@ do {
     check(Set(english.keys) == Set(russian.keys), "both catalogs cover the same strings")
     check(russian["New Shortcut"] == "Новый ярлык", "the Russian catalog is actually translated")
     let rebasedKeys = ["Claude Desktop is updating", "Claude Desktop %@ is available",
-                       "Preparing the update…", "Version %@ · Up to date",
+                       "Preparing the update…", "%@ · Up to date",
                        "Check for Claude Updates", "Check for Claude Graft Updates",
                        "Checking for Claude Graft Updates…", "Update Claude Desktop manually",
                        "Update Claude…", "Update Claude Desktop?", "Quit All Claude & Update",
                        "Chats found elsewhere", "Merge Them Here", "Copy Them Here",
-                       "Open Without Them", "Do Not Show Again", "Leave Closed", "Dismiss"]
+                       "Open Without Them", "Do Not Show Again", "Leave Closed", "Dismiss",
+                       "Hold Claude Graft updates", "Install Claude Graft %@"]
     check(rebasedKeys.allSatisfy { english[$0] != nil && russian[$0] != nil },
           "the update UI added upstream is localized too")
     let russianBundle = Bundle(path: repo.appending(path: "Resources/ru.lproj").path)!
@@ -1201,6 +1367,31 @@ do {
           "the dropdown's check installs rather than asking")
     check(!updater.contains("updater.checkForUpdates()"),
           "so Sparkle's own panel is never what a press puts on screen")
+
+    // A hold is only a hold if nothing else can download. Sparkle schedules
+    // its launch check as it starts, so a controller started before the hold
+    // was applied would fetch and install the held version on the way up.
+    check(updater.contains("startingUpdater: false") && updater.contains("controller.startUpdater()"),
+          "the updater is configured before it starts")
+    if let applied = updater.range(of: "apply(holding: settings.holdUpdates)"),
+       let started = updater.range(of: "controller.startUpdater()") {
+        check(applied.lowerBound < started.lowerBound,
+              "and the hold is in place before Sparkle's first check can run")
+    } else {
+        check(false, "and the hold is in place before Sparkle's first check can run")
+    }
+    check(updater.contains("checkForUpdateInformation()"),
+          "a hold looks for updates with a probe, which downloads nothing")
+    // Sparkle ties background downloading to its own schedule unless the
+    // bundle says otherwise, and a hold turns the schedule off. Without the
+    // key, pressing Install on a held version did nothing at all.
+    check(read("Resources/Info.plist").contains("<key>SUAllowsAutomaticUpdates</key><true/>"),
+          "a press installs a held version even with Sparkle's schedule off")
+    let menu = read("Sources/App/MenuBarContent.swift")
+    check(menu.contains("updater.install()") && menu.contains("HoldUpdatesControl()"),
+          "the dropdown offers the held version and the switch that holds it")
+    check(read("Sources/App/ClaudeGraftApp.swift").contains("HoldUpdatesControl()"),
+          "and so does the settings window")
 
     // The app carries links of its own to the site and the source, compiled
     // into copies that will never be built again. GitHub redirects a renamed
@@ -1411,6 +1602,43 @@ do {
           "a press arriving mid-pass waits for its turn rather than being lost")
     check(UsageMonitor.arrival(passInFlight: true, interactive: false) == .drop,
           "but a tick is worth dropping, since the pass will answer it anyway")
+    // Opening the dropdown is no press, and used to be dropped like a tick —
+    // so the figure someone opened it to see was whatever the timer's pass
+    // happened to reuse.
+    check(UsageMonitor.arrival(passInFlight: true, interactive: false, freshness: .recent) == .queue,
+          "opening the dropdown mid-pass waits for its turn too")
+    check(UsageMonitor.stronger(.recent, .now) == .now && UsageMonitor.stronger(.cached, .recent) == .recent,
+          "two requests waiting on one pass become one request for the stronger")
+
+    // An account in use moves while nobody looks; one closed does not.
+    check(!UsageMonitor.mayUseCache(age: 150, freshness: .cached, running: true),
+          "an open Claude's figure is asked for again within a couple of minutes")
+    check(UsageMonitor.mayUseCache(age: 150, freshness: .cached, running: false),
+          "while a closed one keeps the five-minute interval")
+    check(UsageMonitor.activeInterval >= 60,
+          "and even an open one is not asked more than once a minute by the timer")
+
+    // The profile's own record can be newer than the last live answer.
+    let fetched = Date()
+    check(UsageMonitor.prefersLocal(liveFetched: fetched, localSampled: fetched.addingTimeInterval(30)),
+          "a record the profile wrote after the last live answer is the better figure")
+    check(!UsageMonitor.prefersLocal(liveFetched: fetched, localSampled: fetched.addingTimeInterval(-30)),
+          "and an older one is not")
+    check(!UsageMonitor.prefersLocal(liveFetched: fetched, localSampled: nil),
+          "and no record at all leaves the live answer standing")
+
+    // Switching to a Claude is switching to that account.
+    let main = Graft.mainProfile
+    let two = Graft.applicationSupport.appending(path: "Claude-2")
+    let twenty = Graft.applicationSupport.appending(path: "Claude-20")
+    let binary = Graft.claudeApp.appending(path: "Contents/MacOS/Claude").path
+    check(UsageMonitor.profile(launchedBy: "\(binary) --user-data-dir=\(two.path)", among: [main, twenty, two])?.path
+            == two.path,
+          "a Claude brought forward is matched to the profile it was launched on")
+    check(UsageMonitor.profile(launchedBy: binary, among: [main, two])?.path == main.path,
+          "one launched with no profile at all is Claude's own")
+    check(UsageMonitor.profile(launchedBy: "\(binary) Helper --user-data-dir=\(two.path)", among: [two]) == nil,
+          "and a helper process is nobody's account")
 
     // Without backoff a refused call would be retried on the next tick, turning
     // one failure into a hundred and twenty attempts an hour.
@@ -1579,6 +1807,58 @@ do {
         if text.contains("Graft.launch(") { launchers.append(file.lastPathComponent) }
     }
     check(launchers.isEmpty, "and nothing in the app launches a Claude without asking who is there")
+
+    // The layout suite walks every SwiftUI surface's accessibility tree and
+    // never reaches the status item, which is AppKit's and whose title is a
+    // figure that changes on every pass.
+    let menuBar = read("App/MenuBarController.swift")
+    check(menuBar.contains("setAccessibilityIdentifier(\"status-item\")"),
+          "the menu bar item can be asked for by a name that does not change with its figure")
+    check(menuBar.contains("setAccessibilityTitle([spoken, updateTip]"),
+          "and says in words whose figure it shows and what its symbol stands for")
+    check(menuBar.contains("window.setAccessibilityParent(NSApp)"),
+          "the open dropdown is among the app's windows, where a client looking for its controls searches")
+    check(!menuBar.contains("setAccessibilityWindows("),
+          "and the app's own list of windows is never replaced, which clearing again leaves empty")
+}
+
+section("Opening the selected shortcut")
+do {
+    var shortcut = Shortcut(name: "Selected", source: .own)
+    shortcut.installedName = shortcut.name
+    let original = try! Installer.install(shortcut, sourceDir: nil)
+    check(try! ProfileOpener.destination(profile: shortcut.profileDir, shortcut: shortcut) == .shortcut(original),
+          "opening an installed shortcut selects its own bundle")
+    shortcut.name = "Unsaved name"
+    check(ProfileOpener.bundle(for: shortcut) == original,
+          "editing the display name still finds the previously installed shortcut")
+    let renamed = apps.appending(path: "Renamed in Finder.app")
+    try! fm.moveItem(at: original, to: renamed)
+    check(Installer.installedBundle(for: shortcut) == nil,
+          "a renamed bundle reproduces the old name lookup failure")
+    let resolved = try! ProfileOpener.destination(profile: shortcut.profileDir, shortcut: shortcut)
+    let renamedDestination: Bool
+    if case .shortcut(let bundle) = resolved { renamedDestination = Graft.samePath(bundle, renamed) }
+    else { renamedDestination = false }
+    check(renamedDestination,
+          "a Finder rename still opens the profile recorded inside the bundle")
+    let other = Shortcut(name: shortcut.name, source: .own)
+    let wrong = try! Installer.install(other, sourceDir: nil)
+    check(ProfileOpener.bundle(for: shortcut).map { Graft.samePath($0, renamed) } == true,
+          "a matching app name cannot redirect the click to another profile")
+    try! fm.removeItem(at: renamed)
+    check((try? ProfileOpener.destination(profile: shortcut.profileDir, shortcut: shortcut)) == nil,
+          "a missing shortcut fails instead of opening the default profile")
+    check((try? ProfileOpener.destination(profile: shortcut.profileDir, shortcut: nil)) == nil,
+          "a stale menu entry cannot fall back to the default profile either")
+    check((try? ProfileOpener.destination(profile: other.profileDir, shortcut: shortcut)) == nil,
+          "a shortcut for a different profile is refused")
+    check(try! ProfileOpener.destination(profile: Graft.mainProfile, shortcut: nil) == .main,
+          "only the actual default profile selects the default launch route")
+    try! Data("broken".utf8).write(to: wrong.appending(path: "Contents/Resources/graft.json"))
+    check(ProfileOpener.bundle(for: other) == nil,
+          "an unreadable profile description is not trusted because its name matches")
+    try? fm.removeItem(at: wrong)
 }
 
 // MARK: - Profiles lost during Claude's update restart
@@ -2117,6 +2397,152 @@ do {
     check(monitor.headline == nil, "nothing to show when there is nothing to show")
 }
 
+section("The Claude in front")
+
+do {
+    let monitor = UsageMonitor()
+    let idle = entry("Claude", fiveHour: 100, running: true)
+    let busy = entry("Claude 2", fiveHour: 46, running: true)
+    monitor.setEntriesForTesting([idle, busy])
+
+    // Unnamed, the tightest open window is the figure; with a name beside it,
+    // another account's figure would read as that account's own.
+    check(monitor.statusEntry(front: nil).map { !$0.named && $0.entry.name == "Claude" } == true,
+          "with nobody named, the bar shows the tightest window as it always has")
+    check(monitor.statusEntry(front: busy.profile).map { $0.named && $0.entry.name == "Claude 2" } == true,
+          "a named Claude is the one whose figure stands beside its name")
+    check(monitor.statusEntry(front: support.appending(path: "Somebody Else")).map { !$0.named } == true,
+          "a profile Graft does not know is not named")
+
+    let old = Date().addingTimeInterval(-8 * 3600)
+    let stale = entry("Claude 3", fiveHour: 99, running: true, live: false, sampled: old)
+    monitor.setEntriesForTesting([idle, stale])
+    let named = monitor.statusEntry(front: stale.profile)
+    check(named?.named == true && named?.entry.currentUsage == nil,
+          "a named Claude with only a stale figure is named without the figure")
+
+    let claudeApp = URL(fileURLWithPath: "/Applications/Claude.app")
+    check(FrontmostClaude.meaning(bundle: claudeApp, pid: 41, ownPid: 7, claudeApp: claudeApp) == .claude(41),
+          "a Claude coming forward is looked up by its pid")
+    check(FrontmostClaude.meaning(bundle: URL(fileURLWithPath: "/Applications/Claude Graft.app"),
+                                  pid: 7, ownPid: 7, claudeApp: claudeApp) == .keep,
+          "Graft coming forward for its dropdown leaves the name where it was")
+    check(FrontmostClaude.meaning(bundle: URL(fileURLWithPath: "/System/Applications/Finder.app"),
+                                  pid: 12, ownPid: 7, claudeApp: claudeApp) == .clear,
+          "anything else in front means no Claude is")
+    check(FrontmostClaude.meaning(bundle: URL(fileURLWithPath: "/Applications/Claude 2.app"),
+                                  pid: 13, ownPid: 7, claudeApp: claudeApp) == .clear,
+          "a shortcut's own launcher is not a Claude, whatever it is called")
+
+    let front = FrontmostClaude()
+    var asked: [URL] = []
+    front.onActivation = { asked.append($0) }
+    let two = support.appending(path: "Claude-2")
+    let three = support.appending(path: "Claude-3")
+    front.resolved(ticket: front.activated(.claude(41))!, profile: two)
+    check(front.profile == two, "a Claude brought forward is named once its profile is known")
+    check(asked == [two], "and its account is asked for its figure")
+
+    let late = front.activated(.claude(42))!
+    front.activated(.clear)
+    front.resolved(ticket: late, profile: three)
+    check(front.profile == nil, "a lookup that lands after the switch away names nobody")
+    check(asked == [two, three], "though the account it was about is still asked for")
+
+    let opening = front.activated(.claude(43))!
+    front.activated(.keep)
+    front.resolved(ticket: opening, profile: three)
+    check(front.profile == three, "opening the dropdown mid-lookup does not lose the Claude behind it")
+
+    let askedBefore = asked.count
+    front.resolved(ticket: front.activated(.claude(44))!, profile: two, switched: false)
+    check(front.profile == two && asked.count == askedBefore,
+          "the Claude in front at launch is named without anybody's figure being asked for")
+
+    // Green and teal are too light for white text as they come; nothing is
+    // shown in a colour its own name cannot be read on.
+    check(Shortcut.IconPreset.allCases.allSatisfy {
+        FrontTag.contrastWithWhite(FrontTag.fill(for: $0.accentColor)) >= FrontTag.minimumContrast
+    }, "every icon colour carries a name that can be read")
+    let navy = NSColor(srgbRed: 0.1, green: 0.2, blue: 0.6, alpha: 1)
+    let navyFill = FrontTag.fill(for: navy)
+    check(abs(navyFill.redComponent - 0.1) < 0.001 && abs(navyFill.greenComponent - 0.2) < 0.001
+          && abs(navyFill.blueComponent - 0.6) < 0.001,
+          "a colour that is already readable is left as the icon has it")
+    let mint = NSColor(srgbRed: 0.6, green: 0.95, blue: 0.7, alpha: 1)
+    check(FrontTag.fill(for: mint).greenComponent < 0.95
+          && FrontTag.contrastWithWhite(FrontTag.fill(for: mint)) >= FrontTag.minimumContrast,
+          "and one too pale is darkened until it is")
+
+    let long = FrontTag.image(name: "A shortcut named at great and unreasonable length", preset: .research)
+    check(long.size.width == FrontTag.maximumWidth, "a long name is cut short rather than widening the bar")
+    check(long.size.height == FrontTag.height, "and the tag keeps its height")
+    let short = FrontTag.image(name: "Work", preset: .work)
+    check(short.size.width < FrontTag.maximumWidth && short.accessibilityDescription == "Work",
+          "a short name takes only the room it needs and is read out by name")
+
+    let icon = FrontIcon.image(for: .work)
+    check(icon?.size == NSSize(width: FrontIcon.side, height: FrontIcon.side),
+          "the icon in the bar is the shortcut's own, drawn at the bar's size")
+    check(icon != nil && FrontIcon.image(for: .work) === icon,
+          "and drawn once, since the title is rebuilt on every switch")
+
+    func attachments(_ title: NSAttributedString) -> [NSTextAttachment] {
+        var found: [NSTextAttachment] = []
+        title.enumerateAttribute(.attachment, in: NSRange(location: 0, length: title.length)) { value, _, _ in
+            if let attachment = value as? NSTextAttachment { found.append(attachment) }
+        }
+        return found
+    }
+    func pictures(_ title: NSAttributedString) -> [NSRect] { attachments(title).map(\.bounds) }
+    /// Points of nothing above the first opaque pixel down the middle column.
+    func emptyOnTop(_ image: NSImage) -> CGFloat {
+        let scale: CGFloat = 2
+        guard let rep = NSBitmapImageRep(bitmapDataPlanes: nil,
+                                         pixelsWide: Int(ceil(image.size.width * scale)),
+                                         pixelsHigh: Int(ceil(image.size.height * scale)),
+                                         bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+                                         colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)
+        else { return -1 }
+        rep.size = image.size
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
+        image.draw(in: NSRect(origin: .zero, size: image.size))
+        NSGraphicsContext.restoreGraphicsState()
+        var row = 0
+        while row < rep.pixelsHigh, (rep.colorAt(x: rep.pixelsWide / 2, y: row)?.alphaComponent ?? 0) < 0.5 { row += 1 }
+        return CGFloat(row) / scale
+    }
+    let font = NSFont.menuBarFont(ofSize: 0)
+    let title = FrontTitle.make(icon: icon, tag: short, figure: 34, font: font)
+    check(title.string.hasSuffix(" 34%") && pictures(title).count == 2,
+          "the title carries the icon, the tag and then the figure")
+    check(pictures(title).allSatisfy { abs($0.midY - font.capHeight / 2) <= 0.5 },
+          "each picture's box is centred on the figure's capitals, so the figure stays where it was")
+    // The tag fills its own picture edge to edge, so what is empty above it in
+    // the box is exactly the space that lowers it.
+    check(attachments(title).last?.image.map(emptyOnTop) == FrontTitle.drop * 2,
+          "and the picture inside the box is drawn lower, level with Graft's own symbol")
+    check(attachments(title).last?.image?.accessibilityDescription == "Work",
+          "lowering the tag keeps the name it is read out by")
+    check(title.attribute(.foregroundColor, at: title.length - 1, effectiveRange: nil) == nil,
+          "the figure keeps the colour the bar picks for the wallpaper behind it")
+    func lowered(_ title: NSAttributedString) -> CGFloat? {
+        title.attribute(.baselineOffset, at: title.length - 1, effectiveRange: nil) as? CGFloat
+    }
+    check(lowered(title) == -FrontTitle.figureDrop, "the figure is lowered onto the symbol's line too")
+    let figureOnly = FrontTitle.make(icon: nil, tag: nil, figure: 34, font: font)
+    check(figureOnly.string == " 34%" && lowered(figureOnly) == -FrontTitle.figureDrop,
+          "and by as much with no Claude in front, so it does not jump as one comes forward")
+    let iconOnly = FrontTitle.make(icon: icon, tag: nil, figure: 34, font: font)
+    check(pictures(iconOnly).count == 1 && iconOnly.string.hasSuffix(" 34%"),
+          "the icon on its own stands beside the figure")
+    check(pictures(FrontTitle.make(icon: nil, tag: short, figure: 34, font: font)).count == 1,
+          "and so does the name on its own")
+    check(!FrontTitle.make(icon: icon, tag: nil, figure: nil, font: font).string.contains("%"),
+          "a Claude with no figure is shown alone")
+}
+
 section("Quitting")
 
 do {
@@ -2183,6 +2609,7 @@ func makeTranscript(session: String,
                     spoke: Bool = true,
                     first: String = "2026-08-29T17:00:00.000Z",
                     last: String = "2026-08-29T17:00:10.000Z",
+                    said: String? = nil,
                     extra: [String] = []) -> URL {
     let dir = Graft.claudeProjects.appending(path: "-Users-test-work")
     try! fm.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -2195,7 +2622,7 @@ func makeTranscript(session: String,
     if spoke {
         lines.append("{\"parentUuid\":null,\"isSidechain\":false,\"promptId\":\"prompt-one\","
                      + "\"cwd\":\"/Users/test/work\",\"permissionMode\":\"auto\",\"gitBranch\":\"main\","
-                     + "\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":\"hello\"},"
+                     + "\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":\"\(said ?? "hello from \(session)")\"},"
                      + "\"uuid\":\"u-1\",\"timestamp\":\"\(first)\"}")
         lines.append("{\"parentUuid\":\"u-1\",\"isSidechain\":false,\"cwd\":\"/Users/test/work\","
                      + "\"permissionMode\":\"auto\",\"gitBranch\":\"main\",\"type\":\"assistant\","
@@ -2732,6 +3159,150 @@ do {
     let both = Graft.sessions(ofRecordAt: homeOrg.appending(path: "local_18181818-1818-4181-8181-181818181818.json"))
     check(both.cliSessionId == carriedOn && both.prior == [earlier],
           "a record says which session it holds now and which it has taken over")
+}
+
+do {
+    // Editing a prompt or resuming a conversation starts a new session, and
+    // the one left behind has no record naming it if the profile was grafted
+    // at the time. Filing those put one conversation in a sidebar six times.
+    try? fm.removeItem(at: Graft.claudeProjects)
+    try? fm.removeItem(at: Graft.sessionRecordStateFile)
+
+    let account = "e8e8e8e8-e8e8-4e8e-8e8e-e8e8e8e8e8e8"
+    let org = "e9e9e9e9-e9e9-4e9e-8e9e-e9e9e9e9e9e9"
+    let home = makeProfile("Claude-Copies", account: account, org: org)
+    let homeOrg = home.appending(path: "claude-code-sessions")
+        .appending(path: account).appending(path: org)
+
+    func prompt(_ words: String, _ id: String, extra: String = "") -> String {
+        "{\"parentUuid\":null,\"promptId\":\"\(id)\",\"cwd\":\"/Users/test/work\","
+            + "\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":\"\(words)\"},"
+            + "\(extra)\"uuid\":\"\(id)-u\",\"timestamp\":\"2026-08-29T17:05:00.000Z\"}"
+    }
+
+    // What counts as a prompt, read off one transcript.
+    let reading = makeTranscript(session: "21212121-2121-4212-8212-212121212121", owner: account, org: org,
+                                 said: "Review the PR", extra: [
+        // A tool's output comes back as a user line, with a prompt id.
+        "{\"promptId\":\"p-2\",\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":"
+            + "[{\"tool_use_id\":\"t-1\",\"type\":\"tool_result\",\"content\":\"42 files\"}]},"
+            + "\"timestamp\":\"2026-08-29T17:01:00.000Z\"}",
+        // So does Claude's note about a command that ran.
+        prompt("<local-command-stdout>ok</local-command-stdout>", "p-3", extra: "\"isMeta\":true,"),
+        // And stopping a turn writes a line nobody typed.
+        "{\"promptId\":\"p-5\",\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":"
+            + "[{\"type\":\"text\",\"text\":\"[Request interrupted by user]\"}]},"
+            + "\"timestamp\":\"2026-08-29T17:01:30.000Z\"}",
+        // A prompt that came with an image carries its words in a text block.
+        "{\"promptId\":\"p-4\",\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":"
+            + "[{\"type\":\"image\",\"source\":{\"type\":\"base64\"}},{\"type\":\"text\",\"text\":\"What is this?\"}]},"
+            + "\"timestamp\":\"2026-08-29T17:02:00.000Z\"}",
+    ])
+    let typed = Graft.promptsTyped(inTranscriptAt: reading)
+    check(typed == [Graft.promptFingerprint("Review the PR"), Graft.promptFingerprint("What is this?")].compactMap { $0 },
+          "the prompts a person typed are read, and a tool's output, Claude's own notes and a stopped turn are not")
+    check(Graft.promptFingerprint("Review  the PR\n") == Graft.promptFingerprint("Review the PR"),
+          "a prompt pasted again with different spacing is still the same prompt")
+    try? fm.removeItem(at: reading)
+
+    // The rule on its own, over facts made up for it.
+    func facts(_ id: String, cwd: String = "/Users/test/work", owner: String = account,
+               last: Double) -> Graft.SessionFacts {
+        Graft.SessionFacts(cliSessionId: id, bridgeIds: ["cse_x"], ownerAccount: owner,
+                           ownerOrganization: org, title: "Same title", cwd: cwd,
+                           createdAt: 0, lastActivityAt: last, model: "m", effort: "e",
+                           permissionMode: "auto", prompts: 1, branches: [])
+    }
+    func trace(_ asked: [String], opening: Int = 40, work: [String: Int] = [:]) -> Graft.ConversationTrace {
+        Graft.ConversationTrace(prompts: asked, openingSize: opening, work: work)
+    }
+    let shared = ["h1": 4_000, "h2": 9_000]
+    let copies = Graft.resumedCopies([
+        (facts("kept", last: 5), trace(["a", "b", "c"], work: shared.merging(["k1": 6_000]) { $1 })),
+        (facts("retried", last: 9), trace(["a", "b"], work: shared.merging(["r1": 80]) { $1 })),
+        (facts("drafted", last: 9), trace(["a", "b"], work: shared.merging(["d1": 9_097]) { $1 })),
+        (facts("implemented", last: 9), trace(["a"], work: ["i1": 40 + Graft.ConversationTrace.editWeight])),
+        (facts("branch", last: 3), trace(["a", "d"])),
+        (facts("twin-old", last: 1), trace(["x"])),
+        (facts("twin-new", last: 2), trace(["x"])),
+        (facts("hi-one", last: 1), trace(["hi"], opening: 2)),
+        (facts("hi-two", last: 2), trace(["hi", "sync my profiles"], opening: 2)),
+        (facts("elsewhere", cwd: "/Users/test/other", last: 1), trace(["a"])),
+        (facts("someone-else", owner: "f0f0f0f0-f0f0-4f0f-8f0f-f0f0f0f0f0f0", last: 1), trace(["a"])),
+        (facts("other-opening", last: 1), trace(["b"])),
+    ])
+    check(copies.contains("retried"),
+          "a session whose every prompt a longer one also holds is a copy, however recently it was touched")
+    check(!copies.contains("kept"), "and the conversation holding them all is not")
+    check(!copies.contains("drafted"),
+          "the same questions are not the same conversation when one of them holds an answer the other lacks")
+    check(!copies.contains("implemented"), "and a session that edited a file is never a copy")
+    check(!copies.contains("branch"), "a branch that asked anything of its own is not a copy")
+    check(copies.contains("twin-old") && !copies.contains("twin-new"),
+          "of two sessions that asked exactly the same, the one active last is the one kept")
+    check(!copies.contains("hi-one"), "an opening that says nothing identifies no conversation")
+    check(!copies.contains("elsewhere") && !copies.contains("someone-else"),
+          "the same prompt in another folder or another account is another conversation")
+    check(!copies.contains("other-opening"),
+          "a retry starts where the original did, so a different opening is a different chat")
+
+    // A fork copies the whole conversation and asks more, which from the
+    // transcripts alone is exactly what a resumed copy looks like.
+    let forkedAway = [
+        (facts("original", last: 5), trace(["a", "b"], work: shared)),
+        (facts("forked", last: 9), trace(["a", "b", "f"], work: shared.merging(["f1": 3_000]) { $1 })),
+        (facts("retried-original", last: 1), trace(["a"], work: ["h1": 4_000])),
+    ]
+    check(Graft.resumedCopies(forkedAway).contains("original"),
+          "judged by transcripts alone, an original whose fork asked more reads as a copy of it")
+    let forkAware = Graft.resumedCopies(forkedAway, forks: ["forked": "original"])
+    check(!forkAware.contains("original") && !forkAware.contains("forked"),
+          "so neither half of a fork its record owns up to is ever a copy of the other")
+    check(forkAware.contains("retried-original"),
+          "while a retry of the original is still the copy it always was")
+    let freshFork = [(facts("source", last: 5), trace(["a", "b"], work: shared)),
+                     (facts("fresh-fork", last: 9), trace(["a", "b"], work: shared))]
+    check(Graft.resumedCopies(freshFork, forks: ["fresh-fork": "source"]).isEmpty,
+          "and a fork that has asked nothing of its own yet leaves its source standing")
+
+    // And end to end, through a pass.
+    let longer = "22222222-2222-4222-8222-222222222222"
+    let retried = "23232323-2323-4232-8232-232323232323"
+    let branched = "24242424-2424-4242-8242-242424242424"
+    let answered = "25252525-2525-4252-8252-252525252525"
+    let greeted = "26262626-2626-4262-8262-262626262626"
+    _ = makeTranscript(session: longer, owner: account, org: org, title: "Multi-account sync",
+                       last: "2026-08-29T18:00:00.000Z", said: "Two accounts, one history?",
+                       extra: [prompt("Then test it", "p-9")])
+    _ = makeTranscript(session: retried, owner: account, org: org, title: "Multi-account sync",
+                       last: "2026-08-29T19:00:00.000Z", said: "Two accounts, one history?")
+    _ = makeTranscript(session: branched, owner: account, org: org, title: "Multi-account sync",
+                       said: "Two accounts, one history?",
+                       extra: [prompt("Give me a command to delete them", "p-8")])
+    // Asked only what the longer one asked, and answered it where the longer
+    // one did not: the draft that exists nowhere else.
+    let draft = String(repeating: "A finished comment, ready to paste. ", count: 30)
+    _ = makeTranscript(session: answered, owner: account, org: org, title: "Multi-account sync",
+                       said: "Two accounts, one history?", extra: [
+        "{\"parentUuid\":\"u-1\",\"cwd\":\"/Users/test/work\",\"message\":{\"id\":\"m-9\","
+            + "\"content\":[{\"type\":\"text\",\"text\":\"\(draft)\"}]},\"type\":\"assistant\","
+            + "\"uuid\":\"a-draft\",\"timestamp\":\"2026-08-29T17:20:00.000Z\"}",
+    ])
+    // And a greeting, which the longer one also happens to contain.
+    _ = makeTranscript(session: greeted, owner: account, org: org, said: "hi")
+    _ = makeTranscript(session: "27272727-2727-4272-8272-272727272727", owner: account, org: org,
+                       last: "2026-08-29T20:00:00.000Z", said: "hi",
+                       extra: [prompt("Now sync my profiles please", "p-7")])
+    let filed = Set(Graft.fileMissingSessionRecords(filingInto: [home], now: Date().addingTimeInterval(120))
+        .map(\.cliSessionId))
+    check(filed.isSuperset(of: [longer, branched]) && !filed.contains(retried),
+          "a pass files the conversation and its real branch, and not the copy it left behind")
+    check(filed.contains(answered),
+          "and files a retry that holds an answer of its own, since that answer is nowhere else")
+    check(filed.contains(greeted),
+          "and files a chat that only said hi, which is no copy of anything")
+    check(!Graft.exists(homeOrg.appending(path: "local_\(retried).json")),
+          "so the sidebar lists that conversation once")
 }
 
 do {
@@ -3970,6 +4541,52 @@ do {
 }
 
 do {
+    // A fork copies the whole conversation, so once every record is gone at
+    // once — the profile deleted, a sign-in moving its folder — the original
+    // reads as a copy its fork carried on, and a pass filing both again from
+    // their transcripts would have brought back the fork alone.
+    let account = "4d4d4d4d-4d4d-4d4d-8d4d-4d4d4d4d4d4d"
+    let org = "4e4e4e4e-4e4e-4e4e-8e4e-4e4e4e4e4e4e"
+    let original = "4f4f4f4f-4f4f-4f4f-8f4f-4f4f4f4f4f4f"
+    let fork = "50505050-5050-4050-8050-505050505050"
+    let opening = "Plan the move to the new Mac"
+    makeTranscript(session: original, owner: account, org: org, title: "Mac move", said: opening)
+    makeTranscript(session: fork, owner: account, org: org, title: "Mac move (fork)",
+                   last: "2026-08-29T18:00:10.000Z", said: opening, extra: [
+        "{\"parentUuid\":\"a-1\",\"promptId\":\"p-side\",\"cwd\":\"/Users/test/work\","
+            + "\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":\"And the routines on it?\"},"
+            + "\"uuid\":\"u-side\",\"timestamp\":\"2026-08-29T18:00:00.000Z\"}",
+    ])
+    let was = makeProfile("Claude-Forked-Here", account: account, org: org)
+    let wasOrg = was.appending(path: "claude-code-sessions").appending(path: account).appending(path: org)
+    func record(_ name: String, holding session: String, forkedFrom source: String? = nil) {
+        var fields: [String: Any] = ["sessionId": name, "cliSessionId": session]
+        fields["forkedFromSessionId"] = source
+        try! JSONSerialization.data(withJSONObject: fields).write(to: wasOrg.appending(path: "\(name).json"))
+    }
+    record("local_desktop-original", holding: original)
+    record("local_desktop-fork", holding: fork, forkedFrom: "local_desktop-original")
+
+    let untouched = Graft.fileMissingSessionRecords(filingInto: [was], now: Date().addingTimeInterval(120))
+    check(untouched.isEmpty, "a fork and the conversation it came from, both on record, are left alone")
+    check(Graft.loadSessionRecordState().forks[fork] == original,
+          "and a pass remembers which one the fork came from while both records stand")
+
+    try? fm.removeItem(at: was)
+    let now = makeProfile("Claude-Forked-Now", account: account, org: org)
+    let refiled = Set(Graft.fileMissingSessionRecords(filingInto: [now], now: Date().addingTimeInterval(120))
+        .map(\.cliSessionId))
+    check(refiled == [original, fork],
+          "so with every record gone at once, the conversation a fork came from is filed again beside the fork")
+
+    try? fm.removeItem(at: now)
+    for session in [original, fork] {
+        try? fm.removeItem(at: Graft.claudeProjects.appending(path: "-Users-test-work")
+                            .appending(path: "\(session).jsonl"))
+    }
+}
+
+do {
     // The timing guess is for markers this app cannot read by name — a record
     // Claude wrote, under an id no transcript carries. It used to see every
     // marker on the machine, and they accumulate, so one deletion went on
@@ -4306,6 +4923,103 @@ do {
 
     try? fm.removeItem(at: Diagnostics.file)
     Diagnostics.who = ProcessInfo.processInfo.processName
+}
+
+section("Pinned chats and sidebar order")
+do {
+    typealias Side = SidebarSync.Snapshot
+    let old = Side(pins: ["local_a", "local_b"], order: ["local_a", "local_b"], sort: "recency")
+    let unpinned = Side(pins: ["local_b"], order: ["local_b"], sort: "recency")
+    let reordered = Side(pins: old.pins, order: old.order.reversed(), sort: "alpha", orderTime: 20)
+    let first = SidebarSync.merge(unpinned, old, baseline: nil)
+    check(Set(first.pins) == Set(old.pins), "the first sidebar sync keeps pins brought by either profile")
+    check(SidebarSync.merge(unpinned, old, baseline: old).pins == ["local_b"],
+          "unpinning in the borrower is carried to the source")
+    check(SidebarSync.merge(old, unpinned, baseline: old).pins == ["local_b"],
+          "unpinning in the source is carried to the borrower")
+    let none = Side(pins: [], order: [], sort: "recency")
+    check(SidebarSync.merge(none, old, baseline: old).pins.isEmpty,
+          "unpinning the last chats does not restore them from the other profile")
+    check(SidebarSync.merge(old, reordered, baseline: old).order == reordered.order,
+          "a reordered pinned section follows the source")
+    check(SidebarSync.merge(reordered, old, baseline: old).order == reordered.order,
+          "a reordered pinned section follows the borrower")
+    check(SidebarSync.merge(reordered, old, baseline: old).sort == "alpha",
+          "changing the Code sort mode propagates back to the source")
+    let other = Side(pins: ["local_a", "local_c"], order: ["local_c", "local_a"], sort: "created", orderTime: 30)
+    let both = SidebarSync.merge(reordered, other, baseline: old)
+    check(both.pins == ["local_a", "local_c"], "a concurrent new pin survives an unpin in the other profile")
+    check(both.order == ["local_c", "local_a"], "concurrent reorders use the more recently saved order")
+    check(both.sort == "created", "conflicting sort changes consistently prefer the chat source")
+    check(SidebarSync.merge(both, both, baseline: both).sameChoices(as: both),
+          "another sync does not change an agreed sidebar")
+    check(old.restricted(to: ["local_b"]).order == ["local_b"],
+          "a pair only considers chats shared by both profiles")
+    check(SidebarSync.replaceShared(["remote", "local_a", "project", "local_b"],
+          shared: ["local_a", "local_b"], wanted: ["local_b", "local_a"]) == ["remote", "local_b", "project", "local_a"],
+          "reordering shared pins preserves the positions of unrelated sidebar entries")
+
+    let previousSupport = Graft.applicationSupportOverride
+    let isolated = root.appending(path: "sidebar-support")
+    Graft.applicationSupportOverride = isolated
+    defer { Graft.applicationSupportOverride = previousSupport; SidebarSync.storageOverride = nil; Graft.runningClaudesOverride = { [] } }
+    let one = isolated.appending(path: "One"), two = isolated.appending(path: "Two")
+    let a = one.appending(path: "claude-code-sessions/account-one/org-one")
+    let b = two.appending(path: "claude-code-sessions/account-two/org-two")
+    for (profile, folder, account) in [(one,a,"account-one"),(two,b,"account-two")] {
+        try! fm.createDirectory(at: folder, withIntermediateDirectories: true)
+        try! JSONSerialization.data(withJSONObject: ["lastKnownAccountUuid":account]).write(to: profile.appending(path: "config.json"))
+        for id in ["local_a", "local_b"] {
+            try! JSONSerialization.data(withJSONObject: ["sessionId":id,"title":"Keep this title","isArchived":false])
+                .write(to: folder.appending(path: id + ".json"))
+        }
+    }
+    let key = Graft.pairKey(a,b)
+    Graft.saveMirrorState(Graft.MirrorState(pairs: [key: [:]]))
+    var disk = [one.path: none, two.path: old]
+    disk[one.path]!.scope = "account-one/org-one"
+    disk[two.path]!.scope = "account-two/org-two"
+    var reads = 0, writes = 0
+    var refuse = false
+    SidebarSync.storageOverride = { profiles, changes, shared in
+        if let changes {
+            writes += 1
+            if refuse { throw SidebarSync.Failure("test-write-failure") }
+            for profile in profiles { disk[profile.path] = changes[profile.path] }
+        } else { reads += 1 }
+        return disk
+    }
+    Graft.runningClaudesOverride = { [two] }
+    SidebarSync.synchronize(beforeOpening: one)
+    check(reads == 0 && writes == 0, "an open linked profile prevents even opening its sidebar database")
+    Graft.runningClaudesOverride = { [] }
+    SidebarSync.synchronize(beforeOpening: one)
+    check(writes == 1 && disk[one.path]!.sameChoices(as: old), "opening a closed shared profile synchronizes both sidebars")
+    let record = try! JSONSerialization.jsonObject(with: Data(contentsOf: a.appending(path: "local_a.json"))) as! [String:Any]
+    check(record["isStarred"] as? Bool == true && record["title"] as? String == "Keep this title"
+          && record["isArchived"] as? Bool == false, "pin metadata changes without altering a chat's title or archive state")
+    SidebarSync.synchronize(beforeOpening: two)
+    check(writes == 1, "an unchanged sidebar does not rewrite either database")
+    disk[one.path]!.pins = []; disk[one.path]!.order = []
+    refuse = true
+    let baseline = try! Data(contentsOf: isolated.appending(path: "ClaudeGraft/sidebar-sync.json"))
+    SidebarSync.synchronize(beforeOpening: two)
+    check((try! Data(contentsOf: isolated.appending(path: "ClaudeGraft/sidebar-sync.json"))) == baseline,
+          "a failed storage write cannot advance the sidebar baseline")
+    refuse = false
+    SidebarSync.synchronize(beforeOpening: two)
+    check(disk[two.path]!.pins.isEmpty, "the next opening retries an unpin after a failed write")
+    disk[one.path]!.scope = "different-account/other-org"
+    let before = writes
+    SidebarSync.synchronize(beforeOpening: one)
+    check(writes == before, "switching accounts cannot apply pins from the previous account's pair")
+    Graft.saveMirrorState(Graft.MirrorState())
+    let dropped = try! JSONSerialization.jsonObject(with: Data(contentsOf: isolated.appending(path: "ClaudeGraft/sidebar-sync.json"))) as! [String:Any]
+    check((dropped["pairs"] as? [String:Any])?.isEmpty == true,
+          "returning to independent histories forgets the old sidebar agreement")
+    let beforeReads = reads
+    SidebarSync.synchronize(beforeOpening: one)
+    check(reads == beforeReads, "independent profiles never open the sidebar helper")
 }
 
 print("\n\(checks - failures)/\(checks) checks passed")
