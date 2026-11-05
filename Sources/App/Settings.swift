@@ -70,6 +70,8 @@ final class AppSettings: ObservableObject {
         static let menuBar = "showInMenuBar"
         static let seeded = "defaultsSeeded"
         static let holdUpdates = "holdUpdates"
+        static let frontIcon = "showFrontIcon"
+        static let frontName = "showFrontName"
     }
 
     private let defaults: UserDefaults
@@ -90,6 +92,22 @@ final class AppSettings: ObservableObject {
         didSet { defaults.set(holdUpdates, forKey: Key.holdUpdates) }
     }
 
+    /// On unless somebody turns it off, an update included, so a key nobody
+    /// has written reads as on. It widens the item too, but by one icon, and
+    /// only while a Claude is in front — the moment somebody running several
+    /// of them needs to know which one it is.
+    @Published var showFrontIcon: Bool {
+        didSet { defaults.set(showFrontIcon, forKey: Key.frontIcon) }
+    }
+
+    /// Off unless somebody turns it on. The name can widen the item six times
+    /// as far as the icon does, and a bar with no room left drops an item
+    /// rather than squeezing it, so nobody's usage figure disappears because of
+    /// a release they did not ask this of.
+    @Published var showFrontName: Bool {
+        didSet { defaults.set(showFrontName, forKey: Key.frontName) }
+    }
+
     /// Reflects what macOS reports, not a value of our own.
     @Published private(set) var openAtLogin: Bool
 
@@ -103,6 +121,8 @@ final class AppSettings: ObservableObject {
         }
         showInMenuBar = defaults.bool(forKey: Key.menuBar)
         holdUpdates = defaults.bool(forKey: Key.holdUpdates)
+        showFrontIcon = defaults.object(forKey: Key.frontIcon) as? Bool ?? true
+        showFrontName = defaults.bool(forKey: Key.frontName)
         openAtLogin = AppSettings.loginItemEnabled
     }
 

@@ -47,6 +47,7 @@ enum Shared {
     static let store = ShortcutStore()
     static let settings = AppSettings()
     static let usage = UsageMonitor()
+    static let frontmost = FrontmostClaude()
     static let updater = Updater()
     static let sessionRecords = SessionRecords()
     static let updateRecovery = UpdateRecoveryMonitor()
@@ -65,6 +66,8 @@ struct SettingsView: View {
                     get: { settings.openAtLogin },
                     set: { problem = settings.setOpenAtLogin($0) }))
                 Toggle("Show in Menu Bar", isOn: $settings.showInMenuBar)
+                FrontClaudeControl()
+                    .disabled(!settings.showInMenuBar)
                 ManualUpdateControl()
                 HoldUpdatesControl()
             } footer: {
@@ -108,6 +111,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // the window or the dropdown.
         Shared.usage.mayPromptUnasked = !Shared.startHidden
         Shared.usage.start(watching: Shared.store)
+        Shared.frontmost.onActivation = { profile in
+            Shared.usage.claudeCameForward(profile, store: Shared.store)
+        }
+        Shared.frontmost.start(watching: Shared.store)
         Shared.manualUpdates.start(watching: Shared.store)
         Shared.updateRecovery.start(watching: Shared.store)
         Shared.claudeUpdates.start()

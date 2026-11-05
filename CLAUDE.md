@@ -53,7 +53,7 @@ opens and quits none.
 
     ./build.sh                 app + launcher into build.noindex/, this arch only
     GRAFT_UNIVERSAL=1 ./build.sh   both arches, joined with lipo
-    ./test.sh                  574 checks, all in a throwaway directory
+    ./test.sh                  869 checks, all in a throwaway directory
     ./release.sh [--install]   tests, builds universal, draws the icon, signs, packages
 
 ## Invariants
@@ -565,6 +565,15 @@ credentials and follows the same rollout as its eventual native updater. The
 window and dropdown observe the same model. An available release also changes
 the status item to an exclamation mark; Graft's own Sparkle update stays named
 separately.
+
+The line that reports it is one line, two when the words need them. It sits on
+top of the dropdown and the window, above everything either is opened for, and
+as three lines and a button it pushed every account down. Red is kept for a
+release waiting to be installed, the one state asking somebody to act. The
+switches in the dropdown explain themselves on hover for the same reason: a
+note shown while a switch is on stays for as long as it is on. Only a failure
+stays on screen. The layout suite measures the line in every state, in both
+languages, at the window's sizes and at the dropdown's 320 points.
 
 The update button first warns that all current Claude instances and workflows
 will close. Only confirmation authorizes a fresh feed check and graceful quit,
@@ -1156,6 +1165,72 @@ writes machine-wide paths derived from its own executable —
 Chrome for every profile. That is too much to risk for an icon. The limitation
 is stated beside the icon picker and in the README instead.
 
+**The name on hover is the same wall, and so is a badge.** The Dock labels a
+running app with the display name LaunchServices holds for it, and that comes
+from the bundle, so every Claude reads "Claude" whichever profile it is on.
+`_LSSetApplicationInformationItem` — the call Chromium renames its own process
+with — accepts a new name or badge for another app, answers with success and
+changes nothing. Measured on macOS 27 against a throwaway app: from a plain
+tool, from `lsappinfo setinfo`, and from a checked-in app the way Graft is one,
+with `lsappinfo info` and the Dock's accessibility labels unchanged each time,
+while the same check read a badge the app had set on itself. `lsappinfo` carries
+no LaunchServices entitlement and is refused like the rest. An app renaming
+itself does change what LaunchServices holds, and still leaves the label on its
+existing tile as it was.
+
+What does work is the shortcut's own tile. Kept in the Dock it has the
+shortcut's name and icon, and pressing it while that profile is open brings
+that Claude forward instead of starting another — the first guard in
+`Graft.run`.
+
+**The menu bar is where it can be said instead.** `FrontmostClaude` watches
+which app comes forward and matches a Claude to its profile through its command
+line, the lookup a usage refresh already needed when a Claude is brought
+forward, so one `ps` serves both. The status item then carries that shortcut's
+icon, drawn by `Installer.previewIcon` — the code that drew it for Finder, so
+the bar shows what the person picked rather than a second likeness of it — and,
+when asked for, its name on the icon's colour, darkened only as far as white
+text needs.
+
+Graft coming forward leaves it where it was. That is somebody opening the
+dropdown to ask about the Claude they were just using, and dropping it then
+would also narrow the item under the popover anchored to it. A shortcut's own
+launcher is not a Claude, whatever it is called; it is in front for a moment on
+its way to bringing one forward. A lookup spawns a process, so a flick past one
+Claude to another can land the two out of order, and a ticket keeps only the
+newest — though the account a late one names is still asked for its figure.
+
+The figure follows what is shown. With a Claude in the bar the number beside it
+is that account's and never the tightest window's, or one account's figure
+would stand beside another's icon, and a Claude nothing could be drawn for is
+not shown and neither is its figure. The figure carries no colour, so it keeps
+the one the bar picks for the wallpaper behind it. The words go into the
+accessibility title, since pictures in a title read out as nothing.
+
+The icon is on for everybody and the name for nobody until asked. Both widen
+the item, and a full bar drops an item rather than squeezing it — the case
+`isShowing` exists for — but the icon costs one icon's width and only while a
+Claude is in front, where a name can take six times that and is cut short at
+`FrontTag.maximumWidth`. The icon's key is read with `object(forKey:)`, an
+absent one meaning on, because every machine that has it arrived by updating.
+
+**The pictures are lowered by hand.** The status item centres its title as one
+block, a point above the button's middle, and a picture taller than the figure
+is that block: its centre lands on the block's whatever offset it is given, and
+only the figure moves. Graft's own symbol sits half a point below the middle,
+which left the icon and the name a point and a half above it — 10.0 points down
+a 22-point button against the symbol's 11.5, read off a status item placed in
+the real bar. `FrontTitle.drop` is that much empty space on top of each picture:
+what can be seen goes down to the symbol's line, and the block, with the figure
+in it, stays where it was.
+
+The figure is AppKit's text placement, 10.2 points down against the symbol's
+11.4, and once the pictures had moved it was the one thing left high.
+`figureDrop` lowers it a point, in every state, so it does not jump as a Claude
+comes forward. A point and not a point and a half because text lands on whole
+pixels: the larger figure put it half a pixel below the symbol. Measure all of
+this on a status item in the bar.
+
 ## Polling budget
 
 The thirty-second timer reads local files and checks what is running. The API
@@ -1327,6 +1402,17 @@ open account every two and a half minutes beside the closed one's five and a
 half, bringing that Claude forward asking for its account alone within a
 second, a return inside the minute reusing the figure, and switching between
 other apps asking for nothing.
+
+The Claude in front has been watched live with main Claude open and Claude 2
+closed, a recorder reading the status item's accessibility title and frame and
+photographing the bar on every change: the icon by default beside that
+account's figure, the plain headline figure with Finder, Chrome or anything else
+in front and back again, the dropdown leaving it in place, the name alone, the
+two together, both off, and back to the defaults from Settings, with the item
+reachable in all 81 readings. Bringing Claude forward with its figure 91 seconds
+old refreshed it within the second, so the refresh moved with the lookup. Two
+Claudes swapping places in front is the one case not yet seen, since Claude 2
+stayed closed.
 
 Unproven: **Start Session** has never successfully opened a window. It POSTs one
 Haiku message with `max_tokens: 4` and Claude Code's system prompt, which these

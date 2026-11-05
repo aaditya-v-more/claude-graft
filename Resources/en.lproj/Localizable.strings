@@ -130,8 +130,7 @@
 "This shortcut is set to borrow chats from its own profile. Choose a different source." = "This shortcut is set to borrow chats from its own profile. Choose a different source.";
 "Turn on live usage" = "Turn on live usage";
 "Update Shortcut" = "Update Shortcut";
-"Version %@ is available" = "Version %@ is available";
-"Version %@ · Up to date" = "Version %@ · Up to date";
+"%@ · Up to date" = "%@ · Up to date";
 "Violet" = "Violet";
 "Waiting %@ before asking for usage again." = "Waiting %@ before asking for usage again.";
 "Waiting before asking for usage again." = "Waiting before asking for usage again.";
@@ -243,3 +242,7 @@
 "just now" = "just now";
 "Updated %@ from Anthropic" = "Updated %@ from Anthropic";
 "Updated %@ from this profile's own record" = "Updated %@ from this profile's own record";
+"Show the icon of the Claude in front" = "Show the icon of the Claude in front";
+"Show the name of the Claude in front" = "Show the name of the Claude in front";
+"The menu bar shows which Claude you're using, beside that account's usage. The Dock can't: macOS calls every running Claude “Claude”." = "The menu bar shows which Claude you're using, beside that account's usage. The Dock can't: macOS calls every running Claude “Claude”.";
+"%@, %ld%% of 5 hours" = "%@, %ld%% of 5 hours";

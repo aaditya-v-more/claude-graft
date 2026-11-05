@@ -91,6 +91,12 @@ for selection in [ContentView.mainProfileID, shortcut.id] {
         check(UpdateResponse.failing ? Shared.claudeUpdates.problem != nil
               : (Shared.claudeUpdates.availableVersion != nil) == UpdateResponse.available,
               "the header enters the requested \(state) state")
+        // The dropdown is 320 points wide and this line sits on top of every
+        // account in it.
+        let dropdownHeader = NSHostingController(rootView: ClaudeUpdateStatus(compact: true))
+            .sizeThatFits(in: CGSize(width: 320, height: 1000)).height
+        check(dropdownHeader <= (state.hasPrefix("current") ? 32 : 52),
+              "\(state): the dropdown's update line takes \(state.hasPrefix("current") ? "one line" : "two at most")")
         for size in [NSSize(width: 720, height: 460), NSSize(width: 820, height: 560),
                      NSSize(width: 1200, height: 800)] {
             window.setContentSize(size)
@@ -124,14 +130,18 @@ for selection in [ContentView.mainProfileID, shortcut.id] {
             }
             check(titlebars.isEmpty,
                   "\(state), \(size): no extra titlebar covers the profile section heading")
-            // A split view drawn underneath an inset still starts at y=0.
-            // Its own bounds must instead begin below the entire status bar.
-            check(splitBounds.minY >= 45, "\(state), \(size): profiles start below the update header")
+            // A split view drawn underneath an inset still starts at y=0. Its
+            // own bounds must instead begin below the whole update line, at
+            // whatever height the line has in this state, and its divider.
+            let header = NSHostingController(rootView: ClaudeUpdateStatus())
+                .sizeThatFits(in: CGSize(width: size.width, height: 1000)).height
+            check(header >= 30 && abs(splitBounds.minY - (header + 1)) <= 1,
+                  "\(state), \(size): profiles start right below the update header")
+            check(header <= 52, "\(state), \(size): the update header takes two lines at most")
             if state == "current" { currentOffsets[size.width] = splitBounds.minY }
-            if let original = currentOffsets[size.width], state != "current" {
-                check(state == "current-again" ? abs(splitBounds.minY - original) <= 1
-                      : splitBounds.minY > original + 8,
-                      "\(state), \(size): profiles follow the changing header height")
+            if let original = currentOffsets[size.width], state == "available" || state == "current-again" {
+                check(abs(splitBounds.minY - original) <= 1,
+                      "\(state), \(size): the header keeps to one line, a waiting update included")
             }
             check(splitBounds.maxY <= hosting.bounds.maxY + 1,
                   "\(state), \(size): profiles fit inside the window")

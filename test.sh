@@ -28,6 +28,7 @@ swiftc -swift-version 5 \
     "$ROOT/Sources/App/UpdateRecovery.swift" \
     "$ROOT/Sources/App/ClaudeUpdateFlow.swift" \
     "$ROOT/Sources/App/ClaudeDesktopUpdater.swift" \
+    "$ROOT/Sources/App/FrontClaude.swift" \
     "$ROOT/Tests/main.swift" \
     -o "$BUILD/tests"
 

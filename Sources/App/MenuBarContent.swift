@@ -89,11 +89,15 @@ struct MenuBarContent: View {
                 .padding(.bottom, 8)
             }
 
+            // Each switch explains itself on hover, never underneath: a note
+            // shown while a switch is on stays for as long as it is, and the
+            // dropdown grew a paragraph for every one somebody had turned on.
             VStack(alignment: .leading, spacing: 6) {
                 Toggle("Open at Login", isOn: Binding(
                     get: { settings.openAtLogin },
                     set: { problem = settings.setOpenAtLogin($0) }))
                 Toggle("Show in Menu Bar", isOn: $settings.showInMenuBar)
+                FrontClaudeControl()
                 ManualUpdateControl()
                 HoldUpdatesControl()
             }
@@ -355,20 +359,33 @@ struct UsageFreshness: View {
 
 }
 
+/// The Claude in front, put in the bar because the Dock gives every one of them
+/// Claude's own name and icon and macOS will not let anything else change that.
+struct FrontClaudeControl: View {
+    @EnvironmentObject private var settings: AppSettings
+
+    /// A group rather than a stack, so that Settings gives each switch a row
+    /// of its own like every other one there.
+    var body: some View {
+        Group {
+            Toggle("Show the icon of the Claude in front", isOn: $settings.showFrontIcon)
+            Toggle("Show the name of the Claude in front", isOn: $settings.showFrontName)
+        }
+        .help("The menu bar shows which Claude you're using, beside that account's usage. The Dock can't: macOS calls every running Claude “Claude”.")
+        .font(.callout)
+        .fixedSize(horizontal: false, vertical: true)
+    }
+}
+
 /// Graft's own updates, beside the switch for Claude's. The two are separate on
 /// purpose: one holds back the app doing the reporting, the other every Claude.
 struct HoldUpdatesControl: View {
     @EnvironmentObject private var settings: AppSettings
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Toggle("Hold Claude Graft updates", isOn: $settings.holdUpdates)
-            if settings.holdUpdates {
-                Text("Graft still checks every hour and says when a version is ready, in this menu and on its icon. Nothing downloads until you press Install.")
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .font(.callout)
-        .fixedSize(horizontal: false, vertical: true)
+        Toggle("Hold Claude Graft updates", isOn: $settings.holdUpdates)
+            .help("Graft still checks every hour and says when a version is ready, in this menu and on its icon. Nothing downloads until you press Install.")
+            .font(.callout)
+            .fixedSize(horizontal: false, vertical: true)
     }
 }

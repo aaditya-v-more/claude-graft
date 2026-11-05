@@ -59,6 +59,13 @@ final class UsageMonitor: ObservableObject {
             guard let usage else { return false }
             return !isLive && usage.isStale
         }
+
+        /// The figures, when they still say something about the window now. A
+        /// figure read off disk hours ago does not, and the bar leaves it out.
+        var currentUsage: Graft.Usage? {
+            guard let usage, isLive || !usage.isStale else { return nil }
+            return usage
+        }
     }
 
     @Published private(set) var entries: [Entry] = []
@@ -227,16 +234,23 @@ final class UsageMonitor: ObservableObject {
     /// With nothing open there is no such answer, so it falls back to whichever
     /// is closest to its limit.
     var headlineEntry: Entry? {
-        let usable = entries.filter { entry in
-            guard let usage = entry.usage else { return false }
-            return entry.isLive || !usage.isStale
-        }
+        let usable = entries.filter { $0.currentUsage != nil }
         let running = usable.filter(\.isRunning)
         let pool = running.isEmpty ? usable : running
         return pool.max { ($0.usage?.fiveHour ?? 0) < ($1.usage?.fiveHour ?? 0) }
     }
 
     var headline: Int? { headlineEntry?.usage?.fiveHour }
+
+    /// The account the menu bar is about, and whether it is named there.
+    ///
+    /// Named, it is the Claude in front whatever its figures say. Unnamed, the
+    /// tightest window open is the right figure to show; with a name beside
+    /// it, another account's figure would be read as that account's own.
+    func statusEntry(front: URL?) -> (entry: Entry, named: Bool)? {
+        if let front, let named = entry(for: front) { return (named, true) }
+        return headlineEntry.map { ($0, false) }
+    }
 
     /// What the last pass found for one profile, for a view that shows a single
     /// account rather than all of them.
@@ -263,35 +277,15 @@ final class UsageMonitor: ObservableObject {
         }
         RunLoop.main.add(timer, forMode: .common)
         self.timer = timer
-        watchActivations(store)
     }
-
-    private var activationWatch: NSObjectProtocol?
 
     /// Bringing a Claude to the front is switching to that account, which is
     /// the moment its figure matters. Only that profile is asked, and only as
     /// often as someone looking may ask, so flicking between windows costs at
-    /// most one request a minute.
-    private func watchActivations(_ store: ShortcutStore) {
-        activationWatch = NSWorkspace.shared.notificationCenter.addObserver(
-            forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main
-        ) { [weak self, weak store] note in
-            guard let self, let store,
-                  let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
-                  app.bundleURL.map({ Graft.samePath($0, Graft.claudeApp) }) == true
-            else { return }
-            let pid = app.processIdentifier
-            let profiles = [Graft.mainProfile] + store.shortcuts
-                .filter { $0.installedName != nil }.map(\.profileDir)
-            DispatchQueue.global(qos: .utility).async {
-                guard let command = Graft.processes().first(where: { $0.id == pid })?.command,
-                      let profile = Self.profile(launchedBy: command, among: profiles)
-                else { return }
-                DispatchQueue.main.async {
-                    self.refresh(store, freshness: .recent, focus: profile)
-                }
-            }
-        }
+    /// most one request a minute. `FrontmostClaude` reports the switch, since
+    /// the name in the bar needs the same lookup.
+    func claudeCameForward(_ profile: URL, store: ShortcutStore) {
+        refresh(store, freshness: .recent, focus: profile)
     }
 
     /// Used by the tests to drive the menu bar figure without a filesystem.

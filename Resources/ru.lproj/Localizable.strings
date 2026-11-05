@@ -130,8 +130,7 @@
 "This shortcut is set to borrow chats from its own profile. Choose a different source." = "Ярлык настроен на получение чатов из собственного профиля. Выберите другой источник.";
 "Turn on live usage" = "Включить актуальные данные";
 "Update Shortcut" = "Обновить ярлык";
-"Version %@ is available" = "Доступна версия %@";
-"Version %@ · Up to date" = "Версия %@ · Актуальна";
+"%@ · Up to date" = "%@ · актуальна";
 "Violet" = "Фиолетовая";
 "Waiting %@ before asking for usage again." = "Повторный запрос данных будет доступен через %@.";
 "Waiting before asking for usage again." = "Ожидание перед повторным запросом данных.";
@@ -243,3 +242,7 @@
 "just now" = "только что";
 "Updated %@ from Anthropic" = "Обновлено %@, данные Anthropic";
 "Updated %@ from this profile's own record" = "Обновлено %@, по записи самого профиля";
+"Show the icon of the Claude in front" = "Показывать иконку активного Claude";
+"Show the name of the Claude in front" = "Показывать имя активного Claude";
+"The menu bar shows which Claude you're using, beside that account's usage. The Dock can't: macOS calls every running Claude “Claude”." = "Строка меню показывает, какой Claude вы используете, рядом с данными об использовании этой учётной записи. Dock так не умеет: macOS называет каждый запущенный Claude «Claude».";
+"%@, %ld%% of 5 hours" = "%@, %ld%% за 5 часов";
