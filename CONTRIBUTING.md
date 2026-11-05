@@ -13,9 +13,9 @@ arrives hours later as chats missing from a sidebar, naming none of the code
 that took them.
 
 So the code is written around telling two indistinguishable situations apart,
-and every rule that does so is written down in `CLAUDE.md` along with the
-incident that taught it. Read the part covering whatever you are about to
-change. A patch that looks obviously right and contradicts one of those
+and every rule that does so is listed in `CLAUDE.md`, with the incident that
+taught it written up in the note under `notes/` that the rule links to. Read the
+note covering whatever you are about to change. A patch that looks obviously right and contradicts one of those
 paragraphs is usually the same mistake being made a second time.
 
 ## Getting set up
