@@ -202,6 +202,13 @@ Graft diagnostics.
 Live usage borrows only the access token through Windows DPAPI. The five-hour,
 weekly and optional Fable limits come from Anthropic. Refresh honors the service's
 retry delay, and Start Session sends a message only when its button is pressed.
+Plans with no five-hour limit show "No 5-hour limit" and their weekly usage;
+Start Session is hidden because there is no five-hour window to open. A zero
+five-hour figure still represents a limited, idle plan. The Desktop history
+fallback follows the same conservative rule as macOS: a stray weekly-only sample
+keeps the last complete reading and its original timestamp, while consecutive
+weekly-only samples with no recent five-hour figure for that organization can
+establish that the plan has no five-hour limit.
 
 ## Shared chats and settings
 

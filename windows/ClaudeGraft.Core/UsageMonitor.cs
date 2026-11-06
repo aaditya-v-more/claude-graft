@@ -19,6 +19,9 @@ public sealed record UsageEntry
     public bool IsLive { get; init; }
     public string? Plan { get; init; }
     public bool HasUsage => Usage is not null;
+    // Unknown usage leaves the explicit action available; a known plan without
+    // a five-hour window has no session window for that action to open.
+    public bool MayStartSession => Usage is null || Usage.FiveHour is not null;
 }
 
 public static class UsageMonitor
@@ -60,7 +63,7 @@ public static class UsageMonitor
         var fiveHourElapsed = age > TimeSpan.FromHours(5);
         return disk with
         {
-            FiveHour = fiveHourElapsed ? 0 : disk.FiveHour,
+            FiveHour = fiveHourElapsed && disk.FiveHour is not null ? 0 : disk.FiveHour,
             FiveHourReset = fiveHourElapsed ? null : disk.FiveHourReset,
             Week = age > TimeSpan.FromDays(7) ? 0 : disk.Week,
         };

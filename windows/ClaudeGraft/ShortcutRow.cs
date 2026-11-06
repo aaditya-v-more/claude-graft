@@ -67,6 +67,7 @@ public sealed class ShortcutRow : INotifyPropertyChanged
         foreach (var name in new[]
         {
             nameof(FiveHour), nameof(Week), nameof(FiveHourText), nameof(WeekText),
+            nameof(FiveHourVisibility), nameof(NoFiveHourLimitVisibility),
             nameof(BarsVisibility), nameof(NoUsageVisibility),
             nameof(Fable), nameof(FableText), nameof(FableVisibility),
             nameof(FiveHourPercent), nameof(WeekPercent), nameof(FablePercent),
@@ -79,6 +80,7 @@ public sealed class ShortcutRow : INotifyPropertyChanged
             && (entry.Usage?.FiveHourReset is DateTimeOffset r && r > DateTimeOffset.UtcNow
                 || entry.Usage?.FiveHour > 0);
         Notify(nameof(StartEnabled));
+        Notify(nameof(StartVisibility));
         Notify(nameof(StartTooltip));
 
         // Last, so the bars have this reading's values before the sweep reads them
@@ -94,9 +96,11 @@ public sealed class ShortcutRow : INotifyPropertyChanged
     /// one is open — a second message neither restarts nor extends it — so the
     /// button greys out while a window is confirmed open, and while a start of its
     /// own is already in flight.
-    public bool StartEnabled => !_starting && !_windowOpen;
+    public bool StartEnabled => !_starting && !_windowOpen && (_usage?.MayStartSession ?? true);
 
-    public string StartTooltip => _windowOpen
+    public string StartTooltip => _usage?.MayStartSession == false
+        ? "This account has no five-hour limit"
+        : _windowOpen
         ? "This account's five-hour window is already open"
         : "Sends one short message to this account to open its five-hour window";
 
@@ -116,6 +120,9 @@ public sealed class ShortcutRow : INotifyPropertyChanged
     public Visibility FableVisibility => _usage?.Usage?.Fable is null ? Visibility.Collapsed : Visibility.Visible;
 
     public string FiveHourText => Line("5 hours", FiveHour, _usage?.Usage?.FiveHourReset);
+    public Visibility FiveHourVisibility => _usage?.Usage?.FiveHour is not null ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility NoFiveHourLimitVisibility => _usage?.HasUsage == true && _usage.Usage!.FiveHour is null
+        ? Visibility.Visible : Visibility.Collapsed;
     public string WeekText => Line("Week", Week, _usage?.Usage?.WeekReset);
 
     private static string Line(string label, int percent, DateTimeOffset? reset)
@@ -148,7 +155,8 @@ public sealed class ShortcutRow : INotifyPropertyChanged
         }
     }
 
-    public Visibility StartVisibility => _starting ? Visibility.Collapsed : Visibility.Visible;
+    public Visibility StartVisibility => _starting || _usage?.MayStartSession == false
+        ? Visibility.Collapsed : Visibility.Visible;
     public Visibility StartingVisibility => _starting ? Visibility.Visible : Visibility.Collapsed;
 
     private string? _problem;

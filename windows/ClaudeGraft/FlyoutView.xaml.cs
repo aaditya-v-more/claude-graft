@@ -96,7 +96,7 @@ public sealed partial class FlyoutView : UserControl
     /// for twice.
     private async void Start_Click(object sender, RoutedEventArgs e)
     {
-        if (sender is not FrameworkElement { Tag: ShortcutRow row } || row.Starting) return;
+        if (sender is not FrameworkElement { Tag: ShortcutRow row } || !row.StartEnabled) return;
         row.Problem = null;
         row.Starting = true;
         var profile = row.ProfileDir;

@@ -18,7 +18,7 @@ public static class UsageApi
     public sealed record Reading
     {
         public DateTimeOffset Sampled { get; init; } = DateTimeOffset.UtcNow;
-        public required int FiveHour { get; init; }
+        public required int? FiveHour { get; init; }
         public required int Week { get; init; }
         public DateTimeOffset? FiveHourReset { get; init; }
         public DateTimeOffset? WeekReset { get; init; }
@@ -64,14 +64,20 @@ public static class UsageApi
     /// Separated from the request so the shape of the answer can be tested.
     public static Reading? ReadingFrom(JsonElement body)
     {
-        if (Window(body, "five_hour") is not { } session) return null;
+        if (body.ValueKind != JsonValueKind.Object) return null;
+        var sentSession = body.TryGetProperty("five_hour", out var rawSession)
+            && rawSession.ValueKind != JsonValueKind.Null;
+        var session = Window(body, "five_hour");
         var weekly = Window(body, "seven_day");
+        // Missing or null means this plan has no five-hour limit. A supplied
+        // but malformed window must not turn a limited plan into that case.
+        if (sentSession && session is null || session is null && weekly is null) return null;
         var fable = FableWindow(body);
         return new Reading
         {
-            FiveHour = session.used,
+            FiveHour = session?.used,
             Week = weekly?.used ?? 0,
-            FiveHourReset = session.resets,
+            FiveHourReset = session?.resets,
             WeekReset = weekly?.resets,
             Fable = fable?.used,
             FableReset = fable?.resets,

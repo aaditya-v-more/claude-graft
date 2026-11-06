@@ -93,6 +93,14 @@ complete sample of that organization is the figure, and gaps neither read as
 reading may become the default for the other. In November 2026 this machine's
 own histories held no sample without `fh`.
 
+Windows uses the same API distinction and history classifier in `UsageApi` and
+`Graft.UsageOf`. `UsageEntry.MayStartSession` keeps the explicit session action
+available when usage is unknown, but hides it for a known plan without a
+five-hour limit. Both the manager and flyout show "No 5-hour limit" beside the
+weekly reading. Aging a Windows disk reading to zero after its window expires
+must preserve an absent five-hour limit as null; it must not invent an idle
+limited plan. The Windows tray icon does not display a usage headline.
+
 Claude Code's command line keeps **one** login for the whole machine in the
 keychain, so `CLAUDE_CONFIG_DIR` does not isolate accounts. That is why Start
 Session goes through each profile's own borrowed token rather than the CLI.

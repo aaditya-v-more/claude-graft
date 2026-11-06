@@ -62,10 +62,15 @@
                                  read "· 0%" until the figures land. -->
                             <StackPanel Spacing="4" Visibility="{x:Bind BarsVisibility, Mode=OneWay}">
                                 <TextBlock Text="{x:Bind FiveHourText, Mode=OneWay}"
+                                           Visibility="{x:Bind FiveHourVisibility, Mode=OneWay}"
                                            Style="{StaticResource CaptionTextBlockStyle}"
                                            Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                                 <local:MacProgressBar Value="{x:Bind FiveHour, Mode=OneWay}" Maximum="100"
+                                             Visibility="{x:Bind FiveHourVisibility, Mode=OneWay}"
                                              Style="{StaticResource MacProgress}" local:BarPulse.Key="{x:Bind Pulse, Mode=OneWay}" />
+                                <TextBlock Text="No 5-hour limit" Visibility="{x:Bind NoFiveHourLimitVisibility, Mode=OneWay}"
+                                           Style="{StaticResource CaptionTextBlockStyle}"
+                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                                 <TextBlock Text="{x:Bind WeekText, Mode=OneWay}" Margin="0,4,0,0"
                                            Style="{StaticResource CaptionTextBlockStyle}"
                                            Foreground="{ThemeResource TextFillColorSecondaryBrush}" />

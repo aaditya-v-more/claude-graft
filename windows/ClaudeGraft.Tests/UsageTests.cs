@@ -32,9 +32,44 @@ public class UsageApiTests
         Assert.Equal(0, reading.Week);
     }
 
-    [Fact(DisplayName = "a response with no five-hour window is unreadable")]
-    public void RejectsMissingSession() =>
-        Assert.Null(UsageApi.ReadingFrom(Body("{\"seven_day\":{\"utilization\":10}}")));
+    [Theory(DisplayName = "a null or absent five-hour window preserves the weekly-only plan")]
+    [InlineData("{\"five_hour\":null,\"seven_day\":{\"utilization\":94,\"resets_at\":\"2026-11-10T22:00:00Z\"}}")]
+    [InlineData("{\"seven_day\":{\"utilization\":94,\"resets_at\":\"2026-11-10T22:00:00Z\"}}")]
+    public void AcceptsNoFiveHourLimit(string json)
+    {
+        var reading = UsageApi.ReadingFrom(Body(json));
+        Assert.NotNull(reading);
+        Assert.Null(reading.FiveHour);
+        Assert.Null(reading.FiveHourReset);
+        Assert.Equal(94, reading.Week);
+        Assert.Equal(DateTimeOffset.Parse("2026-11-10T22:00:00Z"), reading.WeekReset);
+    }
+
+    [Fact(DisplayName = "zero usage is an idle limited plan, not an absent limit")]
+    public void IdleLimitedPlanKeepsZero()
+    {
+        var reading = UsageApi.ReadingFrom(Body("{\"five_hour\":{\"utilization\":0,\"resets_at\":null},\"seven_day\":{\"utilization\":94}}"));
+        Assert.NotNull(reading);
+        Assert.Equal(0, reading.FiveHour);
+        Assert.Null(reading.FiveHourReset);
+    }
+
+    [Theory(DisplayName = "an unreadable supplied five-hour window is rejected even with weekly usage")]
+    [InlineData("{}")]
+    [InlineData("{\"utilization\":null}")]
+    [InlineData("{\"utilization\":\"0\"}")]
+    [InlineData("\"unreadable\"")]
+    [InlineData("false")]
+    public void RejectsMalformedSession(string window) =>
+        Assert.Null(UsageApi.ReadingFrom(Body("{\"five_hour\":" + window + ",\"seven_day\":{\"utilization\":94}}")));
+
+    [Theory(DisplayName = "at least one readable limit must be supplied")]
+    [InlineData("{}")]
+    [InlineData("{\"five_hour\":null}")]
+    [InlineData("{\"five_hour\":null,\"seven_day\":null}")]
+    [InlineData("{\"seven_day\":{\"utilization\":\"94\"}}")]
+    [InlineData("null")]
+    public void RejectsMissingLimits(string json) => Assert.Null(UsageApi.ReadingFrom(Body(json)));
 }
 
 public class UsageDiskTests
@@ -82,6 +117,142 @@ public class UsageDiskTests
     {
         using var t = new TempDir();
         Assert.Null(Graft.UsageOf(t.Dir("empty")));
+    }
+
+    private static DateTimeOffset Now => DateTimeOffset.FromUnixTimeMilliseconds(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+
+    private static Usage? Read(params (DateTimeOffset time, int? fiveHour, int week, string? org)[] samples)
+    {
+        using var t = new TempDir();
+        var profile = t.Dir("profile");
+        var rows = samples.Select(s =>
+        {
+            var values = new Dictionary<string, int> { ["sd"] = s.week };
+            if (s.fiveHour is int figure) values["fh"] = figure;
+            return new { t = s.time.ToUnixTimeMilliseconds(), org = s.org, u = values };
+        });
+        File.WriteAllText(Path.Combine(profile, "plan-usage-history.json"), JsonSerializer.Serialize(new { samples = rows }));
+        return Graft.UsageOf(profile);
+    }
+
+    [Fact(DisplayName = "consecutive weekly-only history after an old limit reads the latest week")]
+    public void ReadsWeeklyOnlyHistory()
+    {
+        var now = Now;
+        var usage = Read((now.AddDays(-8), 50, 55, "org"), (now.AddHours(-2), null, 93, "org"), (now, null, 94, "org"));
+        Assert.NotNull(usage);
+        Assert.Null(usage.FiveHour);
+        Assert.Equal(94, usage.Week);
+        Assert.Equal(now, usage.Sampled);
+        Assert.Null(usage.FiveHourReset);
+    }
+
+    [Fact(DisplayName = "an account's first weekly-only sample establishes no five-hour limit")]
+    public void ReadsFirstWeeklyOnlySample()
+    {
+        var usage = Read((Now, null, 3, "org"));
+        Assert.NotNull(usage);
+        Assert.Null(usage.FiveHour);
+        Assert.Equal(3, usage.Week);
+    }
+
+    [Fact(DisplayName = "zero in disk history remains an idle limited window")]
+    public void ZeroRemainsLimited()
+    {
+        var now = Now;
+        var usage = Read((now.AddHours(-1), 0, 93, "org"), (now, 0, 94, "org"));
+        Assert.NotNull(usage);
+        Assert.Equal(0, usage.FiveHour);
+        Assert.Equal(94, usage.Week);
+        Assert.Null(usage.FiveHourReset);
+    }
+
+    [Fact(DisplayName = "a stray weekly-only sample retains the last complete figures and their age")]
+    public void IncompleteSampleDoesNotRefreshOlderFigures()
+    {
+        var now = Now;
+        var usage = Read((now.AddHours(-2), 30, 40, "org"), (now.AddHours(-1), 35, 41, "org"), (now, null, 42, "org"));
+        Assert.NotNull(usage);
+        Assert.Equal(35, usage.FiveHour);
+        Assert.Equal(41, usage.Week);
+        Assert.Equal(now.AddHours(-1), usage.Sampled);
+    }
+
+    [Theory(DisplayName = "recent complete history or only one later gap keeps a limited account limited")]
+    [InlineData(3, true)]
+    [InlineData(30, false)]
+    public void DoesNotInferNoLimitPrematurely(int hoursAgo, bool secondGap)
+    {
+        var now = Now;
+        var samples = new List<(DateTimeOffset, int?, int, string?)> { (now.AddHours(-hoursAgo), 30, 40, "org") };
+        if (secondGap) samples.Add((now.AddHours(-1), null, 41, "org"));
+        samples.Add((now, null, 42, "org"));
+        var usage = Read(samples.ToArray());
+        Assert.NotNull(usage);
+        Assert.Equal(30, usage.FiveHour);
+        Assert.Equal(40, usage.Week);
+        Assert.Equal(now.AddHours(-hoursAgo), usage.Sampled);
+    }
+
+    [Theory(DisplayName = "another organization's limit cannot classify the current account")]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ClassifiesOnlyOwnOrganization(bool interleaved)
+    {
+        var now = Now;
+        var usage = interleaved
+            ? Read((now.AddHours(-2), null, 90, "own"), (now.AddHours(-1), 40, 50, "other"), (now, null, 94, "own"))
+            : Read((now.AddHours(-2), 40, 50, "other"), (now.AddHours(-1), null, 90, "own"), (now, null, 94, "own"));
+        Assert.NotNull(usage);
+        Assert.Null(usage.FiveHour);
+        Assert.Equal(94, usage.Week);
+        Assert.Equal("own", usage.Organization);
+    }
+
+    [Fact(DisplayName = "a history gap cannot restart a limited account's five-hour countdown")]
+    public void GapDoesNotMoveReset()
+    {
+        var now = Now;
+        var usage = Read((now.AddHours(-3), 0, 40, "org"), (now.AddHours(-2), 30, 41, "org"),
+                         (now.AddHours(-1), null, 42, "org"), (now, 40, 43, "org"));
+        Assert.NotNull(usage);
+        Assert.Equal(now.AddHours(3), usage.FiveHourReset);
+    }
+
+    [Fact(DisplayName = "weekly-only history still infers and rolls the weekly reset")]
+    public void WeeklyOnlyResetStillRolls()
+    {
+        var now = Now;
+        var resetSample = now.AddDays(-19).AddHours(-21);
+        var usage = Read((now.AddDays(-20), 20, 60, "org"), (resetSample, null, 2, "org"), (now, null, 30, "org"));
+        Assert.NotNull(usage);
+        Assert.Null(usage.FiveHour);
+        Assert.Equal(resetSample.AddDays(21), usage.WeekReset);
+    }
+
+    [Theory(DisplayName = "cached live and disk weekly-only readings both hide Start Session")]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void NoLimitSurvivesMonitor(bool fromLive)
+    {
+        var now = Now;
+        var sampled = now.AddHours(-6);
+        var entry = fromLive
+            ? UsageMonitor.LatestEntry(new UsageApi.Reading { FiveHour = null, Week = 94, Sampled = sampled }, null, now)
+            : UsageMonitor.LatestEntry(null, new Usage { FiveHour = null, Week = 94, Sampled = sampled }, now);
+        Assert.True(entry.HasUsage);
+        Assert.Equal(fromLive, entry.IsLive);
+        Assert.Null(entry.Usage!.FiveHour);
+        Assert.Equal(94, entry.Usage.Week);
+        Assert.Equal(sampled, entry.Usage.Sampled);
+        Assert.False(entry.MayStartSession);
+    }
+
+    [Fact(DisplayName = "unknown usage and an idle limited plan retain the explicit session action")]
+    public void UnknownAndLimitedMayStartSession()
+    {
+        Assert.True(new UsageEntry().MayStartSession);
+        Assert.True(new UsageEntry { Usage = new Usage { FiveHour = 0, Week = 94, Sampled = Now } }.MayStartSession);
     }
 }
 
