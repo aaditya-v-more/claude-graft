@@ -330,15 +330,35 @@ func sample(_ name: String, _ profile: URL, _ id: UUID?) -> UsageMonitor.Entry {
                                           fable: 0, fableReset: now.addingTimeInterval(4 * 86400)),
                        isRunning: id == nil, shortcut: id, isLive: true, plan: "Max", refreshed: now)
 }
+// An account with no five-hour limit, as the service has answered for one
+// since November 2026.
+let unlimitedProfile = shortcut.profileDir.deletingLastPathComponent().appending(path: "Claude-Unlimited")
+let unlimited = UsageMonitor.Entry(name: "Claude 3", profile: unlimitedProfile,
+                                   usage: Graft.Usage(fiveHour: nil, week: 94, organization: nil, sampled: now,
+                                                      weekReset: now.addingTimeInterval(3 * 86400)),
+                                   isRunning: false, shortcut: UUID(), isLive: true, plan: "Max",
+                                   refreshed: now)
 let rows = hosted(VStack(spacing: 0) {
     UsageRow(entry: sample("Claude", Graft.mainProfile, nil), starting: false,
              open: {}, start: {}, refresh: {})
     UsageRow(entry: sample("Claude 2", shortcut.profileDir, shortcut.id), starting: false,
              open: {}, start: {}, refresh: {})
+    UsageRow(entry: unlimited, starting: false, open: {}, start: {}, refresh: {})
 }
 .frame(width: 320)
 .environment(\.controlSurface, ControlSurface.dropdown), title: "Account rows check")
-let rowTree = checkAccessibility(rows, surface: ControlSurface.dropdown, "two accounts in the dropdown")
+let rowTree = checkAccessibility(rows, surface: ControlSurface.dropdown,
+                                 "three accounts in the dropdown, one without a five-hour limit")
+let third = "dropdown.\(unlimitedProfile.lastPathComponent)."
+let noLimit = element(third + "no-five-hour-limit", in: rowTree)
+check(noLimit.map { [$0.name, $0.value].contains(L10n.text("No 5-hour limit on this account")) } == true,
+      "an account with no five-hour limit says so where its five-hour bar would be")
+check(element(third + "five-hour", in: rowTree) == nil,
+      "rather than drawing a bar stuck at nothing used")
+check(element(third + "week", in: rowTree)?.role == kAXProgressIndicatorRole,
+      "and its week is still a bar of its own")
+check(element(third + "start-session", in: rowTree) == nil && element(third + "open", in: rowTree) != nil,
+      "it offers no session to start, having no window for one to open, but can still be opened")
 let second = "dropdown.\(shortcut.profileDir.lastPathComponent)."
 check(element(second + "open", in: rowTree)?.name == L10n.format("Open %@", "Claude 2"),
       "each account's Open says which Claude it opens")

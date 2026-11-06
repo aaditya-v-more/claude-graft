@@ -882,6 +882,14 @@ func writeUsage(_ profile: URL, _ samples: [(Double, Int, Int)]) {
     try! data.write(to: profile.appending(path: "plan-usage-history.json"))
 }
 
+/// Samples exactly as Claude writes them, for the ones `writeUsage` cannot
+/// spell: a sample without `fh`, or one from another organization.
+func writeSamples(_ profile: URL, _ samples: [[String: Any]]) {
+    let payload: [String: Any] = ["version": 2, "samples": samples]
+    try! JSONSerialization.data(withJSONObject: payload)
+        .write(to: profile.appending(path: "plan-usage-history.json"))
+}
+
 do {
     let profile = makeProfile("Claude-Usage", account: "AAAA", org: "ORG1")
     check(Graft.usage(of: profile) == nil, "a profile with no history reports nothing")
@@ -898,16 +906,61 @@ do {
     check(Graft.usage(of: profile)?.isStale == true,
           "a sample older than the five-hour window is stale")
 
-    // Claude has been seen to write samples with a missing figure.
-    let partial: [String: Any] = [
-        "version": 2,
-        "samples": [["t": now, "org": "ORG1", "u": ["sd": 5]],
-                    ["t": now - 1000, "org": "ORG1", "u": ["fh": 7, "sd": 8]]],
-    ]
-    try! JSONSerialization.data(withJSONObject: partial)
-        .write(to: profile.appending(path: "plan-usage-history.json"))
-    check(Graft.usage(of: profile)?.fiveHour == 7,
-          "a sample missing a figure is skipped for the last complete one")
+    // What an account with no five-hour limit has written since November 2026,
+    // after complete samples from before: `{"sd": 94}`, with no `fh` at all.
+    let hour = 3_600_000.0
+    writeSamples(profile, [["t": now - 8 * 24 * hour, "org": "ORG1", "u": ["fh": 50, "sd": 55]],
+                           ["t": now - 2 * hour, "org": "ORG1", "u": ["sd": 93]],
+                           ["t": now, "org": "ORG1", "u": ["sd": 94]]])
+    let unlimited = Graft.usage(of: profile)
+    check(unlimited.map { $0.fiveHour == nil } == true,
+          "an account that has stopped writing the five-hour figure has no five-hour limit")
+    check(unlimited.map { $0.week == 94 && !$0.isStale && $0.fiveHourReset == nil } == true,
+          "and its newest weekly figure is the one reported, with no five-hour reset to count down to")
+    check(unlimited?.headline == Graft.Usage.Headline(percent: 94, isWeekly: true),
+          "and its week is the figure it gives the menu bar")
+
+    writeSamples(profile, [["t": now, "org": "ORG1", "u": ["sd": 3]]])
+    check(Graft.usage(of: profile).map { $0.fiveHour == nil && $0.week == 3 } == true,
+          "so has an account whose whole history is without it")
+
+    writeUsage(profile, [(now - hour, 0, 40), (now, 0, 41)])
+    check(Graft.usage(of: profile)?.fiveHour == 0,
+          "a limited account with nothing spent reads zero, keeping its limit")
+    check(Graft.usage(of: profile)?.headline == Graft.Usage.Headline(percent: 0, isWeekly: false),
+          "and still gives the menu bar its five-hour figure")
+
+    writeSamples(profile, [["t": now - 2 * hour, "org": "ORG1", "u": ["fh": 30, "sd": 40]],
+                           ["t": now - hour, "org": "ORG1", "u": ["fh": 35, "sd": 41]],
+                           ["t": now, "org": "ORG1", "u": ["sd": 42]]])
+    let gap = Graft.usage(of: profile)
+    check(gap?.fiveHour == 35 && gap?.week == 41,
+          "a limited account's sample without the figure is a gap, and the last complete one stands")
+    check(gap.map { abs($0.sampled.timeIntervalSince1970 * 1000 - (now - hour)) < 1 } == true,
+          "dated by when that one was taken")
+
+    writeSamples(profile, [["t": now - 3 * hour, "org": "ORG1", "u": ["fh": 30, "sd": 40]],
+                           ["t": now - hour, "org": "ORG1", "u": ["sd": 41]],
+                           ["t": now, "org": "ORG1", "u": ["sd": 42]]])
+    check(Graft.usage(of: profile)?.fiveHour == 30,
+          "nor do two such samples end the limit while the figure was written in the five hours before")
+
+    writeSamples(profile, [["t": now - 30 * hour, "org": "ORG1", "u": ["fh": 20, "sd": 40]],
+                           ["t": now, "org": "ORG1", "u": ["sd": 42]]])
+    check(Graft.usage(of: profile)?.fiveHour == 20,
+          "and one on its own after a long silence is not enough to call the limit gone")
+
+    writeSamples(profile, [["t": now - 2 * hour, "org": "ORG2", "u": ["fh": 60, "sd": 70]],
+                           ["t": now - hour, "org": "ORG1", "u": ["sd": 20]],
+                           ["t": now, "org": "ORG1", "u": ["sd": 21]]])
+    check(Graft.usage(of: profile).map { $0.fiveHour == nil && $0.week == 21 && $0.organization == "ORG1" } == true,
+          "an account signed in after a limited one is judged by its own samples alone")
+
+    writeSamples(profile, [["t": now - 2 * hour, "org": "ORG1", "u": ["sd": 20]],
+                           ["t": now - hour, "org": "ORG2", "u": ["fh": 60, "sd": 70]],
+                           ["t": now, "org": "ORG1", "u": ["sd": 21]]])
+    check(Graft.usage(of: profile).map { $0.fiveHour == nil && $0.organization == "ORG1" } == true,
+          "including when the other account's sample comes between its own")
 
     try! Data("not json".utf8).write(to: profile.appending(path: "plan-usage-history.json"))
     check(Graft.usage(of: profile) == nil, "a corrupt history is ignored rather than fatal")
@@ -983,7 +1036,7 @@ do {
         settled.isRunning = false
         return settled
     })
-    check(monitor.headline == 77, "the headline comes from the figures a refresh read off disk")
+    check(monitor.headline?.percent == 77, "the headline comes from the figures a refresh read off disk")
 
     // One account, one figure. The two windows used to read the history file
     // for themselves while the menu bar showed what the endpoint had just said,
@@ -1007,6 +1060,8 @@ do {
               "\(view) does not go back to the history file behind it")
         check(source.contains("usage.invalidate("),
               "\(view) drops the reading its own Start Session has just made wrong")
+        check(source.contains("plan?.mayStartSession"),
+              "\(view) offers no Start Session to an account with no five-hour window to open")
     }
 
     // A figure says when it was taken and where from. The profile's own
@@ -1044,7 +1099,37 @@ do {
     let second = UsageMonitor()
     second.refresh(store)
     settle(second, expecting: 2)
-    check(second.headline == 12, "a stale figure is left out of the headline")
+    check(second.headline?.percent == 12, "a stale figure is left out of the headline")
+}
+
+do {
+    // An account with no five-hour limit, in the shape its own record has had
+    // since November 2026.
+    let now = Date().timeIntervalSince1970 * 1000
+    let unlimited = makeProfile("Claude-Unlimited", account: "CCCC", org: "ORG3")
+    writeSamples(unlimited, [["t": now - 60_000, "org": "ORG3", "u": ["sd": 93]],
+                             ["t": now, "org": "ORG3", "u": ["sd": 94]]])
+    let store = ShortcutStore()
+    var shortcut = Shortcut(name: "Unlimited", folder: "Claude-Unlimited", source: .main)
+    shortcut.installedName = "Unlimited"
+    store.shortcuts = [shortcut]
+
+    let monitor = UsageMonitor()
+    monitor.refresh(store)
+    settle(monitor, expecting: 2)
+    let entry = monitor.entry(for: unlimited)
+    check(entry?.usage.map { $0.fiveHour == nil && $0.week == 94 } == true,
+          "the monitor carries an account's missing five-hour limit through from its record")
+    check(entry?.mayStartSession == false,
+          "and offers that account no session, since there is no window for one to open")
+    check(UsageMonitor.Entry(name: "New", profile: unlimited, usage: nil, isRunning: false).mayStartSession,
+          "while an account nobody has answered for yet keeps the button")
+
+    let status = (try? Data(contentsOf: UsageMonitor.statusFile))
+        .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+    let row = (status?["profiles"] as? [[String: Any]])?.first { $0["name"] as? String == "Unlimited" }
+    check(row?["noFiveHourLimit"] as? Bool == true && row?["fiveHour"] == nil && row?["week"] as? Int == 94,
+          "the status file says the account has no five-hour limit rather than recording a zero")
 }
 
 section("Preferences")
@@ -1114,6 +1199,16 @@ do {
     check(Graft.usage(of: profile)?.fiveHourReset == nil,
           "nor when the history never saw the window open")
 
+    // Read as zero, a sample without the figure looked like the window closing
+    // and the next one like it opening again, an hour and a half late.
+    writeSamples(profile, [["t": now - 3 * hour, "org": "ORG1", "u": ["fh": 0, "sd": 40]],
+                           ["t": now - 2 * hour, "org": "ORG1", "u": ["fh": 5, "sd": 41]],
+                           ["t": now - hour, "org": "ORG1", "u": ["sd": 42]],
+                           ["t": now - 0.5 * hour, "org": "ORG1", "u": ["fh": 30, "sd": 45]]])
+    let across = Graft.usage(of: profile)?.fiveHourReset?.timeIntervalSinceNow ?? 0
+    check(across > 2.9 * 3600 && across < 3.1 * 3600,
+          "a sample without the five-hour figure does not move when a limited account's window closes")
+
     // Weekly resets roll forward across stretches Claude was not running.
     let day = 24 * hour
     writeUsage(profile, [(now - 20 * day, 0, 60), (now - 19.9 * day, 0, 2), (now, 10, 30)])
@@ -1122,6 +1217,13 @@ do {
     check(week.map { $0 > Date() } == true, "and it is always in the future")
     check(week.map { $0.timeIntervalSinceNow < 7 * 24 * 3600 } == true,
           "within one cycle, however long ago it was seen")
+
+    writeSamples(profile, [["t": now - 20 * day, "org": "ORG1", "u": ["fh": 0, "sd": 60]],
+                           ["t": now - 19.9 * day, "org": "ORG1", "u": ["sd": 2]],
+                           ["t": now, "org": "ORG1", "u": ["sd": 30]]])
+    let unlimited = Graft.usage(of: profile)
+    check(unlimited.map { $0.fiveHour == nil && $0.weekReset.map { $0 > Date() } == true } == true,
+          "an account with no five-hour limit still has its weekly reset worked out")
 }
 
 section("Countdown wording")
@@ -1179,8 +1281,26 @@ do {
     let expected = ISO8601DateFormatter().date(from: "2026-08-24T09:30:00Z")
     check(reading?.fiveHourReset == expected, "the reset time is exactly what was sent")
 
-    check(UsageAPI.reading(from: ["seven_day": ["utilization": 10]]) == nil,
-          "an answer without the five-hour window is refused")
+    // The answer an account with no five-hour limit gets since November 2026.
+    let weekOnly = UsageAPI.reading(from: [
+        "five_hour": NSNull(),
+        "seven_day": ["utilization": 94, "resets_at": "2026-11-09T18:00:00.000Z"],
+        "subscription_type": "max",
+    ])
+    check(weekOnly?.week == 94 && weekOnly?.weekReset != nil, "an answer without the five-hour window is still read")
+    check(weekOnly.map { $0.fiveHour == nil && $0.fiveHourReset == nil } == true,
+          "as an account with no five-hour limit, not one with nothing used")
+    check(UsageAPI.reading(from: ["seven_day": ["utilization": 10]]).map { $0.fiveHour == nil } == true,
+          "and so is one that leaves the key out altogether")
+    let idle = UsageAPI.reading(from: ["five_hour": ["utilization": 0, "resets_at": NSNull()],
+                                       "seven_day": ["utilization": 12]])
+    check(idle?.fiveHour == 0 && idle?.fiveHourReset == nil,
+          "a limited account's idle window reads as nothing used, and the limit stays")
+    check(UsageAPI.reading(from: ["five_hour": ["utilization": NSNull()], "seven_day": ["utilization": 12]]) == nil,
+          "a five-hour window that cannot be read is refused rather than taken for no limit")
+    check(UsageAPI.reading(from: ["five_hour": "none", "seven_day": ["utilization": 12]]) == nil,
+          "and so is anything else under that key")
+    check(UsageAPI.reading(from: ["five_hour": NSNull()]) == nil, "an answer with neither window is refused")
     check(UsageAPI.reading(from: [:]) == nil, "and so is an empty one")
 
     let epoch: [String: Any] = ["five_hour": ["utilization": 5, "resets_at": 1_800_000_000]]
@@ -2358,11 +2478,11 @@ do {
 
 section("Menu bar figure")
 
-func entry(_ name: String, fiveHour: Int, running: Bool, live: Bool = true,
+func entry(_ name: String, fiveHour: Int?, week: Int = 0, running: Bool, live: Bool = true,
            sampled: Date = Date()) -> UsageMonitor.Entry {
     UsageMonitor.Entry(name: name,
                        profile: support.appending(path: name),
-                       usage: Graft.Usage(fiveHour: fiveHour, week: 0,
+                       usage: Graft.Usage(fiveHour: fiveHour, week: week,
                                           organization: nil, sampled: sampled),
                        isRunning: running,
                        shortcut: nil,
@@ -2377,21 +2497,38 @@ do {
     monitor.setEntriesForTesting([entry("Claude", fiveHour: 100, running: false),
                                   entry("Claude 2", fiveHour: 46, running: true)])
     check(monitor.headlineEntry?.name == "Claude 2", "the open account is the one shown")
-    check(monitor.headline == 46, "and its figure is the one in the bar")
+    check(monitor.headline == Graft.Usage.Headline(percent: 46, isWeekly: false),
+          "and its five-hour figure is the one in the bar")
 
     monitor.setEntriesForTesting([entry("Claude", fiveHour: 30, running: true),
                                   entry("Claude 2", fiveHour: 80, running: true)])
-    check(monitor.headline == 80, "with several open, the tightest window wins")
+    check(monitor.headline?.percent == 80, "with several open, the tightest window wins")
 
     monitor.setEntriesForTesting([entry("Claude", fiveHour: 100, running: false),
                                   entry("Claude 2", fiveHour: 46, running: false)])
-    check(monitor.headline == 100, "with nothing open it falls back to the tightest")
+    check(monitor.headline?.percent == 100, "with nothing open it falls back to the tightest")
+
+    // Weighed by its five-hour figure, an account without that limit read zero
+    // and lost to every other account however little of its week was left.
+    monitor.setEntriesForTesting([entry("Claude", fiveHour: 30, week: 20, running: true),
+                                  entry("Claude 2", fiveHour: nil, week: 90, running: true)])
+    check(monitor.headlineEntry?.name == "Claude 2",
+          "an account with no five-hour limit is weighed by its week, the figure the bar shows for it")
+    check(monitor.headline == Graft.Usage.Headline(percent: 90, isWeekly: true),
+          "and the bar shows that week, marked as the week")
+    monitor.setEntriesForTesting([entry("Claude", fiveHour: 30, week: 20, running: true),
+                                  entry("Claude 2", fiveHour: nil, week: 10, running: true)])
+    check(monitor.headlineEntry?.name == "Claude", "while a tighter five-hour window still outranks it")
+    monitor.setEntriesForTesting([entry("Claude", fiveHour: 0, week: 5, running: false),
+                                  entry("Claude 2", fiveHour: nil, week: 40, running: false)])
+    check(monitor.headline == Graft.Usage.Headline(percent: 40, isWeekly: true),
+          "and with nothing open it can be the one closest to its limit")
 
     // A figure read off disk hours ago says nothing about the window now.
     let old = Date().addingTimeInterval(-8 * 3600)
     monitor.setEntriesForTesting([entry("Claude", fiveHour: 99, running: false, live: false, sampled: old),
                                   entry("Claude 2", fiveHour: 12, running: false, live: false)])
-    check(monitor.headline == 12, "a stale figure is left out")
+    check(monitor.headline?.percent == 12, "a stale figure is left out")
 
     monitor.setEntriesForTesting([])
     check(monitor.headline == nil, "nothing to show when there is nothing to show")
@@ -2514,7 +2651,8 @@ do {
         return CGFloat(row) / scale
     }
     let font = NSFont.menuBarFont(ofSize: 0)
-    let title = FrontTitle.make(icon: icon, tag: short, figure: 34, font: font)
+    let five = Graft.Usage.Headline(percent: 34, isWeekly: false)
+    let title = FrontTitle.make(icon: icon, tag: short, figure: five, font: font)
     check(title.string.hasSuffix(" 34%") && pictures(title).count == 2,
           "the title carries the icon, the tag and then the figure")
     check(pictures(title).allSatisfy { abs($0.midY - font.capHeight / 2) <= 0.5 },
@@ -2531,16 +2669,33 @@ do {
         title.attribute(.baselineOffset, at: title.length - 1, effectiveRange: nil) as? CGFloat
     }
     check(lowered(title) == -FrontTitle.figureDrop, "the figure is lowered onto the symbol's line too")
-    let figureOnly = FrontTitle.make(icon: nil, tag: nil, figure: 34, font: font)
+    let figureOnly = FrontTitle.make(icon: nil, tag: nil, figure: five, font: font)
     check(figureOnly.string == " 34%" && lowered(figureOnly) == -FrontTitle.figureDrop,
           "and by as much with no Claude in front, so it does not jump as one comes forward")
-    let iconOnly = FrontTitle.make(icon: icon, tag: nil, figure: 34, font: font)
+    let iconOnly = FrontTitle.make(icon: icon, tag: nil, figure: five, font: font)
     check(pictures(iconOnly).count == 1 && iconOnly.string.hasSuffix(" 34%"),
           "the icon on its own stands beside the figure")
-    check(pictures(FrontTitle.make(icon: nil, tag: short, figure: 34, font: font)).count == 1,
+    check(pictures(FrontTitle.make(icon: nil, tag: short, figure: five, font: font)).count == 1,
           "and so does the name on its own")
     check(!FrontTitle.make(icon: icon, tag: nil, figure: nil, font: font).string.contains("%"),
           "a Claude with no figure is shown alone")
+
+    let week = Graft.Usage.Headline(percent: 94, isWeekly: true)
+    check(FrontTitle.make(icon: nil, tag: nil, figure: week, font: font).string == " W 94%",
+          "a week's figure carries a W, so it is not taken for a five-hour one")
+    let weekBeside = FrontTitle.make(icon: icon, tag: short, figure: week, font: font)
+    check(weekBeside.string.hasSuffix(" W 94%") && lowered(weekBeside) == -FrontTitle.figureDrop,
+          "beside a Claude in front as well, lowered like any other figure")
+
+    let unlimited = Graft.Usage(fiveHour: nil, week: 94, organization: nil, sampled: Date(), fable: 12)
+    check(FrontTitle.tooltipLine("Claude 2", unlimited) == "Claude 2: no 5-hour limit, 94% of the week, 12% Fable",
+          "the tooltip says an account has no five-hour limit rather than showing a zero")
+    check(FrontTitle.spoken("Claude 2", unlimited) == "Claude 2, 94% of the week",
+          "and the figure in the bar is read out as the week's")
+    let nothingSpent = Graft.Usage(fiveHour: 0, week: 12, organization: nil, sampled: Date())
+    check(FrontTitle.tooltipLine("Claude", nothingSpent) == "Claude: 0% of 5 hours, 12% of the week"
+            && FrontTitle.spoken("Claude", nothingSpent) == "Claude, 0% of 5 hours",
+          "while a limited account with nothing spent keeps its five-hour figure in both")
 }
 
 section("Quitting")

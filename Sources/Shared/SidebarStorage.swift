@@ -38,9 +38,15 @@ function replaceShared(existing, shared, wanted) {
     return unique(result.concat(wanted.slice(next)));
 }
 
+// Claude persists a pin store only once it differs from its default, so a
+// profile that has never pinned a Code session, or unpinned the last one, has
+// no record at all. That is an empty pin set, not an uninitialized profile;
+// reading it as the latter refused every sync between two such profiles.
+const EMPTY_PINS = {version: 0, state: {starredIds: []}};
+
 function decode(raw) {
     const frame = parse(raw.local[FRAME]);
-    const pin = parse(raw.pin);
+    const pin = raw.pin === null ? structuredClone(EMPTY_PINS) : parse(raw.pin);
     requireShape(object(frame) && frame.version === 1 && object(frame.state)
         && strings(frame.state.pinnedOrder)
         && object(frame.state.sortByByMode)
@@ -155,16 +161,18 @@ async function storageOperation(action, raw) {
                 request.onsuccess = () => resolve(request.result);
                 request.onerror = () => reject(Error('unreadable-storage'));
             });
-            if (typeof pin !== 'string' || localStorage.getItem('dframe-store') === null)
-                throw Error('not-initialized');
-            return {pin, local: Object.fromEntries(['dframe-store',
+            if (localStorage.getItem('dframe-store') === null) throw Error('not-initialized');
+            if (pin !== undefined && typeof pin !== 'string') throw Error('unsupported-storage');
+            return {pin: pin ?? null, local: Object.fromEntries(['dframe-store',
                 'LSS-persisted.starred-local-code-sessions', 'LSS-persisted.dframe-local-slice',
                 'ccd-sync-owner', 'ccd-sync-active', 'ccd-sync-quarantine', 'ccd-sync-pending:ccd/dframe-store']
                 .map(key => [key, localStorage.getItem(key)]))};
         }
         await new Promise((resolve, reject) => {
             const transaction = db.transaction('keyval', 'readwrite', {durability: 'strict'});
-            transaction.objectStore('keyval').put(raw.pin, 'store:pin-state:dframe-starred-code');
+            // Restoring a profile that had no record puts it back without one.
+            if (raw.pin === null) transaction.objectStore('keyval').delete('store:pin-state:dframe-starred-code');
+            else transaction.objectStore('keyval').put(raw.pin, 'store:pin-state:dframe-starred-code');
             transaction.oncomplete = resolve;
             transaction.onerror = transaction.onabort = () => reject(Error('write-failed'));
         });

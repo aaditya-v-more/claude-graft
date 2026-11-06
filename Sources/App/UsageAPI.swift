@@ -8,7 +8,8 @@ enum UsageAPI {
     static let endpoint = URL(string: "https://api.anthropic.com/api/oauth/usage")!
 
     struct Reading: Equatable {
-        var fiveHour: Int
+        /// Nil when the account has no five-hour limit.
+        var fiveHour: Int?
         var week: Int
         var fiveHourReset: Date?
         var weekReset: Date?
@@ -74,12 +75,19 @@ enum UsageAPI {
 
     /// Separated from the request so the shape of the answer can be tested.
     static func reading(from body: [String: Any]) -> Reading? {
-        guard let session = window(body["five_hour"]) else { return nil }
+        // Since November 2026 an account with no five-hour limit is sent
+        // `five_hour: null`, or no key at all, while a limited one gets the
+        // window even idle, at zero. Anything else there is an answer this
+        // cannot read, and reading it as no limit would hide a real one.
+        let sent = body["five_hour"].map { !($0 is NSNull) } ?? false
+        let session = window(body["five_hour"])
+        if sent, session == nil { return nil }
         let weekly = window(body["seven_day"])
+        guard session != nil || weekly != nil else { return nil }
         let fable = fableWindow(body["limits"])
-        return Reading(fiveHour: session.used,
+        return Reading(fiveHour: session?.used,
                        week: weekly?.used ?? 0,
-                       fiveHourReset: session.resets,
+                       fiveHourReset: session?.resets,
                        weekReset: weekly?.resets,
                        plan: (body["subscription_type"] as? String)?.capitalized,
                        fable: fable?.used,

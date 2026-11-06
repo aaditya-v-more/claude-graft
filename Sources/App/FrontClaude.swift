@@ -213,7 +213,8 @@ enum FrontTitle {
 
     /// No colour is given to the figure, so it keeps the one the bar chooses
     /// for the wallpaper behind it; only the icon and the tag bring their own.
-    static func make(icon: NSImage?, tag: NSImage?, figure: Int?, font: NSFont) -> NSAttributedString {
+    static func make(icon: NSImage?, tag: NSImage?, figure: Graft.Usage.Headline?,
+                     font: NSFont) -> NSAttributedString {
         let title = NSMutableAttributedString()
         for picture in [icon, tag].compactMap({ $0 }) {
             let size = picture.size
@@ -233,10 +234,32 @@ enum FrontTitle {
             title.append(NSAttributedString(attachment: attachment))
         }
         if let figure {
-            title.append(NSAttributedString(string: " \(figure)%", attributes: [
+            title.append(NSAttributedString(string: " " + text(figure), attributes: [
                 .font: font, .baselineOffset: -figureDrop,
             ]))
         }
         return title
+    }
+
+    /// A week's figure looks exactly like a five-hour one, and the two run out
+    /// at very different rates, so the week carries a letter saying which.
+    static func text(_ figure: Graft.Usage.Headline) -> String {
+        figure.isWeekly ? L10n.format("W %ld%%", figure.percent) : "\(figure.percent)%"
+    }
+
+    /// The figure read out, with the words for what the letter only hints at.
+    static func spoken(_ name: String, _ figures: Graft.Usage) -> String {
+        figures.fiveHour.map { L10n.format("%@, %ld%% of 5 hours", name, $0) }
+            ?? L10n.format("%@, %ld%% of the week", name, figures.week)
+    }
+
+    /// One account in the tooltip. One without a five-hour limit says so,
+    /// where a zero would pass for a window nobody has started yet.
+    static func tooltipLine(_ name: String, _ figures: Graft.Usage) -> String {
+        var line = figures.fiveHour.map {
+            L10n.format("%@: %ld%% of 5 hours, %ld%% of the week", name, $0, figures.week)
+        } ?? L10n.format("%@: no 5-hour limit, %ld%% of the week", name, figures.week)
+        if let fable = figures.fable { line += L10n.format(", %ld%% Fable", fable) }
+        return line
     }
 }

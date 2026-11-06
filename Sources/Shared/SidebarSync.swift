@@ -355,7 +355,8 @@ enum SidebarSync {
     static func prepareHelper() throws -> URL {
         let source = Graft.claudeApp.appending(path: "Contents")
         let infoData = try Data(contentsOf: source.appending(path: "Info.plist"))
-        let hash = SHA256.hash(data: infoData + Data(SidebarStorage.script.utf8)).map { String(format: "%02x", $0) }.joined()
+        let hash = SHA256.hash(data: infoData + Data(SidebarStorage.script.utf8) + Data(helperFormat.utf8))
+            .map { String(format: "%02x", $0) }.joined()
         let cache = root.appending(path: "sidebar-runtime.noindex")
         let destination = cache.appending(path: "\(hash.prefix(20))/Sidebar.app")
         if Graft.exists(destination.appending(path: "Contents/Resources/graft-sidebar.json")),
@@ -387,6 +388,7 @@ enum SidebarSync {
         try PropertyListSerialization.data(fromPropertyList: info, format: .xml, options: 0)
             .write(to: contents.appending(path: "Info.plist"))
         try Data(hash.utf8).write(to: contents.appending(path: "Resources/graft-sidebar.json"))
+        try sealIntegrity(of: app, headerHash: archive.hash)
         let entitlements = staging.appending(path: "entitlements.plist")
         try PropertyListSerialization.data(fromPropertyList: ["com.apple.security.cs.allow-jit": true], format: .xml, options: 0)
             .write(to: entitlements)
@@ -396,6 +398,60 @@ enum SidebarSync {
         if Graft.exists(destination) { throw Failure("runtime-cache-damaged") }
         try Graft.fm.moveItem(at: app, to: destination)
         return destination
+    }
+
+    /// Part of the cache key, so a helper built by an earlier version of this
+    /// code is rebuilt rather than reused: the one cached before the runtime
+    /// began checking its integrity dictionary still verifies as signed and
+    /// still cannot start.
+    static let helperFormat = "sealed-integrity-1"
+
+    /// Electron 44 refuses an `ElectronAsarIntegrity` dictionary that does not
+    /// hash to a digest written into the framework when the app was packaged,
+    /// so a helper carrying its own archive must carry its own digest as well.
+    /// The slot is found by its sentinel and only ever written in this
+    /// helper's own clone of the framework, which is then signed again since
+    /// the write breaks the signature it was cloned with. A runtime without a
+    /// sealed slot has nothing to seal; a slot of an unknown version refuses
+    /// the helper rather than guessing at its layout.
+    static func sealIntegrity(of app: URL, headerHash: String) throws {
+        let framework = app.appending(path: "Contents/Frameworks/Electron Framework.framework")
+        let binary = framework.appending(path: "Electron Framework").resolvingSymlinksInPath()
+        guard binary.path.hasPrefix(app.resolvingSymlinksInPath().path + "/") else { throw Failure("unsupported-runtime") }
+        var digest = SHA256()
+        for part in ["Resources/app.asar", "SHA256", headerHash] { digest.update(data: Data(part.utf8)) }
+        let sealed = Data(digest.finalize())
+        let image = try Data(contentsOf: binary, options: .alwaysMapped)
+        let sentinel = Data("AGbevlPCksUGKNL8TSn7wGmJEuJsXb2A".utf8)
+        var slots: [Int] = [], from = image.startIndex
+        while let found = image.range(of: sentinel, in: from..<image.endIndex) {
+            let used = image[found.upperBound], version = image[found.upperBound + 1]
+            guard used == 0 || used == 1 else { throw Failure("unsupported-runtime") }
+            if used == 1 {
+                guard version == 1 else { throw Failure("unsupported-runtime") }
+                slots.append(found.upperBound + 2 - image.startIndex)
+            }
+            from = found.upperBound
+        }
+        guard !slots.isEmpty else { return }
+        let handle = try FileHandle(forUpdating: binary)
+        defer { try? handle.close() }
+        for offset in slots {
+            try handle.seek(toOffset: UInt64(offset))
+            try handle.write(contentsOf: sealed)
+        }
+        try handle.close()
+        guard Graft.runTool("/usr/bin/codesign", ["--force", "--sign", "-", framework.path]) == 0
+        else { throw Failure("runtime-signing-failed") }
+        // The helper processes keep Anthropic's signature, and with it library
+        // validation, which refuses a framework signed by anybody else. Signed
+        // again here they load the copy beside them, and the originals they
+        // were cloned from are not touched.
+        let frameworks = app.appending(path: "Contents/Frameworks")
+        for item in try Graft.fm.contentsOfDirectory(atPath: frameworks.path) where item.hasSuffix(".app") {
+            guard Graft.runTool("/usr/bin/codesign", ["--force", "--sign", "-", frameworks.appending(path: item).path]) == 0
+            else { throw Failure("runtime-signing-failed") }
+        }
     }
 
     static func asar(_ files: [(String, Data)]) throws -> (data: Data, hash: String) {

@@ -41,9 +41,9 @@ or brings forward a Claude, or installs an update can stop the session running
 it halfway through. Those are written up as a plan in `dist/<topic>/HANDOFF.md`
 and run from outside it: the exact steps, what each should show and where to
 check it, what must not be touched, how to put the installed Graft back, and a
-table for the results. `dist/` because it is ignored and only `release.sh`
-clears it; every `./build.sh` clears `build.noindex/`, which has already taken
-one plan and its results with it.
+table for the results. `dist/` because it is ignored and `release.sh` clears
+only what it builds there; every `./build.sh` clears `build.noindex/`, which has
+already taken one plan and its results with it.
 
 Done in place is everything that cannot disturb a running Claude: the suite, the
 layout checks, builds, read-only runs over this machine's data, and sandboxes
@@ -113,6 +113,7 @@ opens and quits none.
 - **The keychain is asked once, and only when asking is the way through** — `ClaudeCredentials.mayRaiseDialog`, made silent by `SecKeychainSetUserInteractionAllowed`.
 - **Only a person starts a session.** The suite fails on a fourth caller or one wired to `onAppear`, `onReceive` or a timer.
 - **One account, one figure:** both detail views read `UsageMonitor.entry(for:)`.
+- **No five-hour limit is not 0%:** `fiveHour` is nil for such an account, never zero; the menu bar shows its week as `W`, and Start Session is hidden.
 - **Polling:** `mayUseCache` gives five minutes to a tick, two for an open profile, a minute for the dropdown, two seconds for a press; `arrival` queues rather than drops; failures back off and `Retry-After` wins.
 
 ### Interface — [notes/interface.md](notes/interface.md)
@@ -137,6 +138,7 @@ opens and quits none.
 ### Sidebar and desktop settings — [notes/sidebar-and-settings.md](notes/sidebar-and-settings.md)
 
 - **Pins live in IndexedDB and local storage, not session records.** `SidebarSync` runs only with every connected profile closed and never writes Chromium files directly.
+- **No pin record means no pins**, not an uninitialized profile. The helper seals its own integrity digest into its cloned framework, since Electron 44 checks the dictionary against one.
 - **`claude_desktop_config.json` belongs to each profile;** `copyDesktopServers` adds only missing MCP definitions.
 
 ### Diagnostics and verification — [notes/diagnostics-and-verification.md](notes/diagnostics-and-verification.md)

@@ -50,7 +50,7 @@ app.whenReady().then(async () => {
     }
     await new Promise((resolve,reject) => {
       const tx = db.transaction('keyval','readwrite');
-      tx.objectStore('keyval').put(JSON.stringify({state:{starredIds:request.pins},version:0,updatedAt:1}),
+      if (!request.noPinRecord) tx.objectStore('keyval').put(JSON.stringify({state:{starredIds:request.pins},version:0,updatedAt:1}),
         'store:pin-state:dframe-starred-code');
       tx.objectStore('keyval').put('keep exactly','unrelated-account-data');
       tx.oncomplete=resolve;tx.onerror=reject;
@@ -77,11 +77,14 @@ let infoFile = contents.appending(path: "Info.plist")
 var info = try PropertyListSerialization.propertyList(from: Data(contentsOf: infoFile), format: nil) as! [String:Any]
 info["ElectronAsarIntegrity"] = ["Resources/app.asar": ["algorithm":"SHA256", "hash":archive.hash]]
 try PropertyListSerialization.data(fromPropertyList: info, format: .xml, options: 0).write(to: infoFile)
+try SidebarSync.sealIntegrity(of: seeder, headerHash: archive.hash)
 check(Graft.runTool("/usr/bin/codesign", ["--force","--sign","-",seeder.path]) == 0, "the fixture builder is signed")
 let a = support.appending(path: "A"), b = support.appending(path: "B")
 let shared: Set<String> = ["local_a","local_b","local_c"]
+let c = support.appending(path: "C")
 for (profile, account, org, pins, time) in [(a,"account-a","org-a",["local_c","local_a"],10),
-                                          (b,"account-b","org-b",["local_b"],20)] {
+                                          (b,"account-b","org-b",["local_b"],20),
+                                          (c,"account-c","org-c",[],30)] {
     let store = profile.appending(path: "claude-code-sessions/\(account)/\(org)")
     try fm.createDirectory(at: store, withIntermediateDirectories: true)
     try JSONSerialization.data(withJSONObject: ["lastKnownAccountUuid":account]).write(to: profile.appending(path: "config.json"))
@@ -95,7 +98,7 @@ for (profile, account, org, pins, time) in [(a,"account-a","org-a",["local_c","l
     }
     let request: [String:Any] = ["scratch":root.appending(path: "seed-scratch").path,"profile":profile.path,
         "pins":pins,"sort":"recency","scope":account + "/" + org,"time":time,
-        "output":root.appending(path: "seed-result.json").path]
+        "output":root.appending(path: "seed-result.json").path, "noPinRecord":profile == c]
     let file = root.appending(path: "seed-request.json")
     try JSONSerialization.data(withJSONObject: request).write(to: file)
     check(Graft.runTool(contents.appending(path: "MacOS/sidebar-storage").path,[file.path]) == 0,
@@ -120,6 +123,14 @@ _ = try SidebarSync.storage([b],changes:[b.path:change],shared:[b.path:shared])
 SidebarSync.withLaunchLock { SidebarSync.synchronize(beforeOpening: a) }
 snapshots = try SidebarSync.storage([a,b], changes:nil, shared:[:])
 check(snapshots.values.allSatisfy { $0.pins.isEmpty && $0.order.isEmpty }, "clearing the final pins survives restarting both stores")
+// Claude writes no pin record until something is pinned, which is how every
+// profile that has never pinned a chat looks on disk.
+var unpinned = try SidebarSync.storage([c], changes: nil, shared: [:])[c.path]!
+check(unpinned.pins.isEmpty && unpinned.order.isEmpty, "a profile with no pin record reads as having no pins")
+unpinned.pins = ["local_a"]; unpinned.order = ["local_a"]
+_ = try SidebarSync.storage([c], changes: [c.path: unpinned], shared: [c.path: shared])
+check(try SidebarSync.storage([c], changes: nil, shared: [:])[c.path]!.pins == ["local_a"],
+      "a pin written into a profile with no pin record survives another process")
 for profile in [a,b] {
     let prefs = try JSONSerialization.jsonObject(with: Data(contentsOf: profile.appending(path: "claude_desktop_config.json"))) as! [String:Any]
     check((prefs["preferences"] as? [String:Any])?["permissionChoice"] as? String == "keep" && prefs["mcpServers"] != nil,

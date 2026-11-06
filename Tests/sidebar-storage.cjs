@@ -108,6 +108,13 @@ check('missing fallback settings can be initialized without importing another ac
     assert.deepEqual(Object.keys(result.preferences), ['epitaxyPrefs']);
     assert.deepEqual(result.preferences.epitaxyPrefs['starred-local-code-sessions'], change.order);
 });
+check('a profile that never pinned anything reads as an empty pin set', () => {
+    const unpinned = {...raw, pin: null};
+    assert.deepEqual(plain(api.snapshot(unpinned).pins), []);
+    const result = api.patch(unpinned, change);
+    assert.deepEqual(plain(JSON.parse(result.pin).state.starredIds), ['local_c', 'local_b']);
+    assert.equal(JSON.parse(result.pin).version, 0);
+});
 check('a second application of the same change preserves the chosen pins and order', () => {
     const result = api.patch(changed, change);
     const a = plain(api.snapshot(changed)), b = plain(api.snapshot(result));

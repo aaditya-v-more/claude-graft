@@ -35,6 +35,35 @@ records and two fallback preferences may change, with a local backup made first.
 Unknown versions, mismatched account scopes and unreadable settings refuse the
 sync. Claude still opens when sidebar synchronization is unavailable.
 
+**A profile with nothing pinned has no pin record, and that is not an
+uninitialized profile.** Claude persists its pin store only once it differs from
+the default, so a profile that has never pinned a Code session, or has unpinned
+the last one, has no `store:pin-state:dframe-starred-code` at all, while
+`dframe-store` and the rest of its sidebar are there as usual. The helper read
+the missing record as `not-initialized` at both origins, and then refused the
+pass because neither origin qualified. Every sync between two profiles without
+pins failed that way from 2 October onwards, logged as `unsupported-storage`,
+and this machine's profiles have no pins. A missing record is now an empty pin
+set; `dframe-store` is what says whether an origin is in use, and restoring a
+profile that had no record deletes the record rather than writing a null.
+
+**The runtime checks its integrity dictionary against a digest baked into the
+framework.** From Electron 44, which Claude 4.16336.0 ships, the framework
+carries a `__DATA_CONST,__asar_integrity` slot: a sentinel,
+`AGbevlPCksUGKNL8TSn7wGmJEuJsXb2A`, then a used flag, a version and a SHA-256
+over every `ElectronAsarIntegrity` entry in key order (path, algorithm, hash,
+concatenated). A dictionary that does not hash to it is refused before any
+script runs: "Failed to get integrity for validatable asar archive", fatal, so
+the helper exited and every pass read as `storage-unavailable`. Claude's own
+dictionary was checked against the slot and matches. `sealIntegrity` writes the
+helper's digest into the helper's own clone of the framework, in place so the
+clone shares every other block with the original, and signs the framework
+again. The helper apps beside it keep Anthropic's signature and library
+validation, which refuses a framework signed by anyone else, so they are signed
+again too. The installed Claude's framework hashes the same before and after.
+`helperFormat` is part of the cache key, because the helper cached before this
+still verified as signed and still could not start.
+
 `./test-sidebar.sh` checks the selective updates and then uses actual Chromium
 databases in disposable profiles, including a fresh process after each change.
 It needs a local Claude installation and Node for the JavaScript checks; neither
