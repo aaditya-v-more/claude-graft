@@ -32,6 +32,8 @@ final class ClaudeDesktopUpdater: ObservableObject {
     private var timer: Timer?
     private var checkTimer: Timer?
     private var observers: [NSObjectProtocol] = []
+    private var concealed: NSRunningApplication?
+    private var concealment: [NSKeyValueObservation] = []
     private var lastCheck: Date?
     private var run: Run?
     private var lease: ClaudeUpdateGate.Lease?
@@ -63,16 +65,23 @@ final class ClaudeDesktopUpdater: ObservableObject {
         }
         RunLoop.main.add(timer, forMode: .common)
         self.timer = timer
-        // A poll two seconds away leaves the updater's window up for two
-        // seconds; looking again the moment a Claude starts or comes forward
-        // hides it before it is read.
+        // Polling found the updater four seconds after it started, and its
+        // window came back on its own five seconds later. A Claude that starts
+        // during an update is checked the moment it is announced.
         let workspace = NSWorkspace.shared.notificationCenter
         for name in [NSWorkspace.didLaunchApplicationNotification, NSWorkspace.didActivateApplicationNotification] {
             observers.append(workspace.addObserver(forName: name, object: nil, queue: .main) { [weak self] note in
                 guard let self, self.isUpdating,
-                      (note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication)?.bundleIdentifier
-                        == "com.anthropic.claudefordesktop" else { return }
-                self.queue.async { self.poll() }
+                      let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
+                      app.bundleIdentifier == "com.anthropic.claudefordesktop" else { return }
+                if app == self.concealed { Self.keepHidden(app); return }
+                let pid = app.processIdentifier
+                self.queue.async {
+                    if Graft.processes().contains(where: { $0.id == pid && Graft.carriesDataDir($0.command, Self.profile) }) {
+                        DispatchQueue.main.async { self.conceal(app) }
+                    }
+                    self.poll()
+                }
             })
         }
         let checkTimer = Timer(timeInterval: 60, repeats: true) { [weak self] _ in self?.check(force: false) }
@@ -234,7 +243,14 @@ final class ClaudeDesktopUpdater: ObservableObject {
             }
             // `open -g` launches it behind, but Claude shows its window anyway,
             // and a signed-out window reads as a request to sign in.
-            if let helper = sample.helper { Self.hide(helper) }
+            if let helper = sample.helper {
+                DispatchQueue.main.async {
+                    guard let app = NSRunningApplication(processIdentifier: helper.pid),
+                          app.bundleIdentifier == "com.anthropic.claudefordesktop",
+                          app.launchDate == helper.launched else { return }
+                    self.conceal(app)
+                }
+            }
             let previousPhase = current.flow.phase
             let action = current.flow.advance(sample, at: Date())
             run = current
@@ -296,6 +312,7 @@ final class ClaudeDesktopUpdater: ObservableObject {
         lease = nil
         let installed = version()
         DispatchQueue.main.async {
+            self.reveal()
             self.installedVersion = installed
             self.isUpdating = false
             self.problem = failure
@@ -363,13 +380,33 @@ final class ClaudeDesktopUpdater: ObservableObject {
         }
     }
 
-    private static func hide(_ instance: ClaudeUpdateFlow.Instance) {
-        DispatchQueue.main.async {
-            guard let app = NSRunningApplication(processIdentifier: instance.pid),
-                  app.bundleIdentifier == "com.anthropic.claudefordesktop", app.launchDate == instance.launched,
-                  !app.isHidden else { return }
-            _ = app.hide()
+    /// Claude unhides itself whenever it shows a window, so hiding it once
+    /// lasts only until then. Watching the flag puts it back as it changes,
+    /// and watching the launch catches a hide that came before Claude could
+    /// take it.
+    private func conceal(_ app: NSRunningApplication) {
+        if app == concealed { Self.keepHidden(app); return }
+        concealed = app
+        concealment = [
+            app.observe(\.isHidden, options: [.initial, .new]) { app, _ in Self.keepHidden(app) },
+            app.observe(\.isFinishedLaunching, options: [.initial, .new]) { app, _ in Self.keepHidden(app) },
+            app.observe(\.isActive, options: [.new]) { app, _ in Self.keepHidden(app) },
+        ]
+    }
+
+    private func reveal() {
+        concealment = []
+        concealed = nil
+    }
+
+    private static func keepHidden(_ app: NSRunningApplication) {
+        let hide = {
+            guard !app.isTerminated, app.isFinishedLaunching, !app.isHidden else { return }
+            // Logged because a hide nobody sees is otherwise unprovable: the
+            // count and timing are how a run tells a flash from a clean pass.
+            Diagnostics.note("claude-update.hid-updater", ["pid": Int(app.processIdentifier), "accepted": app.hide()])
         }
+        if Thread.isMainThread { hide() } else { DispatchQueue.main.async(execute: hide) }
     }
 
     private static func logSize() -> UInt64 {
