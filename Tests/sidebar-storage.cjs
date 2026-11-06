@@ -2,7 +2,7 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
-const source = fs.readFileSync('Sources/Shared/SidebarStorage.swift', 'utf8');
+const source = fs.readFileSync('Sources/Shared/SidebarStorage.swift', 'utf8').replace(/\r\n/g, '\n');
 const script = source.split('static let script = #"""\n')[1].split('\n"""#')[0];
 const context = {require, module: {exports: {}}, process: {versions: {}}, structuredClone, Date};
 vm.runInNewContext(script, context);

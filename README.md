@@ -37,6 +37,8 @@ Run multiple Claude Desktop accounts side by side, each with its own login,
 shortcut and optional shared Claude Code history — including pins and sidebar
 order. More on [the site](https://aaditya-v-more.github.io/claude-graft/).
 
+For the Windows development build, installer, and current platform differences, see the [Windows guide](windows/README.md).
+
 ## Install
 
 Requires macOS 13+ and Claude Desktop in `/Applications` or `~/Applications`.

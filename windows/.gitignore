@@ -1,0 +1,15 @@
+# .NET build output — never committed
+[Bb]in/
+[Oo]bj/
+
+# User/IDE local files
+*.user
+.vs/
+
+# Packaging artifacts and signing material
+*.msix
+*.msixbundle
+*.pfx
+
+# Local build/publish output and its install scripts
+dist/

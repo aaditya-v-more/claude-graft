@@ -1,0 +1,425 @@
+using System.Collections.ObjectModel;
+using System.Diagnostics;
+using ClaudeGraft.Core;
+using ClaudeGraft.Platform;
+using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Automation;
+using Microsoft.UI.Xaml.Controls;
+
+namespace ClaudeGraft;
+
+public sealed partial class MainPage : Page
+{
+    public ObservableCollection<ShortcutRow> Shortcuts { get; } = new();
+    public ObservableCollection<IconChoice> IconPresets { get; } = new();
+    private readonly DispatcherTimer _timer = new() { Interval = TimeSpan.FromSeconds(5) };
+    private ShortcutRow _main = null!;
+    private ShortcutRow? _selected;
+    private Shortcut? _original;
+    private Shortcut? _draft;
+    private bool _loading;
+    private bool _busy;
+    private bool _signInPending;
+    private bool _loaded;
+    private bool _wideNavigation = true;
+    private bool _widePaneOpen = true;
+    private string _lastName = "";
+
+    public MainPage()
+    {
+        InitializeComponent();
+        Problem.Closed += (_, _) => Problem.Visibility = Visibility.Collapsed;
+        Loaded += async (_, _) =>
+        {
+            _loaded = true;
+            Reload(); _timer.Start(); _ = LoadIcons();
+            if (GraftPaths.ProfilesRootOverride is not null && Environment.GetCommandLineArgs().Contains("--review-settings"))
+                await OpenSettingsAsync();
+        };
+        Unloaded += (_, _) => { _loaded = false; _timer.Stop(); };
+        _timer.Tick += async (_, _) => await MarkRunning();
+    }
+
+    private void Reload(Guid? select = null)
+    {
+        App.Store.Load();
+        Shortcuts.Clear();
+        foreach (var shortcut in App.Store.Shortcuts) Shortcuts.Add(ShortcutRow.ForShortcut(shortcut));
+        _main = ShortcutRow.MainProfile();
+        Select(select is Guid id ? Shortcuts.FirstOrDefault(s => s.Shortcut?.Id == id) ?? _main : _main);
+        if (App.Store.LoadError is not null) ShowProblem(App.Store.LoadError);
+        _ = MarkRunning();
+    }
+
+    private void Select(ShortcutRow row)
+    {
+        _loading = true;
+        _selected = row;
+        _original = row.Shortcut;
+        _draft = row.Shortcut is null ? null : new Shortcut
+        {
+            Id = row.Shortcut.Id, Name = row.Name, Folder = row.Folder, Source = row.Shortcut.Source,
+            InstalledName = row.Shortcut.InstalledName, IconPreset = row.Shortcut.IconPreset
+        };
+        DetailPanel.DataContext = row;
+        ShortcutHeader.Text = _draft is null ? "Claude" : "Shortcut";
+        _lastName = NameBox.Text = row.Name;
+        FolderBox.Text = row.Folder;
+        NameBox.IsReadOnly = FolderBox.IsReadOnly = _draft is null;
+        var editable = _draft is null ? Visibility.Collapsed : Visibility.Visible;
+        IconSection.Visibility = ChatsSection.Visibility = DeleteButton.Visibility =
+            SaveButton.Visibility = ShortcutStatusRow.Visibility = StatusDivider.Visibility = editable;
+        IconBox.SelectedItem = IconPresets.FirstOrDefault(i => i.Name == _draft?.IconPreset);
+        IconLabel.Text = _draft?.IconPreset ?? "Original";
+        if (_draft is not null)
+        {
+            SourceBox.ItemsSource = App.Store.AvailableSources(_draft)
+                .Select(s => new SourceOption { Label = App.Store.Label(s), Source = s }).ToList();
+            SourceBox.SelectedItem = ((List<SourceOption>)SourceBox.ItemsSource)
+                .FirstOrDefault(s => s.Source.Equals(_draft.Source));
+        }
+        else SourceBox.ItemsSource = null;
+        var created = _draft?.InstalledName is not null;
+        SaveButton.Content = created ? "Update Shortcut" : "Create Shortcut";
+        DeleteButton.Content = created ? "Delete Shortcut…" : "Discard";
+        OpenButton.IsEnabled = _draft is null || created;
+        var installedLink = created ? Installer.InstalledLink(_original!) : null;
+        SignInButton.IsEnabled = _draft is null || installedLink is not null;
+        SetSignInLabel(row, "Sign in to this profile");
+        SignInNote.Text = SignInButton.IsEnabled
+            ? SignInInstructions(row)
+            : created ? "Choose Update Shortcut to restore this shortcut before signing in."
+            : "Choose Create Shortcut before signing in to this profile.";
+        ShortcutStatus.Text = created ? installedLink ?? "Shortcut needs updating" : "Not created yet";
+        Problem.IsOpen = false;
+        Problem.Visibility = Visibility.Collapsed;
+        ShortcutList.SelectedItem = row == _main ? null : row;
+        if (row == _main)
+        {
+            MainButton.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.ColorHelper.FromArgb(255, 0, 101, 220));
+            MainButton.Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.White);
+        }
+        else
+        {
+            MainButton.ClearValue(BackgroundProperty);
+            MainButton.ClearValue(ForegroundProperty);
+        }
+        _loading = false;
+        Source_Changed(null!, null!);
+        _ = LoadUsage(row, false);
+    }
+
+    private void Main_Click(object sender, RoutedEventArgs e) { ShortcutList.SelectedItem = null; Select(_main); DismissOverlay(); }
+    private void Shortcut_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (!_loading && ShortcutList.SelectedItem is ShortcutRow row) { Select(row); DismissOverlay(); }
+    }
+    private void Add_Click(object sender, RoutedEventArgs e)
+    {
+        var shortcut = Shortcut.New(App.Store.UniqueName());
+        var row = ShortcutRow.ForShortcut(shortcut);
+        Shortcuts.Add(row);
+        ShortcutList.SelectedItem = row;
+    }
+    public void AddShortcut() => Add_Click(this, new RoutedEventArgs());
+    public bool HasInlineSidebar => _wideNavigation && ProfileNavigation.IsPaneOpen;
+    public void ToggleSidebar()
+    {
+        ProfileNavigation.IsPaneOpen = !ProfileNavigation.IsPaneOpen;
+        if (_wideNavigation) _widePaneOpen = ProfileNavigation.IsPaneOpen;
+    }
+    public void AdaptNavigation(double width)
+    {
+        var wide = width >= 760;
+        if (_wideNavigation == wide) return;
+        _wideNavigation = wide;
+        ProfileNavigation.DisplayMode = wide ? SplitViewDisplayMode.Inline : SplitViewDisplayMode.Overlay;
+        ProfileNavigation.IsPaneOpen = wide && _widePaneOpen;
+    }
+    private void DismissOverlay()
+    {
+        if (!_wideNavigation) ProfileNavigation.IsPaneOpen = false;
+    }
+    private void Detail_SizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        if (IconChoices is null) return;
+        var compact = e.NewSize.Width < 540;
+        Grid.SetRow(IconChoices, compact ? 1 : 0);
+        Grid.SetColumn(IconChoices, compact ? 0 : 1);
+        Grid.SetColumnSpan(IconChoices, compact ? 2 : 1);
+        IconChoices.HorizontalAlignment = compact ? HorizontalAlignment.Left : HorizontalAlignment.Right;
+    }
+    public void RefreshUsage() => Refresh_Click(this, new RoutedEventArgs());
+    private async Task LoadIcons()
+    {
+        if (IconPresets.Count > 0) return;
+        try
+        {
+            var paths = await Task.Run(ShortcutIcons.PreviewPaths);
+            if (!_loaded) return;
+            foreach (var icon in paths)
+                IconPresets.Add(new IconChoice(icon.Name, new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(new Uri(icon.Path))));
+            IconBox.SelectedItem = IconPresets.FirstOrDefault(i => i.Name == (_draft?.IconPreset ?? "Original"));
+        }
+        catch (Exception e) { ShowProblem("Could not load shortcut icons: " + e.Message); }
+    }
+    private void Support_Click(object sender, RoutedEventArgs e) => Links.Open(Links.Support);
+    private void Source_Click(object sender, RoutedEventArgs e) => Links.Open(Links.Source);
+    private void Icon_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        if (IconBox.SelectedItem is IconChoice icon) IconLabel.Text = icon.Name;
+    }
+    private void Name_Changed(object sender, TextChangedEventArgs e)
+    {
+        if (_loading || _draft is null) return;
+        if (_draft.InstalledName is null && FolderBox.Text == Shortcut.FolderName(_lastName))
+            FolderBox.Text = Shortcut.FolderName(NameBox.Text);
+        _lastName = NameBox.Text;
+    }
+    private void Source_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        MergeNote.Visibility = SourceBox.SelectedItem is SourceOption { Source.Kind: not SourceKind.Own }
+            ? Visibility.Visible : Visibility.Collapsed;
+        SidebarStatus.Text = MergeNote.Visibility == Visibility.Visible && _selected is not null
+            ? SidebarSync.StatusFor(_selected.ProfileDir) ?? "" : "";
+        SidebarStatus.Visibility = SidebarStatus.Text.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
+        if (!_loading) _ = FindRecoverableChats();
+    }
+
+    private void ShowProblem(string message)
+    {
+        if (!_loaded) return;
+        Problem.Message = message; Problem.Visibility = Visibility.Visible; Problem.IsOpen = true;
+    }
+
+    private async Task MarkRunning()
+    {
+        try
+        {
+            var processes = await Task.Run(ClaudeProcesses.Enumerate);
+            if (!_loaded) return;
+            foreach (var row in Shortcuts.Append(_main).Where(r => r is not null))
+                row.SetRunning(ClaudeProcesses.IsRunning(row.ProfileDir, processes));
+        }
+        catch (Exception e) { ShowProblem(e.Message); }
+    }
+    private async Task LoadUsage(ShortcutRow row, bool interactive)
+    {
+        try
+        {
+            var reading = await UsageMonitor.ReadAsync(row.ProfileDir, interactive);
+            if (_loaded) row.SetUsage(reading);
+        }
+        catch (Exception e) { row.Problem = e.Message; }
+    }
+    private async void Refresh_Click(object sender, RoutedEventArgs e)
+    {
+        if (_selected is not null) await LoadUsage(_selected, true);
+        await MarkRunning();
+        await FindRecoverableChats();
+    }
+    private async void Start_Click(object sender, RoutedEventArgs e)
+    {
+        if (_selected is not ShortcutRow row || !row.StartEnabled) return;
+        row.Starting = true;
+        try
+        {
+            row.Problem = await Task.Run(() => SessionStarter.StartAsync(row.ProfileDir));
+            UsageMonitor.Invalidate(row.ProfileDir);
+            await LoadUsage(row, true);
+        }
+        catch (Exception ex) { row.Problem = ex.Message; }
+        finally { row.Starting = false; }
+    }
+    private async void Open_Click(object sender, RoutedEventArgs e)
+    {
+        if (_selected is not { } row || _busy) return;
+        try { await OpenSavedProfileAsync(row); }
+        catch (Exception ex) { ShowProblem(ex.Message); }
+    }
+
+    private async Task OpenSavedProfileAsync(ShortcutRow row)
+    {
+        var config = new GraftConfig { ProfileDir = GraftPaths.DefaultProfile };
+        if (row.Shortcut is { } shortcut)
+        {
+            // Edits in the form are drafts. Resolve the saved ID again in case
+            // another manager removed or moved it while Default apps was open.
+            var store = new ShortcutStore();
+            if (store.LoadError is not null) throw new IOException(store.LoadError);
+            if (store.Get(shortcut.Id) is not { InstalledName: not null } saved)
+                throw new IOException("Create this shortcut before opening its profile.");
+            if (!Fs.SamePath(saved.ProfileDir, row.ProfileDir))
+                throw new IOException("This shortcut’s saved folder changed. Reopen the manager and select it again.");
+            config = store.ConfigFor(saved);
+        }
+        await Task.Run(() => DesktopInteraction.Open(config));
+        if (_loaded && row == _selected) Source_Changed(null!, null!);
+    }
+    private void Folder_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var path = _original?.ProfileDir ?? GraftPaths.DefaultProfile;
+            if (!Directory.Exists(path)) throw new IOException("This profile folder has not been created yet.");
+            Process.Start(new ProcessStartInfo("explorer.exe") { UseShellExecute = true, Arguments = "\"" + path + "\"" });
+        }
+        catch (Exception ex) { ShowProblem(ex.Message); }
+    }
+
+    private async void Save_Click(object sender, RoutedEventArgs e)
+    {
+        if (_draft is null || _busy) return;
+        _busy = true;
+        SaveButton.IsEnabled = false;
+        try
+        {
+            var candidate = new Shortcut
+            {
+                Id = _draft.Id, Name = NameBox.Text.Trim(), Folder = FolderBox.Text.Trim(),
+                Source = (SourceBox.SelectedItem as SourceOption)?.Source ?? ShortcutSource.Own,
+                IconPreset = (IconBox.SelectedItem as IconChoice)?.Name ?? _draft.IconPreset,
+                InstalledName = _draft.InstalledName
+            };
+            if (Graft.ValidateWindowsName(candidate.Name) is string nameProblem) throw new IOException(nameProblem);
+            if (Installer.ReservedNames.Contains(candidate.Name, StringComparer.OrdinalIgnoreCase))
+                throw new IOException("That name belongs to Claude or Claude Graft. Pick another.");
+            if (Graft.ValidateFolder(candidate.Folder) is string folderProblem) throw new IOException(folderProblem);
+            App.Store.Load();
+            if (App.Store.LoadError is not null) throw new IOException(App.Store.LoadError);
+            if (App.Store.Shortcuts.Any(s => s.Id != candidate.Id
+                && (s.Name.Equals(candidate.Name, StringComparison.OrdinalIgnoreCase) || Fs.SamePath(s.ProfileDir, candidate.ProfileDir))))
+                throw new IOException("Another shortcut already uses that name or profile folder.");
+            var previous = App.Store.Get(candidate.Id);
+            var changesStorage = previous is null || !Fs.SamePath(previous.ProfileDir, candidate.ProfileDir)
+                || !previous.Source.Equals(candidate.Source);
+            if (changesStorage)
+            {
+                var running = await Task.Run(ClaudeProcesses.Enumerate);
+                if (ClaudeProcesses.IsRunning(candidate.ProfileDir, running)
+                    || (previous is not null && ClaudeProcesses.IsRunning(previous.ProfileDir, running))
+                    || (candidate.Source.Kind != SourceKind.Own && running.Any(p => ClaudeProcesses.IsClaudeDesktop(p.command))))
+                    throw new IOException("Close the affected Claude windows before changing their profile folders or chat sharing.");
+                if (previous is not null && !Fs.SamePath(previous.ProfileDir, candidate.ProfileDir))
+                {
+                    if (App.Store.Shortcuts.Any(s => s.Source.Kind == SourceKind.Shortcut && s.Source.ShortcutId == previous.Id))
+                        throw new IOException("Return the shortcuts borrowing from this profile to their own chats before moving its folder.");
+                    var result = await Task.Run(() => Graft.MoveProfileFolder(previous.Folder, candidate.Folder));
+                    if (result is Graft.ProfileMove.Failed or Graft.ProfileMove.TargetExists)
+                        throw new IOException("The profile could not be moved. Keep the old folder or choose an unused name.");
+                }
+                await Task.Run(() => Graft.Apply(App.Store.ConfigFor(candidate)));
+            }
+            Installer.Install(candidate);
+            candidate.InstalledName = candidate.Name;
+            App.Store.Update(candidate);
+            if (previous is not null && !previous.Name.Equals(candidate.Name, StringComparison.OrdinalIgnoreCase))
+                Installer.Uninstall(candidate, previous.Name);
+            if (_loaded) Reload(candidate.Id);
+        }
+        catch (Exception ex) { ShowProblem(ex.Message); }
+        finally { _busy = false; if (_loaded) SaveButton.IsEnabled = true; }
+    }
+
+    private async void Delete_Click(object sender, RoutedEventArgs e)
+    {
+        if (_original is not Shortcut shortcut || _busy) return;
+        if (App.Store.Get(shortcut.Id) is null) { Shortcuts.Remove(_selected!); Select(_main); return; }
+        var data = new CheckBox { Content = "Also delete its chats and login (cannot be undone)" };
+        var body = new StackPanel { Spacing = 12 };
+        body.Children.Add(new TextBlock { Text = "The desktop shortcut will be removed. Keeping its profile preserves the login and chat history.", TextWrapping = TextWrapping.Wrap });
+        body.Children.Add(data);
+        var dialog = new ContentDialog { Title = "Delete “" + shortcut.Name + "”?", Content = body,
+            PrimaryButtonText = "Delete Shortcut", CloseButtonText = "Cancel", DefaultButton = ContentDialogButton.Close };
+        PrepareDialog(dialog);
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
+        try
+        {
+            Installer.Uninstall(shortcut);
+            var deleteProfile = data.IsChecked == true;
+            var problem = await Task.Run(() => App.Store.Delete(shortcut.Id, deleteProfile));
+            Reload();
+            if (problem is not null) ShowProblem(problem);
+        }
+        catch (Exception ex) { ShowProblem(ex.Message); }
+    }
+
+    private void SetSignInLabel(ShortcutRow row, string label)
+    {
+        SignInButton.Content = label;
+        AutomationProperties.SetName(SignInButton, $"{label} ({row.Name})");
+    }
+
+    private static string SignInInstructions(ShortcutRow row) =>
+        $"Start sign-in inside the Claude window for {row.Name}. When the browser returns to Graft, choose that profile.";
+
+    private async void SignIn_Click(object sender, RoutedEventArgs e)
+    {
+        if (_busy || _signInPending || !SignInButton.IsEnabled || _selected is not { } row) return;
+        _signInPending = true;
+        SignInButton.IsEnabled = false;
+        try
+        {
+            var handler = await Task.Run(ClaudeLinkAssociation.Current);
+            if (!_loaded || row != _selected || _busy) return;
+            if (handler != ClaudeLinkHandler.Graft)
+            {
+                var unknown = handler == ClaudeLinkHandler.Unknown;
+                var dialog = new ContentDialog {
+                    Title = unknown ? "Check browser sign-in" : "Set up browser sign-in",
+                    Content = unknown
+                        ? $"Windows could not confirm which app opens CLAUDE links. If you already chose Claude Graft, open {row.Name} and start sign-in there. You can also check Default apps."
+                        : "In Windows Default apps, choose Claude Graft for CLAUDE links. If Claude Graft is missing, install it with the setup wizard. Then return here and retry sign-in.",
+                    PrimaryButtonText = unknown ? "Open profile" : "Open Default apps",
+                    SecondaryButtonText = unknown ? "Open Default apps" : "",
+                    CloseButtonText = "Cancel"
+                };
+                PrepareDialog(dialog);
+                var result = await dialog.ShowAsync();
+                if (!_loaded || row != _selected || result == ContentDialogResult.None) return;
+                if (!unknown || result == ContentDialogResult.Secondary)
+                {
+                    SetSignInLabel(row, "Retry sign-in");
+                    SignInNote.Text = "In Windows Default apps, choose Claude Graft for CLAUDE links. Return here and select Retry sign-in.";
+                    if (!await Windows.System.Launcher.LaunchUriAsync(new Uri("ms-settings:defaultapps?registeredAppUser=Claude%20Graft")))
+                        ShowProblem("Open Windows Settings → Apps → Default apps to choose Claude Graft for CLAUDE links.");
+                    return;
+                }
+            }
+            SetSignInLabel(row, "Sign in to this profile");
+            SignInNote.Text = SignInInstructions(row);
+            await OpenSavedProfileAsync(row);
+        }
+        catch (Exception ex) { ShowProblem(ex.Message); }
+        finally
+        {
+            _signInPending = false;
+            if (_loaded && row == _selected) SignInButton.IsEnabled = true;
+        }
+    }
+
+    private void PrepareDialog(ContentDialog dialog)
+    {
+        dialog.XamlRoot = XamlRoot;
+        dialog.RequestedTheme = Appearance.ToElementTheme(App.Settings.Theme);
+        dialog.CornerRadius = new CornerRadius(12);
+        dialog.Resources["OverlayCornerRadius"] = new CornerRadius(12);
+        MacDialogs.Prepare(dialog);
+    }
+    private async void Settings_Click(object sender, RoutedEventArgs e) => await OpenSettingsAsync();
+    public async Task OpenSettingsAsync()
+    {
+        var dialog = new SettingsDialog(App.Settings);
+        PrepareDialog(dialog);
+        ContentDialogResult action;
+        do
+        {
+            dialog.RequestedClaudeUpdates = false;
+            action = await dialog.ShowAsync();
+            if (dialog.RequestedClaudeUpdates) await ClaudeUpdateDialog.ShowAsync(XamlRoot);
+        } while (dialog.RequestedClaudeUpdates);
+        if (action != ContentDialogResult.Primary) return;
+        try { AutoStart.Set(dialog.AutoStartEnabled); App.ApplySettings(dialog.Result); }
+        catch (Exception ex) { ShowProblem(ex.Message); }
+    }
+}

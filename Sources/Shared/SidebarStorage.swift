@@ -195,7 +195,7 @@ function atomicJSON(file, data) {
 
 async function run() {
     const {app, BrowserWindow, session, protocol} = require('electron');
-    const requestPath = process.argv[1];
+    const requestPath = process.argv.at(-1);
     const request = parse(fs.readFileSync(requestPath, 'utf8'));
     requireShape(['read', 'write'].includes(request.action) && Array.isArray(request.profiles)
         && request.profiles.length > 0 && request.profiles.length <= 32);
@@ -215,8 +215,8 @@ async function run() {
             fs.mkdirSync(scratch, {recursive: true, mode: 0o700});
             for (const name of ['Local Storage', 'IndexedDB']) {
                 const original = path.join(profile.path, name);
-                if (!fs.statSync(original).isDirectory()) throw Error('not-initialized');
-                fs.symlinkSync(original, path.join(scratch, name));
+                if (!fs.lstatSync(original).isDirectory()) throw Error('not-initialized');
+                fs.symlinkSync(original, path.join(scratch, name), process.platform === 'win32' ? 'junction' : 'dir');
             }
             const ses = session.fromPath(scratch, {cache: false});
             ses.setPermissionRequestHandler((contents, permission, callback) => callback(false));
