@@ -72,7 +72,7 @@
  </StackPanel>
 </StackPanel></ScrollViewer>
 <Grid Grid.Row="1" Padding="14,11" Background="{ThemeResource MacWindowBrush}" ColumnSpacing="7"><Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-<Button x:Name="DeleteButton" Content="Delete Shortcut…" Click="Delete_Click"/><Button Grid.Column="2" x:Name="StartButton" Content="Start Session" Click="Start_Click" IsEnabled="{Binding StartEnabled}" Visibility="{Binding StartVisibility}" ToolTipService.ToolTip="{Binding StartTooltip}"/><Button Grid.Column="3" x:Name="OpenButton" Content="Open" Click="Open_Click"/><Button Grid.Column="4" x:Name="SaveButton" Content="Update Shortcut" Click="Save_Click" Style="{StaticResource MacPrimaryButton}"/>
+<Button x:Name="DeleteButton" Content="Delete Shortcut…" Click="Delete_Click"/><Button Grid.Column="2" x:Name="StartButton" Content="Start Session" Click="Start_Click" IsEnabled="{Binding StartEnabled}" Visibility="{Binding ManagerStartVisibility}" ToolTipService.ToolTip="{Binding StartTooltip}"/><Button Grid.Column="3" x:Name="OpenButton" Content="Open" Click="Open_Click"/><Button Grid.Column="4" x:Name="SaveButton" Content="Update Shortcut" Click="Save_Click" Style="{StaticResource MacPrimaryButton}"/>
 </Grid>
 </Grid>
 </SplitView></Page>

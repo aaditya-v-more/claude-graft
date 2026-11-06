@@ -81,6 +81,7 @@ public sealed class ShortcutRow : INotifyPropertyChanged
                 || entry.Usage?.FiveHour > 0);
         Notify(nameof(StartEnabled));
         Notify(nameof(StartVisibility));
+        Notify(nameof(ManagerStartVisibility));
         Notify(nameof(StartTooltip));
 
         // Last, so the bars have this reading's values before the sweep reads them
@@ -156,6 +157,10 @@ public sealed class ShortcutRow : INotifyPropertyChanged
     }
 
     public Visibility StartVisibility => _starting || _usage?.MayStartSession == false
+        ? Visibility.Collapsed : Visibility.Visible;
+    // The manager keeps its disabled button during a request; only the flyout
+    // replaces the action with a spinner while Starting is true.
+    public Visibility ManagerStartVisibility => _usage?.MayStartSession == false
         ? Visibility.Collapsed : Visibility.Visible;
     public Visibility StartingVisibility => _starting ? Visibility.Visible : Visibility.Collapsed;
 
