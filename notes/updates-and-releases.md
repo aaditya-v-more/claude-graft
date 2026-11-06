@@ -141,19 +141,19 @@ window server eighteen times a second: across the whole update the updater put
 a window on screen twice, 600 by 600, each time for less than an eighth of a
 second, both right as Claude unhid itself and Graft hid it again. None of 116
 screenshots caught either. That is the floor for hiding from outside the app:
-Claude shows the window before anything outside it can react. So the first of
-those shows is now stopped from inside. Before an update restarts itself Claude
-writes `stealth-relaunch` into its profile, saying whether its window was
-showing; a launch that finds the file under five minutes old with
-`windowVisible` false comes up hidden and deletes it. Graft writes that file into
-the updater's profile just before launching it, which is Claude's own way of
-saying a launch belongs to an update and nobody is looking. Run in place against
-a scratch signed-out profile, Claude logged that it was staying hidden and the
-cold-start window never appeared; what remained was one show about two seconds
-in, right after Claude decides nobody is signed in, hidden again within a few
-hundredths of a second, and one window-server sample in the whole trial against
-dozens without the file. That second show comes from the signed-out path, not the
-launch, and the outside watcher is still what takes it down. Before launching it,
+Claude shows the window before anything outside it can react.
+
+**Never write `stealth-relaunch` into the updater's profile.** Claude writes
+that file before restarting itself for an update, and a launch that finds it
+fresh with `windowVisible` false comes up hidden. Tried in place it looked like
+the cure: the cold-start window never appeared. A fourth live run showed what it
+costs. Claude honoured the file and started with the app hidden; about five
+seconds in, once it decided nobody was signed in, it put its sign-in window on
+screen anyway, without unhiding the app. System Events went on reporting the
+app hidden and Graft had nothing left to hide, so the window stood for the
+whole sixty-one seconds the updater ran, and sixty-one of 150 screenshots
+caught it. A hidden app and an app whose window is on screen look the same
+from `isHidden`; only the window server tells them apart. Before launching it,
 a profile that holds a login, remembers an account, has an account folder in
 either session store or has a config that will not parse is moved to the Trash
 and replaced by one holding only `ant-did`. The Trash, not a delete, because

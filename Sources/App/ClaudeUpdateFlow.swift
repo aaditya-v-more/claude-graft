@@ -151,23 +151,6 @@ enum UpdaterProfile {
         try writeDeviceID(deviceID, into: profile)
     }
 
-    /// Hiding from outside can't beat Claude to the screen: it puts its
-    /// window up before anything watching it can react, and a live run
-    /// counted two such flashes per update. Claude already has a way to start
-    /// without showing anything: when it relaunches itself for an update it
-    /// leaves this marker, and the launch that reads it keeps its window
-    /// hidden ("Window was not visible, staying hidden") and deletes the file.
-    /// That is exactly what this launch is. The profile is Graft's own, so no
-    /// person's window state is overridden. A Claude that stops reading the
-    /// marker starts normally and is hidden from outside instead.
-    static func markHiddenLaunch(_ profile: URL, at now: Date = Date()) throws {
-        guard !Graft.isSymlink(profile) else { throw ManualUpdates.Failure.invalidProfile }
-        let marker = profile.appending(path: "stealth-relaunch")
-        guard !Graft.isSymlink(marker) else { throw ManualUpdates.Failure.invalidProfile }
-        let body: [String: Any] = ["ts": (now.timeIntervalSince1970 * 1000).rounded(), "windowVisible": false]
-        try JSONSerialization.data(withJSONObject: body).write(to: marker, options: .atomic)
-    }
-
     static func writeDeviceID(_ id: String, into profile: URL) throws {
         try Graft.fm.createDirectory(at: profile, withIntermediateDirectories: true)
         let file = profile.appending(path: "ant-did")

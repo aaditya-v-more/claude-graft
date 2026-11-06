@@ -269,11 +269,6 @@ final class ClaudeDesktopUpdater: ObservableObject {
                         Diagnostics.note("claude-update.profile-reset", ["error": error.localizedDescription])
                     }
                 }
-                do { try UpdaterProfile.markHiddenLaunch(Self.profile) } catch {
-                    // Without it Claude shows its window and the watcher hides
-                    // it a moment later, which is worse but still an update.
-                    Diagnostics.note("claude-update.hidden-launch", ["error": error.localizedDescription])
-                }
                 let arguments = ["-n", "-g", "-j", "-a", Graft.claudeApp.path,
                                  "--args", "--user-data-dir=\(Self.profile.path)"]
                 guard Graft.runTool("/usr/bin/open", arguments) == 0 else {

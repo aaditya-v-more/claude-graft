@@ -2520,18 +2520,6 @@ do {
     check(Data(base64Encoded: (try? Data(contentsOf: used.appending(path: "ant-did"))) ?? Data())
             .flatMap { String(data: $0, encoding: .utf8) } == "8a1f0c3e-5b2d-4e6f-9a7b-1c2d3e4f5a6b",
           "the device identifier survives a reset, so the rollout does not change")
-
-    let launched = Date(timeIntervalSince1970: 1_793_990_000)
-    try! UpdaterProfile.markHiddenLaunch(used, at: launched)
-    let marker = UpdateRelaunchMarker.read(from: used)
-    check(marker?.windowVisible == false,
-          "the updater is told its window was not visible, so Claude starts it hidden")
-    check(marker?.isFresh(at: launched.addingTimeInterval(30)) == true,
-          "the hidden-launch marker is still fresh when Claude reads it at startup")
-    check(marker?.isFresh(at: launched.addingTimeInterval(6 * 60)) == false,
-          "a hidden-launch marker left from an earlier update has expired by the next one")
-    check(marker?.date == launched,
-          "the marker carries its time in milliseconds, as Claude writes its own")
 }
 
 // MARK: - What the bar shows
