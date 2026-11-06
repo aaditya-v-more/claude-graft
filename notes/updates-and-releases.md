@@ -136,7 +136,12 @@ owning no window at all; the first hide lands at that moment. The window it
 then tried to show four seconds later was hidden again between two samples a
 third of a second apart, and none of 132 screenshots caught it. So the
 `visible` flag is the wrong measure for a run: what a person can see is a
-window on screen, and that is what to count. Before launching it,
+window on screen, and that is what to count. A third run counted them from the
+window server eighteen times a second: across the whole update the updater put
+a window on screen twice, 600 by 600, each time for less than an eighth of a
+second, both right as Claude unhid itself and Graft hid it again. None of 116
+screenshots caught either. That is the floor for hiding from outside the app:
+Claude shows the window before anything outside it can react. Before launching it,
 a profile that holds a login, remembers an account, has an account folder in
 either session store or has a config that will not parse is moved to the Trash
 and replaced by one holding only `ant-did`. The Trash, not a delete, because
