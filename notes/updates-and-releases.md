@@ -119,6 +119,21 @@ working profiles. Manual policy stays in place throughout. A refusal to quit,
 bad process read, failed download, or failed install is a visible error, never
 permission to force quit or claim success.
 
+**The updater stays out of sight and signed out.** `open -g -j` asks for a
+Claude launched behind everything, and Claude shows its window regardless. On
+6 November that window came up during an update with Claude's sign-in screen,
+which reads as Claude asking for the account again, so it was signed into; the
+update itself had never needed it, since every update from September on ran in
+a profile nobody had signed into. Graft now hides the updater every time it
+polls and the moment any Claude starts or comes forward. Before launching it,
+a profile that holds a login, remembers an account, has an account folder in
+either session store or has a config that will not parse is moved to the Trash
+and replaced by one holding only `ant-did`. The Trash, not a delete, because
+whoever signed in may have done something there; the same identifier, so the
+feed keeps this machine in the same rollout. A reset that fails is logged and
+the update goes on hidden, since a leftover login is no reason to leave Claude
+out of date.
+
 ## Graft's updates
 
 **An update installs itself and says nothing.** Checked hourly and at launch

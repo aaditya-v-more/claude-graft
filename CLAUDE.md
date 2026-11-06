@@ -131,6 +131,7 @@ opens and quits none.
 - **A release carries both architectures. The build directory is `build.noindex`** so Spotlight skips it.
 - **An update restart is not permission to undo a quit** — `UpdateRecovery` needs a fresh `stealth-relaunch` marker.
 - **Checking for a Claude release never closes a Claude;** installing one asks first and never force quits.
+- **Claude's updater runs hidden and signed out** — `UpdaterProfile.reset` trashes a profile someone signed into.
 - **Graft's own update installs itself and says nothing,** a press included (`checkForUpdatesInBackground`); a hold is off unless turned on.
 - **`sparkle:minimumAutoupdateVersion` 1.1.0 is a floor** on every entry from 1.1.0 on, and that release needs a note.
 - **The feed keeps every release** (`--maximum-versions 0`), **and its URL never changes.**

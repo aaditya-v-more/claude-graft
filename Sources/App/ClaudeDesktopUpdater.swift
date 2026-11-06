@@ -31,6 +31,7 @@ final class ClaudeDesktopUpdater: ObservableObject {
     private let version: () -> String?
     private var timer: Timer?
     private var checkTimer: Timer?
+    private var observers: [NSObjectProtocol] = []
     private var lastCheck: Date?
     private var run: Run?
     private var lease: ClaudeUpdateGate.Lease?
@@ -62,6 +63,18 @@ final class ClaudeDesktopUpdater: ObservableObject {
         }
         RunLoop.main.add(timer, forMode: .common)
         self.timer = timer
+        // A poll two seconds away leaves the updater's window up for two
+        // seconds; looking again the moment a Claude starts or comes forward
+        // hides it before it is read.
+        let workspace = NSWorkspace.shared.notificationCenter
+        for name in [NSWorkspace.didLaunchApplicationNotification, NSWorkspace.didActivateApplicationNotification] {
+            observers.append(workspace.addObserver(forName: name, object: nil, queue: .main) { [weak self] note in
+                guard let self, self.isUpdating,
+                      (note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication)?.bundleIdentifier
+                        == "com.anthropic.claudefordesktop" else { return }
+                self.queue.async { self.poll() }
+            })
+        }
         let checkTimer = Timer(timeInterval: 60, repeats: true) { [weak self] _ in self?.check(force: false) }
         RunLoop.main.add(checkTimer, forMode: .common)
         self.checkTimer = checkTimer
@@ -182,8 +195,7 @@ final class ClaudeDesktopUpdater: ObservableObject {
             return id
         }
         let id = UUID().uuidString.lowercased()
-        try Data(id.utf8).base64EncodedData().write(to: file, options: .atomic)
-        try Graft.fm.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
+        try UpdaterProfile.writeDeviceID(id, into: profile)
         return id
     }
 
@@ -220,6 +232,9 @@ final class ClaudeDesktopUpdater: ObservableObject {
                 if sample.helper == nil && !sample.installerRunning { finish(stopping) }
                 return
             }
+            // `open -g` launches it behind, but Claude shows its window anyway,
+            // and a signed-out window reads as a request to sign in.
+            if let helper = sample.helper { Self.hide(helper) }
             let previousPhase = current.flow.phase
             let action = current.flow.advance(sample, at: Date())
             run = current
@@ -228,6 +243,16 @@ final class ClaudeDesktopUpdater: ObservableObject {
             case .launch:
                 // A dedicated, signed-out instance uses Claude's own signed
                 // updater. Working profiles keep disableAutoUpdates throughout.
+                if UpdaterProfile.isSignedIn(Self.profile) {
+                    do {
+                        try UpdaterProfile.reset(Self.profile, keeping: Self.deviceID())
+                        Diagnostics.note("claude-update.profile-reset", [:])
+                    } catch {
+                        // Hidden, a signed-in updater still updates; refusing
+                        // here would leave Claude out of date over a cleanup.
+                        Diagnostics.note("claude-update.profile-reset", ["error": error.localizedDescription])
+                    }
+                }
                 let arguments = ["-n", "-g", "-j", "-a", Graft.claudeApp.path,
                                  "--args", "--user-data-dir=\(Self.profile.path)"]
                 guard Graft.runTool("/usr/bin/open", arguments) == 0 else {
@@ -335,6 +360,15 @@ final class ClaudeDesktopUpdater: ObservableObject {
             guard let app = NSRunningApplication(processIdentifier: instance.pid),
                   app.bundleIdentifier == "com.anthropic.claudefordesktop", app.launchDate == instance.launched else { return }
             _ = app.terminate()
+        }
+    }
+
+    private static func hide(_ instance: ClaudeUpdateFlow.Instance) {
+        DispatchQueue.main.async {
+            guard let app = NSRunningApplication(processIdentifier: instance.pid),
+                  app.bundleIdentifier == "com.anthropic.claudefordesktop", app.launchDate == instance.launched,
+                  !app.isHidden else { return }
+            _ = app.hide()
         }
     }
 

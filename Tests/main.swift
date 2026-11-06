@@ -2474,6 +2474,54 @@ do {
     } catch { check(false, "normal launches resume when the update releases its lock") }
 }
 
+section("Keeping Claude's updater signed out")
+
+do {
+    let root = Graft.applicationSupport.appending(path: "UpdaterProfiles")
+    func profile(_ name: String, config: String? = nil, stores: [String: [String]] = [:]) -> URL {
+        let folder = root.appending(path: name)
+        try! Graft.fm.createDirectory(at: folder, withIntermediateDirectories: true)
+        try! UpdaterProfile.writeDeviceID("8a1f0c3e-5b2d-4e6f-9a7b-1c2d3e4f5a6b", into: folder)
+        if let config { try! Data(config.utf8).write(to: folder.appending(path: "config.json")) }
+        for (store, names) in stores {
+            for name in names {
+                try! Graft.fm.createDirectory(at: folder.appending(path: "\(store)/\(name)"), withIntermediateDirectories: true)
+            }
+        }
+        return folder
+    }
+
+    check(!UpdaterProfile.isSignedIn(profile("never-opened")),
+          "an updater profile that has only its device identifier is signed out")
+    check(!UpdaterProfile.isSignedIn(profile("opened", config: #"{"locale":"en-US","updaterLastSeenVersion":"1.2.3"}"#,
+                                             stores: ["local-agent-mode-sessions": ["skills-plugin"]])),
+          "an updater that ran signed out and unpacked its skills is still signed out")
+    check(UpdaterProfile.isSignedIn(profile("token", config: #"{"oauth:tokenCacheV2":"sealed"}"#)),
+          "a stored login marks the updater profile as signed in")
+    check(UpdaterProfile.isSignedIn(profile("account", config: #"{"lastKnownAccountUuid":"account-a"}"#)),
+          "an account remembered in the config marks the updater profile as signed in")
+    check(UpdaterProfile.isSignedIn(profile("chats", stores: ["claude-code-sessions": ["account-a"]])),
+          "an account folder among the session stores marks the updater profile as signed in")
+    check(UpdaterProfile.isSignedIn(profile("torn", config: #"{"oauth:token"#)),
+          "a config that will not parse is not taken as proof that nobody signed in")
+
+    let used = profile("used", config: #"{"oauth:tokenCacheV2":"sealed"}"#,
+                       stores: ["claude-code-sessions": ["account-a"]])
+    let trash = root.appending(path: "Trash")
+    try! Graft.fm.createDirectory(at: trash, withIntermediateDirectories: true)
+    try! UpdaterProfile.reset(used, keeping: "8a1f0c3e-5b2d-4e6f-9a7b-1c2d3e4f5a6b") {
+        try Graft.fm.moveItem(at: $0, to: trash.appending(path: $0.lastPathComponent))
+    }
+    check(!UpdaterProfile.isSignedIn(used), "a reset updater profile opens signed out")
+    check((try? Graft.fm.contentsOfDirectory(atPath: used.path)) == ["ant-did"],
+          "a reset updater profile keeps nothing but its device identifier")
+    check(Graft.exists(trash.appending(path: "used/claude-code-sessions/account-a")),
+          "what somebody left in the updater profile goes where it can still be found")
+    check(Data(base64Encoded: (try? Data(contentsOf: used.appending(path: "ant-did"))) ?? Data())
+            .flatMap { String(data: $0, encoding: .utf8) } == "8a1f0c3e-5b2d-4e6f-9a7b-1c2d3e4f5a6b",
+          "the device identifier survives a reset, so the rollout does not change")
+}
+
 // MARK: - What the bar shows
 
 section("Menu bar figure")
