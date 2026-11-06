@@ -404,7 +404,8 @@ final class ClaudeDesktopUpdater: ObservableObject {
             guard !app.isTerminated, app.isFinishedLaunching, !app.isHidden else { return }
             // Logged because a hide nobody sees is otherwise unprovable: the
             // count and timing are how a run tells a flash from a clean pass.
-            Diagnostics.note("claude-update.hid-updater", ["pid": Int(app.processIdentifier), "accepted": app.hide()])
+            // `pid` is already the logging process's own.
+            Diagnostics.note("claude-update.hid-updater", ["updater": Int(app.processIdentifier), "accepted": app.hide()])
         }
         if Thread.isMainThread { hide() } else { DispatchQueue.main.async(execute: hide) }
     }

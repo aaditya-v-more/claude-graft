@@ -129,7 +129,14 @@ from 4.16336.0, polling found the updater four seconds after it started, and
 five seconds later Claude unhid itself and came to the front to show its
 window. So Graft identifies the updater the moment it is announced as launched
 or active, and from then on watches its hidden, active and finished-launching
-flags and hides it again as each one changes. Before launching it,
+flags and hides it again as each one changes. A second run showed what that
+can and cannot do. Claude cannot be hidden until it has finished launching,
+about five seconds into a cold start, and until then it reads as visible while
+owning no window at all; the first hide lands at that moment. The window it
+then tried to show four seconds later was hidden again between two samples a
+third of a second apart, and none of 132 screenshots caught it. So the
+`visible` flag is the wrong measure for a run: what a person can see is a
+window on screen, and that is what to count. Before launching it,
 a profile that holds a login, remembers an account, has an account folder in
 either session store or has a config that will not parse is moved to the Trash
 and replaced by one holding only `ant-did`. The Trash, not a delete, because
