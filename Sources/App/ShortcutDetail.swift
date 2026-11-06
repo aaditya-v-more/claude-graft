@@ -204,19 +204,21 @@ struct ShortcutDetail: View {
                        role: .destructive, action: requestDelete)
                     .identified("delete")
                 Spacer()
-                Button(action: startSession) {
-                    if startingSession {
-                        ProgressView().controlSize(.small)
-                    } else {
-                        Text("Start Session")
+                if plan?.mayStartSession ?? true {
+                    Button(action: startSession) {
+                        if startingSession {
+                            ProgressView().controlSize(.small)
+                        } else {
+                            Text("Start Session")
+                        }
                     }
+                    .disabled(startingSession)
+                    // Named apart from its text, which a spinner replaces while
+                    // the session is being started.
+                    .accessibilityLabel(L10n.text("Start Session"))
+                    .identified("start-session")
+                    InfoButton(Self.sessionNote, about: "Start Session", id: "session-info")
                 }
-                .disabled(startingSession)
-                // Named apart from its text, which a spinner replaces while
-                // the session is being started.
-                .accessibilityLabel(L10n.text("Start Session"))
-                .identified("start-session")
-                InfoButton(Self.sessionNote, about: "Start Session", id: "session-info")
 
                 Button("Open", action: open)
                     .disabled(installedAt == nil)
@@ -587,9 +589,13 @@ struct UsageSummary: View {
 
     var body: some View {
         if let usage = entry?.usage {
-            UsageBar(label: "5 hours", percent: usage.fiveHour,
-                     resets: usage.fiveHourReset, dimmed: dimmed)
-                .identified("five-hour")
+            if let fiveHour = usage.fiveHour {
+                UsageBar(label: "5 hours", percent: fiveHour,
+                         resets: usage.fiveHourReset, dimmed: dimmed)
+                    .identified("five-hour")
+            } else {
+                NoFiveHourLimit(font: .callout, dimmed: dimmed)
+            }
             UsageBar(label: "Week", percent: usage.week,
                      resets: usage.weekReset, dimmed: dimmed)
                 .identified("week")
@@ -624,6 +630,13 @@ struct UsageSummary: View {
                 Asked of this account directly, using the login it already holds — \
                 the same figure the menu bar is showing. It stays current whether or \
                 not that Claude is running.
+                """)
+        }
+        if usage.isStale, usage.fiveHour == nil {
+            return L10n.text("""
+                Recorded while this profile was last open, which was hours ago, so \
+                the week may have moved since. Turn on live usage from the menu bar \
+                to have the account asked instead.
                 """)
         }
         if usage.isStale {

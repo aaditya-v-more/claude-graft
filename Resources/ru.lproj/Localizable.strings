@@ -254,3 +254,8 @@
 "Reads chats from %@" = "Источник чатов: %@";
 "%@, %ld%% of 5 hours" = "%@, %ld%% за 5 часов";
 "Claude Graft Menu" = "Меню Claude Graft";
+"No 5-hour limit on this account" = "У этой учётной записи нет пятичасового лимита";
+"W %ld%%" = "Н %ld%%";
+"%@, %ld%% of the week" = "%@, %ld%% за неделю";
+"%@: no 5-hour limit, %ld%% of the week" = "%@: без пятичасового лимита, %ld%% за неделю";
+"Recorded while this profile was last open, which was hours ago, so the week may have moved since. Turn on live usage from the menu bar to have the account asked instead." = "Данные записаны при последнем запуске профиля несколько часов назад, и с тех пор недельный показатель мог измениться. Включите актуальные данные в строке меню, чтобы запрашивать их для учётной записи напрямую.";

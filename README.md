@@ -87,6 +87,12 @@ at the keychain prompt; a new Graft build may ask again.
 **Start Session** sends one short request to open that account's five-hour
 window. It uses a few tokens and runs only when you press it.
 
+Some plans no longer have a five-hour limit at all, only a weekly one. On such
+an account Graft says so in place of the five-hour bar, leaves out **Start
+Session**, which would have nothing to open, and puts the weekly figure in the
+menu bar with a W in front of it, so 94% of the week reads as W 94% rather than
+as a five-hour figure it is not.
+
 With several Claudes open, the menu bar shows which one you are using: its
 shortcut's icon sits beside that account's usage. Turn on **Show the name of
 the Claude in front** to add its name as well. The Dock can't do this, because

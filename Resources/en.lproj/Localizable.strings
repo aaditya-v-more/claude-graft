@@ -254,3 +254,8 @@
 "Reads chats from %@" = "Reads chats from %@";
 "%@, %ld%% of 5 hours" = "%@, %ld%% of 5 hours";
 "Claude Graft Menu" = "Claude Graft Menu";
+"No 5-hour limit on this account" = "No 5-hour limit on this account";
+"W %ld%%" = "W %ld%%";
+"%@, %ld%% of the week" = "%@, %ld%% of the week";
+"%@: no 5-hour limit, %ld%% of the week" = "%@: no 5-hour limit, %ld%% of the week";
+"Recorded while this profile was last open, which was hours ago, so the week may have moved since. Turn on live usage from the menu bar to have the account asked instead." = "Recorded while this profile was last open, which was hours ago, so the week may have moved since. Turn on live usage from the menu bar to have the account asked instead.";

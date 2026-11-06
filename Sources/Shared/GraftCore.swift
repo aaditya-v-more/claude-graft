@@ -2085,7 +2085,10 @@ enum Graft {
     /// the profile. `fh` is the five-hour window, `sd` the seven-day one, both
     /// percentages already used.
     struct Usage: Equatable {
-        var fiveHour: Int
+        /// Nil on an account with no five-hour limit, never zero: zero is a
+        /// window with nothing spent in it yet, which a limited account reads
+        /// all through an idle day.
+        var fiveHour: Int?
         var week: Int
         var organization: String?
         var sampled: Date
@@ -2100,6 +2103,19 @@ enum Graft {
         /// Claude only writes this while it is running, so an old sample says
         /// nothing useful about a five-hour window that has since rolled over.
         var isStale: Bool { Date().timeIntervalSince(sampled) > 5 * 60 * 60 }
+
+        /// The one figure the menu bar gives this account.
+        struct Headline: Equatable {
+            var percent: Int
+            var isWeekly: Bool
+        }
+
+        /// The five-hour window where there is one. An account without one can
+        /// only run out of its week, and its five-hour figure would be a zero
+        /// that never moves.
+        var headline: Headline {
+            fiveHour.map { Headline(percent: $0, isWeekly: false) } ?? Headline(percent: week, isWeekly: true)
+        }
     }
 
     /// Parsed history, keyed by file and only re-read when the file changes.
@@ -2137,40 +2153,67 @@ enum Graft {
               let raw = root["samples"] as? [[String: Any]]
         else { return nil }
 
-        // Claude stopped writing the five-hour figure at the start of November
-        // 2026; requiring it pinned the menu to the last sample from before.
-        var samples: [(time: Date, fiveHour: Int, week: Int, org: String?)] = []
+        var samples: [UsageSample] = []
         samples.reserveCapacity(raw.count)
         for sample in raw {
             guard let stamp = sample["t"] as? Double,
                   let values = sample["u"] as? [String: Any],
                   let week = values["sd"] as? Int
             else { continue }
-            let fiveHour = values["fh"] as? Int ?? 0
-            samples.append((Date(timeIntervalSince1970: stamp / 1000), fiveHour, week, sample["org"] as? String))
+            samples.append((Date(timeIntervalSince1970: stamp / 1000), values["fh"] as? Int,
+                            week, sample["org"] as? String))
         }
-        guard let latest = samples.last else { return nil }
+        guard let newest = samples.last else { return nil }
 
+        if hasNoFiveHourLimit(samples) {
+            return Usage(fiveHour: nil,
+                         week: newest.week,
+                         organization: newest.org,
+                         sampled: newest.time,
+                         weekReset: weekReset(from: samples))
+        }
+        // A limited account's sample without the figure is a gap rather than
+        // an empty window. Read as zero it dropped the bar to nothing, and the
+        // zero then passed for the window reopening, moving its reset.
+        let complete = samples.filter { $0.fiveHour != nil }
+        guard let latest = complete.last(where: { $0.org == newest.org }) else { return nil }
         return Usage(fiveHour: latest.fiveHour,
                      week: latest.week,
                      organization: latest.org,
                      sampled: latest.time,
-                     fiveHourReset: fiveHourReset(from: samples),
-                     weekReset: weekReset(from: samples))
+                     fiveHourReset: fiveHourReset(from: complete),
+                     weekReset: weekReset(from: complete))
     }
+
+    private typealias UsageSample = (time: Date, fiveHour: Int?, week: Int, org: String?)
 
     private static let fiveHourWindow: TimeInterval = 5 * 60 * 60
     private static let weekWindow: TimeInterval = 7 * 24 * 60 * 60
 
+    /// Since November 2026 an account with no five-hour limit leaves `fh` out
+    /// of every sample, while a limited one still writes it on each, a zero
+    /// included. Taking a limited account for one without costs it its
+    /// five-hour bar and its Start Session, so one sample without the figure
+    /// is not enough: the account must have left it out twice running, and
+    /// written none in the five hours before. Only that account's own samples
+    /// count, so one signed in after another is not judged by what the other
+    /// wrote.
+    private static func hasNoFiveHourLimit(_ samples: [UsageSample]) -> Bool {
+        guard let newest = samples.last, newest.fiveHour == nil else { return false }
+        let own = samples.filter { $0.org == newest.org }
+        if own.count > 1, own[own.count - 2].fiveHour != nil { return false }
+        return !own.contains {
+            $0.fiveHour != nil && newest.time.timeIntervalSince($0.time) < fiveHourWindow
+        }
+    }
+
     /// The window opened at the first sample after the figure was last zero,
     /// and closes five hours later. Nothing to report when none is open, or
     /// when the history starts partway through one.
-    private static func fiveHourReset(
-        from samples: [(time: Date, fiveHour: Int, week: Int, org: String?)]
-    ) -> Date? {
-        guard let latest = samples.last, latest.fiveHour > 0 else { return nil }
+    private static func fiveHourReset(from samples: [UsageSample]) -> Date? {
+        guard let latest = samples.last, let used = latest.fiveHour, used > 0 else { return nil }
         for index in stride(from: samples.count - 1, to: 0, by: -1)
-        where samples[index - 1].fiveHour == 0 && samples[index].fiveHour > 0 {
+        where samples[index - 1].fiveHour == 0 && (samples[index].fiveHour ?? 0) > 0 {
             let reset = samples[index].time.addingTimeInterval(fiveHourWindow)
             return reset > Date() ? reset : nil
         }
@@ -2179,9 +2222,7 @@ enum Graft {
 
     /// Weekly resets are a cycle, so the last one seen can be rolled forward
     /// even across stretches where Claude was not running to record it.
-    private static func weekReset(
-        from samples: [(time: Date, fiveHour: Int, week: Int, org: String?)]
-    ) -> Date? {
+    private static func weekReset(from samples: [UsageSample]) -> Date? {
         var lastReset: Date?
         for (previous, current) in zip(samples, samples.dropFirst())
         where current.week < previous.week - 2 {

@@ -67,10 +67,31 @@ token and `anthropic-beta: oauth-2025-04-20`. It answers with `five_hour` and
 `subscription_type`, a `limits` array of `weekly_scoped` per-model windows, and
 `extra_usage` credits. The last two are parsed but not shown anywhere yet.
 
+**No five-hour limit is not zero used.** Since November 2026 some accounts have
+only a weekly limit, and the endpoint answers them with `five_hour: null` or no
+`five_hour` key at all. A limited account always gets the object, idle
+included: nothing used reads `{"utilization": 0, "resets_at": null}`. So a null
+or absent window is an account with no limit, while an object that is there and
+cannot be read is a broken answer and is refused, as it always was. Reading the
+missing window as 0% put an account at 94% of its week on the menu bar as 0%,
+and, because the bar's Claude was picked by its five-hour figure, made it lose
+to any other account in use.
+
 `plan-usage-history.json` is the fallback: samples of `{t, org, u:{fh, sd}}`
 where `fh` is the five-hour percentage used and `sd` the seven-day one, written
 only while that instance runs. It is ~180KB and grows, so it is parsed once per
 change and cached against modification time and size.
+
+A sample without `fh` is what Claude writes for an account with no five-hour
+limit, but one alone does not prove it: a limited account goes on writing `fh`,
+`fh: 0` when idle, and a single weekly-only sample can sit between complete
+ones. `hasNoFiveHourLimit` therefore wants the newest sample without `fh`, the
+one before it on the same organization, if there is one, without it as well, and no complete
+sample of that organization inside the last five hours. Otherwise the newest
+complete sample of that organization is the figure, and gaps neither read as
+0% nor move the five-hour reset. Both kinds of account are in use, so neither
+reading may become the default for the other. In November 2026 this machine's
+own histories held no sample without `fh`.
 
 Claude Code's command line keeps **one** login for the whole machine in the
 keychain, so `CLAUDE_CONFIG_DIR` does not isolate accounts. That is why Start

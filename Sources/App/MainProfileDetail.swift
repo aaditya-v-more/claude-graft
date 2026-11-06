@@ -90,19 +90,21 @@ struct MainProfileDetail: View {
         .safeAreaInset(edge: .bottom) {
             HStack(spacing: 8) {
                 Spacer()
-                Button(action: startSession) {
-                    if startingSession {
-                        ProgressView().controlSize(.small)
-                    } else {
-                        Text("Start Session")
+                if plan?.mayStartSession ?? true {
+                    Button(action: startSession) {
+                        if startingSession {
+                            ProgressView().controlSize(.small)
+                        } else {
+                            Text("Start Session")
+                        }
                     }
+                    .disabled(startingSession)
+                    // Named apart from its text, which a spinner replaces while
+                    // the session is being started.
+                    .accessibilityLabel(L10n.text("Start Session"))
+                    .identified("start-session")
+                    InfoButton(ShortcutDetail.sessionNote, about: "Start Session", id: "session-info")
                 }
-                .disabled(startingSession)
-                // Named apart from its text, which a spinner replaces while
-                // the session is being started.
-                .accessibilityLabel(L10n.text("Start Session"))
-                .identified("start-session")
-                InfoButton(ShortcutDetail.sessionNote, about: "Start Session", id: "session-info")
 
                 Button("Open", action: open)
                 .keyboardShortcut(.defaultAction)

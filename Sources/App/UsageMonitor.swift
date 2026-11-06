@@ -66,6 +66,14 @@ final class UsageMonitor: ObservableObject {
             guard let usage, isLive || !usage.isStale else { return nil }
             return usage
         }
+
+        /// Start Session opens a five-hour window, and an account without one
+        /// has nothing for it to open. Before any figure has come in, whether
+        /// it has one is not known yet, and the button stays.
+        var mayStartSession: Bool {
+            guard let usage else { return true }
+            return usage.fiveHour != nil
+        }
     }
 
     @Published private(set) var entries: [Entry] = []
@@ -233,14 +241,18 @@ final class UsageMonitor: ObservableObject {
     /// sitting at its limit should not shout over the one actually in use.
     /// With nothing open there is no such answer, so it falls back to whichever
     /// is closest to its limit.
+    ///
+    /// Each is weighed by the figure the bar would show for it. Weighed by the
+    /// five-hour window alone, an account without one counted as zero and
+    /// lost to every other account, however little of its week was left.
     var headlineEntry: Entry? {
         let usable = entries.filter { $0.currentUsage != nil }
         let running = usable.filter(\.isRunning)
         let pool = running.isEmpty ? usable : running
-        return pool.max { ($0.usage?.fiveHour ?? 0) < ($1.usage?.fiveHour ?? 0) }
+        return pool.max { ($0.usage?.headline.percent ?? 0) < ($1.usage?.headline.percent ?? 0) }
     }
 
-    var headline: Int? { headlineEntry?.usage?.fiveHour }
+    var headline: Graft.Usage.Headline? { headlineEntry?.usage?.headline }
 
     /// The account the menu bar is about, and whether it is named there.
     ///
@@ -434,7 +446,11 @@ final class UsageMonitor: ObservableObject {
             if let refreshed = entry.refreshed { row["refreshedAt"] = stamp.string(from: refreshed) }
             if let note = entry.note { row["note"] = note }
             if let usage = entry.usage {
-                row["fiveHour"] = usage.fiveHour
+                if let fiveHour = usage.fiveHour {
+                    row["fiveHour"] = fiveHour
+                } else {
+                    row["noFiveHourLimit"] = true
+                }
                 row["week"] = usage.week
                 if let reset = usage.fiveHourReset { row["fiveHourReset"] = stamp.string(from: reset) }
                 if let reset = usage.weekReset { row["weekReset"] = stamp.string(from: reset) }

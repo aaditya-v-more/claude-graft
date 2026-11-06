@@ -242,18 +242,20 @@ struct UsageRow: View {
                 // Named for their account: every row has a pair, and a list of
                 // the dropdown's controls would otherwise read "Open" once per
                 // account with nothing to tell them apart.
-                Button(action: start) {
-                    if starting {
-                        ProgressView().controlSize(.small)
-                    } else {
-                        Text("Start Session")
+                if entry.mayStartSession {
+                    Button(action: start) {
+                        if starting {
+                            ProgressView().controlSize(.small)
+                        } else {
+                            Text("Start Session")
+                        }
                     }
+                    .controlSize(.small)
+                    .disabled(starting)
+                    .help("Sends one short message to this account to open its five-hour window")
+                    .accessibilityLabel(L10n.format("Start Session for %@", entry.name))
+                    .identified("start-session")
                 }
-                .controlSize(.small)
-                .disabled(starting)
-                .help("Sends one short message to this account to open its five-hour window")
-                .accessibilityLabel(L10n.format("Start Session for %@", entry.name))
-                .identified("start-session")
                 Button("Open", action: open)
                     .controlSize(.small)
                     .accessibilityLabel(L10n.format("Open %@", entry.name))
@@ -261,11 +263,15 @@ struct UsageRow: View {
             }
 
             if let usage = entry.usage {
-                UsageBar(label: "5 hours",
-                         percent: usage.fiveHour,
-                         resets: usage.fiveHourReset,
-                         dimmed: entry.isDimmed)
-                    .identified("five-hour")
+                if let fiveHour = usage.fiveHour {
+                    UsageBar(label: "5 hours",
+                             percent: fiveHour,
+                             resets: usage.fiveHourReset,
+                             dimmed: entry.isDimmed)
+                        .identified("five-hour")
+                } else {
+                    NoFiveHourLimit(font: .caption, dimmed: entry.isDimmed)
+                }
                 UsageBar(label: "Week",
                          percent: usage.week,
                          resets: usage.weekReset,
@@ -288,6 +294,22 @@ struct UsageRow: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 9)
         .controls(profile: entry.profile)
+    }
+}
+
+/// Where the five-hour bar would be, on an account that has no such window.
+/// A bar at 0% reads as a window with nothing spent in it yet, which is not
+/// the same thing, and it never moved however hard the account was used.
+struct NoFiveHourLimit: View {
+    let font: Font
+    var dimmed = false
+
+    var body: some View {
+        Text("No 5-hour limit on this account")
+            .font(font)
+            .foregroundStyle(.secondary)
+            .opacity(dimmed ? 0.45 : 1)
+            .identified("no-five-hour-limit")
     }
 }
 

@@ -207,7 +207,10 @@ newest — though the account a late one names is still asked for its figure.
 The figure follows what is shown. With a Claude in the bar the number beside it
 is that account's and never the tightest window's, or one account's figure
 would stand beside another's icon, and a Claude nothing could be drawn for is
-not shown and neither is its figure. The figure carries no colour, so it keeps
+not shown and neither is its figure. Each account is weighed by the figure it
+would show: the five-hour one, or for an account with no five-hour limit its
+week, which is drawn as `W 94%` (`Н` in Russian) so that it is never read as a
+five-hour figure. The figure carries no colour, so it keeps
 the one the bar picks for the wallpaper behind it. The words go into the
 accessibility title, since pictures in a title read out as nothing.
 
