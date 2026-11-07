@@ -2766,6 +2766,18 @@ do {
                                         onAnyOf: []),
           "with no screen at all there is nowhere for it to be")
 
+    // This MacBook Air's notch, from auxiliaryTopLeftArea and
+    // auxiliaryTopRightArea, and the item's frames from the live run: with
+    // the new-conversation text showing, and then without it.
+    let notch = CGRect(x: 751, y: 1074.5, width: 208, height: 37.5)
+    let fullScreen = CGRect(x: 0, y: 0, width: 1710, height: 1112)
+    check(!MenuBarPlacement.isReachable(CGRect(x: 866, y: 1081, width: 188.5, height: 24),
+                                        onAnyOf: [fullScreen], notches: [notch]),
+          "an item widened behind the notch is out of reach, though it is on the screen")
+    check(MenuBarPlacement.isReachable(CGRect(x: 969, y: 1081, width: 85.5, height: 24),
+                                       onAnyOf: [fullScreen], notches: [notch]),
+          "the same item clear of the notch is within reach")
+
     check(!QuitPolicy.endsTheApp(askedFor: false, installingUpdate: false, systemGoingDown: false, menuBarShowing: true),
           "command-Q puts the window away and leaves the menu bar item reporting")
     check(QuitPolicy.endsTheApp(askedFor: true, installingUpdate: false, systemGoingDown: false, menuBarShowing: true),

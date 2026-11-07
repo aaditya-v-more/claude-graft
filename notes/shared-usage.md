@@ -330,8 +330,14 @@ the text goes in or grows, `keepReachable` asks `isShowing`; if the item was
 reachable before and is not now, the text comes out for that conversation and
 `menu.ticker withdrawn` is logged. The words stay in the item's spoken title
 and the right click still moves the conversation, because those need no room.
-Someone was also using the bar during that run, so the overflow is the likely
-cause rather than a proven one.
+The next run showed where the item had gone. It wasn't past the edge but
+behind the notch: with Claude 2's icon in the bar too, the text widened Graft's
+item to x 866–1054, and this MacBook Air's notch covers 751–959. Every
+edge-of-screen test said yes, so `MenuBarPlacement` now treats any overlap with
+a notch (the gap between `auxiliaryTopLeftArea` and `auxiliaryTopRightArea`) as
+out of reach. That run's screenshots show no Graft item at all, even before the
+text. The capture tool filters out apps it wasn't granted, so a check of the bar
+needs `screencapture` instead.
 
 The relay is asked every three seconds while the dropdown is open and every
 thirty otherwise, over its socket and never the service. `MenuBarController`

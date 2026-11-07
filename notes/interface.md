@@ -37,6 +37,12 @@ the bar sits above `NSScreen.frame` and a full containment test rejects every
 item there is. Seen for real: Graft vanished from the bar with the process alive
 and polling, and came back when another app's item was removed.
 
+The notch is the second place to vanish, and it is on the screen. An item laid
+out across it, measured at x 866–1054 against a notch of 751–959, passed the
+edge test while no pointer could reach it. `isReachable` also takes the notches,
+each one the gap between a screen's `auxiliaryTopLeftArea` and
+`auxiliaryTopRightArea`, and any overlap with one counts as out of reach.
+
 ## SwiftUI and accessibility
 
 **The profile selector is a split view, not a navigation stack.** On macOS 27,

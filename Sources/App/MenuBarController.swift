@@ -92,8 +92,9 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
     /// carries the rule and what it was measured against.
     var isShowing: Bool {
         guard let window = item?.button?.window else { return false }
-        return MenuBarPlacement.isReachable(window.frame,
-                                            onAnyOf: NSScreen.screens.map(\.frame))
+        let screens = NSScreen.screens
+        return MenuBarPlacement.isReachable(window.frame, onAnyOf: screens.map(\.frame),
+                                            notches: screens.compactMap(MenuBarPlacement.notch))
     }
 
     func install() {

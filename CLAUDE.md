@@ -144,7 +144,7 @@ any of these. The why is in [notes/updates-and-releases.md](notes/updates-and-re
 ### Interface — [notes/interface.md](notes/interface.md)
 
 - **⌘Q does not quit** while the status item is reachable; `QuitPolicy` lets through Quit, logout and an update's relaunch.
-- **A status item that exists is not one you can click:** `MenuBarPlacement.isReachable`.
+- **A status item that exists is not one you can click:** `MenuBarPlacement.isReachable`, which counts the notch as out of reach.
 - **`HSplitView`, not `NavigationSplitView`,** and notices sit beside the split view in a vertical stack.
 - **Every control is named and identified by hand** with `identified`, on the control, never on a stack. Never call `NSApp.setAccessibilityWindows`.
 - **No `MenuBarExtra`. Nothing blocking in a view body. Long-lived objects live in `enum Shared`.**
