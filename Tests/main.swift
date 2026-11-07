@@ -5749,6 +5749,9 @@ do {
             && bar.contains("guard let self, self.newChat?.id == id, self.tickerText != nil, !self.isShowing")
             && bar.contains("let text = chat?.id == tickerRefused ? nil : words"),
           "text that pushes the item out of a full bar gives way, and stays out for that conversation")
+    check(bar.contains("item?.menu = menu\n        button.performClick(nil)\n        item?.menu = nil")
+            && !bar.contains("menu.popUp(positioning:"),
+          "the right-click menu opens under the item, where macOS puts menu-bar menus")
 }
 
 print("\n\(checks - failures)/\(checks) checks passed")

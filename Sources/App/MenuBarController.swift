@@ -302,7 +302,13 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
             entry.setAccessibilityIdentifier("new-chat.account.\(choice)")
             menu.addItem(entry)
         }
-        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: button.bounds.height + 5), in: button)
+        // Lent to the item for this one click, so macOS places it as it places
+        // any menu-bar menu. Popped up at a point in the button instead, it
+        // opened with its top above the screen and the conversation's title
+        // hidden behind a scroll arrow.
+        item?.menu = menu
+        button.performClick(nil)
+        item?.menu = nil
     }
 
     @objc private func moveNewChat(_ sender: NSMenuItem) {

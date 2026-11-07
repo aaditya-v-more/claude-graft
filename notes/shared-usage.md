@@ -339,6 +339,14 @@ out of reach. That run's screenshots show no Graft item at all, even before the
 text. The capture tool filters out apps it wasn't granted, so a check of the bar
 needs `screencapture` instead.
 
+The run after the notch fix saw the text come out about half a second after it
+went in, and the item stay at x 1025, clear of the notch. A real right click
+opened the account menu and moved the conversation. But the menu had been popped
+up at a point inside the status button, which is not flipped, so the point lay
+above the bar. The menu opened with its top above the screen and the
+conversation's title behind a scroll arrow. It is now set as the item's menu for
+that one click, so macOS places it as it places any menu-bar menu.
+
 The relay is asked every three seconds while the dropdown is open and every
 thirty otherwise, over its socket and never the service. `MenuBarController`
 starts that watch as the popover shows and ends it in `popoverDidClose`,
