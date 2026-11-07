@@ -21,6 +21,11 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
     /// The conversation running across the bar, if one has just begun.
     private var newChat: UsagePoolController.Chat?
     private var tickerText: String?
+    /// What the text would say, drawn or not, so a conversation whose text
+    /// gave way still has its account kept current for the spoken title.
+    private var tickerWords: String?
+    /// The conversation whose text was taken out of the bar for lack of room.
+    private var tickerRefused: String?
     private var tickerOffset: CGFloat = 0
     private var tickerHeld = 0
     private var ticker: Timer?
@@ -204,13 +209,18 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
 
     private func showNewChat() {
         let chat = item == nil ? nil : Shared.usagePool.newChat(front: Shared.frontmost.profile)
-        let text = chat.map { NewChatTicker.text(title: $0.title, account: answering($0)) }
-        guard chat?.id != newChat?.id || text != tickerText else { return }
+        let words = chat.map { NewChatTicker.text(title: $0.title, account: answering($0)) }
+        guard chat?.id != newChat?.id || words != tickerWords else { return }
+        let text = chat?.id == tickerRefused ? nil : words
         if chat?.id != newChat?.id {
             tickerOffset = 0
             tickerHeld = 0
         }
+        // Measured before the text goes in: an item already out of reach is
+        // not one the text pushed there.
+        let wasShowing = text != nil && text != tickerText && isShowing
         newChat = chat
+        tickerWords = words
         tickerText = text
         if chat == nil {
             ticker?.invalidate()
@@ -223,6 +233,26 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
             ticker = timer
         }
         applyTitle()
+        if wasShowing, let id = chat?.id { keepReachable(id) }
+    }
+
+    /// The text makes the item wider, and a bar with no room for the wider
+    /// item does not refuse it: macOS puts it past the edge of the screen,
+    /// where it still reports itself visible. On a full bar the item vanished
+    /// for the two minutes the text ran and came back when it went, so the
+    /// count, the dropdown and the right click went with it. A figure that can
+    /// be reached matters more than the text, so the text gives way for that
+    /// conversation; its words stay in the item's spoken title, and the right
+    /// click still moves it.
+    private func keepReachable(_ id: String) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            guard let self, self.newChat?.id == id, self.tickerText != nil, !self.isShowing
+            else { return }
+            self.tickerRefused = id
+            self.tickerText = nil
+            self.applyTitle()
+            Diagnostics.note("menu.ticker withdrawn", ["reason": "no room in the menu bar"])
+        }
     }
 
     private func advanceTicker() {

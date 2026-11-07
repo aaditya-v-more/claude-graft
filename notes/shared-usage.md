@@ -321,6 +321,18 @@ alone, with titles read only for conversations that have just begun; a full
 pass reads logins and walks records, which is why that one waits half a
 minute.
 
+The text gives way when the bar has no room for it. The wider item is not
+refused by macOS but put past the edge of the screen, still reporting itself
+visible, and on the development machine's MacBook Air, with a full bar beside
+the notch, Graft's item vanished for the two minutes the text ran, refused a
+right click as offscreen, and came back when the text went. Half a second after
+the text goes in or grows, `keepReachable` asks `isShowing`; if the item was
+reachable before and is not now, the text comes out for that conversation and
+`menu.ticker withdrawn` is logged. The words stay in the item's spoken title
+and the right click still moves the conversation, because those need no room.
+Someone was also using the bar during that run, so the overflow is the likely
+cause rather than a proven one.
+
 The relay is asked every three seconds while the dropdown is open and every
 thirty otherwise, over its socket and never the service. `MenuBarController`
 starts that watch as the popover shows and ends it in `popoverDidClose`,

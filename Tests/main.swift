@@ -5729,6 +5729,14 @@ do {
     check(NewChatTicker.cycle(long, font: font).map { $0 > NewChatTicker.width } == true
             && NewChatTicker.image(long, offset: 40, font: font).size.width == NewChatTicker.width,
           "a long title scrolls inside a fixed width, so the items beside it do not move")
+
+    let bar = (try? String(contentsOf: URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        .deletingLastPathComponent().appending(path: "Sources/App/MenuBarController.swift"),
+        encoding: .utf8)) ?? ""
+    check(bar.contains("if wasShowing, let id = chat?.id { keepReachable(id) }")
+            && bar.contains("guard let self, self.newChat?.id == id, self.tickerText != nil, !self.isShowing")
+            && bar.contains("let text = chat?.id == tickerRefused ? nil : words"),
+          "text that pushes the item out of a full bar gives way, and stays out for that conversation")
 }
 
 print("\n\(checks - failures)/\(checks) checks passed")
