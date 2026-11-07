@@ -3320,6 +3320,7 @@ enum Graft {
                 return processIdentifier(of: profile).map { reveal(pid: $0) } ?? false
             }
             SidebarSync.synchronize(beforeOpening: profile)
+            SidebarSync.synchronizeProjectOrder(beforeOpening: profile)
             return runTool("/usr/bin/open", launchArguments(for: profile, inBackground: inBackground)) == 0
         }
     }

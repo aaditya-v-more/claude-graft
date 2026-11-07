@@ -470,3 +470,249 @@ enum SidebarSync {
         return (word(4) + word(pickle.count) + pickle + body, sha(header))
     }
 }
+
+// MARK: - Project order
+
+/// Claude keeps the order of the sidebar's project headings per account, in
+/// one Local Storage entry, so two grafted accounts drift apart as soon as one
+/// of them is reordered. The newer order wins and is copied to the others.
+/// Folders and repositories are named the same in every profile; a saved
+/// environment (`preset::<id>`) is not, so it is matched by name and target,
+/// then by folder, and left out where the other account has no equivalent.
+extension SidebarSync {
+    static let projectOrderPrefix = "LSS-persisted.code-projects-order."
+    static let presetsPrefix = "persisted.ccd-session-presets."
+
+    struct ProjectInput {
+        var path: String
+        var order: String?
+        var presets: String?
+    }
+
+    static func translateProjectOrder(_ order: [String], from source: [[String: Any]],
+                                      to destination: [[String: Any]]) -> [String] {
+        func canonical(_ value: Any?) -> String {
+            guard let value, JSONSerialization.isValidJSONObject(value),
+                  let data = try? JSONSerialization.data(withJSONObject: value, options: [.sortedKeys])
+            else { return "" }
+            return String(decoding: data, as: UTF8.self)
+        }
+        var byNameAndTarget: [String: String] = [:], byFolder: [String: String] = [:]
+        var destinationIDs = Set<String>()
+        for preset in destination {
+            guard let id = preset["id"] as? String else { continue }
+            destinationIDs.insert(id)
+            let target = preset["target"] as? [String: Any]
+            let identity = (preset["name"] as? String ?? "") + "\u{0}" + canonical(target)
+            if byNameAndTarget[identity] == nil { byNameAndTarget[identity] = id }
+            if let folder = target?["cwd"] as? String, byFolder[folder] == nil { byFolder[folder] = id }
+        }
+        var sourceByID: [String: [String: Any]] = [:]
+        for preset in source { if let id = preset["id"] as? String { sourceByID[id] = preset } }
+        var seen = Set<String>(), result: [String] = []
+        for key in order {
+            var mapped: String? = key
+            if key.hasPrefix("preset::") {
+                let id = String(key.dropFirst("preset::".count))
+                mapped = nil
+                if let preset = sourceByID[id] {
+                    let target = preset["target"] as? [String: Any]
+                    let match = byNameAndTarget[(preset["name"] as? String ?? "") + "\u{0}" + canonical(target)]
+                        ?? (target?["cwd"] as? String).flatMap { byFolder[$0] }
+                    mapped = match.map { "preset::" + $0 }
+                } else if destinationIDs.contains(id) {
+                    mapped = key
+                }
+            }
+            if let mapped, seen.insert(mapped).inserted { result.append(mapped) }
+        }
+        return result
+    }
+
+    /// Which profiles get which stored value. Only a strictly newer order is
+    /// copied, and the copy keeps its time, so the next pass finds nothing to do
+    /// and two orders saved at the same moment never take turns overwriting.
+    static func planProjectOrders(_ inputs: [ProjectInput]) -> [String: String] {
+        struct Parsed { var path: String; var order: [String]?; var time: Double; var presets: [[String: Any]] }
+        func object(_ text: String?) -> [String: Any]? {
+            text.flatMap { try? JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: Any] }
+        }
+        let parsed = inputs.map { input -> Parsed in
+            let order = object(input.order)
+            let presets = (object(input.presets)?["state"] as? [String: Any])?["presets"] as? [[String: Any]]
+            return Parsed(path: input.path, order: order?["value"] as? [String],
+                          time: (order?["timestamp"] as? NSNumber)?.doubleValue ?? 0, presets: presets ?? [])
+        }
+        guard let newest = parsed.filter({ $0.order != nil }).max(by: { $0.time < $1.time }),
+              let order = newest.order else { return [:] }
+        var plan: [String: String] = [:]
+        for item in parsed where item.path != newest.path {
+            if item.order != nil && item.time >= newest.time { continue }
+            var wanted = translateProjectOrder(order, from: newest.presets, to: item.presets)
+            // What only this account lists — an environment the other has no
+            // equivalent for, a project it has not seen yet — keeps its place
+            // in the list rather than being dropped by a copy.
+            let carried = Set(wanted)
+            wanted += (item.order ?? []).filter { !carried.contains($0) }
+            if item.order == wanted && item.time == newest.time { continue }
+            let time: Any = newest.time.rounded() == newest.time ? NSNumber(value: Int64(newest.time)) : NSNumber(value: newest.time)
+            let value: [String: Any] = ["value": wanted, "tabId": "graft", "timestamp": time]
+            guard let data = try? JSONSerialization.data(withJSONObject: value, options: [.sortedKeys]) else { continue }
+            plan[item.path] = String(decoding: data, as: UTF8.self)
+        }
+        return plan
+    }
+
+    /// Every profile reachable from this one through a mirror pair.
+    static func linkedProfiles(of profile: URL) -> [URL] {
+        var pairs = candidates()
+        var connected: Set<String> = [profile.resolvingSymlinksInPath().path]
+        for _ in 0..<pairs.count {
+            for pair in pairs where connected.contains(pair.borrower.path) || connected.contains(pair.source.path) {
+                connected.formUnion([pair.borrower.path, pair.source.path])
+            }
+        }
+        pairs = pairs.filter { connected.contains($0.borrower.path) && connected.contains($0.source.path) }
+        guard !pairs.isEmpty else { return [] }
+        return connected.sorted().map { URL(fileURLWithPath: $0) }
+    }
+
+    static func synchronizeProjectOrder(beforeOpening profile: URL) {
+        guard !storageBlocked else { return }
+        let profiles = linkedProfiles(of: profile)
+        guard profiles.count > 1 else { return }
+        func anyRunning() -> Bool {
+            let running = Graft.runningClaudes()
+            return profiles.contains { profile in running.contains { Graft.samePath($0, profile) } }
+        }
+        guard !anyRunning() else {
+            Diagnostics.note("projects.sync", ["status": "waiting"])
+            return
+        }
+        do {
+            var accounts: [String: String] = [:]
+            for item in profiles {
+                guard let account = Graft.account(of: item) else { throw Failure("account-not-ready") }
+                accounts[item.path] = account
+            }
+            let read = try projectStorage(action: "projects-read", profiles: profiles.map {
+                ["path": $0.path, "keys": [projectOrderPrefix + accounts[$0.path]!, presetsPrefix + accounts[$0.path]!]]
+            })
+            // What Claude shows comes from the desktop preferences file; the
+            // Local Storage entry carries the time. Where the two disagree, the
+            // preferences are what this account actually displays.
+            let plan = planProjectOrders(profiles.map {
+                let values = read[$0.path] ?? [:], account = accounts[$0.path]!
+                return ProjectInput(path: $0.path,
+                                    order: effectiveProjectOrder(values[projectOrderPrefix + account],
+                                                                 desktop: desktopProjectOrder($0, account: account)),
+                                    presets: values[presetsPrefix + account])
+            })
+            guard !plan.isEmpty else {
+                Diagnostics.note("projects.sync", ["status": "unchanged"])
+                return
+            }
+            guard !anyRunning() else { throw Failure("profile-running") }
+            let targets = profiles.filter { plan[$0.path] != nil }
+            let written = try projectStorage(action: "projects-write", profiles: targets.map {
+                let key = projectOrderPrefix + accounts[$0.path]!
+                return ["path": $0.path, "keys": [key], "values": [key: plan[$0.path]!]]
+            })
+            for item in targets where written[item.path]?[projectOrderPrefix + accounts[item.path]!] != plan[item.path] {
+                throw Failure("verification-failed")
+            }
+            for item in targets {
+                guard !anyRunning() else { throw Failure("profile-running") }
+                let value = try JSONSerialization.jsonObject(with: Data(plan[item.path]!.utf8)) as? [String: Any]
+                guard let order = value?["value"] as? [String] else { throw Failure("verification-failed") }
+                try writeDesktopProjectOrder(item, account: accounts[item.path]!, order: order)
+            }
+            Diagnostics.note("projects.sync", ["status": "synced",
+                "profiles": targets.map(\.lastPathComponent).joined(separator: ", ")])
+        } catch {
+            Diagnostics.note("projects.sync-skipped", ["reason": error.localizedDescription])
+        }
+    }
+
+    /// The order Claude reads at startup, from `claude_desktop_config.json`.
+    static func desktopProjectOrder(_ profile: URL, account: String) -> [String]? {
+        let file = profile.appending(path: "claude_desktop_config.json")
+        guard !Graft.isSymlink(file), let data = try? Data(contentsOf: file),
+              let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return nil }
+        return ((root["preferences"] as? [String: Any])?["epitaxyPrefs"] as? [String: Any])?[
+            "code-projects-order." + account] as? [String]
+    }
+
+    /// The stored entry with its list replaced by the one Claude displays.
+    static func effectiveProjectOrder(_ stored: String?, desktop: [String]?) -> String? {
+        guard let desktop else { return stored }
+        var value = stored.flatMap { try? JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: Any] }
+            ?? ["tabId": "graft", "timestamp": 0]
+        value["value"] = desktop
+        return (try? JSONSerialization.data(withJSONObject: value, options: [.sortedKeys]))
+            .map { String(decoding: $0, as: UTF8.self) } ?? stored
+    }
+
+    /// Only this one entry changes; every other preference is kept as it is.
+    static func writeDesktopProjectOrder(_ profile: URL, account: String, order: [String]) throws {
+        let file = profile.appending(path: "claude_desktop_config.json")
+        var root: [String: Any] = [:]
+        if Graft.exists(file) {
+            guard !Graft.isSymlink(file),
+                  let parsed = try JSONSerialization.jsonObject(with: Data(contentsOf: file)) as? [String: Any]
+            else { throw Failure("unreadable-preferences") }
+            root = parsed
+        }
+        guard root["preferences"] == nil || root["preferences"] is [String: Any] else { throw Failure("unreadable-preferences") }
+        var prefs = root["preferences"] as? [String: Any] ?? [:]
+        guard prefs["epitaxyPrefs"] == nil || prefs["epitaxyPrefs"] is [String: Any] else { throw Failure("unreadable-preferences") }
+        var epitaxy = prefs["epitaxyPrefs"] as? [String: Any] ?? [:]
+        epitaxy["code-projects-order." + account] = order
+        prefs["epitaxyPrefs"] = epitaxy
+        root["preferences"] = prefs
+        try JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .withoutEscapingSlashes])
+            .write(to: file, options: .atomic)
+    }
+
+    static var projectStorageOverride: ((String, [[String: Any]]) throws -> [String: [String: String]])?
+
+    static func projectStorage(action: String, profiles: [[String: Any]]) throws -> [String: [String: String]] {
+        if let projectStorageOverride { return try projectStorageOverride(action, profiles) }
+        let helper = try prepareHelper()
+        let scratch = root.appending(path: ".projects-\(UUID().uuidString).noindex")
+        try Graft.fm.createDirectory(at: scratch, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        defer { try? Graft.fm.removeItem(at: scratch) }
+        let output = scratch.appending(path: "result.json")
+        let file = scratch.appending(path: "request.json")
+        try JSONSerialization.data(withJSONObject: ["action": action, "profiles": profiles,
+            "scratch": scratch.path, "output": output.path], options: [.sortedKeys]).write(to: file)
+        let task = Process()
+        task.executableURL = helper.appending(path: "Contents/MacOS/sidebar-storage")
+        task.arguments = [file.path]
+        task.standardOutput = FileHandle.nullDevice
+        task.standardError = FileHandle.nullDevice
+        task.environment = ProcessInfo.processInfo.environment.filter {
+            !$0.key.hasPrefix("ELECTRON_") && !$0.key.hasPrefix("NODE_") && !$0.key.hasPrefix("DYLD_")
+        }
+        let done = DispatchSemaphore(value: 0)
+        task.terminationHandler = { _ in done.signal() }
+        try task.run()
+        if done.wait(timeout: .now() + 25) == .timedOut {
+            task.terminate()
+            if done.wait(timeout: .now() + 3) == .timedOut { kill(task.processIdentifier, SIGKILL); done.wait() }
+            throw Failure("storage-timeout")
+        }
+        guard task.terminationStatus == 0,
+              let reply = try JSONSerialization.jsonObject(with: Data(contentsOf: output)) as? [String: Any]
+        else { throw Failure("storage-unavailable") }
+        guard reply["ok"] as? Bool == true, let list = reply["profiles"] as? [[String: Any]] else {
+            throw Failure(reply["error"] as? String ?? "storage-unavailable")
+        }
+        var result: [String: [String: String]] = [:]
+        for item in list {
+            guard let path = item["path"] as? String, let values = item["values"] as? [String: Any] else { continue }
+            result[path] = values.compactMapValues { $0 as? String }
+        }
+        return result
+    }
+}
