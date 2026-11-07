@@ -364,8 +364,7 @@ for page in pages {
             .sizeThatFits(in: CGSize(width: 320, height: 1000)).height
         check(dropdownHeader <= (state.hasPrefix("current") ? 32 : 52),
               "\(state): the dropdown's update line takes \(state.hasPrefix("current") ? "one line" : "two at most")")
-        for size in [NSSize(width: 720, height: 460), NSSize(width: 820, height: 560),
-                     NSSize(width: 1200, height: 800)] {
+        for size in [NSSize(width: 820, height: 560), NSSize(width: 1200, height: 800)] {
             Shared.usage.setEntriesForTesting(pageFigures)
             window.setContentSize(size)
             settle()

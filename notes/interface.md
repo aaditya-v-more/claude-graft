@@ -159,6 +159,16 @@ Observing them from the App value invalidates the whole scene on every poll.
 ## Fitting the window
 
 Both detail views fit the smallest window, 820 by 560, without scrolling.
+
+That size has to be the smallest in fact, not only in the notes. The scene
+asked for 720 by 460 for months, and a live run on 8 November dragged the
+window to 777 by 519 with every page laid out for more. A limit SwiftUI takes
+from a view belongs to the root view, which does not span the window: the
+titlebar and toolbar sit outside it by an amount AppKit decides, so a plain
+820 by 560 frame would have made the smallest window taller than 560 instead.
+`SmallestWindow` measures what lies outside the root and asks for 820 by 560
+less that; until the first measurement it asks for less, so the first layout
+cannot grow a saved frame.
 A note people skimmed was what made them scroll: three-line explanations of
 what a graft is, where chats are read from or why Anthropic did not answer
 pushed the buttons people came for below the fold. So a note is one line

@@ -20,7 +20,7 @@ struct ClaudeGraftApp: App {
                 .environmentObject(store)
                 .environmentObject(settings)
                 .environmentObject(usage)
-                .frame(minWidth: 720, minHeight: 460)
+                .modifier(SmallestWindow())
                 .onAppear {
                     // Not while starting hidden: the delegate is about to close
                     // this window, and showing a Dock icon would undo that.
@@ -266,6 +266,68 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if !hasWindow {
             UserDefaults.standard.set(false, forKey: Self.windowOpenKey)
             NSApp.setActivationPolicy(.accessory)
+        }
+    }
+}
+
+/// The window goes no smaller than the size every page is laid out for.
+///
+/// The limit SwiftUI takes from a view is the view's, and the root view does
+/// not span the window: the titlebar and toolbar sit outside it by an amount
+/// that is not this app's to know in advance. A plain 820 by 560 frame made the
+/// window taller than that by the toolbar, and the old 720 by 460 let it be
+/// dragged to 777 by 519 with the pages cut off. So the difference between the
+/// window and the root is measured, and the limit is the window size less it.
+struct SmallestWindow: ViewModifier {
+    static let size = CGSize(width: 820, height: 560)
+    @State private var chrome: CGSize?
+
+    func body(content: Content) -> some View {
+        content
+            // Until the window has been measured, a limit below the smallest
+            // size, so the first layout cannot push a saved 820 by 560 frame
+            // any larger.
+            .frame(minWidth: chrome.map { Self.size.width - $0.width } ?? 720,
+                   minHeight: chrome.map { Self.size.height - $0.height } ?? 460)
+            .background(WindowChrome { chrome = $0 })
+    }
+}
+
+private struct WindowChrome: NSViewRepresentable {
+    let measured: (CGSize) -> Void
+
+    func makeNSView(context: Context) -> Probe {
+        let probe = Probe()
+        probe.measured = measured
+        return probe
+    }
+
+    func updateNSView(_ probe: Probe, context: Context) {
+        probe.measured = measured
+    }
+
+    final class Probe: NSView {
+        var measured: ((CGSize) -> Void)?
+        private var last: CGSize?
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            report()
+        }
+
+        override func layout() {
+            super.layout()
+            report()
+        }
+
+        private func report() {
+            guard let window, bounds.width > 0, bounds.height > 0 else { return }
+            let chrome = CGSize(width: max(0, (window.frame.width - bounds.width).rounded()),
+                                height: max(0, (window.frame.height - bounds.height).rounded()))
+            guard chrome != last else { return }
+            last = chrome
+            // Not inside layout: the answer changes state that lays this out.
+            DispatchQueue.main.async { [measured] in measured?(chrome) }
         }
     }
 }
