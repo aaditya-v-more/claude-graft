@@ -95,6 +95,7 @@ opens and quits none.
 - **Chats an account switch left behind are copied, never moved,** and nothing moves while any Claude is up.
 - **That offer is silenced at the door, never in the window.**
 - **A store may spell account and organization by their first eight characters** — `counterpartDirectory`. Every walk asks `isDirectory`; `skills-plugin` is not an account.
+- **An unfiled chat is unfiled only under the profile reading it.** Claude compares `originCwd` with its own `scratch-workspaces`, so a mirrored scratch record gets a local alias on each side and its `originCwd` stays out of the digest.
 
 ### Session records — [notes/session-records.md](notes/session-records.md)
 
