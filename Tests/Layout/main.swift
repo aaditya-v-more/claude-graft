@@ -465,5 +465,90 @@ check(["open-at-login", "show-in-menu-bar", "front-icon", "front-name", "manual-
       "every switch in Settings can be asked for by name, apart from the dropdown's copy of it")
 settingsWindow.orderOut(nil)
 
+// Artifacts, drawn from sample rows: the real list is asked of claude.ai,
+// which a layout check must never reach.
+MainActor.assumeIsolated {
+    let first = ArtifactAccount(id: UUID(), email: "me@example.com", accountUuid: "a1", org: "o1")
+    let second = ArtifactAccount(id: UUID(), email: "lent@example.com", accountUuid: "a2", org: "o2")
+    func artifact(_ id: String, _ title: String, _ account: ArtifactAccount, _ audience: String,
+                  _ rel: String) -> Artifact {
+        Artifact(id: id, account: account.id, org: account.org!, title: title, kind: "page",
+                 openURL: URL(string: "https://claude.ai/artifact/\(id)"), audience: audience, rel: rel,
+                 sortTime: now, ownerAccount: nil)
+    }
+    let samples = [
+        artifact("11111111-a", "Quarterly plan with a title long enough to need cutting short somewhere", first, "public", "mine"),
+        artifact("22222222-b", "Pool check", first, "owner", "mine"),
+        artifact("33333333-c", "Design review", second, "users", "shared"),
+    ]
+    let groups = [ArtifactGroup(id: UUID(), name: "Design", emails: ["a@example.com", "b@example.com"])]
+    for (name, center) in [("artifacts", ArtifactCenter(accounts: [first, second], artifacts: samples, groups: groups)),
+                           ("artifacts-signed-out", ArtifactCenter(accounts: [], artifacts: [], groups: []))] {
+        // The window's own background, which a snapshot taken off screen
+        // does not draw and which the split view gives it in the app.
+        let hosting = NSHostingView(rootView: ArtifactsView(center: center)
+            .background(Color(nsColor: .windowBackgroundColor))
+            .environment(\.controlSurface, ControlSurface.window))
+        hosting.sizingOptions = []
+        let window = LayoutWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 560),
+                                  styleMask: [.titled], backing: .buffered, defer: false)
+        window.title = "Artifacts check \(name)"
+        window.appearance = NSAppearance(named: .aqua)
+        window.contentView = hosting
+        window.setFrameOrigin(NSPoint(x: -10000, y: -10000))
+        window.orderBack(nil)
+        settle()
+        let tree = checkAccessibility(window, surface: ControlSurface.window, name)
+        if center.accounts.isEmpty {
+            check(element("window.artifacts.sign-in", in: tree) != nil
+                    && element("window.artifacts.sign-in-note-info", in: tree) != nil,
+                  "\(name): with no account, one line says to sign in, and the rest is behind ⓘ")
+        } else {
+            for control in ["refresh", "add-account", "filter", "search", "groups"] {
+                check(element("window.artifacts.\(control)", in: tree) != nil,
+                      "\(name): \(control) can be asked for by name")
+            }
+            let share = element("window.artifact.11111111.share", in: tree)
+            check(share?.name == L10n.format("Share %@ with a Group", samples[0].title),
+                  "\(name): sharing says which artifact it shares \(share?.described ?? "missing")")
+            let access = element("window.artifact.11111111.access", in: tree)
+            check(access?.value == ArtifactAccess.anyoneWithLink.label
+                    && access?.name == L10n.format("Who Can Open %@", samples[0].title),
+                  "\(name): who can open an artifact is read out with it, not as “Globe” \(access?.described ?? "missing")")
+            check(element("window.artifact.33333333.access", in: tree) == nil,
+                  "\(name): an artifact someone else owns offers no change to who can open it")
+            let row = element("window.artifact.33333333", in: tree)
+            check(row?.value.contains(L10n.format("Shared with %@", "lent@example.com")) == true,
+                  "\(name): an artifact shared with an account says which account")
+        }
+        let views = descendants(hosting)
+        let scrolls = views.compactMap { $0 as? NSScrollView }.filter { !$0.hasHorizontalScroller && $0.bounds.height > 40 }
+        for scroll in scrolls {
+            guard let document = scroll.documentView else { continue }
+            let clip = scroll.contentView
+            let room = clip.bounds.height - clip.contentInsets.top - clip.contentInsets.bottom
+                - scroll.contentInsets.top - scroll.contentInsets.bottom
+            // A list's table stretches to fill whatever it is shown in, so
+            // what it holds is where its last row ends, not its own height.
+            let table = document as? NSTableView
+            let content = table.map { $0.numberOfRows == 0 ? 0 : $0.rect(ofRow: $0.numberOfRows - 1).maxY }
+                ?? document.frame.height
+            check(content - room <= 1,
+                  "\(name): three artifacts fit beside the sidebar without scrolling (\(Int(content - room)) points over)")
+        }
+        if let directory = ProcessInfo.processInfo.environment["GRAFT_LAYOUT_SNAPSHOTS"] {
+            let output = URL(fileURLWithPath: directory)
+                .appending(path: Bundle.main.preferredLocalizations.first ?? "en")
+            try! fm.createDirectory(at: output, withIntermediateDirectories: true)
+            if let bitmap = hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds) {
+                hosting.cacheDisplay(in: hosting.bounds, to: bitmap)
+                try! bitmap.representation(using: .png, properties: [:])!
+                    .write(to: output.appending(path: "\(name).png"))
+            }
+        }
+        window.orderOut(nil)
+    }
+}
+
 print("\(checks - failures)/\(checks) layout checks passed (\(Bundle.main.preferredLocalizations.joined(separator: ",")))")
 exit(failures == 0 ? 0 : 1)

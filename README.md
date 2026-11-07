@@ -136,6 +136,22 @@ remove the accounts and let each of those Claudes close once while Graft runs.
 Read Anthropic's terms for your plans before sharing them. A request answered by
 another account carries your conversation to that account.
 
+## Artifacts across accounts
+
+**Artifacts** in the sidebar lists the artifacts of every claude.ai account you
+sign in to there, newest first, with the account each belongs to. From the list
+you can open one, copy its link, change who can open it between the people you
+invited and anyone with the link, and share it with a group. Groups are lists of
+email addresses that Graft keeps on this Mac; sharing with one invites each
+address as a viewer, and claude.ai emails each person as it does when you invite
+them yourself.
+
+The usage login Claude keeps cannot reach artifacts, so each account is signed
+in once more, on claude.ai's own sign-in page in a window of Graft's. That
+sign-in stays in a web store of its own for that account, is used only by
+claude.ai's pages, and is never read by Graft or sent anywhere else; signing out
+deletes it. On macOS 13 it lasts until Graft quits.
+
 ## Updating
 
 Graft checks hourly and installs signed updates automatically. Use

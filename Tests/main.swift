@@ -5789,6 +5789,107 @@ do {
           "Graft's own mark gives way to the Claude in front, and comes back for an update or when none is shown")
 }
 
+// MARK: - Artifacts across accounts
+
+section("Artifacts")
+
+do {
+    let org = "8d22f6d4-6ac4-46cb-840d-3248ad76f2f7"
+    check(ArtifactAPI.headers["X-Frame-CP"] == "go",
+          "every artifact request carries the header without which the service answers 404")
+    check(ArtifactAPI.listPath(rel: "mine", org: org)
+            == "/api/frame/artifacts?rel=mine&empty=exclude&limit=48&org=\(org)&sort=last_viewed",
+          "a list is asked for exactly as claude.ai's own page asks for it")
+    check(ArtifactAPI.listPath(rel: "shared", org: org, after: "a+b=c").hasSuffix("&page_token=a%2Bb%3Dc"),
+          "a page token goes back encoded, so one with a plus sign is not read as a space")
+    check(ArtifactAPI.permPath("aadd31ed-02a0", org: org) == "/api/frame/perm/aadd31ed-02a0?org=\(org)"
+            && ArtifactAPI.invitePath("aadd31ed-02a0", org: org) == "/api/frame/invite/aadd31ed-02a0?org=\(org)",
+          "permissions and invitations are keyed by the artifact's UUID under its organization")
+    check(String(decoding: ArtifactAPI.inviteBody(email: "a@example.com"), as: UTF8.self)
+            == #"{"email":"a@example.com","role":"reader"}"#,
+          "an invitation from a group makes the person a viewer, never an editor")
+    check(String(decoding: ArtifactAPI.readModeBody(public: true, invited: ["u1"]), as: UTF8.self)
+            == #"{"read":{"mode":"public"}}"#,
+          "opening an artifact to anyone with the link")
+    check(String(decoding: ArtifactAPI.readModeBody(public: false, invited: ["u1"]), as: UTF8.self)
+            == #"{"read":{"mode":"users","users":["u1"]}}"#
+            && String(decoding: ArtifactAPI.readModeBody(public: false, invited: []), as: UTF8.self)
+            == #"{"read":{"mode":"owner"}}"#,
+          "closing it again keeps whoever was invited, and is private to the owner when nobody was")
+
+    let account = Data(#"""
+        {"uuid":"acc-1","email_address":"me@example.com","memberships":[
+          {"organization":{"uuid":"team-org","capabilities":["raven"]}},
+          {"organization":{"uuid":"chat-org","capabilities":["chat","claude_pro"]}}]}
+        """#.utf8)
+    check(ArtifactAPI.identity(from: account)
+            == ArtifactAPI.Identity(accountUuid: "acc-1", email: "me@example.com", org: "chat-org"),
+          "an account in a team as well is asked about under the organization that chats")
+    check(ArtifactAPI.identity(from: Data(#"{"error":"unauthorized"}"#.utf8)) == nil,
+          "an answer that names no account is no sign-in")
+
+    let mine = UUID(), other = UUID()
+    let listing = Data(#"""
+        {"artifacts":[
+          {"kind":"page","id":"a1","rel":"mine","title":"Pool check","audience":"owner",
+           "open_url":"https://claude.ai/artifact/N6k75kB4","sort_time":"2026-11-07T10:00:00.000Z",
+           "owner_account":"acc-1"},
+          {"kind":"page","id":"a2","rel":"mine","title":"","audience":"public",
+           "sort_time":"2026-11-08T10:00:00Z"}],
+         "next_page_token":"next"}
+        """#.utf8)
+    let page = ArtifactAPI.page(from: listing, account: mine, org: org)
+    check(page?.artifacts.count == 2 && page?.next == "next"
+            && page?.artifacts.first?.openURL?.absoluteString == "https://claude.ai/artifact/N6k75kB4",
+          "a page of artifacts is read with the link claude.ai gave and the token for the next page")
+    check(page?.artifacts.last?.title == "Untitled" && page?.artifacts.last?.access == .anyoneWithLink,
+          "an artifact with no title is still listed, and a public one reads as open to anyone with the link")
+    check(ArtifactAccess(audience: "users") == .invited && ArtifactAccess(audience: "owner") == .onlyYou
+            && ArtifactAccess(audience: "org") == .organization,
+          "each audience the service names reads as who can open it")
+    check(ArtifactAPI.page(from: Data("<html>".utf8), account: mine, org: org) == nil,
+          "a challenge page in place of a list is not taken for an empty one")
+
+    let owned = Artifact(id: "x", account: mine, org: org, title: "Plan", kind: "page", openURL: nil,
+                         audience: "users", rel: "mine", sortTime: Date(timeIntervalSince1970: 10),
+                         ownerAccount: "acc-1")
+    var sharedCopy = owned
+    sharedCopy.account = other
+    sharedCopy.rel = "shared"
+    var newer = owned
+    newer.id = "y"
+    newer.sortTime = Date(timeIntervalSince1970: 20)
+    let merged = ArtifactAPI.merge([[sharedCopy], [owned, newer]])
+    check(merged.map(\.id) == ["y", "x"] && merged.last?.account == mine,
+          "an artifact two of your accounts can see is listed once, under the one that owns it, newest first")
+
+    check(GroupAddresses.parse("Ana <ANA@example.com>, bo@example.org; ana@example.com\nnot-an-address\nx@y")
+            == ["ana@example.com", "bo@example.org"],
+          "addresses pasted from a mail header are read once each, and what is not an address is dropped")
+
+    let groups = [ArtifactGroup(id: UUID(), name: "Design", emails: ["a@example.com"])]
+    check(ArtifactFiles.save(groups, to: ArtifactFiles.groups)
+            && ArtifactFiles.load([ArtifactGroup].self, from: ArtifactFiles.groups) == groups
+            && ArtifactFiles.groups.path.hasPrefix(Graft.applicationSupport.path),
+          "groups are kept in Graft's own folder and read back as they were saved")
+
+    let repo = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+    let center = (try? String(contentsOf: repo.appending(path: "Sources/App/ArtifactCenter.swift"),
+                              encoding: .utf8)) ?? ""
+    let app = ((try? FileManager.default.contentsOfDirectory(atPath: repo.appending(path: "Sources/App").path)) ?? [])
+        .compactMap { try? String(contentsOf: repo.appending(path: "Sources/App/\($0)"), encoding: .utf8) }
+        .joined()
+    check(!center.isEmpty && !app.contains("httpCookieStore") && !app.contains("HTTPCookieStorage"),
+          "the claude.ai sign-in is never read out of its web store")
+    check(center.contains(#"credentials: "same-origin""#) && !center.contains("URLSession"),
+          "artifact requests go from claude.ai's own page, never from a request Graft builds itself")
+    check(center.contains("WKWebsiteDataStore(forIdentifier: account)")
+            && center.contains("WKWebsiteDataStore.remove(forIdentifier: account)"),
+          "each account signs in to a store of its own, and signing out deletes it")
+    check(!center.contains("Timer") && !center.contains("onReceive"),
+          "artifacts are asked for when the list is shown or refreshed, never on a timer")
+}
+
 print("\n\(checks - failures)/\(checks) checks passed")
 if failures > 0 {
     print("\(failures) FAILED")
