@@ -236,12 +236,36 @@ on purpose, and the conversation then stays on that account. The relay does not
 add the header that would make the service report a drop, since nothing that
 cannot change accounts is altered on the way.
 
+**A conversation kept as a thread stays where the thread is.** Claude Code
+2.1.317 keeps each conversation as a thread on the service: the first request
+says `"thread":{"type":"create"}` and carries everything, and each one after
+says `"thread":{"type":"continue","previous_message_id":…}` and carries only
+the turns since. The rest is stored with the account that answered, and any
+other account answers 404 `thread_not_found`; Claude Code takes that as the
+thread having lapsed and sends the whole conversation again as a new one. The
+first live run on two accounts found every moved turn refused this way — the
+relay took the 404 for a plan that lacked something and sent the request back
+where it came from, so a move from the dropdown never stuck, while a lapsed
+thread on the sender's own account was recovered as designed. So a continuation
+is held like reasoning, whatever the model, and when the dropdown or a full
+account does move one, a `thread_not_found` from where it went is handed to
+Claude Code rather than sent home: the new thread that follows is created on
+the account the conversation moved to, and stays there.
+
+Only the conversation's own turns carry a thread. Claude Code asks for a title
+and the like under the same session id with none, often of a smaller model,
+and those were overwriting which account the relay remembered for the
+conversation — the dropdown named the account that answered the title, and
+the next turn was steered there to be refused. Once a session has been seen
+with a thread, only an answer to a request with one says where it is.
+
 What comes back decides what happens next, from the status line alone. A 429
 marks the account full until the reset it names and the request goes on to the
 next; a 401 on a borrowed login marks that login refused until Graft hands over
 another; a 400, 403 or 404 on a borrowed login sends the request home, since
-something in it belongs to the sender or the plan lacks it; anything else is
-delivered. Measured: with Claude 2's login swapped for a bogus one, the first
+something in it belongs to the sender or the plan lacks it — except a 404 that
+says `thread_not_found` to a continued thread, above, which is read and
+delivered; anything else is delivered. Measured: with Claude 2's login swapped for a bogus one, the first
 request was refused, retried on Claude's own account, and Claude Code saw only
 the answer.
 

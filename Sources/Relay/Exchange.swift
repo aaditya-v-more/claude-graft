@@ -97,8 +97,9 @@ final class Exchange {
         let session = head.value("x-claude-code-session-id")
         let pinned = PoolRequest.mustStayWithSender(body: body,
                                                     contentEncoding: head.value("content-encoding"))
+        let continuing = PoolRequest.continuesThread(body: body)
         let attempts = await state.plan(own: own, session: session, pinned: pinned,
-                                        bound: PoolRequest.carriesBoundReasoning(body: body))
+                                        bound: continuing || PoolRequest.carriesBoundReasoning(body: body))
 
         var passed: [PoolPass] = []
         var index = 0
@@ -129,6 +130,18 @@ final class Exchange {
                 await state.observe(member, answer.head.pairs)
                 let outcome = PoolPolicy.outcome(status: status, headers: answer.head.pairs,
                                                  borrowed: borrowed, now: Date())
+                if outcome == .refusedForAccount, status == 404, continuing, !last,
+                   let missing = try await threadMissing(answer, method: head.method) {
+                    // The thread is stored on the account the conversation
+                    // left, and sending the request there would undo the move.
+                    // Claude Code answers this by sending everything as a new
+                    // thread, which this account can take.
+                    Diagnostics.note("relay thread restarted", ["member": member])
+                    await state.served(by: member, from: own, session: session, status: status,
+                                       passedOver: passed, model: PoolRequest.model(in: body),
+                                       cacheLifetime: PoolPolicy.cacheLifetime(of: body), threaded: true)
+                    return try await deliver(answer, body: missing, method: head.method, keepAlive: head.keepsAlive)
+                }
                 if outcome != .deliver, !last {
                     await state.apply(outcome, to: member)
                     // Its answer is a few hundred bytes nobody will read, and
@@ -155,7 +168,8 @@ final class Exchange {
                 }
                 await state.served(by: member, from: own, session: session, status: status,
                                    passedOver: passed, model: PoolRequest.model(in: body),
-                                   cacheLifetime: PoolPolicy.cacheLifetime(of: body))
+                                   cacheLifetime: PoolPolicy.cacheLifetime(of: body),
+                                   threaded: PoolRequest.carriesThread(body: body))
             }
             return try await deliver(answer, method: head.method, keepAlive: head.keepsAlive)
         }
@@ -280,6 +294,38 @@ final class Exchange {
             if let status = answer.head.status, (100..<200).contains(status), status != 101 { continue }
             return answer
         }
+    }
+
+    /// The body of a refusal, when it is the service saying it holds no such
+    /// thread. Read rather than dropped only here: an error is a few hundred
+    /// bytes, and which error it is decides whether it goes back or on.
+    private func threadMissing(_ answer: (head: HTTPHead, raw: Data), method: String) async throws -> Data? {
+        guard let up = connection else { return nil }
+        let framing = answer.head.responseBody(to: method)
+        guard framing != .untilClose else { return nil }
+        let body = try await up.readBody(framing, limit: 64 * 1024)
+        return body.range(of: PoolRequest.threadMissing) != nil ? body : nil
+    }
+
+    /// An answer whose body was read to decide on it. A chunked one goes back
+    /// as a single chunk, which is the same body however it was cut.
+    private func deliver(_ answer: (head: HTTPHead, raw: Data), body: Data, method: String,
+                         keepAlive: Bool) async throws -> Bool {
+        try await client.send(answer.raw)
+        if answer.head.responseBody(to: method) == .chunked {
+            if !body.isEmpty {
+                try await client.send(Data(String(body.count, radix: 16).utf8) + Data("\r\n".utf8)
+                                      + body + Data("\r\n".utf8))
+            }
+            try await client.send(Data("0\r\n\r\n".utf8))
+        } else {
+            try await client.send(body)
+        }
+        if !answer.head.keepsAlive || connection?.buffer.isEmpty == false {
+            connection?.close()
+            connection = nil
+        }
+        return keepAlive && answer.head.keepsAlive
     }
 
     private func deliver(_ answer: (head: HTTPHead, raw: Data), method: String, keepAlive: Bool) async throws -> Bool {

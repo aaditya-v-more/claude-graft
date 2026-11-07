@@ -281,6 +281,31 @@ enum PoolRequest {
         return !reasoningTravels.contains { model.hasPrefix($0) }
     }
 
+    /// Claude Code keeps a conversation as a thread on the service and, once
+    /// one exists, sends only the turns since the message it names: the rest
+    /// is stored with the account that answered it. Any other account answers
+    /// `thread_not_found`, and Claude Code then sends the whole conversation
+    /// again as a new thread. Seen on this machine with Claude Code 2.1.317,
+    /// where every moved continuation came back 404 from the account it was
+    /// moved to. `JSON.stringify` writes `type` first, as the object is built.
+    static let threadContinuation = "\"thread\":{\"type\":\"continue\""
+    static let threadKey = "\"thread\":{"
+
+    static func continuesThread(body: Data) -> Bool {
+        body.range(of: Data(threadContinuation.utf8)) != nil
+    }
+
+    /// The conversation's own turns carry a thread; the short requests Claude
+    /// Code makes beside them — a title, a summary — share its session id and
+    /// carry none.
+    static func carriesThread(body: Data) -> Bool {
+        body.range(of: Data(threadKey.utf8)) != nil
+    }
+
+    /// The service's word for a thread it does not hold, which Claude Code
+    /// answers by starting the thread again with everything in it.
+    static let threadMissing = Data("thread_not_found".utf8)
+
     /// For the record of what went where. The first `"model":` is the request's
     /// own, Claude Code writing it ahead of the messages; a wrong guess here
     /// mislabels one line on screen and decides nothing.

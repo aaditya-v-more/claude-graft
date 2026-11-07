@@ -29,6 +29,12 @@ actor PoolState {
         var model: String?
         var cacheLifetime: TimeInterval = PoolPolicy.shortCache
         var passedOver: [PoolPass] = []
+        /// Set by the first answer to a request carrying a thread. From then
+        /// on only such answers say where the conversation is: a title asked
+        /// for beside it, answered by another account, holds none of it, and
+        /// letting it move `servedBy` sent the next turn to an account that
+        /// answered `thread_not_found` and named the wrong one in the dropdown.
+        var threaded = false
     }
 
     /// Long enough for the menu to go on naming a conversation somebody stepped
@@ -114,8 +120,10 @@ actor PoolState {
         return out
     }
 
-    /// `bound` is a request carrying reasoning only the account that wrote it
-    /// can read back (`PoolRequest.carriesBoundReasoning`).
+    /// `bound` is a request only the account that last answered the
+    /// conversation can take as it stands: one carrying reasoning that account
+    /// wrote (`PoolRequest.carriesBoundReasoning`), or continuing a thread
+    /// stored there (`PoolRequest.continuesThread`).
     func plan(own: String, session: String?, pinned: Bool, bound: Bool = false,
               now: Date = Date()) -> [Attempt] {
         let asSent = [Attempt(member: own, token: nil)]
@@ -186,20 +194,23 @@ actor PoolState {
 
     func served(by member: String, from own: String, session: String?, status: Int,
                 passedOver: [PoolPass], model: String?, cacheLifetime: TimeInterval,
-                now: Date = Date()) {
+                threaded: Bool = false, now: Date = Date()) {
         runtime[member, default: Runtime()].served += 1
         runtime[member, default: Runtime()].lastServed = now
         if let session {
             var held = conversations[session] ?? Conversation(from: own, lastAt: now)
             held.from = own
-            held.lastAt = now
             held.requests += 1
-            held.model = model ?? held.model
-            held.passedOver = passedOver
-            // A failed answer wrote no cache anywhere, so it moves nothing.
-            if (200..<300).contains(status) {
-                held.servedBy = member
-                held.cacheLifetime = cacheLifetime
+            if threaded || !held.threaded {
+                held.lastAt = now
+                held.model = model ?? held.model
+                held.passedOver = passedOver
+                // A failed answer wrote no cache anywhere, so it moves nothing.
+                if (200..<300).contains(status) {
+                    held.servedBy = member
+                    held.cacheLifetime = cacheLifetime
+                    held.threaded = held.threaded || threaded
+                }
             }
             conversations[session] = held
             if conversations.count > 256 {
