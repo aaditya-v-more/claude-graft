@@ -115,7 +115,7 @@ any of these. The why is in [notes/updates-and-releases.md](notes/updates-and-re
 
 ### Usage and credentials — [notes/usage-and-credentials.md](notes/usage-and-credentials.md)
 
-- **Credentials are borrowed, never taken.** Only the access token is decrypted; nothing is written back; a token goes to `api.anthropic.com` alone, and `platform.claude.com` sees only a pane sign-in's one-time code.
+- **Credentials are borrowed, never taken.** Only the access token is decrypted; nothing is written back; a token goes to `api.anthropic.com` alone, `platform.claude.com` sees only a pane sign-in's one-time code, and claude.ai sees only an artifact sign-in made in Graft's own window, which Graft never reads.
 - **The keychain is asked once, and only when asking is the way through** — `ClaudeCredentials.mayRaiseDialog`, made silent by `SecKeychainSetUserInteractionAllowed`.
 - **Only a person starts a session.** The suite fails on a fourth caller or one wired to `onAppear`, `onReceive` or a timer.
 - **One account, one figure:** both detail views read `UsageMonitor.entry(for:)`.
@@ -140,6 +140,13 @@ any of these. The why is in [notes/updates-and-releases.md](notes/updates-and-re
 - **Some requests never move:** a body referring to a file, container or MCP server by value (`accountBoundMarks`, never the bare key, which a tool schema can carry), or one that is encoded.
 - **The dropdown's front Claude is `FrontmostClaude`'s,** and its watch on the relay ends in `popoverDidClose`, never in the view.
 - **A new conversation runs across the bar for two minutes,** drawn at a fixed width (`NewChatTicker`), and only one the relay saw begin (`startedAt`) counts as new. The text gives way when it would push the item out of the bar (`keepReachable`).
+
+### Artifacts — [notes/artifacts.md](notes/artifacts.md)
+
+- **An artifact sign-in stays in its web store.** One `WKWebsiteDataStore` per account, loaded only with claude.ai; requests go out from a claude.ai page by `callAsyncJavaScript`, never from `URLSession`, and nothing reads `httpCookieStore`. Signing out removes the store. Claude profiles' cookies are never decrypted.
+- **Every `/api/frame` request carries `X-Frame-CP: go`,** or the service answers 404 as though the artifact did not exist.
+- **Artifacts are asked for when the list is shown or refreshed, never on a timer.**
+- **Groups are Graft's,** in `artifact-groups.json`; sharing with one invites each address as a `reader`, and only the owner is offered a change.
 
 ### Interface — [notes/interface.md](notes/interface.md)
 

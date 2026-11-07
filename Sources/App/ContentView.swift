@@ -4,6 +4,9 @@ import SwiftUI
 struct ContentView: View {
     /// Stands for Claude's own profile in the sidebar, which has no shortcut.
     static let mainProfileID = UUID(uuidString: "00000000-0000-0000-0000-000000000001")!
+    /// Stands for the artifacts of every signed-in account, which belong to no
+    /// one profile.
+    static let artifactsID = UUID(uuidString: "00000000-0000-0000-0000-000000000002")!
 
     @EnvironmentObject private var store: ShortcutStore
     @State private var selection: UUID? = ContentView.mainProfileID
@@ -80,6 +83,8 @@ struct ContentView: View {
     private var profileDetail: some View {
         if selection == Self.mainProfileID {
             MainProfileDetail()
+        } else if selection == Self.artifactsID {
+            ArtifactsView(center: Shared.artifacts)
         } else if let selection, let index = store.shortcuts.firstIndex(where: { $0.id == selection }) {
             ShortcutDetail(shortcut: $store.shortcuts[index],
                            requestDelete: { requestDeletion(of: selection) })
@@ -141,6 +146,21 @@ struct ContentView: View {
                 .spoken("Claude", value: L10n.text("Installed normally"))
                 .identified("sidebar.\(Graft.mainProfile.lastPathComponent)")
                 .tag(Self.mainProfileID)
+
+                Label {
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("Artifacts")
+                        Text("Every account")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                } icon: {
+                    Image(systemName: "square.on.square")
+                        .foregroundStyle(.secondary)
+                }
+                .spoken(L10n.text("Artifacts"), value: L10n.text("Every account"))
+                .identified("sidebar.artifacts")
+                .tag(Self.artifactsID)
             }
 
             Section("Shortcuts") {

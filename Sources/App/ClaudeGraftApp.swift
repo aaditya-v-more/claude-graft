@@ -55,6 +55,7 @@ enum Shared {
     static let claudeUpdates = ClaudeDesktopUpdater()
     static let usagePool = UsagePoolController()
     static let accountSignIn = AccountSignIn(pool: usagePool)
+    @MainActor static let artifacts = ArtifactCenter()
 }
 
 struct SettingsView: View {

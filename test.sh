@@ -35,6 +35,7 @@ swiftc -swift-version 5 \
     "$ROOT/Sources/App/UsagePoolController.swift" \
     "$ROOT/Sources/App/ClaudeCodeEnvironment.swift" \
     "$ROOT/Sources/App/AccountSignIn.swift" \
+    "$ROOT/Sources/App/Artifacts.swift" \
     "$ROOT/Tests/main.swift" \
     -o "$BUILD/tests"
 

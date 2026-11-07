@@ -13,7 +13,9 @@ profile, and the logins signed in from the pane, kept in Graft's own
 `pool/accounts.json`. A token goes to `api.anthropic.com` and nowhere else. The
 one other address is `platform.claude.com`, which a sign-in from the pane sends
 the browser's one-time code to, and what it answers with is a login of Graft's
-own, never one of Claude's.
+own, never one of Claude's. claude.ai is the third, for [artifacts](artifacts.md) alone: it sees a
+sign-in made in Graft's own window, which stays in that window's web store and
+is never read out of it.
 
 **The keychain is asked once, and only when asking is the way through.** Every
 read tries silently first, so a build already on the item's ACL never sees a
