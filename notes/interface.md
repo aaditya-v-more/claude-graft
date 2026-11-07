@@ -262,3 +262,10 @@ The figure is AppKit's text placement, 10.2 points down against the symbol's
 comes forward. A point and not a point and a half because text lands on whole
 pixels: the larger figure put it half a pixel below the symbol. Measure all of
 this on a status item in the bar.
+
+**Graft's own mark leaves the bar while a Claude in front is drawn there.** The
+front Claude's icon or name already says whose item it is, and the half-filled
+circle beside it was width a full bar could not spare. It comes back when no
+Claude is shown, and an update's symbol stays whatever is in front, since that
+is news the front Claude cannot carry. With no mark, the title drops the space
+that parted it from one (`FrontTitle.make(afterImage:)`).

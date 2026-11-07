@@ -214,8 +214,13 @@ enum FrontTitle {
     /// No colour is given to the figure, so it keeps the one the bar chooses
     /// for the wallpaper behind it; only the icon and the tag bring their own.
     static func make(icon: NSImage?, tag: NSImage?, figure: Graft.Usage.Headline?,
-                     font: NSFont, ticker: NSImage? = nil) -> NSAttributedString {
+                     font: NSFont, ticker: NSImage? = nil, afterImage: Bool = true) -> NSAttributedString {
         let title = NSMutableAttributedString()
+        // The gap is there to part the title from the symbol before it; with
+        // no symbol it is a space the bar spends on nothing.
+        func gap(_ text: String) -> NSAttributedString {
+            NSAttributedString(string: title.length == 0 && !afterImage ? "" : text, attributes: [.font: font])
+        }
         for picture in [icon, tag].compactMap({ $0 }) {
             let size = picture.size
             let lowered = NSImage(size: NSSize(width: size.width, height: size.height + drop * 2),
@@ -230,11 +235,12 @@ enum FrontTitle {
             // picture alone would have sat, which is what keeps the block.
             attachment.bounds = NSRect(x: 0, y: ((font.capHeight - size.height) / 2).rounded() - drop,
                                        width: lowered.size.width, height: lowered.size.height)
-            title.append(NSAttributedString(string: " ", attributes: [.font: font]))
+            title.append(gap(" "))
             title.append(NSAttributedString(attachment: attachment))
         }
         if let figure {
-            title.append(NSAttributedString(string: " " + text(figure), attributes: [
+            title.append(gap(" "))
+            title.append(NSAttributedString(string: text(figure), attributes: [
                 .font: font, .baselineOffset: -figureDrop,
             ]))
         }
@@ -245,7 +251,7 @@ enum FrontTitle {
             // point smaller, and lowered by as much as the figure is.
             attachment.bounds = NSRect(x: 0, y: font.descender - figureDrop,
                                        width: ticker.size.width, height: ticker.size.height)
-            title.append(NSAttributedString(string: "  ", attributes: [.font: font]))
+            title.append(gap("  "))
             title.append(NSAttributedString(attachment: attachment))
         }
         return title

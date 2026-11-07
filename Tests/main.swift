@@ -2732,6 +2732,9 @@ do {
     let week = Graft.Usage.Headline(percent: 94, isWeekly: true)
     check(FrontTitle.make(icon: nil, tag: nil, figure: week, font: font).string == " W 94%",
           "a week's figure carries a W, so it is not taken for a five-hour one")
+    check(!FrontTitle.make(icon: icon, tag: short, figure: five, font: font, afterImage: false).string.hasPrefix(" ")
+            && FrontTitle.make(icon: nil, tag: nil, figure: week, font: font, afterImage: false).string == "W 94%",
+          "with no mark before it, the title starts at the edge of the item instead of a space in")
     let weekBeside = FrontTitle.make(icon: icon, tag: short, figure: week, font: font)
     check(weekBeside.string.hasSuffix(" W 94%") && lowered(weekBeside) == -FrontTitle.figureDrop,
           "beside a Claude in front as well, lowered like any other figure")
@@ -5752,6 +5755,9 @@ do {
     check(bar.contains("item?.menu = menu\n        button.performClick(nil)\n        item?.menu = nil")
             && !bar.contains("menu.popUp(positioning:"),
           "the right-click menu opens under the item, where macOS puts menu-bar menus")
+    check(bar.contains("let symbol = alert ?? (front == nil ? StatusSymbol.idle : nil)")
+            && bar.contains("afterImage: button.image != nil"),
+          "Graft's own mark gives way to the Claude in front, and comes back for an update or when none is shown")
 }
 
 print("\n\(checks - failures)/\(checks) checks passed")

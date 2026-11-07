@@ -105,7 +105,7 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
         // A right click moves a conversation that has just begun.
         item.button?.sendAction(on: [.leftMouseUp, .rightMouseUp])
         item.button?.imagePosition = .imageLeading
-        item.button?.image = NSImage(systemSymbolName: "circle.lefthalf.filled",
+        item.button?.image = NSImage(systemSymbolName: StatusSymbol.idle,
                                      accessibilityDescription: "Claude Graft")
         // The only handle a script has on the item: its title is a figure
         // that changes on every pass, and the bar holds no other name for it.
@@ -133,10 +133,9 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
         let heldVersion = UpdatePolicy.showsInStatusItem(holding: Shared.updater.isHolding,
                                                          available: Shared.updater.availableVersion)
             ? Shared.updater.availableVersion : nil
-        button.image = NSImage(systemSymbolName: updates.isUpdating ? "arrow.triangle.2.circlepath"
-                               : updates.availableVersion != nil ? "exclamationmark.circle.fill"
-                               : heldVersion != nil ? "arrow.down.circle.fill" : "circle.lefthalf.filled",
-                               accessibilityDescription: "Claude Graft")
+        let alert = updates.isUpdating ? "arrow.triangle.2.circlepath"
+            : updates.availableVersion != nil ? "exclamationmark.circle.fill"
+            : heldVersion != nil ? "arrow.down.circle.fill" : nil
         let updateTip = updates.isUpdating ? L10n.text("Claude Desktop is updating")
             : updates.availableVersion.map { L10n.format("Claude Desktop %@ is available", $0) }
             ?? heldVersion.map { L10n.format("Claude Graft %@ is available", $0) }
@@ -150,6 +149,11 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
         // A Claude nothing could be drawn for is not shown, and nor is its
         // figure, which would otherwise pass for the tightest window's.
         let front = icon != nil || tag != nil ? named : nil
+        // The Claude in front already says whose item this is, so Graft's own
+        // mark would only take room from a bar that has little to spare. An
+        // update keeps its symbol: that is news the front Claude cannot carry.
+        let symbol = alert ?? (front == nil ? StatusSymbol.idle : nil)
+        button.image = symbol.flatMap { NSImage(systemSymbolName: $0, accessibilityDescription: "Claude Graft") }
         let headline = front ?? usage.statusEntry(front: nil)?.entry
         let figures = headline?.currentUsage
         parts = front != nil || figures != nil ? (icon, tag, figures?.headline) : nil
@@ -184,7 +188,8 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
         let picture = tickerText.map { NewChatTicker.image($0, offset: tickerOffset, font: font) }
         if parts != nil || picture != nil {
             button.attributedTitle = FrontTitle.make(icon: parts?.icon, tag: parts?.tag,
-                                                     figure: parts?.figure, font: font, ticker: picture)
+                                                     figure: parts?.figure, font: font, ticker: picture,
+                                                     afterImage: button.image != nil)
         } else {
             button.title = ""
         }
@@ -382,4 +387,9 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
     func popoverDidClose(_ notification: Notification) {
         Shared.usagePool.unwatch()
     }
+}
+
+/// Graft's own mark, shown only when nothing else in the item says whose it is.
+enum StatusSymbol {
+    static let idle = "circle.lefthalf.filled"
 }
