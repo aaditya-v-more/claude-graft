@@ -58,6 +58,7 @@ enum Shared {
     static let usagePool = UsagePoolController()
     static let accountSignIn = AccountSignIn(pool: usagePool)
     @MainActor static let artifacts = ArtifactCenter()
+    @MainActor static let projects = ProjectCenter(accounts: artifacts)
 }
 
 struct SettingsView: View {

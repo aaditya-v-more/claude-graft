@@ -281,12 +281,48 @@ let pages = [
     Page(name: "claude-2", selection: shortcut.id, profile: shortcut.profileDir),
     Page(name: "claude-3-draft", selection: draft.id, profile: draft.profileDir),
     Page(name: "artifacts", selection: ContentView.artifactsID, profile: nil),
+    Page(name: "projects", selection: ContentView.projectsID, profile: nil),
+    Page(name: "search", selection: ContentView.searchID, profile: nil),
 ]
 let (pageArtifacts, artifactSamples) = sampleArtifacts()
 
+/// Projects and search results drawn from sample rows, over the same sample
+/// accounts, for the same reason: the real ones are asked of claude.ai.
+func sampleProjects(_ accounts: ArtifactCenter) -> ProjectCenter {
+    MainActor.assumeIsolated {
+        let first = accounts.accounts[0].id
+        let second = accounts.accounts[1].id
+        let projects = [
+            ClaudeProject(id: "p1111111-a", account: first, name: "Claude Graft", summary: "The app",
+                          isPrivate: true, isStarred: true, isExample: false, creator: nil, updated: taken),
+            ClaudeProject(id: "p2222222-b", account: second, name: "A project with a name long enough to need cutting short",
+                          summary: "", isPrivate: false, isStarred: false, isExample: false, creator: nil, updated: taken),
+            ClaudeProject(id: "p3333333-c", account: first, name: "How to use Claude", summary: "",
+                          isPrivate: true, isStarred: false, isExample: true, creator: nil, updated: taken),
+        ]
+        func hit(_ id: String, _ account: UUID, _ kind: SearchHit.Kind, _ title: String, _ snippet: String,
+                 place: SearchHit.Place? = nil, archived: Bool = false, project: String? = nil) -> SearchHit {
+            SearchHit(id: id, account: account, kind: kind, title: title, snippet: snippet,
+                      snippetMatches: [0..<5], titleMatches: [0..<5], project: project, updated: taken,
+                      isArchived: archived, isStarred: kind == .chat && project != nil, place: place,
+                      folder: kind == .code ? snippet : nil,
+                      transcript: place == .goneFromClaude ? URL(fileURLWithPath: "/tmp/\(id).jsonl") : nil,
+                      rank: 0, openURL: place == .goneFromClaude ? nil : URL(string: "https://claude.ai/chat/\(id)"))
+        }
+        let results = [
+            hit("c1111111-a", first, .chat, "Graft release plan", "Graft ships both architectures and a note for the floor version, which is long enough to wrap onto a second line here", project: "p1111111-a"),
+            hit("c2222222-b", second, .chat, "Graft on a lent account", "Graft lends the week to the account with the soonest reset"),
+            hit("cse_3333333", first, .code, "Graft layout fix", "/Users/Shared/Developer/claude-graft", place: .thisMac),
+            hit("local-gone", first, .code, "Graft notes", "/Users/Shared/Developer/claude-graft", place: .goneFromClaude),
+        ]
+        return ProjectCenter(accounts: accounts, projects: projects, results: results, searched: "Graft")
+    }
+}
+let pageProjects = sampleProjects(pageArtifacts)
+
 for appearance in [NSAppearance.Name.aqua, .darkAqua] {
 for page in pages {
-    let root = ContentView(selection: page.selection, artifacts: pageArtifacts)
+    let root = ContentView(selection: page.selection, artifacts: pageArtifacts, projects: pageProjects)
         .environmentObject(Shared.store)
         .environmentObject(Shared.settings)
         .environmentObject(Shared.usage)
@@ -384,7 +420,45 @@ for page in pages {
                                 == L10n.format("Stop drawing on %@", "lent@example.com"),
                               "\(place): an account signed in here is named by its email")
                     }
-                } else {
+                }
+                if page.profile == nil {
+                    // One sign-in for all three: each page heads itself with
+                    // the same accounts, each offering to sign in again or out.
+                    let scope = page.selection == ContentView.projectsID ? "projects"
+                        : page.selection == ContentView.searchID ? "search" : "artifacts"
+                    for account in MainActor.assumeIsolated({ pageArtifacts.accounts }) {
+                        check(element("window.\(scope).account.\(account.id.uuidString.prefix(8))", in: tree) != nil,
+                              "\(place): \(account.email ?? "") is shown as signed in here too")
+                    }
+                }
+                if page.selection == ContentView.projectsID {
+                    for control in ["refresh", "add-account", "filter", "count"] {
+                        check(element("window.projects.\(control)", in: tree) != nil,
+                              "\(place): projects \(control) can be asked for by name")
+                    }
+                    check(element("window.project.p1111111.open", in: tree)?.name
+                            == L10n.format("Open %@", "Claude Graft"),
+                          "\(place): opening a project says which project")
+                    check(element("window.project.p3333333", in: tree)?.value.contains(L10n.text("Example")) == true,
+                          "\(place): the example project says it is one")
+                } else if page.selection == ContentView.searchID {
+                    for control in ["query", "go", "filters", "add-account"] {
+                        check(element("window.search.\(control)", in: tree) != nil,
+                              "\(place): search \(control) can be asked for by name")
+                    }
+                    check(element("window.search.filters", in: tree)?.name == L10n.text("Filters"),
+                          "\(place): the filter icon is read out as the filters, not as a picture")
+                    check(element("window.search.kind", in: tree) == nil,
+                          "\(place): the filters stay behind their icon rather than across the page")
+                    check(element("window.hit.c1111111.open", in: tree)?.name
+                            == L10n.format("Open %@", "Graft release plan"),
+                          "\(place): opening a chat says which chat")
+                    check(element("window.hit.local-go.open", in: tree)?.name
+                            == L10n.format("Show %@ in Finder", "Graft notes"),
+                          "\(place): a session gone from claude.ai offers Finder, not a dead link")
+                    check(element("window.hit.3333333", in: tree)?.value.contains(L10n.text("On this Mac")) == true,
+                          "\(place): a Code session says where it ran")
+                } else if page.selection == ContentView.artifactsID {
                     for control in ["refresh", "add-account", "filter", "search", "groups"] {
                         check(element("window.artifacts.\(control)", in: tree) != nil,
                               "\(place): \(control) can be asked for by name")
@@ -420,6 +494,10 @@ for page in pages {
             let splitBounds = hosting.convert(split.bounds, from: split)
             check(abs(splitBounds.minY) <= 1 && splitBounds.maxY <= hosting.bounds.maxY + 1,
                   "\(place): the split view fills the window from its top edge")
+            // A page wider than the window does not make the window grow: it
+            // pushes the sidebar off the left edge and itself off the right.
+            check(splitBounds.minX >= -1 && splitBounds.maxX <= hosting.bounds.maxX + 1,
+                  "\(place): the page fits the window's width \(Int(splitBounds.width)) in \(Int(hosting.bounds.width))")
             let controllerItem = (split.delegate as? NSSplitViewController)?.splitViewItems.first
             check(controllerItem?.behavior == .sidebar,
                   "\(place): the first column is a sidebar, not one half of a split")

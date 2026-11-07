@@ -23,8 +23,9 @@ struct ArtifactsView: View {
 
     static let note = """
         Graft signs in to claude.ai once for each account, in a window of its own, \
-        and keeps that sign-in in a web store of its own for that account. It is \
-        used only by claude.ai's own pages and is never read by Graft or sent \
+        and keeps that sign-in in a web store of its own for that account. One \
+        sign-in serves Artifacts, Projects and Search Chats alike. It is used \
+        only by claude.ai's own pages and is never read by Graft or sent \
         anywhere else. Signing out deletes it.
 
         Groups are kept by Graft on this Mac. Sharing with a group invites each \
@@ -184,9 +185,13 @@ struct ArtifactsView: View {
     }
 }
 
-private struct AccountChip: View {
+/// One signed-in account, with its way to sign in again or out. The same
+/// chip heads Artifacts, Projects and Search Chats, since the sign-in behind it
+/// is one sign-in for all three.
+struct AccountChip: View {
     @ObservedObject var center: ArtifactCenter
     let account: ArtifactAccount
+    var scope = "artifacts"
 
     var body: some View {
         let state = center.state(of: account.id)
@@ -209,7 +214,7 @@ private struct AccountChip: View {
         .help(help(state))
         .accessibilityLabel(name)
         .accessibilityValue(help(state))
-        .identified("artifacts.account.\(account.id.uuidString.prefix(8))")
+        .identified("\(scope).account.\(account.id.uuidString.prefix(8))")
     }
 
     private func color(_ state: ArtifactCenter.AccountState) -> Color {

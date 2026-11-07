@@ -63,7 +63,9 @@ final class ClaudeWebSession: NSObject, WKNavigationDelegate {
               headers: [String: String] = [:]) async throws -> (status: Int, data: Data) {
         try await ready()
         guard let webView else { throw Failure.unreachable }
-        var all = ArtifactAPI.headers
+        // The artifact service answers 404 without its own headers; the rest
+        // of claude.ai's API is asked as its pages ask it, without them.
+        var all = path.hasPrefix("/api/frame/") ? ArtifactAPI.headers : [:]
         all.merge(headers) { $1 }
         if body != nil { all["Content-Type"] = "application/json" }
         let script = """
@@ -169,6 +171,15 @@ final class ArtifactCenter: ObservableObject {
     @Published private(set) var busy: Set<String> = []
     /// Which Claude on this Mac each account belongs to, by account UUID.
     @Published private(set) var claudeNames: [String: String] = [:]
+    /// The last sign-in to finish, whichever pane it was started from, so
+    /// every pane can ask for that account at once rather than at its next
+    /// refresh.
+    @Published private(set) var lastSignIn: SignIn?
+
+    struct SignIn: Equatable {
+        let account: UUID
+        let at: Date
+    }
 
     /// Set for the layout checks, which draw sample artifacts and must never
     /// reach claude.ai.
@@ -193,6 +204,17 @@ final class ArtifactCenter: ObservableObject {
     }
 
     func state(of account: UUID) -> AccountState { states[account] ?? .unknown }
+
+    /// What another pane learned about a sign-in, so every pane's chip says
+    /// the same thing about it.
+    func noteSignIn(_ account: UUID, accepted: Bool) {
+        guard self.account(account) != nil, states[account] != .loading else { return }
+        if accepted {
+            if states[account] != .ready { states[account] = .ready }
+        } else {
+            states[account] = .signedOut
+        }
+    }
 
     func account(_ id: UUID) -> ArtifactAccount? { accounts.first { $0.id == id } }
 
@@ -235,6 +257,7 @@ final class ArtifactCenter: ObservableObject {
             sessions[existing.id]?.reset()
             status = L10n.format("%@ was already signed in", identity.email)
             Task { await load(existing.id) }
+            lastSignIn = SignIn(account: existing.id, at: Date())
             return
         }
         let account = ArtifactAccount(id: id, email: identity.email, accountUuid: identity.accountUuid,
@@ -247,6 +270,7 @@ final class ArtifactCenter: ObservableObject {
         ArtifactFiles.save(accounts, to: ArtifactFiles.accounts)
         sessions[id]?.reset()
         Task { await load(id) }
+        lastSignIn = SignIn(account: id, at: Date())
     }
 
     func signOut(_ id: UUID) {
@@ -272,13 +296,37 @@ final class ArtifactCenter: ObservableObject {
                 for account in accounts { group.addTask { await self.load(account.id) } }
             }
         }
+        refreshNames()
+    }
+
+    func refreshNames() {
         Task.detached(priority: .utility) {
             let names = Self.claudeNamesOnThisMac()
             await MainActor.run { self.claudeNames = names }
         }
     }
 
-    private func session(_ id: UUID) -> ClaudeWebSession {
+    /// The organization an account's chats, projects and artifacts live
+    /// under, asked of claude.ai the first time and kept after that.
+    func organization(of id: UUID) async throws -> String {
+        var account = account(id) ?? ArtifactAccount(id: id)
+        if account.org == nil || account.email == nil {
+            let identity = try await session(id).identity()
+            account.email = identity.email
+            account.accountUuid = identity.accountUuid
+            account.org = identity.org
+            if let index = accounts.firstIndex(where: { $0.id == id }) {
+                accounts[index] = account
+                ArtifactFiles.save(accounts, to: ArtifactFiles.accounts)
+            }
+        }
+        guard let org = account.org else { throw ClaudeWebSession.Failure.unreadable }
+        return org
+    }
+
+    /// Shared with the Projects and Search panes, which ask from the same
+    /// signed-in page rather than loading a second one per account.
+    func session(_ id: UUID) -> ClaudeWebSession {
         if let session = sessions[id] { return session }
         let session = ClaudeWebSession(account: id)
         sessions[id] = session
@@ -290,18 +338,7 @@ final class ArtifactCenter: ObservableObject {
         states[id] = .loading
         let session = session(id)
         do {
-            var account = account(id) ?? ArtifactAccount(id: id)
-            if account.org == nil || account.email == nil {
-                let identity = try await session.identity()
-                account.email = identity.email
-                account.accountUuid = identity.accountUuid
-                account.org = identity.org
-                if let index = accounts.firstIndex(where: { $0.id == id }) {
-                    accounts[index] = account
-                    ArtifactFiles.save(accounts, to: ArtifactFiles.accounts)
-                }
-            }
-            guard let org = account.org else { throw ClaudeWebSession.Failure.unreadable }
+            let org = try await organization(of: id)
             var found: [Artifact] = []
             for rel in ["mine", "shared"] {
                 var token: String?

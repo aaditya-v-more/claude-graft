@@ -5908,6 +5908,220 @@ do {
           "artifacts are asked for when the list is shown or refreshed, never on a timer")
 }
 
+// MARK: - Projects and search across accounts
+
+section("Projects and search")
+
+do {
+    let org = "11111111-2222-4333-8444-555555555555"
+    let mine = UUID()
+    let lent = UUID()
+    check(ClaudeAPI.projectsPath(org: org, offset: 30)
+            == "/api/organizations/\(org)/projects_v2?include_harmony_projects=true&limit=30&offset=30&order_by=latest_chat",
+          "projects are asked for as the Projects page asks, thirty at a time")
+    check(ClaudeAPI.searchPath(org: org) == "/api/organizations/\(org)/conversation/search/v2"
+            && String(decoding: ClaudeAPI.searchBody(query: "pi \"zero\""), as: UTF8.self)
+                == #"{"n":25,"query":"pi \"zero\"","target_snippet_size":100}"#,
+          "a search is posted with the query, the count and the snippet size the search box sends")
+    check(ClaudeAPI.codeSessionsPath() == "/v1/code/sessions?limit=200"
+            && ClaudeAPI.codeSessionsPath(after: "a|b=").hasSuffix("&cursor=a%7Cb%3D"),
+          "Code sessions are listed two hundred at a time, the cursor carried as given")
+    let headers = ClaudeAPI.codeHeaders(org: org)
+    check(headers["x-organization-uuid"] == org && headers["anthropic-beta"] == "ccr-byoc-2025-07-29"
+            && headers["X-Frame-CP"] == nil,
+          "the session list names the organization and its beta, and none of the artifact service's headers")
+    check(ClaudeAPI.codeSessionURL("cse_01WY8cUV").absoluteString == "https://claude.ai/code/session_01WY8cUV",
+          "a session listed as cse_ opens as session_ under the same name")
+
+    let projectPage = Data("""
+        {"data":[
+          {"uuid":"p-1","name":"Graft","description":"the app","is_private":true,"is_starred":false,
+           "is_starter_project":false,"archived_at":null,"updated_at":"2026-11-07T10:00:00.000Z",
+           "creator":{"uuid":"c","full_name":"Aaditya"}},
+          {"uuid":"p-2","name":"","is_private":false,"is_starred":true,"is_starter_project":true,
+           "archived_at":null,"updated_at":"2026-10-01T10:00:00Z"},
+          {"uuid":"p-3","name":"Old","archived_at":"2026-09-01T00:00:00Z"}],
+         "pagination":{"total":3,"limit":30,"offset":0,"has_more":true}}
+        """.utf8)
+    let listed = ClaudeAPI.projects(from: projectPage, account: mine)
+    check(listed?.projects.map(\.id) == ["p-1", "p-2"] && listed?.hasMore == true,
+          "an archived project is left off, as on the Projects page, and another page is followed")
+    check(listed?.projects.last?.name == "Untitled" && listed?.projects.last?.isExample == true
+            && listed?.projects.first?.creator == "Aaditya",
+          "a project with no name is still listed, and the example project says so")
+    check(ClaudeAPI.projects(from: Data("<html>".utf8), account: mine) == nil,
+          "a page that is not a project list is refused, not read as an empty one")
+    let merged = ClaudeAPI.merge([listed?.projects ?? []])
+    check(merged.first?.id == "p-2", "a starred project comes first, as it does on claude.ai")
+    check(merged.first?.openURL.absoluteString == "https://claude.ai/project/p-2",
+          "a project opens at its own page")
+
+    let searchPage = Data("""
+        {"data":[
+          {"conversation":{"uuid":"c-2","name":"Camera Pi","updated_at":"2026-11-06T10:00:00Z",
+                           "project_uuid":"p-1","is_archived":true,"is_starred":true},
+           "matched_snippet":{"text":"a raspberry camera","matches":[{"start":2,"end":11}]},
+           "title_matches":[],"semantic_rank":1},
+          {"conversation":{"uuid":"c-1","name":"Raspberry Pi Pico","updated_at":"2026-11-07T10:00:00Z",
+                           "project_uuid":null,"is_archived":false},
+           "matched_snippet":{"text":"","matches":[]},"title_matches":[{"start":0,"end":9}],"semantic_rank":0}],
+         "next_page_token":null,"executed_mode":"hybrid"}
+        """.utf8)
+    let chats = ClaudeAPI.chats(from: searchPage, account: mine) ?? []
+    check(chats.count == 2 && chats[0].isArchived && chats[0].isStarred && chats[0].project == "p-1"
+            && chats[1].titleMatches == [0..<9] && chats[0].snippetMatches == [2..<11],
+          "a found chat keeps its project, its archive and star, and where the query matched")
+    check(chats[1].openURL?.absoluteString == "https://claude.ai/chat/c-1", "a chat opens at its own page")
+
+    let sessionPage = Data("""
+        {"data":[
+          {"id":"cse_here","title":"Fix the graft build","status":"active","environment_kind":"bridge",
+           "last_event_at":"2026-11-07T09:00:00Z","config":{"sources":[]}},
+          {"id":"cse_cloud","title":"Graft release notes","status":"archived","environment_kind":"anthropic_cloud",
+           "updated_at":"2026-11-01T09:00:00Z","config":{"sources":[{"url":"https://github.com/a/claude-graft"}]}},
+          {"id":"cse_far","title":"Graft on the mini","status":"active","environment_kind":"bridge"},
+          {"id":"cse_carried","title":"Graft carried over","status":"active","environment_kind":"bridge"},
+          {"id":"cse_other","title":"Pico camera","status":"active","environment_kind":"bridge"}],
+         "next_cursor":"MTc5"}
+        """.utf8)
+    let sessions = ClaudeAPI.codeSessions(from: sessionPage)
+    check(sessions?.next == "MTc5" && sessions?.sessions.count == 5
+            && sessions?.sessions[1].inCloud == true && sessions?.sessions[1].isArchived == true
+            && sessions?.sessions[1].repository == "https://github.com/a/claude-graft",
+          "a session list is read with its cursor, where each ran, and its repository")
+    let transcriptHere = URL(fileURLWithPath: "/tmp/here.jsonl")
+    let local = [
+        LocalCodeSession(bridgeIds: ["cse_here"], owner: "acct-mine", title: "Fix the graft build",
+                         folder: "/Users/Shared/graft", transcript: transcriptHere,
+                         lastActive: Date(), folderIsHere: true),
+        LocalCodeSession(bridgeIds: ["cse_carried"], owner: "acct-mine", title: "Graft carried over",
+                         folder: "/Users/someone-else/graft", transcript: URL(fileURLWithPath: "/tmp/c.jsonl"),
+                         lastActive: Date(), folderIsHere: false),
+        LocalCodeSession(bridgeIds: ["cse_deleted"], owner: "acct-mine", title: "Graft notes, deleted",
+                         folder: "/Users/Shared/graft", transcript: URL(fileURLWithPath: "/tmp/d.jsonl"),
+                         lastActive: Date(), folderIsHere: true),
+        LocalCodeSession(bridgeIds: ["cse_someone"], owner: "acct-other", title: "Graft, not this account",
+                         folder: "/Users/Shared/graft", transcript: URL(fileURLWithPath: "/tmp/o.jsonl"),
+                         lastActive: Date(), folderIsHere: true),
+    ]
+    let remote = sessions?.sessions ?? []
+    let hits = ClaudeAPI.codeHits("graft", account: mine, accountUuid: "acct-mine",
+                                  remote: remote, complete: true, local: local)
+    func place(_ id: String) -> SearchHit.Place? { hits.first { $0.id == id }?.place }
+    check(place("cse_here") == .thisMac && place("cse_cloud") == .cloud && place("cse_far") == .otherMac
+            && place("cse_carried") == .otherMac,
+          "a Code session is placed on this Mac only when its transcript is here and its folder could be")
+    check(hits.first { $0.id == "cse_here" }?.folder == "/Users/Shared/graft"
+            && hits.first { $0.id == "cse_here" }?.titleMatches == [8..<13],
+          "a session found here carries its folder, and the word that matched its title")
+    check(!hits.contains { $0.id == "cse_other" },
+          "a session whose title and folder do not hold every word is left out")
+    let gone = hits.filter { $0.place == .goneFromClaude }
+    check(gone.count == 1 && gone.first?.title == "Graft notes, deleted" && gone.first?.openURL == nil
+            && gone.first?.transcript?.path == "/tmp/d.jsonl",
+          "a transcript of this account's that claude.ai no longer lists is found, and opens in Finder")
+    let partial = ClaudeAPI.codeHits("graft", account: mine, accountUuid: "acct-mine",
+                                     remote: remote, complete: false, local: local)
+    check(!partial.contains { $0.place == .goneFromClaude },
+          "nothing is called gone from claude.ai when the session list was not read to its end")
+    check(ClaudeAPI.codeMatch("mini graft", title: "Graft on the mini", also: []) != nil
+            && ClaudeAPI.codeMatch("graft cloud", title: "Graft release notes",
+                                   also: ["https://github.com/a/claude-graft"]) == nil,
+          "every word must be found, in any order, in the title or the folder")
+
+    let other = ClaudeAPI.chats(from: Data("""
+        {"data":[{"conversation":{"uuid":"o-1","name":"Lent pico"},"semantic_rank":0}]}
+        """.utf8), account: lent) ?? []
+    let order = ClaudeAPI.interleave([chats + hits, other]).map(\.id)
+    check(Array(order.prefix(3)) == ["c-1", "o-1", "c-2"],
+          "each account's best chat comes before any account's second")
+    check(order.dropFirst(3).first == "cse_here" || order.dropFirst(3).allSatisfy { $0.hasPrefix("cse_") || $0.hasPrefix("local:") },
+          "Code sessions follow the chats")
+
+    let bold = ClaudeAPI.highlighted("🙂 raspberry", [3..<12, 40..<50])
+    let strong = bold.runs.filter { $0.inlinePresentationIntent == .stronglyEmphasized }
+        .map { String(bold[$0.range].characters) }
+    check(strong == ["raspberry"],
+          "matches are counted in UTF-16 as the page counts them, and one past the end is dropped")
+
+    let now = Date()
+    let all = chats + hits
+    var filters = SearchFilters()
+    check(!all.filter { filters.admits($0, now: now) }.contains { $0.isArchived },
+          "a search starts with archived chats and sessions hidden, as claude.ai's box does")
+    filters.status = .archived
+    check(all.filter { filters.admits($0, now: now) }.map(\.id).sorted() == ["c-2", "cse_cloud"],
+          "archived alone shows only what was archived")
+    filters = SearchFilters(status: .any, place: .thisMac)
+    check(all.filter { filters.admits($0, now: now) }.map(\.id) == ["cse_here"],
+          "asking where a session ran leaves chats out")
+    filters = SearchFilters(status: .any, place: .goneFromClaude)
+    check(all.filter { filters.admits($0, now: now) }.count == 1, "gone from claude.ai can be asked for alone")
+    filters = SearchFilters(status: .any, project: .none)
+    check(all.filter { filters.admits($0, now: now) }.map(\.id) == ["c-1"],
+          "no project means a chat outside every project, not a Code session")
+    filters = SearchFilters(status: .any, project: .project("p-1"))
+    check(all.filter { filters.admits($0, now: now) }.map(\.id) == ["c-2"], "one project shows its chats")
+    filters = SearchFilters(status: .any, starredOnly: true)
+    check(all.filter { filters.admits($0, now: now) }.map(\.id) == ["c-2"], "starred only shows starred chats")
+    filters = SearchFilters(kind: .code, status: .any)
+    check(all.filter { filters.admits($0, now: now) }.allSatisfy { $0.kind == .code }, "Code sessions alone")
+    filters = SearchFilters(status: .any, age: .day)
+    let aged = [SearchHit(id: "x", account: mine, kind: .chat, title: "t", snippet: "", snippetMatches: [],
+                          titleMatches: [], project: nil, updated: now.addingTimeInterval(-2 * 86_400),
+                          isArchived: false, isStarred: false, place: nil, folder: nil, transcript: nil,
+                          rank: 0, openURL: nil)]
+    check(aged.filter { filters.admits($0, now: now) }.isEmpty, "the past day leaves out a chat two days old")
+    filters = SearchFilters(status: .any, account: lent)
+    check(([chats, other].joined()).filter { filters.admits($0, now: now) }.map(\.id) == ["o-1"],
+          "one account shows only what that account found")
+    check(!SearchFilters().isNarrowed && SearchFilters(starredOnly: true).isNarrowed,
+          "the filters know when they narrow anything")
+
+    // A sandbox of its own, so the transcripts the sweep checks above are not
+    // read here and these are not read there.
+    let saved = Graft.claudeProjectsOverride
+    Graft.claudeProjectsOverride = root.appending(path: "search-projects")
+    _ = makeTranscript(session: "aaaaaaaa-1111-4111-8111-111111111111", bridge: "cse_localone", title: "Graft here")
+    let elsewhere = Graft.claudeProjects.appending(path: "-Users-gone-work")
+    try! fm.createDirectory(at: elsewhere, withIntermediateDirectories: true)
+    try! """
+        {"type":"bridge-session","sessionId":"s","bridgeSessionId":"cse_carriedone","lastSequenceNum":0,"ownerAccountUuid":"\(ownerAccount)","ownerOrganizationUuid":"\(ownerOrg)"}
+        {"promptId":"p","cwd":"/Users/nobody-who-lives-here-\(UUID().uuidString)/work","type":"user","message":{"role":"user","content":"hi"},"uuid":"u","timestamp":"2026-08-29T17:00:00.000Z"}
+        """.write(to: elsewhere.appending(path: "bbbbbbbb-1111-4111-8111-111111111111.jsonl"), atomically: true, encoding: .utf8)
+    let read = LocalCodeSessions.read()
+    check(read.first { $0.bridgeIds == ["cse_localone"] }.map { $0.folderIsHere && $0.title == "Graft here" } == true,
+          "this Mac's transcripts are found by the ids claude.ai lists their sessions under")
+    check(read.first { $0.bridgeIds == ["cse_carriedone"] }?.folderIsHere == false,
+          "a transcript carried from a home this Mac does not have is known as another Mac's")
+    Graft.claudeProjectsOverride = saved
+
+    let repo = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+    func source(_ name: String) -> String {
+        (try? String(contentsOf: repo.appending(path: "Sources/App/\(name)"), encoding: .utf8)) ?? ""
+    }
+    let center = source("ProjectCenter.swift")
+    let views = source("ProjectsView.swift")
+    let model = source("Projects.swift")
+    check(!center.isEmpty && !center.contains("Timer") && !center.contains("onReceive")
+            && !views.contains("Timer") && !views.contains("onReceive"),
+          "projects and searches are asked for when a person asks, never on a timer")
+    check(views.contains(".onSubmit { center.search(query) }") && !views.contains("onChange(of: query"),
+          "a search goes out on Return or the button, never as the query is typed")
+    check(!center.contains("URLSession") && !model.contains("URLSession"),
+          "projects and searches go from claude.ai's own page, never from a request Graft builds")
+    check(!model.contains(".write(") && !model.contains("saveTranscriptCache"),
+          "a search reads the sweep's transcript cache and never writes it")
+    check(source("ArtifactCenter.swift").contains(#"path.hasPrefix("/api/frame/") ? ArtifactAPI.headers"#),
+          "the artifact service's headers go to the artifact service alone")
+    check(center.contains("accounts.$accounts") && center.contains("accounts.$lastSignIn")
+            && !views.contains("ArtifactSignInWindow") && !center.contains("ArtifactSignInWindow")
+            && views.contains("accounts.signInNewAccount()"),
+          "one sign-in serves every pane: an account added or signed out in one is added or gone in all")
+    check(source("ArtifactCenter.swift").components(separatedBy: "lastSignIn = SignIn(").count == 3,
+          "a sign-in is announced whether it adds an account or finds one already there")
+}
+
 print("\n\(checks - failures)/\(checks) checks passed")
 if failures > 0 {
     print("\(failures) FAILED")

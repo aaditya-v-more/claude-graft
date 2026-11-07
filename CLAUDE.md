@@ -149,6 +149,15 @@ any of these. The why is in [notes/updates-and-releases.md](notes/updates-and-re
 - **Artifacts are asked for when the list is shown or refreshed, never on a timer.**
 - **Groups are Graft's,** in `artifact-groups.json`; sharing with one invites each address as a `reader`, and only the owner is offered a change.
 
+### Projects and search — [notes/projects-and-search.md](notes/projects-and-search.md)
+
+- **One sign-in serves Artifacts, Projects and Search Chats.** Accounts live in `ArtifactCenter` alone; `ProjectCenter` follows `$accounts` and `$lastSignIn` and keeps no sign-in of its own.
+- **The `X-Frame-*` headers go to `/api/frame/` alone;** the rest of claude.ai is asked as its pages ask it.
+- **A search goes out on Return or the button, never as the query is typed,** and a filter asks nothing.
+- **A Code session is placed by `bridgeSessionId`,** the same `cse_…` the server lists, and its folder by `sessionFolderIsHere`.
+- **Gone from claude.ai is claimed only after the account's whole session list was read.** A deleted chat cannot be found and is never claimed.
+- **The sweep's transcript cache is read, never written,** from a search.
+
 ### Interface — [notes/interface.md](notes/interface.md)
 
 - **⌘Q does not quit** while the status item is reachable; `QuitPolicy` lets through Quit, logout and an update's relaunch.

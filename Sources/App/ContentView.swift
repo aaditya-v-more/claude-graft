@@ -7,6 +7,9 @@ struct ContentView: View {
     /// Stands for the artifacts of every signed-in account, which belong to no
     /// one profile.
     static let artifactsID = UUID(uuidString: "00000000-0000-0000-0000-000000000002")!
+    /// Every signed-in account's projects, and one search across their chats.
+    static let projectsID = UUID(uuidString: "00000000-0000-0000-0000-000000000003")!
+    static let searchID = UUID(uuidString: "00000000-0000-0000-0000-000000000004")!
 
     @EnvironmentObject private var store: ShortcutStore
     @State private var selection: UUID? = ContentView.mainProfileID
@@ -17,10 +20,13 @@ struct ContentView: View {
     /// Nil in the app, which shows `Shared.artifacts`; the layout suite hands
     /// in sample rows, since the real list is asked of claude.ai.
     private let artifacts: ArtifactCenter?
+    private let projects: ProjectCenter?
 
-    init(selection: UUID? = ContentView.mainProfileID, artifacts: ArtifactCenter? = nil) {
+    init(selection: UUID? = ContentView.mainProfileID, artifacts: ArtifactCenter? = nil,
+         projects: ProjectCenter? = nil) {
         _selection = State(initialValue: selection)
         self.artifacts = artifacts
+        self.projects = projects
     }
 
     var body: some View {
@@ -79,6 +85,10 @@ struct ContentView: View {
             MainProfileDetail()
         } else if selection == Self.artifactsID {
             ArtifactsView(center: artifacts ?? Shared.artifacts)
+        } else if selection == Self.projectsID {
+            ProjectsView(center: projects ?? Shared.projects)
+        } else if selection == Self.searchID {
+            ChatSearchView(center: projects ?? Shared.projects)
         } else if let selection, let index = store.shortcuts.firstIndex(where: { $0.id == selection }) {
             ShortcutDetail(shortcut: $store.shortcuts[index],
                            requestDelete: { requestDeletion(of: selection) })
@@ -155,6 +165,36 @@ struct ContentView: View {
                 .spoken(L10n.text("Artifacts"), value: L10n.text("Every account"))
                 .identified("sidebar.artifacts")
                 .tag(Self.artifactsID)
+
+                Label {
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("Projects")
+                        Text("Every account")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                } icon: {
+                    Image(systemName: "folder")
+                        .foregroundStyle(.secondary)
+                }
+                .spoken(L10n.text("Projects"), value: L10n.text("Every account"))
+                .identified("sidebar.projects")
+                .tag(Self.projectsID)
+
+                Label {
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("Search Chats")
+                        Text("Every account")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                } icon: {
+                    Image(systemName: "magnifyingglass")
+                        .foregroundStyle(.secondary)
+                }
+                .spoken(L10n.text("Search Chats"), value: L10n.text("Every account"))
+                .identified("sidebar.search")
+                .tag(Self.searchID)
             }
 
             Section("Shortcuts") {

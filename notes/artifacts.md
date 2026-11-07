@@ -14,6 +14,10 @@ Decrypting the cookie is taking a credential, not borrowing one, and would put
 a keychain prompt in front of every profile; it was ruled out. So each account
 signs in once more, on claude.ai's own page, in a window of Graft's.
 
+The same sign-in serves the Projects and Search Chats panes; see
+[projects-and-search.md](projects-and-search.md). An account signed in or out
+from any of the three is signed in or out in all of them.
+
 ## Where the sign-in lives, and where it goes
 
 Each account has a `WKWebsiteDataStore(forIdentifier:)` of its own, named by
@@ -56,7 +60,8 @@ request is kept to exactly what that page sends.
   invites one person. claude.ai emails them, as it does from its own panel.
 
 **Every `/api/frame` request carries `X-Frame-CP: go`** and
-`X-Frame-Platform: web`. Without the first, the service answers
+`X-Frame-Platform: web`, and no other request does: `ClaudeWebSession` adds
+them by path, since the same page now asks the rest of claude.ai too. Without the first, the service answers
 `404 not_found_error` to a request otherwise identical to the page's, which
 reads exactly like an artifact that does not exist; that is how the first
 attempt from page script was misread.
