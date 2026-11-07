@@ -111,6 +111,7 @@ any of these. The why is in [notes/updates-and-releases.md](notes/updates-and-re
 - **A record remembered where nothing exists any more is a pair to drop.**
 - **A conversation carried on or asked again is not a second one** — `superseded`, `resumedCopies`. **A fork is**, and only its record says so: keep `forks` in `session-records.json`.
 - **A Claude this app did not make is read, never written to** — `recordFilingProfiles`.
+- **A session from another Mac is not a missing one:** `sessionFolderIsHere` asks whether its home folder or drive exists here, never the folder itself.
 - **The sweep runs on no timer:** at a launcher's open, at Graft's start and when the dropdown opens. A cold pass must stay cheap enough to stand in front of a window opening.
 
 ### Usage and credentials — [notes/usage-and-credentials.md](notes/usage-and-credentials.md)

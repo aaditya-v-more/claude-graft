@@ -284,6 +284,35 @@ pass that needs them is the one where neither does. Neither half of a remembered
 pair is ever a copy of the other. A retry of either half still is, and on this
 machine the rule went from 29 copies to the 27 it should hold.
 
+## Sessions from another Mac
+
+**A transcript carried over from another Mac is not a session that lost its
+record here.** On 5 November fourteen insta-orchestrator conversations came
+across with the rest of `~/.claude/projects`, every one of them worked in under
+`/Users/aaditya`, a home this Mac has never had. Each had a bridge line, a
+stamp naming an account a profile here holds, and no record anywhere, which is
+exactly what a grafted profile's lost session looks like, so the first pass
+filed all fourteen into Claude. They sat in the sidebar beside this Mac's own
+copy of the project under `/Volumes/SSD/Developer`, four of them titled the
+same, and when Claude reached for one it failed to start it with
+`cwd_not_found`. The repeated titles were four separate conversations, not one
+filed four times.
+
+So `sessionFolderIsHere` is asked before anything is filed, and it asks about
+the home folder or the drive, never the folder itself. A worktree cleaned up
+after its chat closed is gone while the project it sat in is not, and that chat
+is this Mac's history: the sidebar still reads it. Only a `/Users/<name>` or a
+`/Volumes/<drive>` that is not here at all says the session happened somewhere
+else. Nothing is remembered about the refusal — the answer is `folderElsewhere`
+and the next pass asks again — so a drive that was not mounted files once it
+is. A path outside every home and drive, or none at all, files as it always
+did.
+
+The rule only keeps a pass from filing. What was filed before it existed has
+long since been rewritten by Claude in its own shape and belongs to Claude, so
+those fourteen are deleted from the sidebar by hand, and the deletion markers
+keep them from coming back.
+
 ## Which profiles are written to
 
 **A Claude this app did not make is read, never written to.** Every profile in

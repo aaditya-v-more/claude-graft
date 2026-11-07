@@ -2840,17 +2840,17 @@ func makeTranscript(session: String,
     }
     if spoke {
         lines.append("{\"parentUuid\":null,\"isSidechain\":false,\"promptId\":\"prompt-one\","
-                     + "\"cwd\":\"/Users/test/work\",\"permissionMode\":\"auto\",\"gitBranch\":\"main\","
+                     + "\"cwd\":\"/Users/Shared/work\",\"permissionMode\":\"auto\",\"gitBranch\":\"main\","
                      + "\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":\"\(said ?? "hello from \(session)")\"},"
                      + "\"uuid\":\"u-1\",\"timestamp\":\"\(first)\"}")
-        lines.append("{\"parentUuid\":\"u-1\",\"isSidechain\":false,\"cwd\":\"/Users/test/work\","
+        lines.append("{\"parentUuid\":\"u-1\",\"isSidechain\":false,\"cwd\":\"/Users/Shared/work\","
                      + "\"permissionMode\":\"auto\",\"gitBranch\":\"main\",\"type\":\"assistant\","
                      + "\"message\":{\"id\":\"m-1\",\"model\":\"claude-opus-5\",\"content\":[{\"text\":\"hi\",\"type\":\"text\"}]},"
                      + "\"uuid\":\"a-1\",\"timestamp\":\"\(last)\",\"effort\":\"max\"}")
     } else {
         // A session opened and closed with nothing said in it still leaves a
         // transcript: a bridge line, a stamp, and no conversation at all.
-        lines.append("{\"cwd\":\"/Users/test/work\",\"permissionMode\":\"auto\","
+        lines.append("{\"cwd\":\"/Users/Shared/work\",\"permissionMode\":\"auto\","
                      + "\"type\":\"file-history-summary\",\"timestamp\":\"\(last)\"}")
     }
     if let title {
@@ -2869,7 +2869,7 @@ do {
     check(facts?.title == "Test 4", "the title comes from the title line")
     check(facts?.ownerAccount == ownerAccount && facts?.ownerOrganization == ownerOrg,
           "the owner and the organization come from the bridge line")
-    check(facts?.cwd == "/Users/test/work" && facts?.permissionMode == "auto",
+    check(facts?.cwd == "/Users/Shared/work" && facts?.permissionMode == "auto",
           "so do the working directory and the permission mode")
     check(facts?.model == "claude-opus-5" && facts?.effort == "max",
           "the model and the effort come from the answer")
@@ -2887,7 +2887,7 @@ do {
     let busy = Graft.sessionFacts(inTranscriptAt: makeTranscript(
         session: "22222222-2222-4222-8222-222222222222",
         extra: ["{\"parentUuid\":\"a-1\",\"isSidechain\":false,\"promptId\":\"prompt-one\","
-                + "\"cwd\":\"/Users/test/work\",\"type\":\"user\","
+                + "\"cwd\":\"/Users/Shared/work\",\"type\":\"user\","
                 + "\"message\":{\"role\":\"user\",\"content\":[{\"tool_use_id\":\"t-1\",\"type\":\"tool_result\",\"content\":\"ok\"}]},"
                 + "\"uuid\":\"u-2\",\"timestamp\":\"2026-08-29T17:00:11.000Z\"}"]),
         cliSessionId: "22222222-2222-4222-8222-222222222222")
@@ -2953,8 +2953,26 @@ do {
                               lastWrite: then, ownerProfile: nil, now: later, quietWindow: 300) == .noOwnerProfile,
           "a session whose owner lives on no profile here waits for one to appear")
     check(Graft.sessionFiling(facts: facts, recorded: [], withdrawn: [], deletions: [],
+                              lastWrite: then, ownerProfile: owner, folderIsHere: false,
+                              now: later, quietWindow: 300) == .folderElsewhere,
+          "a session worked in on another Mac is not put in a sidebar that cannot open it")
+    check(Graft.sessionFiling(facts: facts, recorded: [], withdrawn: [], deletions: [],
                               lastWrite: then, ownerProfile: owner, now: later, quietWindow: 300) == .file,
           "with everything in place, the record is written")
+}
+
+do {
+    let home = FileManager.default.homeDirectoryForCurrentUser.path
+    check(!Graft.sessionFolderIsHere("/Users/someone-who-never-lived-here/Developer/project"),
+          "a project in a home folder this Mac has never had was worked in somewhere else")
+    check(!Graft.sessionFolderIsHere("/Volumes/a-drive-that-is-not-mounted/Developer/project"),
+          "a drive that is not here is not here, until it is mounted and the next pass files it")
+    check(Graft.sessionFolderIsHere(home + "/a-worktree-cleaned-up-long-ago/after-the-chat"),
+          "a folder gone from a home that is here is this Mac's own history, and is still filed")
+    check(Graft.sessionFolderIsHere("/Volumes/../Users/someone-else/../../" + home.dropFirst() + "/x"),
+          "a path is read for where it leads, not for how it is spelt")
+    check(Graft.sessionFolderIsHere("/tmp/gone-already") && Graft.sessionFolderIsHere(""),
+          "a session with no folder, or one outside every home and drive, is filed as before")
 }
 
 do {
@@ -3064,10 +3082,10 @@ do {
     _ = makeTranscript(session: lostId, title: "Lost work, continued",
                        last: "2026-08-29T17:05:00.000Z",
                        extra: ["{\"parentUuid\":\"a-1\",\"isSidechain\":false,\"promptId\":\"prompt-two\","
-                               + "\"cwd\":\"/Users/test/work\",\"type\":\"user\","
+                               + "\"cwd\":\"/Users/Shared/work\",\"type\":\"user\","
                                + "\"message\":{\"role\":\"user\",\"content\":\"more\"},"
                                + "\"uuid\":\"u-3\",\"timestamp\":\"2026-08-29T17:04:50.000Z\"}",
-                               "{\"parentUuid\":\"u-3\",\"isSidechain\":false,\"cwd\":\"/Users/test/work\","
+                               "{\"parentUuid\":\"u-3\",\"isSidechain\":false,\"cwd\":\"/Users/Shared/work\","
                                + "\"type\":\"assistant\",\"message\":{\"model\":\"claude-opus-5\"},"
                                + "\"uuid\":\"a-2\",\"timestamp\":\"2026-08-29T17:05:00.000Z\"}"])
     check(Graft.fileMissingSessionRecords(filingInto: filing,
@@ -3394,7 +3412,7 @@ do {
         .appending(path: account).appending(path: org)
 
     func prompt(_ words: String, _ id: String, extra: String = "") -> String {
-        "{\"parentUuid\":null,\"promptId\":\"\(id)\",\"cwd\":\"/Users/test/work\","
+        "{\"parentUuid\":null,\"promptId\":\"\(id)\",\"cwd\":\"/Users/Shared/work\","
             + "\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":\"\(words)\"},"
             + "\(extra)\"uuid\":\"\(id)-u\",\"timestamp\":\"2026-08-29T17:05:00.000Z\"}"
     }
@@ -3425,7 +3443,7 @@ do {
     try? fm.removeItem(at: reading)
 
     // The rule on its own, over facts made up for it.
-    func facts(_ id: String, cwd: String = "/Users/test/work", owner: String = account,
+    func facts(_ id: String, cwd: String = "/Users/Shared/work", owner: String = account,
                last: Double) -> Graft.SessionFacts {
         Graft.SessionFacts(cliSessionId: id, bridgeIds: ["cse_x"], ownerAccount: owner,
                            ownerOrganization: org, title: "Same title", cwd: cwd,
@@ -3446,7 +3464,7 @@ do {
         (facts("twin-new", last: 2), trace(["x"])),
         (facts("hi-one", last: 1), trace(["hi"], opening: 2)),
         (facts("hi-two", last: 2), trace(["hi", "sync my profiles"], opening: 2)),
-        (facts("elsewhere", cwd: "/Users/test/other", last: 1), trace(["a"])),
+        (facts("elsewhere", cwd: "/Users/Shared/other", last: 1), trace(["a"])),
         (facts("someone-else", owner: "f0f0f0f0-f0f0-4f0f-8f0f-f0f0f0f0f0f0", last: 1), trace(["a"])),
         (facts("other-opening", last: 1), trace(["b"])),
     ])
@@ -3503,7 +3521,7 @@ do {
     let draft = String(repeating: "A finished comment, ready to paste. ", count: 30)
     _ = makeTranscript(session: answered, owner: account, org: org, title: "Multi-account sync",
                        said: "Two accounts, one history?", extra: [
-        "{\"parentUuid\":\"u-1\",\"cwd\":\"/Users/test/work\",\"message\":{\"id\":\"m-9\","
+        "{\"parentUuid\":\"u-1\",\"cwd\":\"/Users/Shared/work\",\"message\":{\"id\":\"m-9\","
             + "\"content\":[{\"type\":\"text\",\"text\":\"\(draft)\"}]},\"type\":\"assistant\","
             + "\"uuid\":\"a-draft\",\"timestamp\":\"2026-08-29T17:20:00.000Z\"}",
     ])
@@ -4772,7 +4790,7 @@ do {
     makeTranscript(session: original, owner: account, org: org, title: "Mac move", said: opening)
     makeTranscript(session: fork, owner: account, org: org, title: "Mac move (fork)",
                    last: "2026-08-29T18:00:10.000Z", said: opening, extra: [
-        "{\"parentUuid\":\"a-1\",\"promptId\":\"p-side\",\"cwd\":\"/Users/test/work\","
+        "{\"parentUuid\":\"a-1\",\"promptId\":\"p-side\",\"cwd\":\"/Users/Shared/work\","
             + "\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":\"And the routines on it?\"},"
             + "\"uuid\":\"u-side\",\"timestamp\":\"2026-08-29T18:00:00.000Z\"}",
     ])

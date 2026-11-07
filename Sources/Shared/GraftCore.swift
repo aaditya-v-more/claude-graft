@@ -1206,6 +1206,31 @@ enum Graft {
         /// Run from a terminal, or by a Claude without a bridge: never in a
         /// sidebar, so nothing is missing.
         case notADesktopSession
+        /// Worked in on another Mac, whose transcripts were carried here. Asked
+        /// again next pass, because a drive that is not mounted yet will be.
+        case folderElsewhere
+    }
+
+    /// Whether the folder a session worked in could be on this Mac at all.
+    ///
+    /// Transcripts carried over from another Mac name its home folder, and a
+    /// record filed for one is a chat that cannot be opened: Claude tries to
+    /// start it, finds no folder and leaves it in the sidebar unusable, beside
+    /// the real copy of the same project under this Mac's own path. Fourteen
+    /// came in that way from `/Users/aaditya`, which never existed here.
+    ///
+    /// The question is asked of the home folder or the drive, never of the
+    /// folder itself. A worktree cleaned up after its chat closed is gone
+    /// while its project is not, and that chat is this Mac's history, still
+    /// read in the sidebar; only a home or a volume that is not here at all
+    /// says the session happened somewhere else.
+    static func sessionFolderIsHere(_ cwd: String) -> Bool {
+        let parts = URL(fileURLWithPath: cwd).standardizedFileURL.pathComponents
+        guard cwd.hasPrefix("/"), parts.count > 1 else { return true }
+        let depth = ["Users", "Volumes"].contains(parts[1]) ? 3 : 2
+        let place = NSString.path(withComponents: Array(parts.prefix(depth)))
+        var isDirectory: ObjCBool = false
+        return fm.fileExists(atPath: place, isDirectory: &isDirectory) && isDirectory.boolValue
     }
 
     /// Whether a transcript still needs a record written for it.
@@ -1216,9 +1241,11 @@ enum Graft {
                               lastWrite: Date,
                               ownerProfile: URL?,
                               ownerIsRunning: Bool = true,
+                              folderIsHere: Bool = true,
                               now: Date,
                               quietWindow: TimeInterval) -> SessionFiling {
         guard let facts else { return .notADesktopSession }
+        guard folderIsHere else { return .folderElsewhere }
         guard !recorded.contains(facts.cliSessionId) else { return .alreadyRecorded }
         guard !withdrawn.contains(facts.cliSessionId) else { return .withdrawn }
 
@@ -1623,6 +1650,7 @@ enum Graft {
                                              lastWrite: lastWrite,
                                              ownerProfile: owner,
                                              ownerIsRunning: running(owner),
+                                             folderIsHere: sessionFolderIsHere(facts.cwd),
                                              now: now,
                                              quietWindow: quietWindow)
             else { continue }
