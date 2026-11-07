@@ -1,8 +1,9 @@
 import SwiftUI
 
-/// The small "!" beside a section heading. Hovering gives the standard tooltip,
-/// clicking opens the same text as a popover — the explanations used to sit
-/// under every section as a paragraph of grey text.
+/// The small ⓘ beside a heading or a note. Hovering gives the standard
+/// tooltip, clicking opens the same text as a popover. The explanations used
+/// to sit under every section as paragraphs of grey text, and the window had to
+/// scroll to get past them.
 struct InfoButton: View {
     let text: String
     let topic: String
@@ -19,7 +20,7 @@ struct InfoButton: View {
 
     var body: some View {
         Button { showing.toggle() } label: {
-            Image(systemName: "exclamationmark.circle")
+            Image(systemName: "info.circle")
                 .imageScale(.medium)
                 .foregroundStyle(.secondary)
         }
@@ -37,7 +38,7 @@ struct InfoButton: View {
     }
 }
 
-/// A section heading with its explanation tucked behind the "!".
+/// A section heading with its explanation tucked behind the ⓘ.
 struct SectionHeader: View {
     let title: String
     let info: String
@@ -48,6 +49,29 @@ struct SectionHeader: View {
             Text(L10n.text(title))
             InfoButton(info, about: title, id: id)
             Spacer()
+        }
+    }
+}
+
+/// A note held to one line, with anything longer behind the ⓘ beside it, so a
+/// window built from notes still fits without scrolling.
+struct OneLineNote: View {
+    let text: String
+    var more: String?
+    var topic = "Details"
+    var attention = false
+    let id: String
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Text(text)
+                .font(.caption)
+                .foregroundStyle(attention ? Color.orange : Color.secondary)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .help(more ?? text)
+                .identified(id)
+            if let more { InfoButton(more, about: topic, id: "\(id)-info") }
         }
     }
 }

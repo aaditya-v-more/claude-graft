@@ -37,6 +37,7 @@ struct ShortcutDetail: View {
 
     /// Set once the folder is typed by hand, so renaming stops rewriting it.
     @State private var folderIsCustom = false
+    @State private var choosingIcon = false
 
     private let clock = Timer.publish(every: 5, on: .main, in: .common).autoconnect()
 
@@ -63,43 +64,57 @@ struct ShortcutDetail: View {
             }
 
             Section {
-                TextField("Name", text: $shortcut.name)
-                    .onChange(of: shortcut.name) { _ in
-                        guard installedAt == nil, !folderIsCustom else { return }
-                        shortcut.folder = Shortcut.folderName(for: shortcut.name)
-                    }
-                    .identified("name")
-
-                LabeledContent {
-                    HStack(spacing: 6) {
-                        // The field carries no title of its own, so without
-                        // this VoiceOver reads only whatever has been typed.
-                        TextField("", text: $shortcut.folder)
-                            .textFieldStyle(.plain)
-                            .multilineTextAlignment(.trailing)
-                            .font(.callout.monospaced())
-                            .onChange(of: shortcut.folder) { _ in folderIsCustom = true }
-                            .accessibilityLabel(L10n.text("Profile folder"))
-                            .identified("folder")
-                        Button {
-                            NSWorkspace.shared.activateFileViewerSelecting([shortcut.profileDir])
-                        } label: {
-                            Image(systemName: "folder")
+                // Icon, name and folder share one row: the three say what the
+                // shortcut is, and stacked they pushed everything else below
+                // the bottom of the window.
+                HStack(spacing: 10) {
+                    iconButton
+                    TextField("Name", text: $shortcut.name)
+                        .textFieldStyle(.roundedBorder)
+                        .labelsHidden()
+                        .onChange(of: shortcut.name) { _ in
+                            guard installedAt == nil, !folderIsCustom else { return }
+                            shortcut.folder = Shortcut.folderName(for: shortcut.name)
                         }
-                        .buttonStyle(.borderless)
-                        .help("Show in Finder")
-                        // SwiftUI reads the folder symbol out as "Move".
-                        .accessibilityLabel(L10n.text("Show in Finder"))
-                        .identified("show-in-finder")
+                        .identified("name")
+                    // The field carries no title of its own, so without this
+                    // VoiceOver reads only whatever has been typed.
+                    TextField("", text: $shortcut.folder)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.body.monospaced())
+                        .frame(width: 130)
+                        .onChange(of: shortcut.folder) { _ in folderIsCustom = true }
+                        .help("Profile folder")
+                        .accessibilityLabel(L10n.text("Profile folder"))
+                        .identified("folder")
+                    Button {
+                        NSWorkspace.shared.activateFileViewerSelecting([shortcut.profileDir])
+                    } label: {
+                        Image(systemName: "folder")
                     }
-                } label: {
-                    // The field says it instead, or it is read out twice.
-                    Text("Profile folder").accessibilityHidden(true)
+                    .buttonStyle(.borderless)
+                    .help("Show in Finder")
+                    // SwiftUI reads the folder symbol out as "Move".
+                    .accessibilityLabel(L10n.text("Show in Finder"))
+                    .identified("show-in-finder")
                 }
-
-                iconPicker
-            } header: {
-                SectionHeader(title: "Shortcut", info: Self.shortcutNote, id: "shortcut-info")
+                LabeledContent {
+                    Text(status)
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .help(installedAt?.path ?? "")
+                } label: {
+                    HStack(spacing: 5) {
+                        Text("Status")
+                        InfoButton(Self.shortcutNote, about: "Shortcut", id: "shortcut-info")
+                    }
+                }
+                .spoken(L10n.text("Status"), value: status)
+                .identified("status")
+                if let copiedNote {
+                    OneLineNote(text: copiedNote, id: "copied-note")
+                }
             }
 
             Section {
@@ -110,16 +125,9 @@ struct ShortcutDetail: View {
                 }
                 .identified("chat-source")
                 if shortcut.source != .own {
-                    Text(mergeNote)
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .identified("merge-note")
-                    Text(sidebarNote ?? L10n.text("Pinned chats and sort order sync when the linked Claude apps are closed and you open a shortcut."))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .identified("sidebar-note")
+                    OneLineNote(text: L10n.format("Shared both ways with %@", store.label(for: shortcut.source)),
+                                more: mergeNote + "\n\n" + (sidebarNote ?? L10n.text("Pinned chats and sort order sync when the linked Claude apps are closed and you open a shortcut.")),
+                                topic: "Chats", id: "merge-note")
                 }
             } header: {
                 SectionHeader(title: "Chats", info: sourceExplanation, id: "chats-info")
@@ -127,11 +135,9 @@ struct ShortcutDetail: View {
 
             if let found = elsewhere {
                 Section {
-                    Text(foundNote(found))
-                        .font(.callout)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .identified("elsewhere-note")
-                    ForEach(found.chats, id: \.self) { chat in
+                    OneLineNote(text: L10n.format("%@ holds %ld chats for this account", store.name(ofProfile: found.profile), found.count),
+                                more: foundNote(found), topic: "Chats found elsewhere", id: "elsewhere-note")
+                    ForEach(found.chats.prefix(3), id: \.self) { chat in
                         LabeledContent {
                             Text(Self.chatDate.string(from: chat.lastActive))
                                 .font(.callout)
@@ -155,36 +161,6 @@ struct ShortcutDetail: View {
                 } header: {
                     SectionHeader(title: "Chats found elsewhere", info: Self.elsewhereNote,
                                   id: "elsewhere-info")
-                }
-            }
-
-            Section("Status") {
-                LabeledContent("Shortcut") {
-                    Text(installedAt.map { $0.path } ?? L10n.text("Not created yet"))
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                }
-                .spoken(L10n.text("Shortcut"), value: installedAt.map { $0.path } ?? L10n.text("Not created yet"))
-                .identified("installed-at")
-                LabeledContent("Claude") {
-                    Text(L10n.text(isRunning ? "Running on this profile" : "Not running"))
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                }
-                .spoken("Claude", value: L10n.text(isRunning ? "Running on this profile" : "Not running"))
-                .identified("running")
-                if let copiedNote {
-                    LabeledContent("Chats") {
-                        Text(copiedNote)
-                            .font(.callout)
-                            .foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .multilineTextAlignment(.trailing)
-                    }
-                    .spoken(L10n.text("Chats"), value: copiedNote)
-                    .identified("copied-note")
                 }
             }
 
@@ -282,30 +258,43 @@ struct ShortcutDetail: View {
         .controls(profile: shortcut.profileDir)
     }
 
-    private var iconPicker: some View {
-        LabeledContent("Shortcut icon") {
-            VStack(alignment: .trailing, spacing: 4) {
+    /// Created or not, and running or not, in one line; where the shortcut
+    /// was put is on its tooltip.
+    private var status: String {
+        [L10n.text(installedAt == nil ? "Not created yet" : "Created"),
+         L10n.text(isRunning ? "Running" : "Not running")].joined(separator: " · ")
+    }
+
+    /// The icon in use, opening the rest only when asked: twelve of them laid
+    /// out in the window took more room than every other setting together.
+    private var iconButton: some View {
+        Button { choosingIcon.toggle() } label: {
+            iconImage(shortcut.iconPreset).frame(width: 28, height: 28)
+        }
+        .buttonStyle(.plain)
+        .help("Shortcut icon")
+        .accessibilityLabel(L10n.text("Shortcut icon"))
+        .accessibilityValue(Text(shortcut.iconPreset.title))
+        .identified("icon")
+        .popover(isPresented: $choosingIcon, arrowEdge: .bottom) {
+            VStack(alignment: .leading, spacing: 8) {
                 LazyVGrid(columns: Array(repeating: GridItem(.fixed(46), spacing: 6), count: 6),
                           spacing: 6) {
                     ForEach(Shortcut.IconPreset.allCases) { preset in
-                        Button { shortcut.iconPreset = preset } label: {
-                            Group {
-                                if let image = iconPreviews[preset] {
-                                    Image(nsImage: image).resizable().scaledToFit()
-                                } else {
-                                    Image(systemName: "app.dashed").resizable().scaledToFit()
-                                        .padding(7)
-                                }
-                            }
-                            .frame(width: 38, height: 38)
-                            .padding(4)
-                            .background(RoundedRectangle(cornerRadius: 8)
-                                .fill(preset == shortcut.iconPreset
-                                      ? Color.accentColor.opacity(0.12) : .clear))
-                            .overlay(RoundedRectangle(cornerRadius: 8)
-                                .stroke(preset == shortcut.iconPreset
-                                        ? Color.accentColor : Color.secondary.opacity(0.2),
-                                        lineWidth: preset == shortcut.iconPreset ? 2 : 1))
+                        Button {
+                            shortcut.iconPreset = preset
+                            choosingIcon = false
+                        } label: {
+                            iconImage(preset)
+                                .frame(width: 38, height: 38)
+                                .padding(4)
+                                .background(RoundedRectangle(cornerRadius: 8)
+                                    .fill(preset == shortcut.iconPreset
+                                          ? Color.accentColor.opacity(0.12) : .clear))
+                                .overlay(RoundedRectangle(cornerRadius: 8)
+                                    .stroke(preset == shortcut.iconPreset
+                                            ? Color.accentColor : Color.secondary.opacity(0.2),
+                                            lineWidth: preset == shortcut.iconPreset ? 2 : 1))
                         }
                         .buttonStyle(.plain)
                         .help(preset.title)
@@ -315,16 +304,20 @@ struct ShortcutDetail: View {
                         .identified("icon.\(preset.rawValue)")
                     }
                 }
-                Text(shortcut.iconPreset.title)
+                Text("Used in Finder and the Dock; a running Claude shows its own.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                Text("Finder and pinned shortcuts use this icon. Running Claude windows use Claude's own icon.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.trailing)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: 306)
             }
+            .padding(12)
+        }
+    }
+
+    @ViewBuilder
+    private func iconImage(_ preset: Shortcut.IconPreset) -> some View {
+        if let image = iconPreviews[preset] {
+            Image(nsImage: image).resizable().scaledToFit()
+        } else {
+            Image(systemName: "app.dashed").resizable().scaledToFit().padding(4)
         }
     }
 

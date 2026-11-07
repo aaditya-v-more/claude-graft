@@ -100,7 +100,8 @@ struct SharedUsageSection: View {
                 Text(message)
                     .font(.callout)
                     .foregroundStyle(.orange)
-                    .fixedSize(horizontal: false, vertical: true)
+                    .lineLimit(1)
+                    .help(message)
                     .identified("shared-usage.sign-in-failed")
                 Spacer()
                 Button("OK") { signIn.dismissFailure() }
@@ -114,28 +115,17 @@ struct SharedUsageSection: View {
     @ViewBuilder
     private var notes: some View {
         if let line = environmentLine {
-            Text(line.text)
-                .font(.caption)
-                .foregroundStyle(line.attention ? Color.orange : Color.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-                .identified("shared-usage.environment")
+            OneLineNote(text: line.text, attention: line.attention, id: "shared-usage.environment")
         }
         if !lenders.isEmpty, let problem = problem ?? pool.problem {
-            Text(problem)
-                .font(.caption)
-                .foregroundStyle(.orange)
-                .fixedSize(horizontal: false, vertical: true)
-                .identified("shared-usage.problem")
+            OneLineNote(text: problem, attention: true, id: "shared-usage.problem")
         }
         // The relay is what a connected Claude Code sends everything through,
         // so after a restart it has to be back before that Claude is used.
         if !lenders.isEmpty, !settings.openAtLogin {
             HStack(alignment: .firstTextBaseline) {
-                Text("Claude Graft keeps this running. Open at Login brings it back after a restart.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .identified("shared-usage.open-at-login")
+                OneLineNote(text: L10n.text("Open at Login keeps this working after a restart"),
+                            id: "shared-usage.open-at-login")
                 Spacer()
                 Button("Turn On") { problem = settings.setOpenAtLogin(true) }
                     .controlSize(.small)
@@ -152,15 +142,9 @@ struct SharedUsageSection: View {
         case .leaving:
             return (L10n.text("Stops when this Claude next closes."), false)
         case .conflict(let name):
-            return (L10n.format("""
-                This Claude's Code environment already sets %@ to something of its own, \
-                so it has been left alone and nothing is shared.
-                """, name), true)
+            return (L10n.format("Not shared: this Claude already sets %@", name), true)
         case .unreadable:
-            return (L10n.text("""
-                This Claude's Code environment could not be read, so it has been left \
-                alone and nothing is shared.
-                """), true)
+            return (L10n.text("Not shared: this Claude's Code environment is unreadable"), true)
         case .on, .off, nil:
             return nil
         }
@@ -175,42 +159,55 @@ private struct LenderRow: View {
 
     var body: some View {
         let name = pool.name(of: lender)
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(alignment: .firstTextBaseline) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(name).fontWeight(.medium)
-                    Text(state)
-                        .font(.caption)
-                        .foregroundStyle(attention ? Color.orange : Color.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                .spoken(name, value: state)
-                .identified("lender.\(token)")
-                Spacer()
-                Button {
-                    pool.removeLender(lender, from: claude)
-                } label: {
-                    Image(systemName: "minus.circle")
-                }
-                .buttonStyle(.borderless)
-                .help("Stop drawing on this account")
-                .accessibilityLabel(L10n.format("Stop drawing on %@", name))
-                .identified("lender.\(token).remove")
+        // One line per account: two bars under each of them made the list
+        // taller than the window, and the figures read as well as text.
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            // Name and state are one element, and the button beside them is
+            // another: spoken over the whole row, the button took the row's
+            // name and VoiceOver said the account twice and the action never.
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(name).fontWeight(.medium).lineLimit(1)
+                    .layoutPriority(1)
+                Text(state)
+                    .font(.caption)
+                    .foregroundStyle(attention ? Color.orange : Color.secondary)
+                    .lineLimit(1)
+                    .help(state)
             }
+            .spoken(name, value: state)
+            .identified("lender.\(token)")
+            Spacer(minLength: 8)
             if let figures {
-                if let fiveHour = figures.fiveHour {
-                    UsageBar(label: "5 hours", percent: fiveHour,
-                             resets: figures.fiveHourReset, dimmed: entry?.isDimmed ?? false)
-                        .identified("lender.\(token).five-hour")
-                } else {
-                    NoFiveHourLimit(font: .caption, dimmed: entry?.isDimmed ?? false)
-                }
-                UsageBar(label: "Week", percent: figures.week,
-                         resets: figures.weekReset, dimmed: entry?.isDimmed ?? false)
-                    .identified("lender.\(token).week")
+                Text(figuresLine(figures))
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(entry?.isDimmed == true ? Color.secondary.opacity(0.6) : Color.secondary)
+                    .lineLimit(1)
+                    .help(figuresHelp(figures))
+                    .identified("lender.\(token).usage")
             }
+            Button {
+                pool.removeLender(lender, from: claude)
+            } label: {
+                Image(systemName: "minus.circle")
+            }
+            .buttonStyle(.borderless)
+            .help("Stop drawing on this account")
+            .accessibilityLabel(L10n.format("Stop drawing on %@", name))
+            .identified("lender.\(token).remove")
         }
         .padding(.vertical, 2)
+    }
+
+    private func figuresLine(_ figures: (fiveHour: Int?, fiveHourReset: Date?, week: Int, weekReset: Date?)) -> String {
+        let week = L10n.format("Week %ld%%", figures.week)
+        guard let fiveHour = figures.fiveHour else { return week }
+        return L10n.format("5h %ld%%", fiveHour) + " · " + week
+    }
+
+    private func figuresHelp(_ figures: (fiveHour: Int?, fiveHourReset: Date?, week: Int, weekReset: Date?)) -> String {
+        [figures.fiveHourReset.map { L10n.format("5 hours reset %@", UsageMonitor.clock($0)) },
+         figures.weekReset.map { L10n.format("Week resets %@", UsageMonitor.clock($0)) }]
+            .compactMap { $0 }.joined(separator: "\n")
     }
 
     private var isAccount: Bool { lender.hasPrefix(UsagePoolController.accountPrefix) }
@@ -253,7 +250,7 @@ private struct LenderRow: View {
     private var state: String {
         var parts: [String] = []
         if sameAsBorrower {
-            parts.append(L10n.text("Same account as this Claude, so it adds nothing"))
+            parts.append(L10n.text("Same account as this Claude"))
         } else if let other = pool.sameAccount(as: lender, besides: claude) {
             parts.append(L10n.format("Same account as %@", pool.name(of: other)))
         }
@@ -263,8 +260,8 @@ private struct LenderRow: View {
 
     private var condition: String {
         if reported?.tokenRefused == true {
-            return isAccount ? L10n.text("Anthropic refused this login. Remove it and sign in again.")
-                             : L10n.text("Anthropic refused its login. Open that Claude once to renew it.")
+            return isAccount ? L10n.text("Login refused · sign in again")
+                             : L10n.text("Login refused · open that Claude to renew it")
         }
         switch pool.lending[lender] {
         case nil:
@@ -272,11 +269,10 @@ private struct LenderRow: View {
         case .signedOut:
             return L10n.text("Not signed in")
         case .expired:
-            return isAccount ? L10n.text("This login has run out. Remove it and sign in again.")
-                             : L10n.text("Its login has lapsed. Open that Claude once to renew it.")
+            return isAccount ? L10n.text("Login expired · sign in again")
+                             : L10n.text("Login expired · open that Claude to renew it")
         case .unreadable:
-            return isAccount ? L10n.text("This login could not be unlocked. Turn on live usage from the menu bar.")
-                             : L10n.text("Its login could not be read. Turn on live usage from the menu bar.")
+            return L10n.text("Login locked · turn on live usage in the menu bar")
         case .ready:
             break
         }

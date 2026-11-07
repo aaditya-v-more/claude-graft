@@ -392,12 +392,14 @@ final class UsageMonitor: ObservableObject {
                     entry.isLive = true
                     entry.plan = live.plan
                     entry.refreshed = fetched
+                    // One line, and the time the figure is from: a fallback
+                    // read as a figure taken now is what this note is for.
                     entry.note = outcome.failure.map {
-                        L10n.format("%@ Showing the last figure Anthropic gave.", $0)
+                        L10n.format("%@ · figure from %@", $0, Self.clock(fetched))
                     }
-                } else if onDisk != nil {
+                } else if let onDisk {
                     entry.note = outcome.failure.map {
-                        L10n.format("%@ Showing what this profile last recorded itself.", $0)
+                        L10n.format("%@ · own record from %@", $0, Self.clock(onDisk.sampled))
                     }
                 } else {
                     entry.note = outcome.failure
@@ -511,15 +513,15 @@ final class UsageMonitor: ObservableObject {
                               serverAsked: serverAskedToWait.contains(profile.path))
         else {
             if interactive { problem = waitingMessage(until: waiting?.until) }
-            let why = [lastFailure[profile.path], waitingMessage(until: waiting?.until)]
-                .compactMap { $0 }.joined(separator: " ")
+            let why = [lastFailure[profile.path], waitingMessage(until: waiting?.until, inLine: true)]
+                .compactMap { $0 }.joined(separator: " · ")
             return LiveOutcome(reading: cached?.reading, fetched: cached?.fetched, failure: why)
         }
 
         do {
             guard let token = try ClaudeCredentials.token(for: profile, prompting: prompting)
             else {
-                return LiveOutcome(failure: L10n.text("This profile has no saved login to ask Anthropic with."))
+                return LiveOutcome(failure: L10n.text("No saved login to ask Anthropic with"))
             }
             let reading = try UsageAPI.fetch(token: token.value)
             let fetched = Date()
@@ -539,9 +541,9 @@ final class UsageMonitor: ObservableObject {
             case ClaudeCredentials.Failure.noKeychainAccess,
                  ClaudeCredentials.Failure.keychainDeclined:
                 locked = true
-                why = L10n.text("Live usage needs keychain access.")
+                why = L10n.text("Live usage needs keychain access")
             default:
-                why = L10n.text("Anthropic's usage service did not answer.")
+                why = L10n.text("Anthropic didn't answer")
             }
             lastFailure[profile.path] = why
             if interactive { problem = (error as? LocalizedError)?.errorDescription }
@@ -561,10 +563,17 @@ final class UsageMonitor: ObservableObject {
     /// Paths the service itself asked us to leave alone for a while.
     private var serverAskedToWait: Set<String> = []
 
-    private func waitingMessage(until: Date?) -> String {
+    private func waitingMessage(until: Date?, inLine: Bool = false) -> String {
         guard let until, let remaining = Graft.countdown(to: until) else {
-            return L10n.text("Waiting before asking for usage again.")
+            return L10n.text(inLine ? "next try soon" : "Next try soon")
         }
-        return L10n.format("Waiting %@ before asking for usage again.", remaining)
+        return L10n.format(inLine ? "next try in %@" : "Next try in %@", remaining)
+    }
+
+    /// The time alone for today, with the day for anything older.
+    static func clock(_ date: Date, now: Date = Date()) -> String {
+        Calendar.current.isDate(date, inSameDayAs: now)
+            ? date.formatted(date: .omitted, time: .shortened)
+            : date.formatted(date: .abbreviated, time: .shortened)
     }
 }

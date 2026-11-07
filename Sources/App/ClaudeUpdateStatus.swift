@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// Claude Desktop's version and its update, at the top of the dropdown and the
-/// window.
+/// foot of the window's sidebar.
 ///
 /// It sits above everything either of them is opened for, so it gets one line,
 /// two when the words need them, and explains the rest on hover. Red is kept
@@ -9,11 +9,16 @@ import SwiftUI
 /// something; a line coloured all the time stops being read.
 struct ClaudeUpdateStatus: View {
     var compact = false
+    /// In the sidebar, which is too narrow for the line and an install button
+    /// side by side, so the button goes under the line.
+    var stacked = false
     @ObservedObject private var updater: ClaudeDesktopUpdater
     private let requestUpdate: () -> Void
 
-    init(compact: Bool = false, updater: ClaudeDesktopUpdater = Shared.claudeUpdates, requestUpdate: (() -> Void)? = nil) {
-        self.compact = compact
+    init(compact: Bool = false, stacked: Bool = false,
+         updater: ClaudeDesktopUpdater = Shared.claudeUpdates, requestUpdate: (() -> Void)? = nil) {
+        self.compact = compact || stacked
+        self.stacked = stacked
         self.updater = updater
         self.requestUpdate = requestUpdate ?? updater.confirmInstall
     }
@@ -24,6 +29,21 @@ struct ClaudeUpdateStatus: View {
     }
 
     var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            row
+            if stacked, waiting != nil, !updater.isUpdating {
+                installButton.frame(maxWidth: .infinity)
+            }
+        }
+        .font(.callout)
+        .padding(.horizontal, 14)
+        .padding(.vertical, compact ? 6 : 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.bar)
+        .onAppear { updater.check(force: false) }
+    }
+
+    private var row: some View {
         HStack(spacing: 8) {
             // The line beside it says everything the symbol does, and SwiftUI
             // reads this one out as "Syncing".
@@ -38,12 +58,16 @@ struct ClaudeUpdateStatus: View {
             Spacer(minLength: 8)
             action
         }
-        .font(.callout)
-        .padding(.horizontal, 14)
-        .padding(.vertical, compact ? 6 : 8)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.bar)
-        .onAppear { updater.check(force: false) }
+    }
+
+    private var installButton: some View {
+        Button("Update Claude…", action: requestUpdate)
+            .buttonStyle(.borderedProminent)
+            .tint(.red)
+            .controlSize(compact ? .small : .regular)
+            .disabled(updater.checking)
+            .help("Closes all Claude instances and ends their running workflows.")
+            .identified("claude-update.install")
     }
 
     /// The product's name leads only where the words after it do not already
@@ -59,11 +83,14 @@ struct ClaudeUpdateStatus: View {
                 .fontWeight(.medium).foregroundColor(.red)
         }
         if updater.checking {
-            return name + Text(verbatim: " ") + Text("Checking for updates…").foregroundColor(.secondary)
+            return name + Text(verbatim: stacked ? "\n" : " ") + Text("Checking for updates…").foregroundColor(.secondary)
         }
         if let status = updater.status { return Text(status).foregroundColor(.secondary) }
         if let installed = updater.installedVersion {
-            return name + Text(verbatim: " ") + Text("\(installed) · Up to date").foregroundColor(.secondary)
+            // In the sidebar the version goes under the name rather than
+            // breaking wherever the width runs out.
+            return name + Text(verbatim: stacked ? "\n" : " ")
+                + Text("\(installed) · Up to date").foregroundColor(.secondary)
         }
         return name
     }
@@ -71,14 +98,8 @@ struct ClaudeUpdateStatus: View {
     @ViewBuilder private var action: some View {
         if updater.isUpdating {
             ProgressView().controlSize(.small)
-        } else if updater.availableVersion != nil {
-            Button("Update Claude…", action: requestUpdate)
-                .buttonStyle(.borderedProminent)
-                .tint(.red)
-                .controlSize(compact ? .small : .regular)
-                .disabled(updater.checking)
-                .help("Closes all Claude instances and ends their running workflows.")
-                .identified("claude-update.install")
+        } else if updater.availableVersion != nil, !stacked {
+            installButton
         } else if compact {
             Button { updater.check() } label: {
                 if updater.checking {

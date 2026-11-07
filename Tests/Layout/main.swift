@@ -206,7 +206,6 @@ for selection in [ContentView.mainProfileID, shortcut.id] {
         window.orderBack(nil)
     }
     settle()
-    var currentOffsets: [CGFloat: CGFloat] = [:]
     for state in ["current", "available", "error", "current-again"] {
         UpdateResponse.available = state == "available"
         UpdateResponse.failing = state == "error"
@@ -288,19 +287,13 @@ for selection in [ContentView.mainProfileID, shortcut.id] {
             }
             check(titlebars.isEmpty,
                   "\(state), \(size): no extra titlebar covers the profile section heading")
-            // A split view drawn underneath an inset still starts at y=0. Its
-            // own bounds must instead begin below the whole update line, at
-            // whatever height the line has in this state, and its divider.
-            let header = NSHostingController(rootView: ClaudeUpdateStatus())
-                .sizeThatFits(in: CGSize(width: size.width, height: 1000)).height
-            check(header >= 30 && abs(splitBounds.minY - (header + 1)) <= 1,
-                  "\(state), \(size): profiles start right below the update header")
-            check(header <= 52, "\(state), \(size): the update header takes two lines at most")
-            if state == "current" { currentOffsets[size.width] = splitBounds.minY }
-            if let original = currentOffsets[size.width], state == "available" || state == "current-again" {
-                check(abs(splitBounds.minY - original) <= 1,
-                      "\(state), \(size): the header keeps to one line, a waiting update included")
-            }
+            // The update line moved into the sidebar's foot, so nothing sits
+            // above the profiles and they start at the top of the window.
+            check(abs(splitBounds.minY) <= 1, "\(state), \(size): profiles start at the top of the window")
+            let sidebarLine = NSHostingController(rootView: ClaudeUpdateStatus(stacked: true))
+                .sizeThatFits(in: CGSize(width: 220, height: 1000)).height
+            check(sidebarLine <= (state == "available" ? 90 : 52),
+                  "\(state), \(size): the sidebar's update line takes two lines at most, and its button one more")
             check(splitBounds.maxY <= hosting.bounds.maxY + 1,
                   "\(state), \(size): profiles fit inside the window")
             let list = views.compactMap { $0 as? NSOutlineView }.first!
@@ -309,6 +302,22 @@ for selection in [ContentView.mainProfileID, shortcut.id] {
                   "\(state), \(size): the main account row is fully visible")
             let scrolls = views.compactMap { $0 as? NSScrollView }
             check(scrolls.count >= 2, "both the sidebar and profile form are present")
+            // Creating a Claude is done in one view, without scrolling: what
+            // does not fit goes behind an ⓘ, never below the bottom edge.
+            if size.width >= 820, state == "current" {
+                let sidebarScroll = list.enclosingScrollView
+                for scroll in scrolls where scroll !== sidebarScroll {
+                    guard let document = scroll.documentView else { continue }
+                    // The buttons along the bottom are an inset over the
+                    // form, so the room left is the clip view less its insets.
+                    let clip = scroll.contentView
+                    let room = clip.bounds.height - clip.contentInsets.top - clip.contentInsets.bottom
+                        - scroll.contentInsets.top - scroll.contentInsets.bottom
+                    let overflow = document.frame.height - room
+                    check(overflow <= 1,
+                          "\(size): the \(selection == ContentView.mainProfileID ? "main profile's" : "shortcut's") view fits without scrolling (\(Int(overflow)) points over)")
+                }
+            }
             for scroll in scrolls {
                 let bounds = hosting.convert(scroll.bounds, from: scroll)
                 check(bounds.minY >= splitBounds.minY - 1,

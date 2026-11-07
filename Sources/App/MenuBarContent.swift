@@ -397,8 +397,9 @@ struct UsageFreshness: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            HStack(spacing: 4) {
+        // Time and reason share a line: under each other they were the line
+        // that pushed the main window past its height.
+        HStack(spacing: 4) {
                 // Ticks on its own, so "2 min ago" does not sit there for an
                 // hour between passes that changed nothing.
                 TimelineView(.periodic(from: .now, by: 30)) { context in
@@ -406,6 +407,18 @@ struct UsageFreshness: View {
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
                         .identified("freshness")
+                        .lineLimit(1)
+                        .layoutPriority(1)
+                }
+                if let note = entry.note {
+                    Text("·").font(.caption2).foregroundStyle(.tertiary)
+                    Text(note)
+                        .font(.caption2)
+                        .foregroundStyle(.orange)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .help(note)
+                        .identified("usage-note")
                 }
                 Spacer(minLength: 4)
                 Button(action: refresh) {
@@ -421,14 +434,6 @@ struct UsageFreshness: View {
                 .help("Ask Anthropic for this account's usage now")
                 .accessibilityLabel(L10n.format("Refresh usage for %@", entry.name))
                 .identified("refresh-usage")
-            }
-            if let note = entry.note {
-                Text(note)
-                    .font(.caption2)
-                    .foregroundStyle(.orange)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .identified("usage-note")
-            }
         }
     }
 

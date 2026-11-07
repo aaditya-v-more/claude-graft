@@ -21,8 +21,6 @@ struct ContentView: View {
         // fields remain visible, including when a notice grows or wraps.
         VStack(spacing: 0) {
             UpdateRecoveryNotice()
-            ClaudeUpdateStatus()
-            Divider()
             profiles
         }
         .toolbar {
@@ -189,6 +187,10 @@ struct ContentView: View {
     /// by people who are already in the menu bar.
     private var sidebarFooter: some View {
         VStack(spacing: 0) {
+            Divider()
+            // Here rather than across the top of the window, where one line
+            // about Claude's version took the full width above every profile.
+            ClaudeUpdateStatus(stacked: true)
             Divider()
             HStack(spacing: 0) {
                 FooterLink("Support", icon: "heart", url: Links.support,
