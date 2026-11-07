@@ -114,12 +114,24 @@ lives and one account counted once are driven by `./test-relay.sh` against a
 stand-in service; the environment, the swap a launcher makes and every refusal
 are driven by the suite over sealed files in a throwaway directory. A socket
 upgraded through the relay and a chunked request answered while it is still
-being written are driven there too, against the stand-in. Not yet
-seen: Graft writing the lines into a real Claude and a Code-tab session through
-them, a sign-in from the pane end to end, and the dropdown's conversations on
-real sessions with the Claude in front first, and Claude in Chrome and Remote
-Control on a shared conversation. `dist/usage-pool/HANDOFF.md` is
-that plan.
+being written are driven there too, against the stand-in.
+
+Four live runs on 7 November 2026 then took it through Desktop 4.23118.0 with
+Claude 2 borrowing Claude. Seen working: Graft writing the lines into a closed
+Claude 2 and leaving Claude's own profile alone while open, the relay starting
+and stepping aside about half a minute after the lines came out, a pane sign-in
+refused for the borrower's own account and accepted for Claude's with no refresh
+token kept, a Code-tab conversation answered by the ranked account, and — once
+the fourth run had e592068 — a Sonnet conversation moved from the dropdown,
+answered by the account chosen (one `thread_not_found`, then the new thread
+there), staying on it through the next turn and after **Automatic**, with titles
+answered elsewhere leaving the dropdown alone. Remote Control's socket went
+through untouched in every run, and a message sent from another device was
+answered on the moved account. Each run before that found one thing the
+stand-in had not shown; [shared-usage.md](shared-usage.md) says what. Still
+not seen: Claude in Chrome on a shared conversation (the extension was not
+connected to Claude 2), a held conversation past its hour of cache, and the
+dropdown with two Claudes sharing at once.
 
 Unproven: **Start Session** has never successfully opened a window. It POSTs one
 Haiku message with `max_tokens: 4` and Claude Code's system prompt, which these
