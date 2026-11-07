@@ -1,7 +1,7 @@
 # Drives a built graft-relay against a stand-in for the service on loopback:
 # which account each request reached, what came back, and how the relay steps
 # aside. Nothing here touches a real profile, port 47823 or the network.
-import hashlib, http.client, http.server, json, os, re, socket, ssl, subprocess, sys, tempfile, threading, time
+import gzip, hashlib, http.client, http.server, json, os, re, socket, ssl, subprocess, sys, tempfile, threading, time
 
 RELAY = os.path.abspath(sys.argv[1])
 failures = 0
@@ -98,10 +98,16 @@ class Service(http.server.BaseHTTPRequestHandler):
             self.send_header("anthropic-ratelimit-unified-reset", str(int(now + 1800)))
             self.send_header("Content-Length", str(len(payload)))
             self.end_headers(); self.wfile.write(payload); return
+        seen[-1]["accept"] = self.headers.get("Accept-Encoding")
         continued = re.search(rb'"thread":\{"type":"continue","previous_message_id":"([^"]+)"', body)
         if continued and threads.get(continued.group(1).decode()) != token:
             payload = b'{"type":"error","error":{"type":"not_found_error","message":"thread_not_found"}}'
             self.send_response(404)
+            # As the service does: even an error is compressed for a client
+            # that accepts it.
+            if "gzip" in (self.headers.get("Accept-Encoding") or ""):
+                payload = gzip.compress(payload)
+                self.send_header("Content-Encoding", "gzip")
             self.send_header("Content-Type", "application/json")
             self.send_header("Transfer-Encoding", "chunked")
             self.end_headers()
@@ -449,27 +455,33 @@ def threaded(kind, previous=None):
     thread = b'{"type":"create"}' if kind == "create" else \
         b'{"type":"continue","previous_message_id":"' + previous.encode() + b'"}'
     return b'{"model":"claude-opus-5-5","messages":[{"role":"user","content":"hi"}],"thread":' + thread + b'}'
+def ask_thread(token, session, body):
+    response, payload, went = ask(conn, token, session=session, body=body,
+                                  extra={"Accept-Encoding": "gzip, deflate, br"})
+    # Claude Code unpacks whatever the account it reached sent; so does this.
+    if response.getheader("Content-Encoding") == "gzip": payload = gzip.decompress(payload)
+    return response, payload, went
 def holder(session):
     return {entry["id"]: entry for entry in control({})["sessions"]}.get(session, {}).get("servedBy")
 title = b'{"model":"claude-haiku-5-5","messages":[{"role":"user","content":"name this"}]}'
 
 thread_pool("G", "H", 95)
-response, payload, went = ask(conn, "tok-H", session="s40", body=threaded("create"))
+response, payload, went = ask_thread("tok-H", "s40", threaded("create"))
 check([w["token"] for w in went] == ["tok-G"], "a new thread goes where the ranking says")
 threads["m1"] = "tok-G"
 thread_pool("H", "G", 96)
-response, payload, went = ask(conn, "tok-H", session="s40", body=threaded("continue", "m1"))
+response, payload, went = ask_thread("tok-H", "s40", threaded("continue", "m1"))
 check(response.status == 200 and [w["token"] for w in went] == ["tok-G"],
       "a thread is continued on the account holding it, past a ranking that has turned")
-response, payload, went = ask(conn, "tok-H", session="s41", body=threaded("continue", "m9"))
+response, payload, went = ask_thread("tok-H", "s41", threaded("continue", "m9"))
 check([w["token"] for w in went] == ["tok-H"],
       "one the relay never saw answered stays on the account that sent it")
 
 thread_pool("G", "H", 97, {"s40": "H"})
-response, payload, went = ask(conn, "tok-H", session="s40", body=threaded("continue", "m1"))
+response, payload, went = ask_thread("tok-H", "s40", threaded("continue", "m1"))
 check(response.status == 404 and b"thread_not_found" in payload and [w["token"] for w in went] == ["tok-H"],
       "a thread moved home from the dropdown is not sent back to the account it left")
-response, payload, went = ask(conn, "tok-H", session="s40", body=threaded("create"))
+response, payload, went = ask_thread("tok-H", "s40", threaded("create"))
 check([w["token"] for w in went] == ["tok-H"], "the thread Claude Code starts again goes where it was moved")
 threads["m4"] = "tok-H"
 
@@ -477,14 +489,16 @@ thread_pool("G", "H", 98, {"s40": "G"})
 response, payload, went = ask(conn, "tok-H", session="s40", body=title)
 check([w["token"] for w in went] == ["tok-G"], "a title asked for beside a thread is routed like any short request")
 check(holder("s40") == "H", "and answered elsewhere, does not say where the thread is")
-response, payload, went = ask(conn, "tok-H", session="s40", body=threaded("continue", "m4"))
+response, payload, went = ask_thread("tok-H", "s40", threaded("continue", "m4"))
 check(response.status == 404 and b"thread_not_found" in payload and [w["token"] for w in went] == ["tok-G"],
       "a borrowed account without the thread says so, and Claude Code hears it rather than the request going home")
-response, payload, went = ask(conn, "tok-H", session="s40", body=threaded("create"))
+check(went and went[0].get("accept") == "identity",
+      "a thread moved to a borrowed account asks for an answer it can read, compressed errors and all")
+response, payload, went = ask_thread("tok-H", "s40", threaded("create"))
 check(response.status == 200 and [w["token"] for w in went] == ["tok-G"],
       "the thread started again goes to the account chosen")
 threads["m2"] = "tok-G"
-response, payload, went = ask(conn, "tok-H", session="s40", body=threaded("continue", "m2"))
+response, payload, went = ask_thread("tok-H", "s40", threaded("continue", "m2"))
 check([w["token"] for w in went] == ["tok-G"], "and is continued there")
 check(holder("s40") == "G", "the dropdown names the account holding the thread")
 
@@ -493,7 +507,7 @@ control({"configure": {"enabled": True, "members": [
     dict(member("H", "tok-H", borrows=["F"]), limits=pushed(now + 5 * 86400, 100))],
     "assignments": {"s42": "F"}}})
 threads["m3"] = "tok-H"
-response, payload, went = ask(conn, "tok-H", session="s42", body=threaded("continue", "m3"))
+response, payload, went = ask_thread("tok-H", "s42", threaded("continue", "m3"))
 check(response.status == 200 and [w["token"] for w in went] == ["tok-F", "tok-H"],
       "any other refusal of a continued thread still sends it home")
 

@@ -193,7 +193,11 @@ enum HTTPMessage {
     /// The request as it goes upstream: the body whole with its length, every
     /// end-to-end field in the order Claude Code wrote it, and the
     /// `Authorization` line replaced only when another account is answering.
-    static func request(_ head: HTTPHead, body: Data, authorization: String?) -> Data {
+    /// `plainAnswer` asks for an answer that is not compressed, for a request
+    /// whose refusal the relay must read before deciding where it goes: the
+    /// service compresses even its errors for a client that accepts it.
+    static func request(_ head: HTTPHead, body: Data, authorization: String?,
+                        plainAnswer: Bool = false) -> Data {
         let named = Set(head.tokens("connection"))
         var text = "\(head.method) \(head.target) HTTP/1.1\r\n"
         var sawHost = false
@@ -201,11 +205,13 @@ enum HTTPMessage {
             let lower = field.name.lowercased()
             if hopFields.contains(lower) || named.contains(lower) { continue }
             if lower == "authorization", authorization != nil { continue }
+            if lower == "accept-encoding", plainAnswer { continue }
             if lower == "host" { sawHost = true }
             text += "\(field.name): \(field.value)\r\n"
         }
         if !sawHost { text += "Host: \(UsagePool.host)\r\n" }
         if let authorization { text += "Authorization: \(authorization)\r\n" }
+        if plainAnswer { text += "Accept-Encoding: identity\r\n" }
         if !body.isEmpty || ["POST", "PUT", "PATCH"].contains(head.method) {
             text += "Content-Length: \(body.count)\r\n"
         }

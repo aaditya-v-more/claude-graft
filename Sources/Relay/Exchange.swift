@@ -42,6 +42,9 @@ final class Exchange {
     private let state: PoolState
     private let upstream: Upstream
     private var connection: Wire?
+    /// The error type of the last refusal read and found not to be a missing
+    /// thread, for the diagnostics line that follows it.
+    private var refusal: String?
 
     init(client: Wire, state: PoolState, upstream: Upstream) {
         self.client = client
@@ -107,8 +110,11 @@ final class Exchange {
             let attempt = attempts[index]
             let last = index == attempts.count - 1
             let borrowed = attempt.token != nil
+            // A moved thread's refusal is read to tell `thread_not_found` from
+            // a plan that lacks something, and a compressed one cannot be.
             let request = HTTPMessage.request(head, body: body,
-                                              authorization: attempt.token.map { "Bearer \($0)" })
+                                              authorization: attempt.token.map { "Bearer \($0)" },
+                                              plainAnswer: continuing && borrowed)
             let answer: (head: HTTPHead, raw: Data)
             do {
                 answer = try await send(request)
@@ -162,8 +168,12 @@ final class Exchange {
                         passed.append(PoolPass(id: member, reason: .refused))
                         index = attempts.count - 1
                     }
-                    Diagnostics.note("relay passed over", ["member": member, "status": status,
-                                                           "reason": passed.last!.reason.rawValue])
+                    var noted: [String: Any] = ["member": member, "status": status,
+                                                "reason": passed.last!.reason.rawValue]
+                    if continuing { noted["thread"] = "continue" }
+                    if let refusal { noted["error"] = refusal }
+                    refusal = nil
+                    Diagnostics.note("relay passed over", noted)
                     continue
                 }
                 await state.served(by: member, from: own, session: session, status: status,
@@ -303,8 +313,15 @@ final class Exchange {
         guard let up = connection else { return nil }
         let framing = answer.head.responseBody(to: method)
         guard framing != .untilClose else { return nil }
+        if let encoding = answer.head.value("content-encoding"), !encoding.isEmpty,
+           encoding.lowercased() != "identity" { return nil }
         let body = try await up.readBody(framing, limit: 64 * 1024)
-        return body.range(of: PoolRequest.threadMissing) != nil ? body : nil
+        if body.range(of: PoolRequest.threadMissing) != nil { return body }
+        // The last live run could only guess why a moved thread was refused;
+        // the service's own error type settles it next time.
+        let error = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any]
+        refusal = ((error?["error"] as? [String: Any])?["type"] as? String) ?? "unreadable"
+        return nil
     }
 
     /// An answer whose body was read to decide on it. A chunked one goes back

@@ -250,7 +250,14 @@ thread on the sender's own account was recovered as designed. So a continuation
 is held like reasoning, whatever the model, and when the dropdown or a full
 account does move one, a `thread_not_found` from where it went is handed to
 Claude Code rather than sent home: the new thread that follows is created on
-the account the conversation moved to, and stays there.
+the account the conversation moved to, and stays there. Telling that refusal
+from any other 404 means reading it, and the service compresses even its
+errors for a client that accepts it — a plain 401 comes back as brotli — so the
+second live run's moved turns were sent home all the same. A continued thread
+going to a borrowed account now asks for `Accept-Encoding: identity`; nothing
+else about the answer changes, and a refusal still compressed is treated as
+before. A refusal read and found to be something else leaves its error type on
+the `relay passed over` line.
 
 Only the conversation's own turns carry a thread. Claude Code asks for a title
 and the like under the same session id with none, often of a smaller model,
