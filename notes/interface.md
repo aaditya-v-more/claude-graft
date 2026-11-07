@@ -140,6 +140,25 @@ a background queue into `@State`.
 **Long-lived objects live in `enum Shared`, not `@StateObject` on the App.**
 Observing them from the App value invalidates the whole scene on every poll.
 
+## Fitting the window
+
+Both detail views fit the smallest window, 820 by 560, without scrolling.
+A note people skimmed was what made them scroll: three-line explanations of
+what a graft is, where chats are read from or why Anthropic did not answer
+pushed the buttons people came for below the fold. So a note is one line
+(`OneLineNote`), and the paragraph it used to be sits behind an
+`InfoButton` beside it. A one-line note still says everything a person needs
+to act: a usage figure says the time it is from, a wait says how long.
+
+The layout check measures the document view against the clip view minus
+both content insets. The grouped form's bottom bar is a `safeAreaInset`, so
+a check that ignored the inset passed with the last row hidden under the
+buttons; it was 97 points over when first measured properly.
+
+A row with its own button never takes `.spoken` on the whole row: the
+button inherits the row's name, and VoiceOver reads the account twice and
+the action never. Name the label part, and let the button name itself.
+
 ## The Dock, the icon and the Claude in front
 
 **A running Claude shows the icon of the bundle it runs from, and nothing

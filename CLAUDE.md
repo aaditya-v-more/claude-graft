@@ -148,6 +148,7 @@ any of these. The why is in [notes/updates-and-releases.md](notes/updates-and-re
 - **`HSplitView`, not `NavigationSplitView`,** and notices sit beside the split view in a vertical stack.
 - **Every control is named and identified by hand** with `identified`, on the control, never on a stack. Never call `NSApp.setAccessibilityWindows`.
 - **No `MenuBarExtra`. Nothing blocking in a view body. Long-lived objects live in `enum Shared`.**
+- **The window fits at 820×560 without scrolling:** a note is one line (`OneLineNote`), its paragraph behind an `InfoButton`.
 - **A running Claude keeps its own Dock icon and name;** the menu bar says which one is in front instead.
 
 ### Updates and releases — [notes/updates-and-releases.md](notes/updates-and-releases.md), [notes/update-relaunch.md](notes/update-relaunch.md)
