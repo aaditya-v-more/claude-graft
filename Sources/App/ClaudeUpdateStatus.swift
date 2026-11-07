@@ -39,7 +39,9 @@ struct ClaudeUpdateStatus: View {
         .padding(.horizontal, 14)
         .padding(.vertical, compact ? 6 : 8)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.bar)
+        // In the sidebar it stands on the sidebar's own material; a bar
+        // there reads as a panel pasted over it.
+        .background(stacked ? AnyShapeStyle(.clear) : AnyShapeStyle(.bar))
         .onAppear { updater.check(force: false) }
     }
 

@@ -39,8 +39,9 @@ struct MainProfileDetail: View {
             }
 
             Section {
-                // What it is, whether it is running and where it keeps its
-                // profile, on one row, as a shortcut's view has them.
+                // What it is and where it keeps its profile, on one row, as a
+                // shortcut's view has them; whether it is running is the
+                // window's subtitle.
                 HStack(spacing: 10) {
                     Image(systemName: "house")
                         .frame(width: 28, height: 28)
@@ -49,11 +50,6 @@ struct MainProfileDetail: View {
                     Text("Claude")
                         .spoken(L10n.text("Name"), value: "Claude")
                         .identified("name")
-                    Text(L10n.text(isRunning ? "Running" : "Not running"))
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                        .spoken(L10n.text("Status"), value: L10n.text(isRunning ? "Running" : "Not running"))
-                        .identified("running")
                     InfoButton(Self.note, about: "Claude", id: "profile-info")
                     Spacer()
                     Text(Graft.mainProfile.lastPathComponent)
@@ -76,12 +72,11 @@ struct MainProfileDetail: View {
             }
 
             Section {
-                UsageSummary(entry: plan) {
+                UsageSummary(entry: plan)
+            } header: {
+                UsageSummary.header(for: plan) {
                     usage.refresh(store, interactive: true, focus: Graft.mainProfile)
                 }
-            } header: {
-                SectionHeader(title: "Plan usage", info: UsageSummary.explanation(for: plan),
-                              id: "usage-info")
             }
 
             SharedUsageSection(claude: UsagePoolController.mainKey)
@@ -111,9 +106,11 @@ struct MainProfileDetail: View {
                 .disabled(claudeMissing)
                 .identified("open")
             }
-            .padding(14)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
             .background(.bar)
         }
+        .navigationSubtitle(L10n.text(isRunning ? "Running" : "Not running"))
         .onAppear {
             refresh()
             // Selecting a profile is someone looking at its figures, which is the

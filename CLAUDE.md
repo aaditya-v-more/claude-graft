@@ -153,10 +153,10 @@ any of these. The why is in [notes/updates-and-releases.md](notes/updates-and-re
 
 - **⌘Q does not quit** while the status item is reachable; `QuitPolicy` lets through Quit, logout and an update's relaunch.
 - **A status item that exists is not one you can click:** `MenuBarPlacement.isReachable`, which counts the notch as out of reach.
-- **`HSplitView`, not `NavigationSplitView`,** and notices sit beside the split view in a vertical stack.
+- **The window's root is a `NavigationSplitView` with a real sidebar;** notices go inside the detail column, never above the split view. The suite fails if the sidebar loses its behaviour or full height, or the title crosses its edge.
 - **Every control is named and identified by hand** with `identified`, on the control, never on a stack. Never call `NSApp.setAccessibilityWindows`.
 - **No `MenuBarExtra`. Nothing blocking in a view body. Long-lived objects live in `enum Shared`.**
-- **The window fits at 820×560 without scrolling:** a note is one line (`OneLineNote`), its paragraph behind an `InfoButton`.
+- **The window fits at 820×560 without scrolling,** every page, and Settings fits its own: a note is one line (`OneLineNote`), its paragraph behind an `InfoButton`.
 - **A running Claude keeps its own Dock icon and name;** the menu bar says which one is in front instead.
 - **A colour is handed out once and never twice** (`IconPreset.next`): a new Claude or lent account takes the first free one; nothing recolours what exists, and an account that is a Claude here wears that Claude's.
 

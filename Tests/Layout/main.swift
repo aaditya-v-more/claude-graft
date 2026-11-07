@@ -38,8 +38,17 @@ Installer.installDirectoryOverride = temporary.appending(path: "Applications")
 Installer.registersWithLaunchServices = false
 Graft.runningClaudesOverride = { [] }
 Shared.usage.mayPromptUnasked = false
-let shortcut = Shortcut(name: "Claude 2")
-Shared.store.shortcuts = [shortcut, Shortcut(name: "Claude 3", source: .own)]
+// Claude 2 is created, borrows Claude's chats and draws on two accounts,
+// which is the fullest a shortcut's pane gets; Claude 3 is a draft. A bundle
+// carrying `graft.json` is all that makes a shortcut created.
+var shortcut = Shortcut(name: "Claude 2")
+shortcut.installedName = "Claude 2"
+let draft = Shortcut(name: "Claude 3", source: .own)
+Shared.store.shortcuts = [shortcut, draft]
+let resources = Installer.installDirectoryOverride!.appending(path: "Claude 2.app/Contents/Resources")
+try fm.createDirectory(at: resources, withIntermediateDirectories: true)
+try JSONEncoder().encode(GraftConfig(profileDir: shortcut.profileDir.path, sourceDir: Graft.mainProfile.path))
+    .write(to: resources.appending(path: "graft.json"))
 // Claude's pane with accounts to draw on, one of them a Claude and one signed
 // in here, written before the pool first reads them. Attached rather than
 // started: nothing in here may run a relay or touch a Code environment.
@@ -50,6 +59,7 @@ try fm.createDirectory(at: UsagePool.accountsFile.deletingLastPathComponent(), w
 try JSONEncoder().encode([lentAccount]).write(to: UsagePool.accountsFile)
 try JSONEncoder().encode(UsageSharing(lenders: [
     UsagePoolController.mainKey: [UsagePoolController.key(for: shortcut), lentAccount.id],
+    UsagePoolController.key(for: shortcut): [UsagePoolController.mainKey, lentAccount.id],
 ])).write(to: UsagePool.settingsFile)
 Shared.usagePool.attach(store: Shared.store, usage: Shared.usage)
 let app = NSApplication.shared
@@ -127,7 +137,8 @@ func seen(_ window: NSWindow) -> [Seen]? {
             return [here] + ((attribute(element, kAXChildrenAttribute) as? [AXUIElement]) ?? []).flatMap(walk)
         }
         let windows = (attribute(app, kAXWindowsAttribute) as? [AXUIElement]) ?? []
-        let found = windows.first { text($0, kAXTitleAttribute) == title }.map(walk)
+        // A subtitle is read as part of the title, after it.
+        let found = windows.first { text($0, kAXTitleAttribute).hasPrefix(title) }.map(walk)
         DispatchQueue.main.async { result = found; finished = true }
     }
     let deadline = Date().addingTimeInterval(30)
@@ -157,7 +168,13 @@ func checkAccessibility(_ window: NSWindow, surface: String, _ place: String) ->
     let controls = elements.filter { controlRoles.contains($0.role) && !windowButtons.contains($0.subrole) }
     let unnamed = controls.filter { $0.name.isEmpty }
     check(unnamed.isEmpty, "\(place): every control says what it is \(unnamed.map(\.described))")
-    let unidentified = controls.filter { !$0.identifier.hasPrefix(ours) }
+    // The sidebar's own toggle is the split view's, which AppKit names in
+    // the person's language and this app does not build. It is known by the
+    // toolbar item SwiftUI puts it in, never by its words.
+    let systemToggles = Set((window.toolbar?.items ?? [])
+        .filter { $0.itemIdentifier.rawValue.hasSuffix("navigationSplitView.toggleSidebar") }
+        .map(\.label))
+    let unidentified = controls.filter { !$0.identifier.hasPrefix(ours) && !systemToggles.contains($0.name) }
     check(unidentified.isEmpty,
           "\(place): every control can be asked for by a name this app gave it \(unidentified.map(\.described))")
     let roleless = elements.filter { $0.role == kAXUnknownRole && $0.identifier.hasPrefix(ours) }
@@ -178,6 +195,39 @@ func element(_ name: String, in elements: [Seen]) -> Seen? {
     elements.first { $0.identifier == name }
 }
 
+/// Brings the window on screen long enough for the window server to draw it
+/// with its frame, and asks `screencapture` for that one window.
+func capture(_ window: NSWindow, as name: String, in directory: String) {
+    let wasVisible = window.isVisible && window.frame.minX > -5000
+    let origin = window.frame.origin
+    if !wasVisible { window.setFrameOrigin(NSPoint(x: 80, y: 120)) }
+    window.orderFrontRegardless()
+    RunLoop.main.run(until: Date().addingTimeInterval(1.2))
+    try? fm.createDirectory(atPath: directory, withIntermediateDirectories: true)
+    let shot = Process()
+    shot.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
+    shot.arguments = ["-x", "-o", "-l", String(window.windowNumber), "\(directory)/\(name).png"]
+    try? shot.run()
+    shot.waitUntilExit()
+    if !wasVisible {
+        window.setFrameOrigin(origin)
+        window.orderBack(nil)
+        settle()
+    }
+}
+
+/// The height a scroll view shows its document in: its clip view less what
+/// sits over it, the toolbar above and the buttons along the bottom. Those
+/// insets reach the clip view either through the scroll view, which hands
+/// its own on, or set on the clip view alone; counting both counts the
+/// toolbar twice, and counting neither passed with the last row hidden.
+func room(in scroll: NSScrollView) -> CGFloat {
+    let clip = scroll.contentView
+    return clip.bounds.height
+        - max(clip.contentInsets.top, scroll.contentInsets.top)
+        - max(clip.contentInsets.bottom, scroll.contentInsets.bottom)
+}
+
 final class LayoutWindow: NSWindow {
     // CI's virtual display can be smaller than the largest test window. Keep
     // AppKit from shrinking that case to the screen instead of testing it.
@@ -186,19 +236,74 @@ final class LayoutWindow: NSWindow {
     }
 }
 
+// Figures for the two Claudes, with all three bars, as an account on a plan
+// with a Fable allowance shows them. A usage pass in here finds no login and
+// would leave them empty, so they are put back before every measurement.
+let taken = Date()
+let pageFigures = [Graft.mainProfile, shortcut.profileDir].map { profile in
+    UsageMonitor.Entry(name: profile == Graft.mainProfile ? "Claude" : "Claude 2", profile: profile,
+                       usage: Graft.Usage(fiveHour: 6, week: 20, organization: nil, sampled: taken,
+                                          fiveHourReset: taken.addingTimeInterval(4 * 3600),
+                                          weekReset: taken.addingTimeInterval(4 * 86400),
+                                          fable: 3, fableReset: taken.addingTimeInterval(4 * 86400)),
+                       isRunning: false, shortcut: profile == Graft.mainProfile ? nil : shortcut.id,
+                       isLive: true, plan: "Max", refreshed: taken)
+}
+
+func sampleArtifacts() -> (ArtifactCenter, [Artifact]) {
+    MainActor.assumeIsolated {
+        let first = ArtifactAccount(id: UUID(), email: "me@example.com", accountUuid: "a1", org: "o1")
+        let second = ArtifactAccount(id: UUID(), email: "lent@example.com", accountUuid: "a2", org: "o2")
+        func artifact(_ id: String, _ title: String, _ account: ArtifactAccount, _ audience: String,
+                      _ rel: String) -> Artifact {
+            Artifact(id: id, account: account.id, org: account.org!, title: title, kind: "page",
+                     openURL: URL(string: "https://claude.ai/artifact/\(id)"), audience: audience, rel: rel,
+                     sortTime: taken, ownerAccount: nil)
+        }
+        let samples = [
+            artifact("11111111-a", "Quarterly plan with a title long enough to need cutting short somewhere", first, "public", "mine"),
+            artifact("22222222-b", "Pool check", first, "owner", "mine"),
+            artifact("33333333-c", "Design review", second, "users", "shared"),
+        ]
+        let groups = [ArtifactGroup(id: UUID(), name: "Design", emails: ["a@example.com", "b@example.com"])]
+        return (ArtifactCenter(accounts: [first, second], artifacts: samples, groups: groups), samples)
+    }
+}
+
+/// Every page the sidebar leads to, each in the state that fills it most.
+struct Page {
+    let name: String
+    let selection: UUID
+    let profile: URL?
+}
+let pages = [
+    Page(name: "claude", selection: ContentView.mainProfileID, profile: Graft.mainProfile),
+    Page(name: "claude-2", selection: shortcut.id, profile: shortcut.profileDir),
+    Page(name: "claude-3-draft", selection: draft.id, profile: draft.profileDir),
+    Page(name: "artifacts", selection: ContentView.artifactsID, profile: nil),
+]
+let (pageArtifacts, artifactSamples) = sampleArtifacts()
+
 for appearance in [NSAppearance.Name.aqua, .darkAqua] {
-for selection in [ContentView.mainProfileID, shortcut.id] {
-    let root = ContentView(selection: selection)
+for page in pages {
+    let root = ContentView(selection: page.selection, artifacts: pageArtifacts)
         .environmentObject(Shared.store)
         .environmentObject(Shared.settings)
         .environmentObject(Shared.usage)
-    let hosting = NSHostingView(rootView: root)
-    hosting.sizingOptions = []
+    // Built the way the app's own window is: the toolbar and title come from
+    // the view, and the content runs up under the titlebar, which is where a
+    // sidebar and a title can be seen to be one piece or two.
+    let controller = NSHostingController(rootView: root)
+    controller.sizingOptions = []
+    if #available(macOS 14, *) { controller.sceneBridgingOptions = .all }
     let window = LayoutWindow(contentRect: NSRect(x: 100, y: 100, width: 820, height: 560),
-                          styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
-    window.contentView = hosting
+                              styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+                              backing: .buffered, defer: false)
+    window.contentViewController = controller
+    window.setContentSize(NSSize(width: 820, height: 560))
+    let hosting = controller.view
     window.appearance = NSAppearance(named: appearance)
-    window.title = "Claude Graft layout check"
+    window.title = "Claude Graft"
     if ProcessInfo.processInfo.environment["GRAFT_LAYOUT_VISIBLE"] == "1" {
         window.orderFront(nil)
     } else {
@@ -206,6 +311,7 @@ for selection in [ContentView.mainProfileID, shortcut.id] {
         window.orderBack(nil)
     }
     settle()
+    let pageName = "the \(page.name) page"
     for state in ["current", "available", "error", "current-again"] {
         UpdateResponse.available = state == "available"
         UpdateResponse.failing = state == "error"
@@ -224,43 +330,68 @@ for selection in [ContentView.mainProfileID, shortcut.id] {
               "\(state): the dropdown's update line takes \(state.hasPrefix("current") ? "one line" : "two at most")")
         for size in [NSSize(width: 720, height: 460), NSSize(width: 820, height: 560),
                      NSSize(width: 1200, height: 800)] {
+            Shared.usage.setEntriesForTesting(pageFigures)
             window.setContentSize(size)
             settle()
+            if Shared.usage.entry(for: Graft.mainProfile)?.usage == nil {
+                Shared.usage.setEntriesForTesting(pageFigures)
+                settle()
+            }
             hosting.layoutSubtreeIfNeeded()
+            let place = "\(state), \(size), \(pageName)"
             check(abs(hosting.bounds.width - size.width) <= 1
                   && abs(hosting.bounds.height - size.height) <= 1,
                   "the window reaches the requested \(size) size")
             let views = descendants(hosting)
             if size.width == 820, state == "current" || state == "available" {
-                let main = selection == ContentView.mainProfileID
-                let place = "\(state), the \(main ? "main profile's" : "shortcut's") window"
-                let tree = checkAccessibility(window, surface: ControlSurface.window, place)
-                let profile = main ? Graft.mainProfile.lastPathComponent : shortcut.profileDir.lastPathComponent
-                let scope = "\(ControlSurface.window).\(profile)."
-                check(element(scope + "usage-info", in: tree)?.name
-                        == L10n.format("About %@", L10n.text("Plan usage")),
-                      "\(place): the button explaining a section says which section, not “Error”")
-                check(element(scope + "show-in-finder", in: tree)?.name == L10n.text("Show in Finder"),
-                      "\(place): the folder button says it shows the folder, not “Move”")
-                check(element(scope + "folder", in: tree)?.name == L10n.text("Profile folder"),
-                      "\(place): the profile folder is read out under its own name")
-                check(element(scope + "open", in: tree)?.role == kAXButtonRole,
-                      "\(place): Open can be asked for by the profile it opens")
-                check(element("\(ControlSurface.window).sidebar.\(profile)", in: tree) != nil,
-                      "\(place): each sidebar row can be asked for by its profile")
+                let tree = checkAccessibility(window, surface: ControlSurface.window, "\(state), \(pageName)")
+                check(element("\(ControlSurface.window).new-shortcut", in: tree) != nil,
+                      "\(place): New Shortcut in the toolbar can be asked for by name")
+                let toggle = window.toolbar?.items.first {
+                    $0.itemIdentifier.rawValue.hasSuffix("navigationSplitView.toggleSidebar")
+                }
+                check(toggle.map { item in tree.contains { $0.role == kAXButtonRole && $0.name == item.label } } == true,
+                      "\(place): the sidebar can be hidden from the toolbar, as any sidebar can")
                 check(state != "available" || element("window.claude-update.install", in: tree) != nil,
                       "\(place): a waiting Claude update can be asked for by name")
-                if main {
-                    let lent = scope + "lender.\(shortcut.profileDir.lastPathComponent)"
-                    check(element(lent, in: tree)?.name == "Claude 2",
-                          "\(place): an account Claude draws on is read out under its own name")
-                    check(element(lent + ".remove", in: tree)?.name == L10n.format("Stop drawing on %@", "Claude 2"),
-                          "\(place): the button taking an account away says which account, not “Remove”")
-                    check(element(scope + "lender.lent-account.remove", in: tree)?.name
-                            == L10n.format("Stop drawing on %@", "lent@example.com"),
-                          "\(place): an account signed in here is named by its email")
-                    check(element(scope + "shared-usage.add", in: tree) != nil,
-                          "\(place): adding an account can be asked for by name")
+                if let profileDir = page.profile {
+                    let profile = profileDir.lastPathComponent
+                    let scope = "\(ControlSurface.window).\(profile)."
+                    check(element(scope + "usage-info", in: tree)?.name
+                            == L10n.format("About %@", L10n.text("Plan usage")),
+                          "\(place): the button explaining a section says which section, not “Error”")
+                    check(element(scope + "show-in-finder", in: tree)?.name == L10n.text("Show in Finder"),
+                          "\(place): the folder button says it shows the folder, not “Move”")
+                    check(element(scope + "folder", in: tree)?.name == L10n.text("Profile folder"),
+                          "\(place): the profile folder is read out under its own name")
+                    check(element(scope + "open", in: tree)?.role == kAXButtonRole,
+                          "\(place): Open can be asked for by the profile it opens")
+                    check(element("\(ControlSurface.window).sidebar.\(profile)", in: tree) != nil,
+                          "\(place): each sidebar row can be asked for by its profile")
+                    if page.profile != draft.profileDir {
+                        check(element(scope + "week", in: tree)?.role == kAXProgressIndicatorRole,
+                              "\(place): the week's figure is drawn")
+                        check(element(scope + "shared-usage.add", in: tree) != nil,
+                              "\(place): adding an account can be asked for by name")
+                    }
+                    if page.selection == ContentView.mainProfileID {
+                        let lent = scope + "lender.\(shortcut.profileDir.lastPathComponent)"
+                        check(element(lent, in: tree)?.name == "Claude 2",
+                              "\(place): an account Claude draws on is read out under its own name")
+                        check(element(lent + ".remove", in: tree)?.name == L10n.format("Stop drawing on %@", "Claude 2"),
+                              "\(place): the button taking an account away says which account, not “Remove”")
+                        check(element(scope + "lender.lent-account.remove", in: tree)?.name
+                                == L10n.format("Stop drawing on %@", "lent@example.com"),
+                              "\(place): an account signed in here is named by its email")
+                    }
+                } else {
+                    for control in ["refresh", "add-account", "filter", "search", "groups"] {
+                        check(element("window.artifacts.\(control)", in: tree) != nil,
+                              "\(place): \(control) can be asked for by name")
+                    }
+                    let share = element("window.artifact.11111111.share", in: tree)
+                    check(share?.name == L10n.format("Share %@ with a Group", artifactSamples[0].title),
+                          "\(place): sharing says which artifact it shares \(share?.described ?? "missing")")
                 }
             }
             if let directory = ProcessInfo.processInfo.environment["GRAFT_LAYOUT_SNAPSHOTS"],
@@ -269,59 +400,88 @@ for selection in [ContentView.mainProfileID, shortcut.id] {
                     .appending(path: Bundle.main.preferredLocalizations.first ?? "en")
                     .appending(path: appearance == .aqua ? "light" : "dark")
                 try! fm.createDirectory(at: output, withIntermediateDirectories: true)
-                let name = selection == ContentView.mainProfileID ? "main" : "shortcut"
-                if let bitmap = hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds) {
-                    hosting.cacheDisplay(in: hosting.bounds, to: bitmap)
-                    try! bitmap.representation(using: .png, properties: [:])!
-                        .write(to: output.appending(path: "\(name).png"))
-                }
                 let tree = views.map { "\(type(of: $0)) \(hosting.convert($0.bounds, from: $0))" }
                 try! tree.joined(separator: "\n").write(
-                    to: output.appending(path: "\(name)-views.txt"), atomically: true, encoding: .utf8)
+                    to: output.appending(path: "\(page.name)-views.txt"), atomically: true, encoding: .utf8)
             }
+            // The whole window, titlebar and all, as a person sees it: what a
+            // snapshot of the content leaves out is exactly the sidebar
+            // running up under the title and the title reading as one piece.
+            if let directory = ProcessInfo.processInfo.environment["GRAFT_LAYOUT_WINDOWS"],
+               state == "current", size.width == 820 {
+                let language = Bundle.main.preferredLocalizations.first ?? "en"
+                capture(window, as: "\(language)-\(appearance == .aqua ? "light" : "dark")-\(page.name)",
+                        in: directory)
+            }
+
+            // A real sidebar: the split view's first item is a sidebar, and
+            // it runs the full height of the window, up under the titlebar.
             let split = views.compactMap { $0 as? NSSplitView }.first!
             let splitBounds = hosting.convert(split.bounds, from: split)
+            check(abs(splitBounds.minY) <= 1 && splitBounds.maxY <= hosting.bounds.maxY + 1,
+                  "\(place): the split view fills the window from its top edge")
+            let controllerItem = (split.delegate as? NSSplitViewController)?.splitViewItems.first
+            check(controllerItem?.behavior == .sidebar,
+                  "\(place): the first column is a sidebar, not one half of a split")
+            let column = split.arrangedSubviews.first.map { hosting.convert($0.bounds, from: $0) } ?? .zero
+            check(column.minY <= 1 && column.maxY >= hosting.bounds.maxY - 1,
+                  "\(place): the sidebar runs the full height of the window, under the titlebar")
+            let titlebarHeight = window.frame.height - window.contentLayoutRect.height
+            // One backdrop over each column at the very top, and none lower
+            // down: one drawn inside the detail covered its first heading.
             let titlebars = views.filter {
                 String(describing: type(of: $0)) == "NSTitlebarBackgroundView"
                     && !$0.isHiddenOrHasHiddenAncestor && $0.bounds.height > 1
+            }.map { hosting.convert($0.bounds, from: $0) }
+            check(titlebars.allSatisfy { $0.minY <= 1 && $0.height <= titlebarHeight + 1 },
+                  "\(place): no titlebar backdrop sits below the titlebar \(titlebars)")
+            // The title lies wholly on one side of the sidebar's edge: across
+            // it, the split cut the title in two.
+            let edge = split.arrangedSubviews.first.map { $0.convert($0.bounds, to: nil).maxX } ?? 0
+            let titles = (window.contentView?.superview).map(descendants)?
+                .compactMap { $0 as? NSTextField }
+                .filter { $0.stringValue == window.title && !$0.isHiddenOrHasHiddenAncestor }
+                .map { $0.convert($0.bounds, to: nil) } ?? []
+            check(!titles.isEmpty && titles.allSatisfy { $0.minX >= edge - 1 || $0.maxX <= edge + 1 },
+                  "\(place): the title reads as one piece, clear of the sidebar's edge \(titles) edge \(edge)")
+
+            let sidebarList = split.arrangedSubviews.first.map(descendants)?
+                .compactMap { $0 as? NSOutlineView }.first
+            check(sidebarList != nil, "\(place): the sidebar lists the profiles")
+            if let sidebarList {
+                let account = hosting.convert(sidebarList.rect(ofRow: 1), from: sidebarList)
+                check(account.minY >= titlebarHeight - 1 && account.maxY <= hosting.bounds.maxY,
+                      "\(place): the main account row is fully visible, below the titlebar")
             }
-            check(titlebars.isEmpty,
-                  "\(state), \(size): no extra titlebar covers the profile section heading")
-            // The update line moved into the sidebar's foot, so nothing sits
-            // above the profiles and they start at the top of the window.
-            check(abs(splitBounds.minY) <= 1, "\(state), \(size): profiles start at the top of the window")
             let sidebarLine = NSHostingController(rootView: ClaudeUpdateStatus(stacked: true))
                 .sizeThatFits(in: CGSize(width: 220, height: 1000)).height
             check(sidebarLine <= (state == "available" ? 90 : 52),
-                  "\(state), \(size): the sidebar's update line takes two lines at most, and its button one more")
-            check(splitBounds.maxY <= hosting.bounds.maxY + 1,
-                  "\(state), \(size): profiles fit inside the window")
-            let list = views.compactMap { $0 as? NSOutlineView }.first!
-            let account = hosting.convert(list.rect(ofRow: 1), from: list)
-            check(account.minY >= splitBounds.minY && account.maxY <= splitBounds.maxY,
-                  "\(state), \(size): the main account row is fully visible")
-            let scrolls = views.compactMap { $0 as? NSScrollView }
-            check(scrolls.count >= 2, "both the sidebar and profile form are present")
-            // Creating a Claude is done in one view, without scrolling: what
-            // does not fit goes behind an ⓘ, never below the bottom edge.
-            if size.width >= 820, state == "current" {
-                let sidebarScroll = list.enclosingScrollView
-                for scroll in scrolls where scroll !== sidebarScroll {
-                    guard let document = scroll.documentView else { continue }
-                    // The buttons along the bottom are an inset over the
-                    // form, so the room left is the clip view less its insets.
-                    let clip = scroll.contentView
-                    let room = clip.bounds.height - clip.contentInsets.top - clip.contentInsets.bottom
-                        - scroll.contentInsets.top - scroll.contentInsets.bottom
-                    let overflow = document.frame.height - room
-                    check(overflow <= 1,
-                          "\(size): the \(selection == ContentView.mainProfileID ? "main profile's" : "shortcut's") view fits without scrolling (\(Int(overflow)) points over)")
-                }
+                  "\(place): the sidebar's update line takes two lines at most, and its button one more")
+
+            // Every page is done in one view, without scrolling: what does not
+            // fit goes behind an ⓘ, never below the bottom edge or under the
+            // toolbar. A horizontal strip of account chips is not a page.
+            let sidebarScroll = sidebarList?.enclosingScrollView
+            let pageScrolls = views.compactMap { $0 as? NSScrollView }.filter {
+                $0 !== sidebarScroll && !$0.isHiddenOrHasHiddenAncestor && $0.bounds.height > 40
             }
-            for scroll in scrolls {
-                let bounds = hosting.convert(scroll.bounds, from: scroll)
-                check(bounds.minY >= splitBounds.minY - 1,
-                      "\(state), \(size): a scroll view cannot extend under the header")
+            check(!pageScrolls.isEmpty, "\(place): the page is present")
+            for scroll in pageScrolls {
+                let frame = hosting.convert(scroll.bounds, from: scroll)
+                let top = max(scroll.contentView.contentInsets.top, scroll.contentInsets.top)
+                check(frame.minY + top >= titlebarHeight - 1,
+                      "\(place): nothing on the page starts under the toolbar")
+                guard size == NSSize(width: 820, height: 560), let document = scroll.documentView else { continue }
+                // A list's table stretches to fill whatever it is shown in, so
+                // what it holds is where its last row ends, not its own height.
+                let table = document as? NSTableView
+                let content = table.map { $0.numberOfRows == 0 ? 0 : $0.rect(ofRow: $0.numberOfRows - 1).maxY }
+                    ?? document.frame.height
+                let overflow = content - room(in: scroll)
+                check(overflow <= 1, "\(place): fits without scrolling (\(Int(overflow)) points over)")
+                if ProcessInfo.processInfo.environment["GRAFT_LAYOUT_MARGINS"] == "1" {
+                    print("MARGIN \(page.name) \(state) \(Int(-overflow))")
+                }
             }
         }
     }
@@ -458,7 +618,22 @@ check(element("dropdown.conversation.first-session", in: foldedTree) != nil
       "the conversation in front comes first, and the rest wait behind a count until asked for")
 folded.orderOut(nil)
 
-let settingsWindow = hosted(SettingsView().environmentObject(Shared.settings), title: "Settings check")
+// Sized by its content, as the Settings scene sizes its window.
+let settingsController = NSHostingController(rootView: SettingsView().environmentObject(Shared.settings))
+let settingsWindow = LayoutWindow(contentViewController: settingsController)
+settingsWindow.styleMask = [.titled, .closable]
+settingsWindow.title = "Settings check"
+settingsWindow.setFrameOrigin(NSPoint(x: -10000, y: -10000))
+settingsWindow.orderBack(nil)
+settle()
+for scroll in descendants(settingsWindow.contentView!).compactMap({ $0 as? NSScrollView }) {
+    guard let document = scroll.documentView else { continue }
+    let overflow = document.frame.height - room(in: scroll)
+    check(overflow <= 1, "Settings fits its window without scrolling (\(Int(overflow)) points over)")
+}
+if let directory = ProcessInfo.processInfo.environment["GRAFT_LAYOUT_WINDOWS"] {
+    capture(settingsWindow, as: "\(Bundle.main.preferredLocalizations.first ?? "en")-settings", in: directory)
+}
 let settingsTree = checkAccessibility(settingsWindow, surface: ControlSurface.settings, "Settings")
 check(["open-at-login", "show-in-menu-bar", "front-icon", "front-name", "manual-updates", "hold-updates"]
         .allSatisfy { element("settings.\($0)", in: settingsTree) != nil },
@@ -525,16 +700,14 @@ MainActor.assumeIsolated {
         let scrolls = views.compactMap { $0 as? NSScrollView }.filter { !$0.hasHorizontalScroller && $0.bounds.height > 40 }
         for scroll in scrolls {
             guard let document = scroll.documentView else { continue }
-            let clip = scroll.contentView
-            let room = clip.bounds.height - clip.contentInsets.top - clip.contentInsets.bottom
-                - scroll.contentInsets.top - scroll.contentInsets.bottom
+            let shown = room(in: scroll)
             // A list's table stretches to fill whatever it is shown in, so
             // what it holds is where its last row ends, not its own height.
             let table = document as? NSTableView
             let content = table.map { $0.numberOfRows == 0 ? 0 : $0.rect(ofRow: $0.numberOfRows - 1).maxY }
                 ?? document.frame.height
-            check(content - room <= 1,
-                  "\(name): three artifacts fit beside the sidebar without scrolling (\(Int(content - room)) points over)")
+            check(content - shown <= 1,
+                  "\(name): three artifacts fit beside the sidebar without scrolling (\(Int(content - shown)) points over)")
         }
         if let directory = ProcessInfo.processInfo.environment["GRAFT_LAYOUT_SNAPSHOTS"] {
             let output = URL(fileURLWithPath: directory)

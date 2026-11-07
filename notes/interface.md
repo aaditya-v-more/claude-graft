@@ -45,19 +45,35 @@ each one the gap between a screen's `auxiliaryTopLeftArea` and
 
 ## SwiftUI and accessibility
 
-**The profile selector is a split view, not a navigation stack.** On macOS 27,
-`NavigationSplitView` below the notices adds another titlebar backdrop inside
-the detail pane. It covers the first section heading, and hiding scroll-edge
-effects or the toolbar background does not remove it. Use `HSplitView` with
-the toolbar on the outer view. The layout suite checks for this extra backdrop
-in both appearances, both languages and each supported window size.
+**The profile selector is a `NavigationSplitView`, and the notices sit inside
+its detail column.** For a while it was an `HSplitView` under a stack of
+notices, because on macOS 27 a `NavigationSplitView` *below* the notices drew a
+second titlebar backdrop inside the detail pane, over the first section
+heading. That split did what it was asked and looked wrong for it: the sidebar
+had no sidebar material, stopped short of the titlebar, and the window's title
+sat across the divider as two halves of one bar. The backdrop was never the
+split view's fault but the stack's — a split view that is not the window's
+root cannot reach the titlebar, so it draws its own. With the split view as the
+root and `UpdateRecoveryNotice` at the top of the detail column, the sidebar
+runs the full height under the titlebar, the system's Hide Sidebar button and
+View › Show Sidebar come with it, and the title belongs to the detail column
+alone.
 
-**Notices above the split view need their own layout space.** A top
-`safeAreaInset` on `NavigationSplitView` left its native sidebar and form
-drawing beneath the update banner. The first account and the top of the form
-were hidden even though accessibility still reported them. Keep the notices
-and split view as siblings in a vertical stack. `test-layout.sh` checks the
-native view bounds as the update state, window size and language change.
+What the old arrangement protected still holds, and `test-layout.sh` checks it
+in both appearances, both languages and each window size. The first split item
+must have `.sidebar` behaviour and run from the top of the window to the bottom.
+The title field must lie wholly on one side of the sidebar's edge. A titlebar
+backdrop may sit only at the top, no taller than the titlebar itself: the split
+view draws one per column there, which is how it should look, and a backdrop
+anywhere lower is the old fault back. No page's content may start under the
+toolbar. The suite's window bridges the toolbar and title as the real scene does
+(`sceneBridgingOptions`), because a window without a toolbar has 52 points the
+real one does not and hid the overflow that started all this.
+
+The system's sidebar button is the one control nobody here names. Its
+accessibility name is the label of its toolbar item, whose identifier ends in
+`navigationSplitView.toggleSidebar`, and the identifier check lets that one
+through by that label and fails instead if the button is missing.
 
 **Every control is named and identified by hand.** SwiftUI names a button
 holding only a symbol after the symbol, so the "!" beside every section read out
@@ -150,10 +166,33 @@ pushed the buttons people came for below the fold. So a note is one line
 `InfoButton` beside it. A one-line note still says everything a person needs
 to act: a usage figure says the time it is from, a wait says how long.
 
-The layout check measures the document view against the clip view minus
-both content insets. The grouped form's bottom bar is a `safeAreaInset`, so
-a check that ignored the inset passed with the last row hidden under the
-buttons; it was 97 points over when first measured properly.
+The layout check measures the document view against the clip view minus the
+larger of the two content insets at each edge. The grouped form's bottom bar is
+a `safeAreaInset`, so a check that ignored the inset passed with the last row
+hidden under the buttons; it was 97 points over when first measured properly.
+Adding the two together was wrong the other way: in a window with a toolbar the
+clip view's insets repeat the scroll view's, and the sum counted the toolbar
+twice.
+
+What keeps the fullest page in, a shortcut lending two accounts with all three
+bars showing, is that nothing takes a row it does not need. Whether a Claude is
+running is the window's subtitle. When the figures are from, the refresh button
+and Add sit on the section heading's right (`SectionHeader`'s trailing view).
+A reset time sits on its bar's line, after the percentage. Shared usage shows at
+most one note row, a problem before the environment before Open at Login, with
+the others behind its ⓘ. A shortcut's name, folder and Show in Finder share a
+row, and where it reads chats from is a labelled picker with the sharing note
+under its label. At 820 by 560 that page has 6 points to spare, in both
+languages; a new row there needs another row to give one up.
+
+Settings is a grouped form too, and a grouped form scrolls, so it asks for no
+height and a window sized from it opens as a bare titlebar. It is held to its
+rows with `fixedSize(horizontal: false, vertical: true)`.
+
+The freshness line on the usage heading reads "Updated … from Anthropic" when
+the figure is current. "· figure from …" appears only beside the reason a
+refresh failed, where the time says how old the figure being shown is; a plan
+that expects it on a healthy account is expecting the wrong line.
 
 A row with its own button never takes `.spoken` on the whole row: the
 button inherits the row's name, and VoiceOver reads the account twice and

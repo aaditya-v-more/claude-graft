@@ -12,34 +12,44 @@ struct ContentView: View {
     @State private var selection: UUID? = ContentView.mainProfileID
     @State private var pendingDeletion: UUID?
     @State private var problem: String?
-    @State private var sidebarVisible = true
+    @State private var columns = NavigationSplitViewVisibility.all
 
-    init(selection: UUID? = ContentView.mainProfileID) {
+    /// Nil in the app, which shows `Shared.artifacts`; the layout suite hands
+    /// in sample rows, since the real list is asked of claude.ai.
+    private let artifacts: ArtifactCenter?
+
+    init(selection: UUID? = ContentView.mainProfileID, artifacts: ArtifactCenter? = nil) {
         _selection = State(initialValue: selection)
+        self.artifacts = artifacts
     }
 
     var body: some View {
-        // The split view's native scroll views can draw under a top safe-area
-        // inset. Give notices their own space so the first account and form
-        // fields remain visible, including when a notice grows or wraps.
-        VStack(spacing: 0) {
-            UpdateRecoveryNotice()
-            profiles
+        // A real sidebar: full height under the titlebar, in the sidebar's
+        // own material, with the title and toolbar reading as one piece over
+        // the detail. A notice sits inside the detail column, never above the
+        // split view: below anything, the split view draws a second titlebar
+        // backdrop over the first section of the form.
+        NavigationSplitView(columnVisibility: $columns) {
+            sidebar
+                .listStyle(.sidebar)
+                .safeAreaInset(edge: .bottom, spacing: 0) { sidebarFooter }
+                .navigationSplitViewColumnWidth(min: 200, ideal: 220, max: 280)
+        } detail: {
+            VStack(spacing: 0) {
+                UpdateRecoveryNotice()
+                profileDetail
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
         }
+        .navigationSplitViewStyle(.balanced)
         .toolbar {
-            ToolbarItemGroup(placement: .navigation) {
+            ToolbarItem(placement: .primaryAction) {
                 Button(action: add) {
                     Label("New Shortcut", systemImage: "plus")
                 }
                 .keyboardShortcut("n", modifiers: .command)
                 .help("New shortcut")
                 .identified("new-shortcut")
-                Button { sidebarVisible.toggle() } label: {
-                    Label("Toggle Sidebar", systemImage: "sidebar.left")
-                }
-                .keyboardShortcut("s", modifiers: [.command, .option])
-                .help("Toggle Sidebar")
-                .identified("toggle-sidebar")
             }
         }
         .confirmationDialog(deletionTitle,
@@ -63,28 +73,12 @@ struct ContentView: View {
         .environment(\.controlSurface, ControlSurface.window)
     }
 
-    private var profiles: some View {
-        // This is a pane selector, not a navigation stack. NavigationSplitView
-        // installs a second titlebar backdrop below the notices on macOS 27,
-        // obscuring the first form section even with scroll effects hidden.
-        HSplitView {
-            if sidebarVisible {
-                sidebar
-                    .listStyle(.sidebar)
-                    .safeAreaInset(edge: .bottom, spacing: 0) { sidebarFooter }
-                    .frame(minWidth: 200, idealWidth: 220, maxWidth: 280)
-            }
-            profileDetail
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-        }
-    }
-
     @ViewBuilder
     private var profileDetail: some View {
         if selection == Self.mainProfileID {
             MainProfileDetail()
         } else if selection == Self.artifactsID {
-            ArtifactsView(center: Shared.artifacts)
+            ArtifactsView(center: artifacts ?? Shared.artifacts)
         } else if let selection, let index = store.shortcuts.firstIndex(where: { $0.id == selection }) {
             ShortcutDetail(shortcut: $store.shortcuts[index],
                            requestDelete: { requestDeletion(of: selection) })
@@ -224,7 +218,6 @@ struct ContentView: View {
             .padding(.horizontal, 14)
             .padding(.vertical, 8)
         }
-        .background(.bar)
     }
 
     /// What the line under the name and the symbol beside it say between

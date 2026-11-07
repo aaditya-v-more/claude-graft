@@ -319,6 +319,10 @@ struct UsageBar: View {
     let percent: Int
     var resets: Date?
     var dimmed = false
+    /// The countdown beside the figure rather than under it, as the window
+    /// draws it: three bars with a line each under them were what pushed a
+    /// Claude's pane past the bottom of the smallest window.
+    var inline = false
 
     private var fraction: Double { min(max(Double(percent) / 100, 0), 1) }
 
@@ -328,6 +332,15 @@ struct UsageBar: View {
         case ..<90: return .orange
         default: return .red
         }
+    }
+
+    private func countdown(_ remaining: String?) -> some View {
+        Text(remaining ?? "")
+            .font(.caption2.monospacedDigit())
+            .foregroundStyle(.tertiary)
+            .lineLimit(1)
+            .frame(width: 76, alignment: .trailing)
+            .help(remaining.map { L10n.format("Resets in %@", $0) } ?? "")
     }
 
     var body: some View {
@@ -358,8 +371,9 @@ struct UsageBar: View {
                         .font(.caption.monospacedDigit())
                         .foregroundStyle(.secondary)
                         .frame(width: 36, alignment: .trailing)
+                    if inline { countdown(remaining) }
                 }
-                if let remaining {
+                if let remaining, !inline {
                     Text("Resets in \(remaining)")
                         .font(.caption2.monospacedDigit())
                         .foregroundStyle(.tertiary)

@@ -63,100 +63,23 @@ struct ShortcutDetail: View {
                 }
             }
 
-            Section {
-                // Icon, name and folder share one row: the three say what the
-                // shortcut is, and stacked they pushed everything else below
-                // the bottom of the window.
-                HStack(spacing: 10) {
-                    iconButton
-                    TextField("Name", text: $shortcut.name)
-                        .textFieldStyle(.roundedBorder)
-                        .labelsHidden()
-                        .onChange(of: shortcut.name) { _ in
-                            guard installedAt == nil, !folderIsCustom else { return }
-                            shortcut.folder = Shortcut.folderName(for: shortcut.name)
-                        }
-                        .identified("name")
-                    // The field carries no title of its own, so without this
-                    // VoiceOver reads only whatever has been typed.
-                    TextField("", text: $shortcut.folder)
-                        .textFieldStyle(.roundedBorder)
-                        .font(.body.monospaced())
-                        .frame(width: 130)
-                        .onChange(of: shortcut.folder) { _ in folderIsCustom = true }
-                        .help("Profile folder")
-                        .accessibilityLabel(L10n.text("Profile folder"))
-                        .identified("folder")
-                    Button {
-                        NSWorkspace.shared.activateFileViewerSelecting([shortcut.profileDir])
-                    } label: {
-                        Image(systemName: "folder")
-                    }
-                    .buttonStyle(.borderless)
-                    .help("Show in Finder")
-                    // SwiftUI reads the folder symbol out as "Move".
-                    .accessibilityLabel(L10n.text("Show in Finder"))
-                    .identified("show-in-finder")
-                }
-                LabeledContent {
-                    Text(status)
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .help(installedAt?.path ?? "")
-                } label: {
-                    HStack(spacing: 5) {
-                        Text("Status")
-                        InfoButton(Self.shortcutNote, about: "Shortcut", id: "shortcut-info")
-                    }
-                }
-                .spoken(L10n.text("Status"), value: status)
-                .identified("status")
-                if let copiedNote {
-                    OneLineNote(text: copiedNote, id: "copied-note")
-                }
-            }
-
-            Section {
-                Picker("Reads chats from", selection: $shortcut.source) {
-                    ForEach(store.availableSources(for: shortcut), id: \.self) { source in
-                        Text(store.label(for: source)).tag(source)
-                    }
-                }
-                .identified("chat-source")
-                if shortcut.source != .own {
-                    OneLineNote(text: L10n.format("Shared both ways with %@", store.label(for: shortcut.source)),
-                                more: mergeNote + "\n\n" + (sidebarNote ?? L10n.text("Pinned chats and sort order sync when the linked Claude apps are closed and you open a shortcut.")),
-                                topic: "Chats", id: "merge-note")
-                }
-            } header: {
-                SectionHeader(title: "Chats", info: sourceExplanation, id: "chats-info")
-            }
+            identitySection
 
             if let found = elsewhere {
                 Section {
-                    OneLineNote(text: L10n.format("%@ holds %ld chats for this account", store.name(ofProfile: found.profile), found.count),
-                                more: foundNote(found), topic: "Chats found elsewhere", id: "elsewhere-note")
-                    ForEach(found.chats.prefix(3), id: \.self) { chat in
-                        LabeledContent {
-                            Text(Self.chatDate.string(from: chat.lastActive))
-                                .font(.callout)
-                                .foregroundStyle(.secondary)
-                        } label: {
-                            Text(chat.title)
-                                .font(.callout)
-                                .lineLimit(1)
-                                .truncationMode(.tail)
-                        }
-                        .spoken(chat.title, value: Self.chatDate.string(from: chat.lastActive))
-                    }
+                    // The chats themselves are named behind the ⓘ: three rows
+                    // of titles put the button below the bottom of the window.
                     HStack(spacing: 8) {
+                        OneLineNote(text: L10n.format("%@ holds %ld chats for this account", store.name(ofProfile: found.profile), found.count),
+                                    more: foundMore(found),
+                                    topic: "Chats found elsewhere", id: "elsewhere-note")
+                        Spacer(minLength: 8)
+                        if copying { ProgressView().controlSize(.small) }
                         Button(L10n.text(found.merging ? "Merge Them Here" : "Copy Them Here")) {
                             adopt(found)
                         }
                         .disabled(copying)
                         .identified("copy-chats")
-                        if copying { ProgressView().controlSize(.small) }
                     }
                 } header: {
                     SectionHeader(title: "Chats found elsewhere", info: Self.elsewhereNote,
@@ -165,12 +88,11 @@ struct ShortcutDetail: View {
             }
 
             Section {
-                UsageSummary(entry: plan) {
+                UsageSummary(entry: plan)
+            } header: {
+                UsageSummary.header(for: plan) {
                     usage.refresh(store, interactive: true, focus: shortcut.profileDir)
                 }
-            } header: {
-                SectionHeader(title: "Plan usage", info: UsageSummary.explanation(for: plan),
-                              id: "usage-info")
             }
 
             // A shortcut not created yet has no profile for anything to reach.
@@ -179,40 +101,8 @@ struct ShortcutDetail: View {
             }
         }
         .formStyle(.grouped)
-        .safeAreaInset(edge: .bottom) {
-            HStack(spacing: 8) {
-                Button(L10n.text(isDraft ? "Discard" : "Delete Shortcut…"),
-                       role: .destructive, action: requestDelete)
-                    .identified("delete")
-                Spacer()
-                if plan?.mayStartSession ?? true {
-                    Button(action: startSession) {
-                        if startingSession {
-                            ProgressView().controlSize(.small)
-                        } else {
-                            Text("Start Session")
-                        }
-                    }
-                    .disabled(startingSession)
-                    // Named apart from its text, which a spinner replaces while
-                    // the session is being started.
-                    .accessibilityLabel(L10n.text("Start Session"))
-                    .identified("start-session")
-                    InfoButton(Self.sessionNote, about: "Start Session", id: "session-info")
-                }
-
-                Button("Open", action: open)
-                    .disabled(installedAt == nil)
-                    .identified("open")
-                Button(L10n.text(installedAt == nil ? "Create Shortcut" : "Update Shortcut"),
-                       action: install)
-                    .keyboardShortcut(.defaultAction)
-                    .disabled(shortcut.name.trimmingCharacters(in: .whitespaces).isEmpty || claudeMissing)
-                    .identified("install")
-            }
-            .padding(14)
-            .background(.bar)
-        }
+        .safeAreaInset(edge: .bottom) { bottomBar }
+        .navigationSubtitle(status)
         .confirmationDialog(ChatConflict.title,
                             isPresented: $askAboutSharers,
                             titleVisibility: .visible) {
@@ -256,6 +146,116 @@ struct ShortcutDetail: View {
             Text(error ?? "")
         }
         .controls(profile: shortcut.profileDir)
+    }
+
+    /// What the shortcut is and where its chats come from.
+    private var identitySection: some View {
+        Section {
+            // Icon, name and folder share one row: the three say what the
+            // shortcut is, and stacked they pushed everything else below
+            // the bottom of the window. Whether it is created and running
+            // is the window's subtitle.
+            HStack(spacing: 10) {
+                iconButton
+                TextField("Name", text: $shortcut.name)
+                    .textFieldStyle(.roundedBorder)
+                    .labelsHidden()
+                    .onChange(of: shortcut.name) { _ in
+                        guard installedAt == nil, !folderIsCustom else { return }
+                        shortcut.folder = Shortcut.folderName(for: shortcut.name)
+                    }
+                    .identified("name")
+                // The field carries no title of its own, so without this
+                // VoiceOver reads only whatever has been typed.
+                TextField("", text: $shortcut.folder)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.body.monospaced())
+                    .frame(width: 130)
+                    .onChange(of: shortcut.folder) { _ in folderIsCustom = true }
+                    .help("Profile folder")
+                    .accessibilityLabel(L10n.text("Profile folder"))
+                    .identified("folder")
+                Button {
+                    NSWorkspace.shared.activateFileViewerSelecting([shortcut.profileDir])
+                } label: {
+                    Image(systemName: "folder")
+                }
+                .buttonStyle(.borderless)
+                .help("Show in Finder")
+                // SwiftUI reads the folder symbol out as "Move".
+                .accessibilityLabel(L10n.text("Show in Finder"))
+                .identified("show-in-finder")
+                InfoButton(Self.shortcutNote, about: "Shortcut", id: "shortcut-info")
+            }
+            if let copiedNote {
+                OneLineNote(text: copiedNote, id: "copied-note")
+            }
+            // Where chats come from, and under it whether they are shared,
+            // in one row: a section of its own for one picker cost the
+            // height of a heading and a gap.
+            LabeledContent {
+                Picker("Reads chats from", selection: $shortcut.source) {
+                    ForEach(store.availableSources(for: shortcut), id: \.self) { source in
+                        Text(store.label(for: source)).tag(source)
+                    }
+                }
+                .labelsHidden()
+                .fixedSize()
+                .accessibilityLabel(L10n.text("Reads chats from"))
+                .identified("chat-source")
+            } label: {
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 5) {
+                        Text("Reads chats from")
+                        InfoButton(sourceExplanation, about: "Chats", id: "chats-info")
+                    }
+                    if shortcut.source != .own {
+                        OneLineNote(text: L10n.format("Shared both ways with %@", store.label(for: shortcut.source)),
+                                    more: mergeMore,
+                                    topic: "Chats", id: "merge-note")
+                    }
+                }
+            }
+        }
+    }
+
+    /// Delete on the left, what the shortcut is for on the right.
+    private var bottomBar: some View {
+        HStack(spacing: 8) {
+            Button(L10n.text(isDraft ? "Discard" : "Delete Shortcut…"),
+                   role: .destructive, action: requestDelete)
+                .identified("delete")
+            Spacer()
+            if plan?.mayStartSession ?? true {
+                Button(action: startSession) {
+                    if startingSession {
+                        ProgressView().controlSize(.small)
+                    } else {
+                        Text("Start Session")
+                    }
+                }
+                .disabled(startingSession)
+                // Named apart from its text, which a spinner replaces while
+                // the session is being started.
+                .accessibilityLabel(L10n.text("Start Session"))
+                .identified("start-session")
+                InfoButton(Self.sessionNote, about: "Start Session", id: "session-info")
+            }
+
+            Button("Open", action: open)
+                .disabled(installedAt == nil)
+                .identified("open")
+            Button(L10n.text(installedAt == nil ? "Create Shortcut" : "Update Shortcut"),
+                   action: install)
+                .keyboardShortcut(.defaultAction)
+                .disabled(shortcut.name.trimmingCharacters(in: .whitespaces).isEmpty || claudeMissing)
+                // Where it was put, which the status line used to carry.
+                .help(installedAt?.path ?? "")
+                .identified("install")
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .background(.bar)
     }
 
     /// Created or not, and running or not, in one line; where the shortcut
@@ -399,6 +399,19 @@ struct ShortcutDetail: View {
     /// question on its own. Which profile says where they went, the count says
     /// whether it is the history being missed, and the titles and dates say it
     /// in the only terms anybody recognises their own chats by.
+    private var mergeMore: String {
+        let sidebar = sidebarNote ?? L10n.text("Pinned chats and sort order sync when the linked Claude apps are closed and you open a shortcut.")
+        return mergeNote + "\n\n" + sidebar
+    }
+
+    /// The note, then the newest of the chats it found, by name and date.
+    private func foundMore(_ found: Graft.ChatsElsewhere) -> String {
+        let chats: [String] = found.chats.prefix(5).map { chat in
+            chat.title + " · " + Self.chatDate.string(from: chat.lastActive)
+        }
+        return ([foundNote(found)] + chats).joined(separator: "\n\n")
+    }
+
     private func foundNote(_ found: Graft.ChatsElsewhere) -> String {
         L10n.format("%@ is holding chats for this account that this profile does not have. Chats found: %ld. %@",
                     store.name(ofProfile: found.profile), found.count,
@@ -575,40 +588,52 @@ struct ShortcutDetail: View {
     }
 }
 
-/// The two bars plus a note when there is nothing to show yet.
+/// The bars, one line each and all in one row, or a line saying there is
+/// nothing to show yet. When the figure is from sits in the section's header
+/// (`UsageSummary.header`), not in a row under the bars.
 ///
 /// Fed from `UsageMonitor`, never from disk, so the figure a window shows is
 /// the one the menu bar is showing for the same account.
 struct UsageSummary: View {
     let entry: UsageMonitor.Entry?
-    let refresh: () -> Void
 
     private var dimmed: Bool { entry?.isDimmed ?? false }
 
     var body: some View {
         if let usage = entry?.usage {
-            if let fiveHour = usage.fiveHour {
-                UsageBar(label: "5 hours", percent: fiveHour,
-                         resets: usage.fiveHourReset, dimmed: dimmed)
-                    .identified("five-hour")
-            } else {
-                NoFiveHourLimit(font: .callout, dimmed: dimmed)
+            VStack(alignment: .leading, spacing: 7) {
+                if let fiveHour = usage.fiveHour {
+                    UsageBar(label: "5 hours", percent: fiveHour,
+                             resets: usage.fiveHourReset, dimmed: dimmed, inline: true)
+                        .identified("five-hour")
+                } else {
+                    NoFiveHourLimit(font: .callout, dimmed: dimmed)
+                }
+                UsageBar(label: "Week", percent: usage.week,
+                         resets: usage.weekReset, dimmed: dimmed, inline: true)
+                    .identified("week")
+                if let fable = usage.fable {
+                    UsageBar(label: "Fable", percent: fable,
+                             resets: usage.fableReset, dimmed: dimmed, inline: true)
+                        .identified("fable")
+                }
             }
-            UsageBar(label: "Week", percent: usage.week,
-                     resets: usage.weekReset, dimmed: dimmed)
-                .identified("week")
-            if let fable = usage.fable {
-                UsageBar(label: "Fable", percent: fable,
-                         resets: usage.fableReset, dimmed: dimmed)
-                    .identified("fable")
-            }
-            if let entry { UsageFreshness(entry: entry, refresh: refresh) }
         } else {
             Text("No usage reported yet")
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .identified("no-usage")
-            if let entry { UsageFreshness(entry: entry, refresh: refresh) }
+        }
+    }
+
+    /// "Plan usage", its explanation, and on the right when the figure was
+    /// taken with the button that asks again.
+    static func header(for entry: UsageMonitor.Entry?, refresh: @escaping () -> Void) -> some View {
+        SectionHeader(title: "Plan usage", info: explanation(for: entry), id: "usage-info") {
+            if let entry {
+                UsageFreshness(entry: entry, refresh: refresh)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
     }
 

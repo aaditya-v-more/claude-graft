@@ -30,6 +30,8 @@ struct ClaudeGraftApp: App {
         .defaultSize(width: 820, height: 560)
         .commands {
             CommandGroup(replacing: .newItem) {}
+            // View › Show/Hide Sidebar, with the shortcut every Mac sidebar has.
+            SidebarCommands()
         }
 
         Settings {
@@ -87,6 +89,10 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
+        // A grouped form scrolls, so it asks for no height of its own and a
+        // window sized from it opens as a titlebar; held to its rows, the
+        // window is exactly as tall as what is in it.
+        .fixedSize(horizontal: false, vertical: true)
         .frame(width: 420)
         .onAppear { settings.refreshLoginItem() }
         .environment(\.controlSurface, ControlSurface.settings)

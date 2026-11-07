@@ -38,18 +38,36 @@ struct InfoButton: View {
     }
 }
 
-/// A section heading with its explanation tucked behind the ⓘ.
-struct SectionHeader: View {
+/// A section heading with its explanation tucked behind the ⓘ, and on the
+/// right whatever belongs to the whole section — when its figures are from,
+/// or the button that adds to it — so that it takes no row of its own.
+struct SectionHeader<Trailing: View>: View {
     let title: String
     let info: String
     let id: String
+    let trailing: Trailing
+
+    init(title: String, info: String, id: String, @ViewBuilder trailing: () -> Trailing) {
+        self.title = title
+        self.info = info
+        self.id = id
+        self.trailing = trailing()
+    }
 
     var body: some View {
         HStack(spacing: 5) {
             Text(L10n.text(title))
+                .layoutPriority(1)
             InfoButton(info, about: title, id: id)
-            Spacer()
+            Spacer(minLength: 8)
+            trailing
         }
+    }
+}
+
+extension SectionHeader where Trailing == EmptyView {
+    init(title: String, info: String, id: String) {
+        self.init(title: title, info: info, id: id) { EmptyView() }
     }
 }
 

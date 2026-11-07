@@ -37,12 +37,20 @@ struct SharedUsageSection: View {
                     LenderRow(claude: claude, lender: lender,
                               entry: pool.profile(of: lender).flatMap(usage.entry(for:)))
                 }
-                signInState
-                addMenu
                 notes
+                if showsNothing {
+                    Text("No accounts added")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .identified("shared-usage.none")
+                }
             }
         } header: {
-            SectionHeader(title: "Shared usage", info: Self.explanation, id: "shared-usage-info")
+            // Adding is in the heading, where it belongs to the whole list
+            // and costs no row of its own.
+            SectionHeader(title: "Shared usage", info: Self.explanation, id: "shared-usage-info") {
+                if UsagePoolController.isSupported { headerTrailing }
+            }
         }
     }
 
@@ -54,85 +62,112 @@ struct SharedUsageSection: View {
         return (pool.claudes + pool.accounts.map(\.id)).filter { !taken.contains($0) }
     }
 
+    /// A section with nothing in it draws an empty box under its heading.
+    private var showsNothing: Bool {
+        lenders.isEmpty && noteLines.isEmpty
+    }
+
     private var isSigningIn: Bool {
         if case .waiting(claude) = signIn.phase { return true }
         return false
     }
 
     private var addMenu: some View {
-        HStack {
-            Menu {
-                ForEach(candidates, id: \.self) { key in
-                    Button(pool.name(of: key)) { pool.addLender(key, to: claude) }
-                }
-                if !candidates.isEmpty { Divider() }
-                Button("Sign In to Another Account…") { signIn.start(for: claude, interactive: true) }
-                    .disabled(isSigningIn)
-            } label: {
-                Label(lenders.isEmpty ? "Add an Account" : "Add Another Account", systemImage: "plus")
+        Menu {
+            ForEach(candidates, id: \.self) { key in
+                Button(pool.name(of: key)) { pool.addLender(key, to: claude) }
             }
-            .menuStyle(.borderlessButton)
-            .fixedSize()
-            .identified("shared-usage.add")
-            Spacer()
+            if !candidates.isEmpty { Divider() }
+            Button("Sign In to Another Account…") { signIn.start(for: claude, interactive: true) }
+                .disabled(isSigningIn)
+        } label: {
+            Label(lenders.isEmpty ? "Add an Account" : "Add Another Account", systemImage: "plus")
         }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+        .identified("shared-usage.add")
     }
 
+    /// A sign-in under way, or one that failed, stands where Add is while it
+    /// lasts: Add has nothing to offer then, and a row of its own pushed the
+    /// list past the bottom of the window.
     @ViewBuilder
-    private var signInState: some View {
+    private var headerTrailing: some View {
         switch signIn.phase {
         case .waiting(claude):
-            HStack(spacing: 8) {
+            HStack(spacing: 6) {
                 ProgressView().controlSize(.small)
                 Text("Finish signing in in your browser.")
-                    .font(.callout)
+                    .font(.caption)
                     .foregroundStyle(.secondary)
+                    .lineLimit(1)
                     .identified("shared-usage.signing-in")
-                Spacer()
                 // A bare "Cancel" in a list of every control says nothing
                 // about what it would stop.
                 Button("Cancel") { signIn.cancel() }
+                    .controlSize(.small)
                     .accessibilityLabel(L10n.text("Cancel Signing In"))
                     .identified("shared-usage.cancel-sign-in")
             }
         case .failed(claude, let message):
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
+            HStack(spacing: 6) {
                 Text(message)
-                    .font(.callout)
+                    .font(.caption)
                     .foregroundStyle(.orange)
                     .lineLimit(1)
                     .help(message)
                     .identified("shared-usage.sign-in-failed")
-                Spacer()
                 Button("OK") { signIn.dismissFailure() }
+                    .controlSize(.small)
                     .identified("shared-usage.dismiss-sign-in-failure")
             }
         default:
-            EmptyView()
+            addMenu
         }
     }
 
+    /// One line at most, whatever needs saying. Three of them under the list
+    /// were three rows below the bottom of the window, so the most pressing
+    /// is shown and the others wait behind its ⓘ.
     @ViewBuilder
     private var notes: some View {
-        if let line = environmentLine {
-            OneLineNote(text: line.text, attention: line.attention, id: "shared-usage.environment")
+        let lines = noteLines
+        if let first = lines.first {
+            HStack(alignment: .firstTextBaseline) {
+                OneLineNote(text: first.text,
+                            more: lines.count > 1 ? lines.map(\.text).joined(separator: "\n\n") : nil,
+                            topic: "Shared usage", attention: first.attention, id: first.id)
+                Spacer()
+                // Only beside its own line: beside another, "Turn On" would
+                // read as turning that on.
+                if first.id == Self.openAtLoginNote {
+                    Button("Turn On") { problem = settings.setOpenAtLogin(true) }
+                        .controlSize(.small)
+                        .accessibilityLabel(L10n.text("Turn On Open at Login"))
+                        .identified("shared-usage.turn-on-open-at-login")
+                }
+            }
         }
+    }
+
+    private static let openAtLoginNote = "shared-usage.open-at-login"
+
+    /// Most pressing first: something wrong, then what this Claude is waiting
+    /// on, then the reminder.
+    private var noteLines: [(text: String, attention: Bool, id: String)] {
+        var lines: [(text: String, attention: Bool, id: String)] = []
         if !lenders.isEmpty, let problem = problem ?? pool.problem {
-            OneLineNote(text: problem, attention: true, id: "shared-usage.problem")
+            lines.append((problem, true, "shared-usage.problem"))
+        }
+        if let line = environmentLine {
+            lines.append((line.text, line.attention, "shared-usage.environment"))
         }
         // The relay is what a connected Claude Code sends everything through,
         // so after a restart it has to be back before that Claude is used.
         if !lenders.isEmpty, !settings.openAtLogin {
-            HStack(alignment: .firstTextBaseline) {
-                OneLineNote(text: L10n.text("Open at Login keeps this working after a restart"),
-                            id: "shared-usage.open-at-login")
-                Spacer()
-                Button("Turn On") { problem = settings.setOpenAtLogin(true) }
-                    .controlSize(.small)
-                    .accessibilityLabel(L10n.text("Turn On Open at Login"))
-                    .identified("shared-usage.turn-on-open-at-login")
-            }
+            lines.append((L10n.text("Open at Login keeps this working after a restart"), false, Self.openAtLoginNote))
         }
+        return lines.filter(\.attention) + lines.filter { !$0.attention }
     }
 
     private var environmentLine: (text: String, attention: Bool)? {
