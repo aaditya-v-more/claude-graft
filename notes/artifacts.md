@@ -84,10 +84,35 @@ When the pane is shown and when its refresh button is pressed, never on a
 timer: a pass is several requests per account to a service that did not ask
 for them.
 
+## Knowing the sign-in is through
+
+claude.ai never says a sign-in is done; the window asks `/api/account` until it
+answers. It used to ask only when a page finished loading, and a live run on 8
+November signed in both ways claude.ai offers without Graft noticing either.
+With an emailed code, claude.ai finishes by moving to its chat page inside the
+page already loaded, which ends no navigation, so the last question had been
+asked on the sign-in page and was answered 401. The person was left looking at
+their chats in Graft's window, and Graft still said "Sign in". So the window
+watches the web view's address, which every way of signing in changes.
+
+With Google, claude.ai opens Google in a window of its own, and that window
+hands its answer back to the page that opened it. The sign-in window loaded
+Google over claude.ai instead, so the answer had nowhere to go: Google said yes
+and claude.ai never heard. The provider now gets a real window, built from the
+configuration WebKit passes, which is the opener's and so writes into the same
+store; when it closes, the window asks again.
+
+A 200 that does not read as an account is written to the diagnostics log as
+`artifacts.signin unreadable` with the keys it had, never its body, since that
+is the one failure here nothing on screen would show.
+
 ## What has been seen working
 
 The request shapes above were exercised read-only from claude.ai in a browser:
 the list, the permissions and the invitations answered 200 with the headers,
-404 without. Signing in inside Graft's window, changing who can open an
-artifact and inviting a group have not yet been run against a real account;
-`dist/artifacts/HANDOFF.md` is the plan for that.
+404 without. The live run on 8 November showed the signed-out pane right (one line, its ⓘ,
+Sign In and Groups) and a group made, renamed, saved and deleted. Signing in
+did not complete by either route, for the reasons above; the fix has not been
+run against a real account yet, and nothing past signing in — the list against
+claude.ai, changing who can open an artifact, inviting a group, a second
+account, sign-ins surviving a restart — has been seen.

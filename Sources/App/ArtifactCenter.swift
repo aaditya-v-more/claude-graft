@@ -496,7 +496,11 @@ final class ArtifactSignInWindow: NSObject, WKNavigationDelegate, WKUIDelegate, 
     private let done: (ArtifactAPI.Identity) -> Void
     private var window: NSWindow?
     private var webView: WKWebView?
+    private var popups: [NSWindow] = []
+    private var urlWatch: NSKeyValueObservation?
     private var finished = false
+    private var checking = false
+    private var askAgain = false
 
     init(account: UUID, done: @escaping (ArtifactAPI.Identity) -> Void) {
         self.account = account
@@ -509,6 +513,14 @@ final class ArtifactSignInWindow: NSObject, WKNavigationDelegate, WKUIDelegate, 
         view.customUserAgent = ClaudeWebSession.userAgent
         view.navigationDelegate = self
         view.uiDelegate = self
+        // claude.ai finishes a sign-in by moving to its chat page inside the
+        // page already loaded, which ends no navigation. The address changing
+        // is the one thing every way of signing in does, so that is what asks.
+        // Waiting for `didFinish` alone left a person signed in, looking at
+        // their chats in this window, and Graft still saying "Sign in".
+        urlWatch = view.observe(\.url, options: [.new]) { [weak self] webView, _ in
+            Task { @MainActor in await self?.check(webView) }
+        }
         let window = NSWindow(contentRect: view.frame, styleMask: [.titled, .closable, .resizable],
                               backing: .buffered, defer: false)
         window.title = L10n.text("Sign In to claude.ai")
@@ -528,41 +540,109 @@ final class ArtifactSignInWindow: NSObject, WKNavigationDelegate, WKUIDelegate, 
     }
 
     nonisolated func windowWillClose(_ notification: Notification) {
+        let closing = notification.object as? NSWindow
         Task { @MainActor in
+            if let closing, closing !== self.window {
+                self.popups.removeAll { $0 === closing }
+                return
+            }
+            self.urlWatch = nil
+            self.popups.forEach { $0.close() }
+            self.popups = []
             self.webView?.navigationDelegate = nil
             self.webView = nil
             self.window = nil
         }
     }
 
-    /// A sign-in through another provider opens a second window; it is kept in
-    /// this one, so it writes into the same store.
+    /// A provider's sign-in opens in a window of its own and hands its answer
+    /// back to the page that opened it, so it gets a real one. Loading it over
+    /// claude.ai instead left that answer with nowhere to go: Google said yes
+    /// and claude.ai never heard. The configuration WebKit passes is the
+    /// opener's, so the popup writes into the same store.
     nonisolated func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration,
                              for navigationAction: WKNavigationAction,
                              windowFeatures: WKWindowFeatures) -> WKWebView? {
-        MainActor.assumeIsolated { _ = webView.load(navigationAction.request) }
-        return nil
+        MainActor.assumeIsolated {
+            let popup = WKWebView(frame: NSRect(x: 0, y: 0, width: 500, height: 640),
+                                  configuration: configuration)
+            popup.customUserAgent = ClaudeWebSession.userAgent
+            popup.uiDelegate = self
+            let window = NSWindow(contentRect: popup.frame, styleMask: [.titled, .closable, .resizable],
+                                  backing: .buffered, defer: false)
+            window.title = L10n.text("Sign In to claude.ai")
+            window.contentView = popup
+            window.isReleasedWhenClosed = false
+            window.delegate = self
+            if let parent = self.window {
+                window.setFrameTopLeftPoint(NSPoint(x: parent.frame.minX + 40, y: parent.frame.maxY - 40))
+            } else {
+                window.center()
+            }
+            popups.append(window)
+            window.makeKeyAndOrderFront(nil)
+            return popup
+        }
+    }
+
+    nonisolated func webViewDidClose(_ webView: WKWebView) {
+        MainActor.assumeIsolated {
+            popups.first { $0.contentView === webView }?.close()
+            // Its answer has reached the page by now, and the page may not
+            // move again on its own.
+            if let main = self.webView {
+                Task { await self.check(main) }
+            }
+        }
     }
 
     nonisolated func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         Task { @MainActor in await self.check(webView) }
     }
 
-    /// Asked after every page on claude.ai, since the page that ends a sign-in
-    /// is not one that can be named in advance.
+    /// Asked whenever the page moves on claude.ai, since the page that ends a
+    /// sign-in is not one that can be named in advance. One question at a
+    /// time: a move made while one is out is asked about once it comes back.
     private func check(_ webView: WKWebView) async {
-        guard !finished, webView.url?.host == ArtifactAPI.origin.host else { return }
+        guard !finished, webView === self.webView, webView.url?.host == ArtifactAPI.origin.host else { return }
+        guard !checking else { askAgain = true; return }
+        checking = true
+        defer {
+            checking = false
+            if askAgain, !finished {
+                askAgain = false
+                Task { await self.check(webView) }
+            }
+        }
         let script = """
             const response = await fetch(path, {credentials: "same-origin"});
             return {status: response.status, body: await response.text()};
             """
-        guard let answer = try? await webView.callAsyncJavaScript(
-                script, arguments: ["path": ArtifactAPI.accountPath], contentWorld: .defaultClient) as? [String: Any],
-              (answer["status"] as? NSNumber)?.intValue == 200,
-              let body = answer["body"] as? String,
-              let identity = ArtifactAPI.identity(from: Data(body.utf8)) else { return }
+        let answer: [String: Any]
+        do {
+            guard let result = try await webView.callAsyncJavaScript(
+                    script, arguments: ["path": ArtifactAPI.accountPath],
+                    contentWorld: .defaultClient) as? [String: Any] else { return }
+            answer = result
+        } catch {
+            // The page moving on mid-question throws, and that move asks again.
+            return
+        }
+        // Until the sign-in is through, the page is answered 401 or 403 on
+        // every move, and that is not worth writing down.
+        guard (answer["status"] as? NSNumber)?.intValue == 200, let body = answer["body"] as? String else { return }
+        // Signed in and still not read is the one failure nothing on screen
+        // shows, so it is the one written down. The shape, never the body.
+        guard let identity = ArtifactAPI.identity(from: Data(body.utf8)) else {
+            let keys = ((try? JSONSerialization.jsonObject(with: Data(body.utf8))) as? [String: Any])?
+                .keys.sorted() ?? []
+            Diagnostics.note("artifacts.signin unreadable", ["keys": keys])
+            return
+        }
         finished = true
+        urlWatch = nil
         done(identity)
+        popups.forEach { $0.close() }
         window?.close()
     }
 }

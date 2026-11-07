@@ -5906,6 +5906,16 @@ do {
           "each account signs in to a store of its own, and signing out deletes it")
     check(!center.contains("Timer") && !center.contains("onReceive"),
           "artifacts are asked for when the list is shown or refreshed, never on a timer")
+    check(center.contains("observe(\\.url"),
+          "a sign-in that ends by moving inside claude.ai's page is noticed, not only one that loads a new page")
+    check(center.contains("configuration: configuration") && center.contains("func webViewDidClose"),
+          "a provider's sign-in gets a window of its own to answer from, and closing it asks again")
+
+    let scene = (try? String(contentsOf: repo.appending(path: "Sources/App/ClaudeGraftApp.swift"),
+                             encoding: .utf8)) ?? ""
+    check(scene.contains(".modifier(SmallestWindow())") && !scene.contains("minWidth: 720, minHeight: 460")
+            && scene.contains("CGSize(width: 820, height: 560)"),
+          "the window cannot be dragged smaller than the 820 by 560 every page is laid out for")
 }
 
 // MARK: - Projects and search across accounts
