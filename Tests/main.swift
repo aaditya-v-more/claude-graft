@@ -5225,6 +5225,68 @@ do {
     check(reads == beforeReads, "independent profiles never open the sidebar helper")
 }
 
+section("Project order follows the most recently reordered account")
+do {
+    func value(_ order: [String], _ time: Int) -> String {
+        String(decoding: try! JSONSerialization.data(withJSONObject: ["value": order, "tabId": "", "timestamp": time]), as: UTF8.self)
+    }
+    func presets(_ list: [(String, String, String)]) -> String {
+        let items = list.map { ["id": $0.0, "name": $0.1, "target": ["kind": "local", "cwd": $0.2]] }
+        return String(decoding: try! JSONSerialization.data(withJSONObject: ["state": ["presets": items], "version": 0]), as: UTF8.self)
+    }
+    func order(_ text: String?) -> [String]? {
+        text.flatMap { try? JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: Any] }?["value"] as? [String]
+    }
+    func time(_ text: String?) -> Double? {
+        (text.flatMap { try? JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: Any] }?["timestamp"] as? NSNumber)?.doubleValue
+    }
+    let presetsA = presets([("a-nas", "NAS", "/Volumes/NAS"), ("a-cv", "CV", "/cv"), ("a-only", "Only A", "/only-a")])
+    let presetsB = presets([("b-cv", "CV", "/cv"), ("b-nas", "NAS", "/Volumes/NAS"), ("b-other", "Renamed", "/only-a-renamed")])
+    let newer = [SidebarSync.ProjectInput(path: "/A", order: value(["/b", "preset::a-cv", "/a", "preset::a-nas", "preset::a-only"], 200), presets: presetsA),
+                 SidebarSync.ProjectInput(path: "/B", order: value(["/a", "/b", "preset::b-nas"], 100), presets: presetsB)]
+    let plan = SidebarSync.planProjectOrders(newer)
+    check(plan["/A"] == nil && order(plan["/B"]) == ["/b", "preset::b-cv", "/a", "preset::b-nas"],
+          "the newer order reaches the other account with its saved environments matched by name and folder")
+    check(time(plan["/B"]) == 200, "the copied order keeps the time it was made, so the next pass has nothing to do")
+    let settled = [newer[0], SidebarSync.ProjectInput(path: "/B", order: plan["/B"], presets: presetsB)]
+    check(SidebarSync.planProjectOrders(settled).isEmpty, "two accounts already in step are left alone in both directions")
+    let tie = [SidebarSync.ProjectInput(path: "/A", order: value(["/a", "/b"], 300), presets: presetsA),
+               SidebarSync.ProjectInput(path: "/B", order: value(["/b", "/a"], 300), presets: presetsB)]
+    check(SidebarSync.planProjectOrders(tie).isEmpty, "orders saved at the same moment do not take turns overwriting each other")
+    let missing = [SidebarSync.ProjectInput(path: "/A", order: value(["/a", "/b"], 50), presets: presetsA),
+                   SidebarSync.ProjectInput(path: "/B", order: nil, presets: nil)]
+    check(order(SidebarSync.planProjectOrders(missing)["/B"]) == ["/a", "/b"],
+          "an account that never stored an order receives one, keeping folders and repositories as they are")
+    check(SidebarSync.planProjectOrders([SidebarSync.ProjectInput(path: "/A", order: nil, presets: nil),
+                                         SidebarSync.ProjectInput(path: "/B", order: "not json", presets: nil)]).isEmpty,
+          "nothing is written when no account has a readable order")
+    let ownEntries = [SidebarSync.ProjectInput(path: "/A", order: value(["/b", "/a"], 400), presets: presetsA),
+                      SidebarSync.ProjectInput(path: "/B", order: value(["preset::b-other", "/a", "/only-b", "/b"], 10), presets: presetsB)]
+    check(order(SidebarSync.planProjectOrders(ownEntries)["/B"]) == ["/b", "/a", "preset::b-other", "/only-b"],
+          "entries only the receiving account lists are kept after the copied order")
+    let displayed = SidebarSync.effectiveProjectOrder(value(["/stored"], 700), desktop: ["/shown", "/also"])
+    check(order(displayed) == ["/shown", "/also"] && time(displayed) == 700,
+          "the order Claude displays from its preferences file replaces the stored copy, keeping its time")
+    check(order(SidebarSync.effectiveProjectOrder(nil, desktop: ["/only"])) == ["/only"]
+          && SidebarSync.effectiveProjectOrder(value(["/kept"], 1), desktop: nil) == value(["/kept"], 1),
+          "a missing preferences entry or stored copy leaves the other as it is")
+    let prefsProfile = fm.temporaryDirectory.appending(path: "graft-prefs-\(UUID().uuidString)")
+    try! fm.createDirectory(at: prefsProfile, withIntermediateDirectories: true)
+    try! JSONSerialization.data(withJSONObject: ["mcpServers": ["own": ["command": "keep"]],
+        "preferences": ["permissionChoice": "keep", "epitaxyPrefs": ["other": 1, "code-projects-order.acct": ["/old"]]]])
+        .write(to: prefsProfile.appending(path: "claude_desktop_config.json"))
+    try! SidebarSync.writeDesktopProjectOrder(prefsProfile, account: "acct", order: ["/new", "preset::x"])
+    let rewritten = try! JSONSerialization.jsonObject(with: Data(contentsOf: prefsProfile.appending(path: "claude_desktop_config.json"))) as! [String: Any]
+    let rewrittenPrefs = rewritten["preferences"] as! [String: Any]
+    check(SidebarSync.desktopProjectOrder(prefsProfile, account: "acct") == ["/new", "preset::x"]
+          && rewrittenPrefs["permissionChoice"] as? String == "keep" && rewritten["mcpServers"] != nil
+          && (rewrittenPrefs["epitaxyPrefs"] as? [String: Any])?["other"] as? Int == 1,
+          "writing the displayed order keeps every other desktop preference")
+    try? fm.removeItem(at: prefsProfile)
+    check(SidebarSync.translateProjectOrder(["preset::shared-id", "/x", "/x"], from: [], to: [["id": "shared-id"]]) == ["preset::shared-id", "/x"],
+          "an environment both accounts share by identifier is kept and duplicates are dropped")
+}
+
 print("\n\(checks - failures)/\(checks) checks passed")
 if failures > 0 {
     print("\(failures) FAILED")

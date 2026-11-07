@@ -193,10 +193,92 @@ function atomicJSON(file, data) {
     } finally { try { fs.unlinkSync(temporary); } catch {} }
 }
 
+// Project order. Claude keeps it per account in one Local Storage entry, beside
+// the saved environments its `preset::` entries refer to. Kept apart from the
+// pin pass on purpose: a profile whose pin stores this helper cannot read must
+// still get its projects in the right order. Runs in the page, so it can use
+// nothing from this file.
+async function projectsOperation(keys, values) {
+    if (values !== null) for (const [key, value] of Object.entries(values)) localStorage.setItem(key, value);
+    return Object.fromEntries(keys.map(key => [key, localStorage.getItem(key)]));
+}
+
+// Reads open a clone of each profile's Local Storage, so the database a Claude
+// is about to open is never locked for a read. Only a write opens the real one,
+// and only for the profiles that change.
+async function runProjects(request) {
+    const {app, BrowserWindow, session} = require('electron');
+    requireShape(['projects-read', 'projects-write'].includes(request.action) && Array.isArray(request.profiles)
+        && request.profiles.length > 0 && request.profiles.length <= 32
+        && request.profiles.every(item => strings(item.keys) && item.keys.length > 0
+            && item.keys.every(key => key.startsWith('LSS-persisted.code-projects-order.')
+                || key.startsWith('persisted.ccd-session-presets.'))
+            && (request.action === 'projects-read' ? item.values === undefined
+                : object(item.values) && Object.keys(item.values).length > 0
+                  && Object.entries(item.values).every(([key, value]) =>
+                      key.startsWith('LSS-persisted.code-projects-order.') && item.keys.includes(key)
+                      && typeof value === 'string'))));
+    const writing = request.action === 'projects-write';
+    app.setPath('userData', path.join(request.scratch, 'runtime'));
+    app.commandLine.appendSwitch('disable-gpu');
+    app.commandLine.appendSwitch('disable-background-networking');
+    app.commandLine.appendSwitch('disable-component-update');
+    app.commandLine.appendSwitch('host-resolver-rules', 'MAP * ~NOTFOUND');
+    const timeout = setTimeout(() => app.exit(2), 20000);
+    await app.whenReady();
+    app.dock?.hide();
+    const results = [], windows = [];
+    try {
+        for (const [index, profile] of request.profiles.entries()) {
+            const scratch = path.join(request.scratch, 'profile-' + index);
+            fs.mkdirSync(scratch, {recursive: true, mode: 0o700});
+            const original = path.join(profile.path, 'Local Storage');
+            if (!fs.statSync(original).isDirectory()) throw Error('not-initialized');
+            if (writing) fs.symlinkSync(original, path.join(scratch, 'Local Storage'));
+            else fs.cpSync(original, path.join(scratch, 'Local Storage'), {recursive: true,
+                filter: source => path.basename(source) !== 'LOCK'});
+            const ses = session.fromPath(scratch, {cache: false});
+            ses.setPermissionRequestHandler((contents, permission, callback) => callback(false));
+            await ses.protocol.handle('https', req => {
+                if (req.url !== 'https://claude.ai/') return new Response('', {status: 403});
+                return new Response('<!doctype html><title>Project order</title>', {headers: {
+                    'Content-Type': 'text/html', 'Content-Security-Policy': "default-src 'none'"}});
+            });
+            // Kept until the pass ends, as the pin pass does: closing one before
+            // the next profile's window opens leaves that one's renderer unable
+            // to start.
+            const window = new BrowserWindow({show: false, webPreferences: {
+                session: ses, sandbox: true, contextIsolation: true, nodeIntegration: false}});
+            windows.push(window);
+            {
+                await window.loadURL('https://claude.ai/');
+                const call = values => window.webContents.executeJavaScript('(' + projectsOperation.toString()
+                    + ')(' + JSON.stringify(profile.keys) + ',' + JSON.stringify(values) + ')');
+                let values = await call(writing ? profile.values : null);
+                if (writing) {
+                    await ses.flushStorageData();
+                    values = await call(null);
+                    for (const [key, value] of Object.entries(profile.values))
+                        if (values[key] !== value) throw Error('verification-failed');
+                }
+                results.push({path: profile.path, values});
+            }
+        }
+        atomicJSON(request.output, {ok: true, profiles: results});
+    } catch (error) {
+        atomicJSON(request.output, {ok: false, error: String(error.message ?? error).slice(0, 300)});
+    } finally {
+        for (const window of windows) window.destroy();
+        clearTimeout(timeout);
+        app.quit();
+    }
+}
+
 async function run() {
     const {app, BrowserWindow, session, protocol} = require('electron');
     const requestPath = process.argv[1];
     const request = parse(fs.readFileSync(requestPath, 'utf8'));
+    if (typeof request.action === 'string' && request.action.startsWith('projects-')) return runProjects(request);
     requireShape(['read', 'write'].includes(request.action) && Array.isArray(request.profiles)
         && request.profiles.length > 0 && request.profiles.length <= 32);
     app.setPath('userData', path.join(request.scratch, 'runtime'));

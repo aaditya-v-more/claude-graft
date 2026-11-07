@@ -145,6 +145,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                     openMainWindow: { [weak self] in self?.showMainWindow() })
         watchForWindowClose()
         watchForShutdown()
+        watchForClaudeQuitting()
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
@@ -209,6 +210,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         } else {
             // Nothing left to raise: a reopen makes SwiftUI build one again.
             NSWorkspace.shared.open(Bundle.main.bundleURL)
+        }
+    }
+
+    /// Claude opened from the Dock runs no launcher, so the moment the last
+    /// Claude closes is the only time left to carry a reordered sidebar to the
+    /// other accounts before one of them opens. The order is read from copies;
+    /// the real database is opened only to write, and only while no Claude runs.
+    private func watchForClaudeQuitting() {
+        NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didTerminateApplicationNotification,
+            object: nil, queue: .main) { note in
+            let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
+            guard app?.bundleIdentifier == "com.anthropic.claudefordesktop" else { return }
+            DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 2) {
+                SidebarSync.withLaunchLock {
+                    guard Graft.runningClaudes().isEmpty else { return }
+                    SidebarSync.synchronizeProjectOrder(beforeOpening: Graft.mainProfile)
+                }
+            }
         }
     }
 

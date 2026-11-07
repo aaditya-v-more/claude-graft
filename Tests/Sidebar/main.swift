@@ -142,5 +142,44 @@ for profile in [a,b] {
     check(Graft.runTool(contents.appending(path:"MacOS/sidebar-storage").path,[file.path]) == 0
           && (try? String(contentsOf:result)) == "true", "\(profile.lastPathComponent) retains unrelated browser records and appearance")
 }
+// Project order: read from clones, written into the real database, newest wins.
+func projectValue(_ order: [String], _ time: Int) -> String {
+    String(decoding: try! JSONSerialization.data(withJSONObject: ["value": order, "tabId": "test", "timestamp": time]), as: UTF8.self)
+}
+let orderKeyA = SidebarSync.projectOrderPrefix + "account-a", orderKeyB = SidebarSync.projectOrderPrefix + "account-b"
+_ = try SidebarSync.projectStorage(action: "projects-write", profiles: [
+    ["path": a.path, "keys": [orderKeyA], "values": [orderKeyA: projectValue(["/x", "/y", "/z"], 500)]],
+    ["path": b.path, "keys": [orderKeyB], "values": [orderKeyB: projectValue(["/z", "/x"], 100)]]])
+SidebarSync.withLaunchLock { SidebarSync.synchronizeProjectOrder(beforeOpening: b) }
+var orders = try SidebarSync.projectStorage(action: "projects-read", profiles: [["path": a.path, "keys": [orderKeyA]],
+                                                                              ["path": b.path, "keys": [orderKeyB]]])
+func decoded(_ text: String?) -> [String: Any] {
+    text.flatMap { try? JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: Any] } ?? [:]
+}
+check(decoded(orders[b.path]?[orderKeyB])["value"] as? [String] == ["/x", "/y", "/z"]
+      && (decoded(orders[b.path]?[orderKeyB])["timestamp"] as? NSNumber)?.intValue == 500,
+      "the newer project order reaches the other account's real database")
+check(decoded(orders[a.path]?[orderKeyA])["value"] as? [String] == ["/x", "/y", "/z"],
+      "the account it came from keeps its own order")
+check(SidebarSync.desktopProjectOrder(b, account: "account-b") == ["/x", "/y", "/z"],
+      "the other account's preferences file, which Claude displays from, receives the order")
+let bPrefs = try JSONSerialization.jsonObject(with: Data(contentsOf: b.appending(path: "claude_desktop_config.json"))) as! [String: Any]
+check((bPrefs["preferences"] as? [String: Any])?["permissionChoice"] as? String == "keep" && bPrefs["mcpServers"] != nil,
+      "writing the order keeps that account's other desktop settings")
+_ = try SidebarSync.projectStorage(action: "projects-write", profiles: [
+    ["path": b.path, "keys": [orderKeyB], "values": [orderKeyB: projectValue(["/y", "/x", "/z"], 900)]]])
+// Claude saves a reorder in both places: the timed Local Storage copy and the preferences file.
+try SidebarSync.writeDesktopProjectOrder(b, account: "account-b", order: ["/y", "/x", "/z"])
+SidebarSync.withLaunchLock { SidebarSync.synchronizeProjectOrder(beforeOpening: a) }
+orders = try SidebarSync.projectStorage(action: "projects-read", profiles: [["path": a.path, "keys": [orderKeyA]]])
+check(decoded(orders[a.path]?[orderKeyA])["value"] as? [String] == ["/y", "/x", "/z"]
+      && SidebarSync.desktopProjectOrder(a, account: "account-a") == ["/y", "/x", "/z"],
+      "a later reorder on the other account travels back, into what Claude displays too")
+let before = try Data(contentsOf: a.appending(path: "Local Storage/leveldb/CURRENT"))
+SidebarSync.withLaunchLock { SidebarSync.synchronizeProjectOrder(beforeOpening: a) }
+let after = try Data(contentsOf: a.appending(path: "Local Storage/leveldb/CURRENT"))
+orders = try SidebarSync.projectStorage(action: "projects-read", profiles: [["path": a.path, "keys": [orderKeyA]]])
+check(after == before && decoded(orders[a.path]?[orderKeyA])["value"] as? [String] == ["/y", "/x", "/z"],
+      "a pass with nothing to carry leaves both databases as they were")
 print("\(checks)/\(checks) native sidebar checks passed")
 if ProcessInfo.processInfo.environment["GRAFT_KEEP_SIDEBAR_FIXTURES"] != nil { print(root.path) }
