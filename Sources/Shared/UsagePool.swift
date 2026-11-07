@@ -310,6 +310,13 @@ enum PoolRequest {
     /// The conversation's own turns carry a thread; the short requests Claude
     /// Code makes beside them — a title, a summary — share its session id and
     /// carry none.
+    /// A conversation's first message carries no answer yet. Every later
+    /// request, and every short one Claude Code asks beside an existing
+    /// conversation, carries the turns so far.
+    static func startsConversation(body: Data) -> Bool {
+        body.range(of: Data("\"role\":\"assistant\"".utf8)) == nil
+    }
+
     static func carriesThread(body: Data) -> Bool {
         body.range(of: Data(threadKey.utf8)) != nil
     }
@@ -423,6 +430,11 @@ struct PoolSession: Codable, Equatable {
     /// Members passed over on its last request, so a conversation answered by
     /// somebody other than the account chosen for it can say why.
     var passedOver: [PoolPass]
+    /// When it began, for one the relay saw from its first message. Nil for
+    /// one already under way when the relay first saw it — a relay restarted
+    /// mid-conversation sees every conversation for the first time, and only
+    /// one with no answer in it yet is new to the person too.
+    var startedAt: Date?
 }
 
 struct PoolMemberStatus: Codable, Equatable {

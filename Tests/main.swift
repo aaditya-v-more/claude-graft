@@ -1935,8 +1935,8 @@ do {
     let menuBar = read("App/MenuBarController.swift")
     check(menuBar.contains("setAccessibilityIdentifier(\"status-item\")"),
           "the menu bar item can be asked for by a name that does not change with its figure")
-    check(menuBar.contains("setAccessibilityTitle([spoken, updateTip]"),
-          "and says in words whose figure it shows and what its symbol stands for")
+    check(menuBar.contains("spokenTitle = [spoken, updateTip]") && menuBar.contains("setAccessibilityTitle([spokenTitle, chat]"),
+          "and says in words whose figure it shows, what its symbol stands for and which conversation has just begun")
     check(menuBar.contains("window.setAccessibilityParent(NSApp)"),
           "the open dropdown is among the app's windows, where a client looking for its controls searches")
     check(!menuBar.contains("setAccessibilityWindows("),
@@ -5697,6 +5697,38 @@ do {
         .filter { $0.contains("Diagnostics.note") }
     check(!notes.isEmpty && notes.allSatisfy { !$0.lowercased().contains("token") && !$0.lowercased().contains("bearer") },
           "the relay never writes a login into the diagnostics log")
+}
+
+section("A conversation that has just begun")
+
+do {
+    let now = Date()
+    func chat(_ id: String, started: TimeInterval?) -> UsagePoolController.Chat {
+        UsagePoolController.Chat(id: id, title: nil, claude: "c2", servedBy: "main", assigned: nil,
+                                 choices: ["c2", "main"], lastAt: now, passedOver: false,
+                                 startedAt: started.map { now.addingTimeInterval(-$0) })
+    }
+    check(UsagePoolController.newest([chat("a", started: 30), chat("b", started: 5)], now: now)?.id == "b",
+          "the menu bar shows the conversation that began most recently")
+    check(UsagePoolController.newest([chat("a", started: nil)], now: now) == nil,
+          "a conversation already under way when the relay saw it is not shown as new")
+    check(UsagePoolController.newest([chat("a", started: UsagePoolController.newChatShown + 1)], now: now) == nil,
+          "a conversation stops running across the bar once it is two minutes old")
+
+    let older = #"{"id":"s","from":"c2","lastAt":0,"requests":1,"passedOver":[]}"#
+    check((try? JSONDecoder().decode(PoolSession.self, from: Data(older.utf8)))?.startedAt == nil,
+          "a relay from before conversations were marked new is still read")
+
+    let font = NSFont.menuBarFont(ofSize: 0)
+    check(NewChatTicker.text(title: nil, account: "Claude") == "New chat · Claude",
+          "a conversation with no title yet reads as a new chat, with the account answering it")
+    check(NewChatTicker.cycle("New chat · Claude", font: font) == nil
+            && NewChatTicker.image("New chat · Claude", offset: 0, font: font).size.width < NewChatTicker.width,
+          "text short enough to fit stands still")
+    let long = "Work out which of 391, 397 and 403 are prime · Claude 2"
+    check(NewChatTicker.cycle(long, font: font).map { $0 > NewChatTicker.width } == true
+            && NewChatTicker.image(long, offset: 40, font: font).size.width == NewChatTicker.width,
+          "a long title scrolls inside a fixed width, so the items beside it do not move")
 }
 
 print("\n\(checks - failures)/\(checks) checks passed")

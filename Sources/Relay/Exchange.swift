@@ -145,7 +145,8 @@ final class Exchange {
                     Diagnostics.note("relay thread restarted", ["member": member])
                     await state.served(by: member, from: own, session: session, status: status,
                                        passedOver: passed, model: PoolRequest.model(in: body),
-                                       cacheLifetime: PoolPolicy.cacheLifetime(of: body), threaded: true)
+                                       cacheLifetime: PoolPolicy.cacheLifetime(of: body), threaded: true,
+                                       starts: PoolRequest.startsConversation(body: body))
                     return try await deliver(answer, body: missing, method: head.method, keepAlive: head.keepsAlive)
                 }
                 if outcome != .deliver, !last {
@@ -179,7 +180,8 @@ final class Exchange {
                 await state.served(by: member, from: own, session: session, status: status,
                                    passedOver: passed, model: PoolRequest.model(in: body),
                                    cacheLifetime: PoolPolicy.cacheLifetime(of: body),
-                                   threaded: PoolRequest.carriesThread(body: body))
+                                   threaded: PoolRequest.carriesThread(body: body),
+                                   starts: PoolRequest.startsConversation(body: body))
             }
             return try await deliver(answer, method: head.method, keepAlive: head.keepsAlive)
         }

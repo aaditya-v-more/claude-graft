@@ -59,6 +59,25 @@ final class UsagePoolController: ObservableObject {
         var lastAt: Date
         /// The account it was meant for said no on its last request.
         var passedOver: Bool
+        /// Set for one the relay saw begin; see `PoolSession.startedAt`.
+        var startedAt: Date? = nil
+    }
+
+    /// How long a conversation that has just begun runs across the menu bar.
+    /// Long enough to see where it went and move it before its second turn,
+    /// short enough not to stay once it is simply a conversation.
+    static let newChatShown: TimeInterval = 120
+
+    /// The conversation that began most recently, while it is still new.
+    static func newest(_ chats: [Chat], now: Date = Date()) -> Chat? {
+        chats.filter { chat in
+            chat.startedAt.map { now.timeIntervalSince($0) < newChatShown && $0 <= now.addingTimeInterval(5) } == true
+        }
+        .max { $0.startedAt! < $1.startedAt! }
+    }
+
+    func newChat(front: URL?, now: Date = Date()) -> Chat? {
+        Self.newest(chats(front: front, now: now), now: now)
     }
 
     static let mainKey = "main"
@@ -83,6 +102,8 @@ final class UsagePoolController: ObservableObject {
     private weak var store: ShortcutStore?
     private weak var usage: UsageMonitor?
     private var timer: Timer?
+    private var peekTimer: Timer?
+    private var peeking = false
     private var watchers = 0
     private var syncing = false
     private var syncAgain = false
@@ -117,6 +138,37 @@ final class UsagePoolController: ObservableObject {
         schedule()
         watchClaudes()
         sync()
+        let peek = Timer(timeInterval: 2, repeats: true) { [weak self] _ in self?.peek() }
+        RunLoop.main.add(peek, forMode: .common)
+        peekTimer = peek
+    }
+
+    /// A conversation that has just begun is worth showing while it is still
+    /// the one being typed into, and a full pass reads logins and walks
+    /// records — half a minute apart for that reason. This only asks the
+    /// relay what it carried, and reads titles only for conversations that
+    /// have just begun, so it can run every two seconds while anything is
+    /// shared.
+    private func peek() {
+        guard status != nil, !syncing, !peeking,
+              sharing.lenders.values.contains(where: { !$0.isEmpty }) else { return }
+        peeking = true
+        let claudeProfiles = claudes.compactMap { key in profile(of: key).map { (key, $0) } }
+        queue.async {
+            let status = try? PoolSocket.send(PoolCommand())
+            let fresh = (status?.sessions ?? []).filter { session in
+                session.startedAt.map { Date().timeIntervalSince($0) < Self.newChatShown } == true
+            }
+            let titles = fresh.isEmpty ? [:] : self.lookUpTitles(fresh, profiles: claudeProfiles)
+            DispatchQueue.main.async {
+                self.peeking = false
+                // A relay that stopped answering is a full pass's business.
+                guard let status, !self.syncing else { return }
+                if self.status != status { self.status = status }
+                let merged = self.titles.merging(titles) { _, new in new }
+                if self.titles != merged { self.titles = merged }
+            }
+        }
     }
 
     // MARK: - Who lends to whom
@@ -289,7 +341,8 @@ final class UsagePoolController: ObservableObject {
                             choices: oneEach([session.from] + lenders(of: session.from)),
                             lastAt: session.lastAt,
                             passedOver: assigned != nil && session.servedBy != assigned
-                                && !session.passedOver.isEmpty)
+                                && !session.passedOver.isEmpty,
+                            startedAt: session.startedAt)
             }
     }
 

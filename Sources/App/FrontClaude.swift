@@ -214,7 +214,7 @@ enum FrontTitle {
     /// No colour is given to the figure, so it keeps the one the bar chooses
     /// for the wallpaper behind it; only the icon and the tag bring their own.
     static func make(icon: NSImage?, tag: NSImage?, figure: Graft.Usage.Headline?,
-                     font: NSFont) -> NSAttributedString {
+                     font: NSFont, ticker: NSImage? = nil) -> NSAttributedString {
         let title = NSMutableAttributedString()
         for picture in [icon, tag].compactMap({ $0 }) {
             let size = picture.size
@@ -237,6 +237,16 @@ enum FrontTitle {
             title.append(NSAttributedString(string: " " + text(figure), attributes: [
                 .font: font, .baselineOffset: -figureDrop,
             ]))
+        }
+        if let ticker {
+            let attachment = NSTextAttachment()
+            attachment.image = ticker
+            // Set like the figure: the text inside is the bar's own size, a
+            // point smaller, and lowered by as much as the figure is.
+            attachment.bounds = NSRect(x: 0, y: font.descender - figureDrop,
+                                       width: ticker.size.width, height: ticker.size.height)
+            title.append(NSAttributedString(string: "  ", attributes: [.font: font]))
+            title.append(NSAttributedString(attachment: attachment))
         }
         return title
     }
@@ -261,5 +271,66 @@ enum FrontTitle {
         } ?? L10n.format("%@: no 5-hour limit, %ld%% of the week", name, figures.week)
         if let fable = figures.fable { line += L10n.format(", %ld%% Fable", fable) }
         return line
+    }
+}
+
+/// A conversation that has just begun, running across the bar beside the
+/// figure: its title, or "New chat" until it has one, and the account
+/// answering it.
+///
+/// Drawn into a picture of fixed width rather than set as text. Text that
+/// scrolls a character at a time changes width with every letter in a
+/// proportional font, and a status item that changes width moves every item
+/// to its left with it, several times a second.
+enum NewChatTicker {
+    static let width: CGFloat = 150
+    /// The space between the end of the text and its start coming round again.
+    static let gap: CGFloat = 28
+    /// Points moved per tick, and the tick, which together make about thirty
+    /// points a second: readable, and slow enough not to pull the eye.
+    static let step: CGFloat = 2.5
+    static let tick: TimeInterval = 0.08
+    /// Ticks held at the start of each pass, so the beginning can be read.
+    static let pause = 18
+
+    static func text(title: String?, account: String) -> String {
+        L10n.format("%@ · %@", title ?? L10n.text("New chat"), account)
+    }
+
+    static func spoken(title: String?, account: String) -> String {
+        L10n.format("New conversation “%@”, answered by %@", title ?? L10n.text("New chat"), account)
+    }
+
+    static func attributes(_ font: NSFont) -> [NSAttributedString.Key: Any] {
+        [.font: NSFont.systemFont(ofSize: font.pointSize - 1), .foregroundColor: NSColor.labelColor]
+    }
+
+    /// The length of one pass, or nil for text short enough to stand still.
+    static func cycle(_ text: String, font: NSFont) -> CGFloat? {
+        let length = ceil((text as NSString).size(withAttributes: attributes(font)).width)
+        return length > width ? length + gap : nil
+    }
+
+    /// `offset` is how far the text has moved left, in points.
+    static func image(_ text: String, offset: CGFloat, font: NSFont) -> NSImage {
+        let attributes = attributes(font)
+        let size = (text as NSString).size(withAttributes: attributes)
+        let scrolls = cycle(text, font: font) != nil
+        let shown = scrolls ? width : ceil(size.width)
+        let height = ceil(size.height)
+        // Drawn when shown rather than now, so the label colour is the one the
+        // bar's appearance gives it at that moment.
+        let image = NSImage(size: NSSize(width: shown, height: height), flipped: false) { rect in
+            NSBezierPath(rect: rect).addClip()
+            let x = scrolls ? -offset : 0
+            (text as NSString).draw(at: NSPoint(x: x, y: 0), withAttributes: attributes)
+            if scrolls {
+                (text as NSString).draw(at: NSPoint(x: x + ceil(size.width) + gap, y: 0),
+                                        withAttributes: attributes)
+            }
+            return true
+        }
+        image.accessibilityDescription = text
+        return image
     }
 }

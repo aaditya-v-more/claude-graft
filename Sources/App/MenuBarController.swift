@@ -14,6 +14,17 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
     private let popover = NSPopover()
     private var watches: Set<AnyCancellable> = []
 
+    /// What the title was last built from, kept so the ticker can move
+    /// without the usage figures being worked out again on every tick.
+    private var parts: (icon: NSImage?, tag: NSImage?, figure: Graft.Usage.Headline?)?
+    private var spokenTitle = ""
+    /// The conversation running across the bar, if one has just begun.
+    private var newChat: UsagePoolController.Chat?
+    private var tickerText: String?
+    private var tickerOffset: CGFloat = 0
+    private var tickerHeld = 0
+    private var ticker: Timer?
+
     private let store: ShortcutStore
     private let settings: AppSettings
     private let usage: UsageMonitor
@@ -56,6 +67,13 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in self?.updateTitle() }
             .store(in: &watches)
+
+        // Published values arrive before they are stored, so the check waits
+        // a turn of the run loop to read what changed.
+        Shared.usagePool.objectWillChange
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.updateNewChat() }
+            .store(in: &watches)
     }
 
     // MARK: - The item itself
@@ -78,6 +96,8 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         item.button?.target = self
         item.button?.action = #selector(togglePopover)
+        // A right click moves a conversation that has just begun.
+        item.button?.sendAction(on: [.leftMouseUp, .rightMouseUp])
         item.button?.imagePosition = .imageLeading
         item.button?.image = NSImage(systemSymbolName: "circle.lefthalf.filled",
                                      accessibilityDescription: "Claude Graft")
@@ -89,6 +109,8 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
     }
 
     func remove() {
+        ticker?.invalidate()
+        ticker = nil
         popover.performClose(nil)
         if let item { NSStatusBar.system.removeStatusItem(item) }
         item = nil
@@ -124,21 +146,15 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
         let front = icon != nil || tag != nil ? named : nil
         let headline = front ?? usage.statusEntry(front: nil)?.entry
         let figures = headline?.currentUsage
-        // Built the same way with or without a Claude in front, so the figure
-        // is lowered in both and does not jump as one comes forward.
-        if front != nil || figures != nil {
-            button.attributedTitle = FrontTitle.make(icon: icon, tag: tag, figure: figures?.headline,
-                                                     font: button.font ?? NSFont.menuBarFont(ofSize: 0))
-        } else {
-            button.title = ""
-        }
+        parts = front != nil || figures != nil ? (icon, tag, figures?.headline) : nil
         // Pictures in a title read out as nothing, so the words go alongside:
         // whose figure it is, which on screen only the icon says, and the
         // update the symbol stands for, which only the symbol does.
         let spoken = headline.flatMap { entry in
             figures.map { FrontTitle.spoken(entry.name, $0) }
         } ?? front?.name
-        button.setAccessibilityTitle([spoken, updateTip].compactMap { $0 }.joined(separator: ". "))
+        spokenTitle = [spoken, updateTip].compactMap { $0 }.joined(separator: ". ")
+        applyTitle()
         guard let headline, let figures else {
             button.toolTip = updateTip ?? L10n.text("No usage reported yet")
             return
@@ -154,6 +170,115 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
         button.toolTip = lines.joined(separator: "\n")
     }
 
+    /// Built the same way with or without a Claude in front, so the figure is
+    /// lowered in both and does not jump as one comes forward.
+    private func applyTitle() {
+        guard let button = item?.button else { return }
+        let font = button.font ?? NSFont.menuBarFont(ofSize: 0)
+        let picture = tickerText.map { NewChatTicker.image($0, offset: tickerOffset, font: font) }
+        if parts != nil || picture != nil {
+            button.attributedTitle = FrontTitle.make(icon: parts?.icon, tag: parts?.tag,
+                                                     figure: parts?.figure, font: font, ticker: picture)
+        } else {
+            button.title = ""
+        }
+        let chat = newChat.map { NewChatTicker.spoken(title: $0.title, account: answering($0)) }
+        button.setAccessibilityTitle([spokenTitle, chat].compactMap { $0 }.filter { !$0.isEmpty }
+            .joined(separator: ". "))
+    }
+
+    // MARK: - A conversation that has just begun
+
+    /// Who answered it last, or who it was moved to and has not answered yet,
+    /// as the dropdown says it.
+    private func answering(_ chat: UsagePoolController.Chat) -> String {
+        let pool = Shared.usagePool
+        if let served = chat.servedBy { return pool.name(of: served) }
+        if let assigned = chat.assigned { return pool.name(of: assigned) }
+        return L10n.text("Automatic")
+    }
+
+    private func updateNewChat() {
+        DispatchQueue.main.async { [weak self] in self?.showNewChat() }
+    }
+
+    private func showNewChat() {
+        let chat = item == nil ? nil : Shared.usagePool.newChat(front: Shared.frontmost.profile)
+        let text = chat.map { NewChatTicker.text(title: $0.title, account: answering($0)) }
+        guard chat?.id != newChat?.id || text != tickerText else { return }
+        if chat?.id != newChat?.id {
+            tickerOffset = 0
+            tickerHeld = 0
+        }
+        newChat = chat
+        tickerText = text
+        if chat == nil {
+            ticker?.invalidate()
+            ticker = nil
+        } else if ticker == nil {
+            let timer = Timer(timeInterval: NewChatTicker.tick, repeats: true) { [weak self] _ in
+                MainActor.assumeIsolated { self?.advanceTicker() }
+            }
+            RunLoop.main.add(timer, forMode: .common)
+            ticker = timer
+        }
+        applyTitle()
+    }
+
+    private func advanceTicker() {
+        // A conversation stops being new on the clock, not only when the
+        // relay next has something to say.
+        if let started = newChat?.startedAt,
+           Date().timeIntervalSince(started) >= UsagePoolController.newChatShown {
+            showNewChat()
+            return
+        }
+        guard let text = tickerText, let button = item?.button,
+              let cycle = NewChatTicker.cycle(text, font: button.font ?? NSFont.menuBarFont(ofSize: 0))
+        else { return }
+        if tickerOffset == 0, tickerHeld < NewChatTicker.pause {
+            tickerHeld += 1
+            return
+        }
+        tickerHeld = 0
+        tickerOffset += NewChatTicker.step
+        if tickerOffset >= cycle { tickerOffset = 0 }
+        applyTitle()
+    }
+
+    /// The same choices as the conversation's row in the dropdown, reached
+    /// without opening it.
+    private func showNewChatMenu(_ chat: UsagePoolController.Chat, from button: NSStatusBarButton) {
+        let pool = Shared.usagePool
+        let menu = NSMenu()
+        let heading = NSMenuItem(title: chat.title ?? L10n.text("New chat"), action: nil, keyEquivalent: "")
+        heading.isEnabled = false
+        menu.addItem(heading)
+        menu.addItem(.separator())
+        let automatic = NSMenuItem(title: L10n.text("Automatic"), action: #selector(moveNewChat(_:)),
+                                   keyEquivalent: "")
+        automatic.target = self
+        automatic.representedObject = [chat.id, ""]
+        automatic.state = chat.assigned == nil ? .on : .off
+        menu.addItem(automatic)
+        menu.addItem(.separator())
+        for choice in chat.choices {
+            let entry = NSMenuItem(title: pool.name(of: choice), action: #selector(moveNewChat(_:)),
+                                   keyEquivalent: "")
+            entry.target = self
+            entry.representedObject = [chat.id, choice]
+            entry.state = chat.assigned == choice ? .on : .off
+            entry.setAccessibilityIdentifier("new-chat.account.\(choice)")
+            menu.addItem(entry)
+        }
+        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: button.bounds.height + 5), in: button)
+    }
+
+    @objc private func moveNewChat(_ sender: NSMenuItem) {
+        guard let pair = sender.representedObject as? [String], pair.count == 2 else { return }
+        Shared.usagePool.assign(pair[0], to: pair[1].isEmpty ? nil : pair[1])
+    }
+
     /// The main profile has no shortcut and so no icon of its own; it keeps
     /// Claude's, which is what the original preset is.
     private func preset(of entry: UsageMonitor.Entry) -> Shortcut.IconPreset {
@@ -163,6 +288,12 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
     // MARK: - The popover
 
     @objc private func togglePopover() {
+        if let event = NSApp.currentEvent, event.type == .rightMouseUp,
+           let chat = newChat, let button = item?.button {
+            popover.performClose(nil)
+            showNewChatMenu(chat, from: button)
+            return
+        }
         if popover.isShown { popover.performClose(nil); return }
         guard let button = item?.button else { return }
 

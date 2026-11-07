@@ -508,6 +508,15 @@ response, payload, went = ask_thread("tok-H", "s40", threaded("continue", "m2"))
 check([w["token"] for w in went] == ["tok-G"], "and is continued there")
 check(holder("s40") == "G", "the dropdown names the account holding the thread")
 
+sessions = {entry["id"]: entry for entry in control({})["sessions"]}
+check(sessions.get("s40", {}).get("startedAt") is not None,
+      "a conversation first seen with its first message is marked as new")
+response, payload, went = ask_thread("tok-H", "s43", b'{"model":"claude-opus-5-5","messages":[{"role":"user","content":"a"},'
+                                     b'{"role":"assistant","content":"b"},{"role":"user","content":"c"}]}')
+sessions = {entry["id"]: entry for entry in control({})["sessions"]}
+check("s43" in sessions and sessions["s43"].get("startedAt") is None,
+      "one first seen part way through, as after the relay restarts, is not")
+
 control({"configure": {"enabled": True, "members": [
     dict(member("F", "tok-F"), limits=pushed(now + 1800, 100)),
     dict(member("H", "tok-H", borrows=["F"]), limits=pushed(now + 5 * 86400, 100))],

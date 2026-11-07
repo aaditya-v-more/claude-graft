@@ -307,6 +307,20 @@ paying for. Its answer is also the right one for a dropdown: Graft coming
 forward leaves it where it was, so opening the dropdown keeps the Claude the
 person was just using at the top.
 
+**A conversation that has just begun runs across the menu bar** for its first
+two minutes: its title, or "New chat" until it has one, and the account
+answering it, and a right click on the item moves it with the same choices as
+its row. "Just begun" is the relay's word, `startedAt`, set only when the first
+request it sees for a session carries no answer — a relay restarted part way
+through a conversation sees every conversation for the first time, and none
+of those is new to the person. The text is drawn into a picture of fixed
+width and scrolled inside it, because text scrolled a character at a time
+changes width with every letter, and a status item that changes width moves
+every item to its left with it. Finding it costs a two-second ask of the relay
+alone, with titles read only for conversations that have just begun; a full
+pass reads logins and walks records, which is why that one waits half a
+minute.
+
 The relay is asked every three seconds while the dropdown is open and every
 thirty otherwise, over its socket and never the service. `MenuBarController`
 starts that watch as the popover shows and ends it in `popoverDidClose`,

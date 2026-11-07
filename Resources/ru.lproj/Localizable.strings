@@ -315,3 +315,6 @@
 "Cancel Signing In" = "Отменить вход";
 "Turn On Open at Login" = "Включить «Запускать при входе»";
 "Account answering “%@”" = "Учётная запись для разговора «%@»";
+"New chat" = "Новый чат";
+"%@ · %@" = "%@ · %@";
+"New conversation “%@”, answered by %@" = "Новый разговор «%@», отвечает %@";

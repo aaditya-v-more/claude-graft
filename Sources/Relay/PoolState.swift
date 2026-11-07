@@ -35,6 +35,7 @@ actor PoolState {
         /// letting it move `servedBy` sent the next turn to an account that
         /// answered `thread_not_found` and named the wrong one in the dropdown.
         var threaded = false
+        var startedAt: Date?
     }
 
     /// Long enough for the menu to go on naming a conversation somebody stepped
@@ -194,11 +195,12 @@ actor PoolState {
 
     func served(by member: String, from own: String, session: String?, status: Int,
                 passedOver: [PoolPass], model: String?, cacheLifetime: TimeInterval,
-                threaded: Bool = false, now: Date = Date()) {
+                threaded: Bool = false, starts: Bool = false, now: Date = Date()) {
         runtime[member, default: Runtime()].served += 1
         runtime[member, default: Runtime()].lastServed = now
         if let session {
-            var held = conversations[session] ?? Conversation(from: own, lastAt: now)
+            var held = conversations[session]
+                ?? Conversation(from: own, lastAt: now, startedAt: starts ? now : nil)
             held.from = own
             held.requests += 1
             if threaded || !held.threaded {
@@ -245,7 +247,7 @@ actor PoolState {
                             requests: held.requests, model: held.model,
                             cachedUntil: held.servedBy == nil ? nil
                                 : held.lastAt.addingTimeInterval(held.cacheLifetime),
-                            passedOver: held.passedOver)
+                            passedOver: held.passedOver, startedAt: held.startedAt)
             }
         return PoolStatus(binary: binary, pid: pid, started: started,
                           enabled: configuration?.enabled ?? false,

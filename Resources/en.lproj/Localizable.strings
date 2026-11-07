@@ -315,3 +315,6 @@
 "Cancel Signing In" = "Cancel Signing In";
 "Turn On Open at Login" = "Turn On Open at Login";
 "Account answering “%@”" = "Account answering “%@”";
+"New chat" = "New chat";
+"%@ · %@" = "%@ · %@";
+"New conversation “%@”, answered by %@" = "New conversation “%@”, answered by %@";
