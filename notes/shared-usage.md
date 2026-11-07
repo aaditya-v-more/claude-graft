@@ -282,7 +282,14 @@ connector Anthropic runs, and each belongs to one organization; another account
 asked for it answers that it does not exist. A body whose `Content-Encoding`
 is not identity cannot be read to find out, so it stays too. Keys are matched
 with their closing quote and colon, which JSON never escapes, so the same word
-in a prompt does not pin anything.
+in a prompt does not pin anything — and with the start of a value that makes
+them a reference (`"file_id":"`, `"container":"` or `"container":{"id":"`,
+`"mcp_servers":[{`), because a connector's tool schema can have a property of
+the same name. One does on this machine, a `"container":{"type":"object",…}`,
+and every request listing the tools carried it: the third live run found that
+pinned each full request to its sender, so the new thread Claude Code sends
+after `thread_not_found` went home and a move from the dropdown never landed,
+while the short continuations that leave the tools to the thread moved freely.
 
 ## The dropdown
 

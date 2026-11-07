@@ -137,7 +137,7 @@ any of these. The why is in [notes/updates-and-releases.md](notes/updates-and-re
 - **A conversation carrying reasoning stays where it was written:** `carriesBoundReasoning` holds it past its cache and moves it only when that account has no room, then leaves it there; a model is bound unless `reasoningTravels` names it.
 - **A thread stays where it is stored:** a `continuesThread` request is held like reasoning, whatever the model, and only answers to requests carrying a thread say where a conversation is.
 - **A borrowed login's refusal is retried, never shown:** a 429 moves on, a 401 marks that login refused, and a 400, 403 or 404 sends the request home — except `thread_not_found` on a moved thread, which Claude Code must hear to start it again where it went.
-- **Some requests never move:** a body naming `"file_id":`, `"container":` or `"mcp_servers":`, or one that is encoded.
+- **Some requests never move:** a body referring to a file, container or MCP server by value (`accountBoundMarks`, never the bare key, which a tool schema can carry), or one that is encoded.
 - **The dropdown's front Claude is `FrontmostClaude`'s,** and its watch on the relay ends in `popoverDidClose`, never in the view.
 
 ### Interface — [notes/interface.md](notes/interface.md)
