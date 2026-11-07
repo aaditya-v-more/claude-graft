@@ -156,7 +156,13 @@ final class ShortcutStore: ObservableObject {
     private func save() {
         try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(),
                                                  withIntermediateDirectories: true)
-        guard let data = try? JSONEncoder().encode(shortcuts) else { return }
+        // Sorted, because the encoder's own key order changes from one run to
+        // the next: a Discard that put back exactly what was there still
+        // rewrote the file in a different order, and a check comparing it
+        // before and after could not tell that from a real change.
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = .sortedKeys
+        guard let data = try? encoder.encode(shortcuts) else { return }
         // Atomic, like every other state file here, and for a reason the others
         // do not have: this is the only one read by other processes. Every
         // launcher reads it to learn which profiles are this app's doing, and a
