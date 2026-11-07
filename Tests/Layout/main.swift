@@ -424,7 +424,7 @@ let conversations = hosted(ConversationList(chats: [
                              servedBy: UsagePoolController.mainKey, assigned: claude2,
                              choices: [UsagePoolController.mainKey, claude2],
                              lastAt: now.addingTimeInterval(-60), passedOver: true),
-])
+], front: UsagePoolController.mainKey, othersShown: true)
 .frame(width: 320)
 .environment(\.controlSurface, ControlSurface.dropdown), title: "Conversations check")
 let conversationTree = checkAccessibility(conversations, surface: ControlSurface.dropdown, "conversations in the dropdown")
@@ -435,7 +435,28 @@ check(moving?.value == "Claude 2", "and it says which account answers that conve
 check(element("dropdown.conversation.second-session", in: conversationTree)?.value
         == L10n.format("%@ had no room", "Claude 2"),
       "a conversation the chosen account could not take says so out loud as well as in orange")
+check(element("dropdown.conversations.others", in: conversationTree)?.value == L10n.text("Shown"),
+      "the other conversations sit behind a line that says whether they are shown")
 conversations.orderOut(nil)
+
+let folded = hosted(ConversationList(chats: [
+    UsagePoolController.Chat(id: "first-session", title: "Plan the next release", claude: UsagePoolController.mainKey,
+                             servedBy: claude2, assigned: nil, choices: [UsagePoolController.mainKey, claude2],
+                             lastAt: now, passedOver: false),
+    UsagePoolController.Chat(id: "second-session", title: nil, claude: UsagePoolController.mainKey,
+                             servedBy: UsagePoolController.mainKey, assigned: nil,
+                             choices: [UsagePoolController.mainKey, claude2],
+                             lastAt: now.addingTimeInterval(-60), passedOver: false),
+], front: UsagePoolController.mainKey)
+.frame(width: 320)
+.environment(\.controlSurface, ControlSurface.dropdown), title: "Folded conversations check")
+let foldedTree = checkAccessibility(folded, surface: ControlSurface.dropdown, "folded conversations")
+check(element("dropdown.conversation.first-session", in: foldedTree) != nil
+        && element("dropdown.conversation.second-session", in: foldedTree) == nil
+        && element("dropdown.conversations.others", in: foldedTree)?.name
+            == L10n.format("Other conversations · %ld", 1),
+      "the conversation in front comes first, and the rest wait behind a count until asked for")
+folded.orderOut(nil)
 
 let settingsWindow = hosted(SettingsView().environmentObject(Shared.settings), title: "Settings check")
 let settingsTree = checkAccessibility(settingsWindow, surface: ControlSurface.settings, "Settings")

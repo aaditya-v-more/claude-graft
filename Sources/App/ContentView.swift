@@ -216,7 +216,10 @@ struct ContentView: View {
     }
 
     private func add() {
-        let shortcut = Shortcut(name: store.uniqueName())
+        var shortcut = Shortcut(name: store.uniqueName())
+        // Set once, here: an existing Claude keeps the colour it has, so
+        // nobody's Dock changes under them when this rule arrived.
+        shortcut.iconPreset = Shortcut.IconPreset.next(besides: Shared.usagePool.coloursInUse)
         store.shortcuts.append(shortcut)
         selection = shortcut.id
     }

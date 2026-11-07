@@ -20,6 +20,23 @@ struct Shortcut: Codable, Identifiable, Hashable {
 
         var id: Self { self }
 
+        /// The order colours are handed out in. Claude's own icon is the main
+        /// profile's, so it is never handed out; plain colours go before the
+        /// badged ones, which repeat a colour and differ only by the badge.
+        static let handedOut: [IconPreset] = [.blue, .violet, .green, .red, .pink, .teal, .graphite,
+                                              .work, .personal, .code, .research]
+
+        /// The first colour nothing has yet. One Claude that looked like
+        /// another in the Dock and the menu bar was what made two of them
+        /// indistinguishable, so a colour is shared only when a person picks
+        /// it, or once every one is in use and the least used comes round.
+        static func next(besides taken: [IconPreset]) -> IconPreset {
+            let used = Set(taken)
+            if let free = handedOut.first(where: { !used.contains($0) }) { return free }
+            let count = { (preset: IconPreset) in taken.filter { $0 == preset }.count }
+            return handedOut.min { count($0) < count($1) } ?? .blue
+        }
+
         var title: String {
             switch self {
             case .original: return L10n.text("Original")

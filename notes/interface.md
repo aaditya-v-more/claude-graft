@@ -269,3 +269,21 @@ circle beside it was width a full bar could not spare. It comes back when no
 Claude is shown, and an update's symbol stays whatever is in front, since that
 is news the front Claude cannot carry. With no mark, the title drops the space
 that parted it from one (`FrontTitle.make(afterImage:)`).
+
+**Each Claude and each lent account has a colour of its own unless a person
+picks a shared one.** `IconPreset.next(besides:)` hands out the first colour
+nothing wears, in `handedOut` order, and never Claude's own original, which
+is the main profile's. It is given once: a new shortcut takes it when made,
+and an account when it is added to the pool. Nothing recolours what exists, so
+a Dock icon somebody knows does not change under them. Accounts saved before
+accounts had colours get one on the first pass that knows which account each
+Claude is signed into (`learnAccounts`), so an account that is also a Claude
+here wears that Claude's colour instead of using up a free one; it follows that
+Claude's colour afterwards through `UsagePoolController.preset(of:)`.
+
+**A Claude that draws on other accounts shows all of them in the menu bar**
+(`PoolStrip`), its own first and always in the same order. The account
+answering that Claude's newest conversation is drawn full size and the rest
+small and faint, so which allowance is being spent reads off the bar. The
+dropdown leads with that same conversation and the same icon beside its
+account; the other conversations wait behind "Other conversations · n".

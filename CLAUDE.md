@@ -150,6 +150,7 @@ any of these. The why is in [notes/updates-and-releases.md](notes/updates-and-re
 - **No `MenuBarExtra`. Nothing blocking in a view body. Long-lived objects live in `enum Shared`.**
 - **The window fits at 820×560 without scrolling:** a note is one line (`OneLineNote`), its paragraph behind an `InfoButton`.
 - **A running Claude keeps its own Dock icon and name;** the menu bar says which one is in front instead.
+- **A colour is handed out once and never twice** (`IconPreset.next`): a new Claude or lent account takes the first free one; nothing recolours what exists, and an account that is a Claude here wears that Claude's.
 
 ### Updates and releases — [notes/updates-and-releases.md](notes/updates-and-releases.md), [notes/update-relaunch.md](notes/update-relaunch.md)
 

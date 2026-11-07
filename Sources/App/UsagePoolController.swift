@@ -29,6 +29,9 @@ struct PoolAccount: Codable, Equatable, Identifiable {
     var expires: Date
     var added: Date
     var sealed: String
+    /// Its colour in Graft, given when it was added. One that is also a
+    /// Claude here shows that Claude's colour instead: see `preset(of:)`.
+    var iconPreset: Shortcut.IconPreset? = nil
 }
 
 /// Keeps the relay running while any Claude draws on another account, tells it
@@ -208,8 +211,14 @@ final class UsagePoolController: ObservableObject {
         if let uuid = account.accountUuid,
            let index = accounts.firstIndex(where: { $0.accountUuid == uuid }) {
             stored.id = accounts[index].id
+            stored.iconPreset = accounts[index].iconPreset
             accounts[index] = stored
         } else {
+            // One that is a Claude here takes that Claude's colour, and
+            // keeps it should that Claude go.
+            stored.iconPreset = account.accountUuid
+                .flatMap { uuid in claudes.first { claudeAccounts[$0] == uuid } }
+                .map(preset(of:)) ?? Shortcut.IconPreset.next(besides: coloursInUse)
             accounts.append(stored)
         }
         saveAccounts()
@@ -285,6 +294,48 @@ final class UsagePoolController: ObservableObject {
         return UUID(uuidString: key).flatMap { store?.shortcut($0) }?.name ?? L10n.text("Removed shortcut")
     }
 
+    // MARK: - Colours
+
+    /// The colour a Claude or an account is drawn in. An account that is also
+    /// a Claude on this machine is that Claude, so it wears that Claude's
+    /// colour and follows it when the colour changes.
+    func preset(of key: String) -> Shortcut.IconPreset {
+        if key == Self.mainKey { return .original }
+        if let id = UUID(uuidString: key) { return store?.shortcut(id)?.iconPreset ?? .original }
+        if let claude = claude(sameAccountAs: key) { return preset(of: claude) }
+        return accounts.first { $0.id == key }?.iconPreset ?? .graphite
+    }
+
+    private func claude(sameAccountAs key: String) -> String? {
+        guard let uuid = accountUuid(of: key) else { return nil }
+        return claudes.first { claudeAccounts[$0] == uuid }
+    }
+
+    /// Every colour something here is already drawn in, Claude's own first.
+    var coloursInUse: [Shortcut.IconPreset] {
+        [.original] + (store?.shortcuts ?? []).map(\.iconPreset)
+            + accounts.filter { claude(sameAccountAs: $0.id) == nil }.compactMap(\.iconPreset)
+    }
+
+    /// Accounts added before accounts had colours are given one, once, in the
+    /// order they were added.
+    private func colourAccounts() {
+        guard store != nil, accounts.contains(where: { $0.iconPreset == nil }) else { return }
+        for index in accounts.indices.sorted(by: { accounts[$0].added < accounts[$1].added })
+        where accounts[index].iconPreset == nil {
+            accounts[index].iconPreset = claude(sameAccountAs: accounts[index].id).map(preset(of:))
+                ?? Shortcut.IconPreset.next(besides: coloursInUse)
+        }
+        saveAccounts()
+    }
+
+    /// The Claude a profile folder belongs to, by its key here.
+    func claudeKey(for profile: URL?) -> String? {
+        guard let profile else { return nil }
+        let wanted = PoolEnvironment.key(for: profile)
+        return claudes.first { self.profile(of: $0).map(PoolEnvironment.key(for:)) == wanted }
+    }
+
     func accountUuid(of key: String) -> String? {
         if let account = accounts.first(where: { $0.id == key }) { return account.accountUuid }
         return claudeAccounts[key]
@@ -299,6 +350,9 @@ final class UsagePoolController: ObservableObject {
 
     func learnAccounts(_ found: [String: String]) {
         if claudeAccounts != found { claudeAccounts = found }
+        // After the Claudes' accounts are known, so an account that is one of
+        // them takes its colour rather than using up a free one.
+        colourAccounts()
     }
 
     /// Every Claude this machine has, by key, Claude's own first.
@@ -344,6 +398,11 @@ final class UsagePoolController: ObservableObject {
                                 && !session.passedOver.isEmpty,
                             startedAt: session.startedAt)
             }
+    }
+
+    /// Everyone a Claude draws on, itself first, one name to an account.
+    func members(of claude: String) -> [String] {
+        lenders(of: claude).isEmpty ? [] : oneEach([claude] + lenders(of: claude))
     }
 
     /// One name for each account, the one the relay counts: the first that

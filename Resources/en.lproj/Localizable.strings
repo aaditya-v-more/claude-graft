@@ -328,3 +328,8 @@
 "5h %ld%%" = "5h %ld%%";
 "5 hours reset %@" = "5 hours reset %@";
 "Week resets %@" = "Week resets %@";
+"Answering now: %@" = "Answering now: %@";
+"Drawing on %@" = "Drawing on %@";
+"Other conversations · %ld" = "Other conversations · %ld";
+"Shown" = "Shown";
+"Hidden" = "Hidden";

@@ -77,7 +77,12 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
         // a turn of the run loop to read what changed.
         Shared.usagePool.objectWillChange
             .receive(on: RunLoop.main)
-            .sink { [weak self] _ in self?.updateNewChat() }
+            .sink { [weak self] _ in
+                self?.updateNewChat()
+                // Which account answers the conversation in front comes from
+                // the relay's passes too, and the strip lights it.
+                DispatchQueue.main.async { self?.updateTitle() }
+            }
             .store(in: &watches)
     }
 
@@ -142,7 +147,9 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
         let wanted = settings.showFrontIcon || settings.showFrontName
         let named = usage.statusEntry(front: wanted ? Shared.frontmost.profile : nil)
             .flatMap { $0.named ? $0.entry : nil }
-        let icon = named.flatMap { settings.showFrontIcon ? FrontIcon.image(for: preset(of: $0)) : nil }
+        var icon = named.flatMap { settings.showFrontIcon ? FrontIcon.image(for: preset(of: $0)) : nil }
+        let drawing = icon == nil ? nil : named.flatMap(poolInFront)
+        if let drawing { icon = drawing.strip }
         let tag = named.flatMap {
             settings.showFrontName ? FrontTag.image(name: $0.name, preset: preset(of: $0)) : nil
         }
@@ -163,7 +170,7 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
         let spoken = headline.flatMap { entry in
             figures.map { FrontTitle.spoken(entry.name, $0) }
         } ?? front?.name
-        spokenTitle = [spoken, updateTip].compactMap { $0 }.joined(separator: ". ")
+        spokenTitle = [spoken, drawing?.spoken, updateTip].compactMap { $0 }.joined(separator: ". ")
         applyTitle()
         guard let headline, let figures else {
             button.toolTip = updateTip ?? L10n.text("No usage reported yet")
@@ -319,6 +326,27 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
     @objc private func moveNewChat(_ sender: NSMenuItem) {
         guard let pair = sender.representedObject as? [String], pair.count == 2 else { return }
         Shared.usagePool.assign(pair[0], to: pair[1].isEmpty ? nil : pair[1])
+    }
+
+    /// The accounts a Claude in front draws on, as one picture, with the one
+    /// answering its newest conversation lit. Nil for a Claude that draws on
+    /// nobody, which keeps its single icon.
+    private func poolInFront(_ entry: UsageMonitor.Entry) -> (strip: NSImage, spoken: String)? {
+        let pool = Shared.usagePool
+        let claude = entry.shortcut?.uuidString ?? UsagePoolController.mainKey
+        let members = pool.members(of: claude)
+        guard members.count > 1 else { return nil }
+        let chat = pool.chats(front: Shared.frontmost.profile).first { $0.claude == claude }
+        let answering = chat.flatMap { $0.servedBy ?? $0.assigned }
+        // Matched by account, since the relay may name an account by a
+        // different one of its names than the list does.
+        let lit = answering.flatMap { key in
+            members.firstIndex { $0 == key || (pool.accountUuid(of: $0).map { $0 == pool.accountUuid(of: key) } ?? false) }
+        }
+        guard let strip = PoolStrip.image(members.map(pool.preset(of:)), lit: lit) else { return nil }
+        let spoken = lit.map { L10n.format("Answering now: %@", pool.name(of: members[$0])) }
+            ?? L10n.format("Drawing on %@", members.map(pool.name(of:)).joined(separator: ", "))
+        return (strip, spoken)
     }
 
     /// The main profile has no shortcut and so no icon of its own; it keeps

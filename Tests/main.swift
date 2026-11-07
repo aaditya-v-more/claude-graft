@@ -1935,8 +1935,8 @@ do {
     let menuBar = read("App/MenuBarController.swift")
     check(menuBar.contains("setAccessibilityIdentifier(\"status-item\")"),
           "the menu bar item can be asked for by a name that does not change with its figure")
-    check(menuBar.contains("spokenTitle = [spoken, updateTip]") && menuBar.contains("setAccessibilityTitle([spokenTitle, chat]"),
-          "and says in words whose figure it shows, what its symbol stands for and which conversation has just begun")
+    check(menuBar.contains("spokenTitle = [spoken, drawing?.spoken, updateTip]") && menuBar.contains("setAccessibilityTitle([spokenTitle, chat]"),
+          "and says in words whose figure it shows, which account answers, what its symbol stands for and which conversation has just begun")
     check(menuBar.contains("window.setAccessibilityParent(NSApp)"),
           "the open dropdown is among the app's windows, where a client looking for its controls searches")
     check(!menuBar.contains("setAccessibilityWindows("),
@@ -5755,6 +5755,35 @@ do {
     check(bar.contains("item?.menu = menu\n        button.performClick(nil)\n        item?.menu = nil")
             && !bar.contains("menu.popUp(positioning:"),
           "the right-click menu opens under the item, where macOS puts menu-bar menus")
+    let blue = Shortcut.IconPreset.next(besides: [.original])
+    check(blue == .blue && Shortcut.IconPreset.next(besides: [.original, .blue, .violet]) == .green,
+          "a new Claude takes the first colour nothing has, never Claude's own")
+    check(Shortcut.IconPreset.next(besides: [.original] + Shortcut.IconPreset.handedOut
+            + Shortcut.IconPreset.handedOut.filter { $0 != .teal }) == .teal,
+          "once every colour is in use, the least used comes round again")
+    check(!Shortcut.IconPreset.handedOut.contains(.original),
+          "Claude's own icon is never handed to another Claude")
+    let strip = PoolStrip.image([.original, .blue, .green], lit: 1)
+    let even = PoolStrip.image([.original, .blue, .green], lit: nil)
+    check(strip != nil && even != nil && strip!.size.width < even!.size.width
+            && strip!.size.height == FrontIcon.side,
+          "the pool's accounts share one picture, the answering one full size and the others smaller")
+    check(PoolStrip.image([.original], lit: 0) == nil,
+          "a Claude that draws on nobody keeps its single icon")
+    check(bar.contains("if let drawing { icon = drawing.strip }")
+            && bar.contains("DispatchQueue.main.async { self?.updateTitle() }"),
+          "the menu bar lights the account answering the conversation in front, and follows the relay's passes")
+    let poolSource = (try? String(contentsOf: URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        .deletingLastPathComponent().appending(path: "Sources/App/UsagePoolController.swift"),
+        encoding: .utf8)) ?? ""
+    check(poolSource.contains("if let claude = claude(sameAccountAs: key) { return preset(of: claude) }")
+            && poolSource.contains("stored.iconPreset = accounts[index].iconPreset"),
+          "an account that is also a Claude wears that Claude's colour, and a login renewed keeps its colour")
+    let contentSource = (try? String(contentsOf: URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        .deletingLastPathComponent().appending(path: "Sources/App/ContentView.swift"),
+        encoding: .utf8)) ?? ""
+    check(contentSource.contains("shortcut.iconPreset = Shortcut.IconPreset.next(besides: Shared.usagePool.coloursInUse)"),
+          "a new Claude is given its colour when it is made, and nothing recolours one that exists")
     check(bar.contains("let symbol = alert ?? (front == nil ? StatusSymbol.idle : nil)")
             && bar.contains("afterImage: button.image != nil"),
           "Graft's own mark gives way to the Claude in front, and comes back for an update or when none is shown")

@@ -191,6 +191,41 @@ enum FrontIcon {
     }
 }
 
+/// Everyone the Claude in front draws on, in the order it draws on them, its
+/// own account first. The account answering the conversation in front is
+/// drawn full size and the rest small and faint, so which one is spending is
+/// read off the bar without opening anything. The order never changes; only
+/// the light moves, so an icon is always found where it was.
+enum PoolStrip {
+    static let faint: CGFloat = 13
+    static let gap: CGFloat = 3
+    private static var drawn: [String: NSImage] = [:]
+
+    static func image(_ presets: [Shortcut.IconPreset], lit: Int?) -> NSImage? {
+        guard presets.count > 1 else { return nil }
+        let key = presets.map(\.rawValue).joined(separator: ",") + "|\(lit ?? -1)"
+        if let image = drawn[key] { return image }
+        let icons = presets.compactMap(FrontIcon.image(for:))
+        guard icons.count == presets.count else { return nil }
+        let full = FrontIcon.side
+        let sides = presets.indices.map { lit == nil || $0 == lit ? full : faint }
+        let width = sides.reduce(0, +) + gap * CGFloat(sides.count - 1)
+        let image = NSImage(size: NSSize(width: width, height: full), flipped: false) { _ in
+            var x: CGFloat = 0
+            for (index, icon) in icons.enumerated() {
+                let side = sides[index]
+                icon.draw(in: NSRect(x: x, y: ((full - side) / 2).rounded(), width: side, height: side),
+                          from: .zero, operation: .sourceOver,
+                          fraction: lit == nil || index == lit ? 1 : 0.45)
+                x += side + gap
+            }
+            return true
+        }
+        drawn[key] = image
+        return image
+    }
+}
+
 /// The status item's title once it shows the Claude in front.
 enum FrontTitle {
     /// How far each picture is drawn below the centre of its own box.

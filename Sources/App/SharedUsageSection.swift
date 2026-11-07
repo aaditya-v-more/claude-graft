@@ -165,7 +165,13 @@ private struct LenderRow: View {
             // Name and state are one element, and the button beside them is
             // another: spoken over the whole row, the button took the row's
             // name and VoiceOver said the account twice and the action never.
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
+            HStack(alignment: .center, spacing: 8) {
+                // The colour it wears in the menu bar, which is how a
+                // lit icon there is matched to an account here.
+                if let icon = FrontIcon.image(for: pool.preset(of: lender)) {
+                    Image(nsImage: icon).resizable().frame(width: 16, height: 16)
+                        .accessibilityHidden(true)
+                }
                 Text(name).fontWeight(.medium).lineLimit(1)
                     .layoutPriority(1)
                 Text(state)
@@ -297,25 +303,68 @@ struct SharedChats: View {
     @ObservedObject private var frontmost = Shared.frontmost
 
     var body: some View {
-        ConversationList(chats: pool.chats(front: frontmost.profile))
+        ConversationList(chats: pool.chats(front: frontmost.profile),
+                         front: pool.claudeKey(for: frontmost.profile))
     }
 }
 
 /// Apart from where the list comes from, so the layout suite can draw it from
 /// figures: in there no relay has carried anything.
+///
+/// The conversation in front comes first and on its own, since it is the one
+/// whose account the menu bar lights and the one somebody opening the dropdown
+/// is asking about. The rest wait behind a line that says how many there are:
+/// five rows of other conversations pushed the figures out of a short screen.
 struct ConversationList: View {
     let chats: [UsagePoolController.Chat]
+    var front: String? = nil
+    @State private var othersShown: Bool
+
+    init(chats: [UsagePoolController.Chat], front: String? = nil, othersShown: Bool = false) {
+        self.chats = chats
+        self.front = front
+        _othersShown = State(initialValue: othersShown)
+    }
+
+    private var inFront: UsagePoolController.Chat? {
+        chats.first.flatMap { $0.claude == front ? $0 : nil }
+    }
 
     var body: some View {
         if !chats.isEmpty {
+            let others = chats.filter { $0.id != inFront?.id }
+            let showClaude = Set(chats.map(\.claude)).count > 1
             VStack(alignment: .leading, spacing: 6) {
                 Text("Claude Code")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .accessibilityAddTraits(.isHeader)
                     .identified("conversations")
-                ForEach(chats) { chat in
-                    ChatRow(chat: chat, showClaude: Set(chats.map(\.claude)).count > 1)
+                if let inFront {
+                    ChatRow(chat: inFront, showClaude: false, inFront: true)
+                    if !others.isEmpty {
+                        Button {
+                            othersShown.toggle()
+                        } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: othersShown ? "chevron.down" : "chevron.right")
+                                    .font(.caption2.weight(.semibold))
+                                Text(L10n.format("Other conversations · %ld", others.count))
+                                    .font(.caption)
+                            }
+                            .foregroundStyle(.secondary)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(L10n.format("Other conversations · %ld", others.count))
+                        .accessibilityValue(othersShown ? L10n.text("Shown") : L10n.text("Hidden"))
+                        .identified("conversations.others")
+                    }
+                }
+                if inFront == nil || othersShown {
+                    ForEach(others) { chat in
+                        ChatRow(chat: chat, showClaude: showClaude, inFront: false)
+                    }
                 }
             }
             .padding(.horizontal, 14)
@@ -328,6 +377,7 @@ struct ConversationList: View {
 private struct ChatRow: View {
     let chat: UsagePoolController.Chat
     let showClaude: Bool
+    var inFront = false
     @ObservedObject private var pool = Shared.usagePool
 
     var body: some View {
@@ -336,6 +386,7 @@ private struct ChatRow: View {
             VStack(alignment: .leading, spacing: 1) {
                 Text(title)
                     .font(.callout)
+                    .fontWeight(inFront ? .medium : .regular)
                     .lineLimit(1)
                     .truncationMode(.tail)
                 if showsDetail {
@@ -367,8 +418,14 @@ private struct ChatRow: View {
                     }
                 }
             } label: {
-                Text(answering)
-                    .font(.caption)
+                // The same picture the menu bar lights, so the two are read
+                // as one fact.
+                HStack(spacing: 4) {
+                    if let key = answeringKey, let icon = FrontIcon.image(for: pool.preset(of: key)) {
+                        Image(nsImage: icon).resizable().frame(width: 14, height: 14)
+                    }
+                    Text(answering).font(.caption)
+                }
             }
             .menuStyle(.borderlessButton)
             .fixedSize()
@@ -382,6 +439,8 @@ private struct ChatRow: View {
     }
 
     private var showsDetail: Bool { showClaude || chat.passedOver }
+
+    private var answeringKey: String? { chat.servedBy ?? chat.assigned }
 
     /// Who answered last, or who it was moved to and has not answered yet.
     private var answering: String {
