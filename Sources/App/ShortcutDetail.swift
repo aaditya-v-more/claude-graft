@@ -37,6 +37,11 @@ struct ShortcutDetail: View {
 
     /// Set once the folder is typed by hand, so renaming stops rewriting it.
     @State private var folderIsCustom = false
+    /// A created shortcut's folder as typed, kept here until Update applies
+    /// it. Written straight into the list, every keystroke was a profile
+    /// change the next start carried into the bundle, so leaving the page
+    /// without pressing Update re-pointed the shortcut at an empty profile.
+    @State private var folderDraft: String?
     @State private var choosingIcon = false
 
     private let clock = Timer.publish(every: 5, on: .main, in: .common).autoconnect()
@@ -159,7 +164,7 @@ struct ShortcutDetail: View {
                     .identified("name")
                 // The field carries no title of its own, so without this
                 // VoiceOver reads only whatever has been typed.
-                TextField("", text: $shortcut.folder)
+                TextField("", text: folderField)
                     .textFieldStyle(.roundedBorder)
                     .font(.body.monospaced())
                     .frame(width: 130)
@@ -444,14 +449,32 @@ struct ShortcutDetail: View {
         installedAt == nil && !profileExists && shortcut.installedName == nil
     }
 
+    private var isCreated: Bool { shortcut.installedName != nil || installedAt != nil }
+
+    /// Straight into the list until the shortcut is created, since nothing
+    /// runs it yet and the name goes on suggesting a folder; held back after.
+    private var folderField: Binding<String> {
+        Binding(get: { folderDraft ?? shortcut.folder },
+                set: { typed in
+                    if isCreated { folderDraft = typed } else { shortcut.folder = typed }
+                })
+    }
+
+    /// The list takes the name and folder only once the app carries them, so
+    /// a refused Update leaves it describing the shortcut that still runs.
     private func install() {
-        shortcut.name = shortcut.name.trimmingCharacters(in: .whitespaces)
-        shortcut.folder = shortcut.folder.trimmingCharacters(in: .whitespaces)
+        var target = shortcut
+        target.name = shortcut.name.trimmingCharacters(in: .whitespaces)
+        target.folder = (folderDraft ?? shortcut.folder).trimmingCharacters(in: .whitespaces)
         do {
-            _ = try Installer.install(shortcut,
-                                      sourceDir: store.sourceDir(for: shortcut),
-                                      previousName: shortcut.installedName)
-            shortcut.installedName = shortcut.name
+            _ = try Installer.install(target,
+                                      sourceDir: store.sourceDir(for: target),
+                                      replacing: shortcut,
+                                      among: store.shortcuts)
+            shortcut.name = target.name
+            shortcut.folder = target.folder
+            shortcut.installedName = target.name
+            folderDraft = nil
             refresh()
         } catch {
             errorTitle = L10n.text("Could not create the shortcut")

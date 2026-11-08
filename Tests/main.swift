@@ -228,25 +228,25 @@ do {
     check(fm.fileExists(atPath: shortcut.profileDir.path), "the profile folder was created")
 
     // Update in place: same bundle, no duplicates.
-    let again = try! Installer.install(shortcut, sourceDir: main, previousName: shortcut.name)
+    let again = try! Installer.install(shortcut, sourceDir: main)
     check(again == bundle, "updating writes to the same bundle")
     let installed = (try? fm.contentsOfDirectory(atPath: apps.path))?.filter { $0.hasSuffix(".app") }
     check(installed?.count == 1, "updating does not leave a second copy behind")
 
     // Update after switching the source to none.
-    let detached = try! Installer.install(shortcut, sourceDir: nil, previousName: shortcut.name)
+    let detached = try! Installer.install(shortcut, sourceDir: nil)
     check(sourcePath(ofBundle: detached) == nil, "switching to its own chats clears the source")
     check(chatsVisible(to: shortcut.profileDir).isEmpty, "and the borrowed chats are gone")
 
     // And back again.
-    _ = try! Installer.install(shortcut, sourceDir: main, previousName: shortcut.name)
+    _ = try! Installer.install(shortcut, sourceDir: main)
     check(chatsVisible(to: shortcut.profileDir) == ["local_a1.json", "local_a2.json"],
           "switching back restores them")
 
-    // Rename.
-    let oldName = shortcut.name
+    // Rename. Nothing says what it was called before: the app is found by the
+    // profile it opens.
     shortcut.name = "Work Two"
-    let renamed = try! Installer.install(shortcut, sourceDir: main, previousName: oldName)
+    let renamed = try! Installer.install(shortcut, sourceDir: main)
     check(renamed.lastPathComponent == "Work Two.app", "renaming installs under the new name")
     check(!fm.fileExists(atPath: apps.appending(path: "Work.app").path),
           "and removes the bundle under the old name")
@@ -256,11 +256,60 @@ do {
     var clash = shortcut
     clash.name = "Taken"
     var blocked = false
-    do { _ = try Installer.install(clash, sourceDir: main, previousName: shortcut.name) }
+    do { _ = try Installer.install(clash, sourceDir: main, replacing: shortcut) }
     catch { blocked = true }
     check(blocked, "renaming onto an occupied name is refused")
     check(isIntact(occupied), "the occupying app survives")
     check(fm.fileExists(atPath: renamed.path), "and the original bundle is still there")
+
+    // Renamed in Finder, the app is still this shortcut's, and every repair
+    // made at launch has to reach it, or it goes on running whatever launcher
+    // and source it was last given.
+    let inFinder = apps.appending(path: "Moved by Hand.app")
+    try! fm.moveItem(at: renamed, to: inFinder)
+    check(Installer.installedBundle(for: shortcut).map { Graft.samePath($0, inFinder) } == true,
+          "an app renamed in Finder is found by the profile it opens")
+    let movedPlist = inFinder.appending(path: "Contents/Info.plist")
+    try! (try! String(contentsOf: movedPlist, encoding: .utf8))
+        .replacingOccurrences(of: Installer.graftVersion, with: "0.0.1")
+        .write(to: movedPlist, atomically: true, encoding: .utf8)
+    check(Installer.refreshLauncher(for: shortcut) && Installer.builtBy(inFinder) == Installer.graftVersion,
+          "so its launcher is brought up to date at launch")
+    check(Installer.refreshConfig(for: shortcut, sourceDir: nil) && sourcePath(ofBundle: inFinder) == nil,
+          "and so is the source it borrows from")
+
+    // Two shortcuts on one folder each have an app describing it, so a guess
+    // by profile would hand one shortcut's app to the other's Delete.
+    let twin = Shortcut(name: "Twin", folder: shortcut.folder, source: .own)
+    check(Installer.installedBundle(for: twin, among: [shortcut, twin]) == nil,
+          "a profile two shortcuts share is not searched for by what it opens")
+    Installer.uninstall(twin, among: [shortcut, twin])
+    check(fm.fileExists(atPath: inFinder.path),
+          "so deleting one of them leaves the other's renamed app alone")
+
+    let back = try! Installer.install(shortcut, sourceDir: main)
+    check(back.lastPathComponent == "Work Two.app" && !fm.fileExists(atPath: inFinder.path),
+          "Update puts the app back under the shortcut's name, with no second copy")
+
+    // A new folder typed into the window is a different profile, and nothing
+    // describes it yet; the app to replace is the one the old folder opens.
+    var moved = shortcut
+    moved.folder = "Claude-Work-Moved"
+    let refolded = try! Installer.install(moved, sourceDir: nil, replacing: shortcut)
+    check(Graft.samePath(refolded, back) && Installer.describedProfile(of: refolded)
+            .map { Graft.samePath($0, moved.profileDir) } == true,
+          "Update applies a new folder to the same app rather than making another")
+    _ = try! Installer.install(shortcut, sourceDir: main, replacing: moved)
+    let renamed2 = Installer.installedBundle(for: shortcut)!
+
+    // Gone with its shortcut wherever it went, or it is left in Applications
+    // still naming a source, and opening it grafts a profile nothing lists.
+    let hidden = apps.appending(path: "Hidden Away.app")
+    try! fm.moveItem(at: renamed2, to: hidden)
+    Installer.uninstall(shortcut, among: [shortcut])
+    check(!fm.fileExists(atPath: hidden.path),
+          "deleting a shortcut removes its app even after a rename in Finder")
+    try? fm.removeItem(at: moved.profileDir)
 
     try? fm.removeItem(at: occupied)
     try? fm.removeItem(at: renamed)
@@ -299,7 +348,7 @@ do {
           "the generated shortcut remains validly ad-hoc signed")
 
     styled.iconPreset = .blue
-    _ = try! Installer.install(styled, sourceDir: nil, previousName: styled.name)
+    _ = try! Installer.install(styled, sourceDir: nil)
     check(try! Data(contentsOf: icon) != workIcon,
           "updating the shortcut replaces the badged icon with the newly selected preset")
     check(Graft.runTool("/usr/bin/codesign", ["--verify", "--strict", bundle.path]) == 0,
@@ -325,7 +374,7 @@ do {
     }
     changed.name = "Failed Icon Rename"
     do {
-        _ = try Installer.install(changed, sourceDir: nil, previousName: styled.name)
+        _ = try Installer.install(changed, sourceDir: nil, replacing: styled)
         check(false, "an unreadable icon refuses the rename")
     } catch {
         check(sealedFiles.map { try! Data(contentsOf: bundle.appending(path: $0)) } == before,
@@ -2073,8 +2122,8 @@ do {
           "editing the display name still finds the previously installed shortcut")
     let renamed = apps.appending(path: "Renamed in Finder.app")
     try! fm.moveItem(at: original, to: renamed)
-    check(Installer.installedBundle(for: shortcut) == nil,
-          "a renamed bundle reproduces the old name lookup failure")
+    check(Installer.installedBundle(for: shortcut).map { Graft.samePath($0, renamed) } == true,
+          "the repairs and Delete find a renamed bundle the way Open does")
     let resolved = try! ProfileOpener.destination(profile: shortcut.profileDir, shortcut: shortcut)
     let renamedDestination: Bool
     if case .shortcut(let bundle) = resolved { renamedDestination = Graft.samePath(bundle, renamed) }
@@ -2098,6 +2147,15 @@ do {
     check(ProfileOpener.bundle(for: other) == nil,
           "an unreadable profile description is not trusted because its name matches")
     try? fm.removeItem(at: wrong)
+
+    // The folder field saved every keystroke into the list, which every
+    // launcher and the next start read as the profile the shortcut opens.
+    let detail = (try? String(contentsOf: URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        .deletingLastPathComponent().appending(path: "Sources/App/ShortcutDetail.swift"), encoding: .utf8)) ?? ""
+    check(!detail.contains("text: $shortcut.folder") && detail.contains("folderDraft = typed"),
+          "a created shortcut's folder edit waits for Update instead of going straight into the list")
+    check(detail.contains("shortcut.folder = target.folder") && detail.contains("replacing: shortcut"),
+          "and Update hands the installer the shortcut as it was, so the old app is the one replaced")
 }
 
 // MARK: - Profiles lost during Claude's update restart
@@ -4566,6 +4624,24 @@ do {
           "so a shortcut put back on its own chats stops borrowing from the Dock too")
     check(after.profileDir == shortcut.profileDir.path,
           "and the profile it opens is untouched")
+
+    // A folder typed into the window and never applied is not the list
+    // describing the bundle wrongly but a profile change nobody made, and
+    // applied at the next start it opened a new, signed-out profile.
+    let configBefore = try! Data(contentsOf: configFile)
+    for (typed, what) in [("Claude-Saved-Typed", "a folder typed but never applied"),
+                          ("", "an empty folder, which is Application Support itself"),
+                          ("Claude", "Claude's own folder"),
+                          ("../Elsewhere", "a path out of Application Support")] {
+        var edited = shortcut
+        edited.folder = typed
+        check(!Installer.refreshConfig(for: edited, sourceDir: nil)
+                && (try! Data(contentsOf: configFile)) == configBefore,
+              "the next start does not move a shortcut onto \(what)")
+    }
+    check(!Installer.refreshConfig(for: shortcut, sourceDir: profile)
+            && (try! Data(contentsOf: configFile)) == configBefore,
+          "nor onto borrowing from its own profile")
 
     // A bundle can fall out of step at any version, and it was the current one
     // that did, so this cannot be gated on the version the way the launcher is.

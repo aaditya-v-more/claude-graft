@@ -81,6 +81,8 @@ any of these. The why is in [notes/updates-and-releases.md](notes/updates-and-re
 - **Opening a profile that is already open shows the Claude that is there.** Nothing in `Sources/App` calls `Graft.launch` directly.
 - **A shortcut behaves like the Graft that built it.** `Installer.refreshLaunchers` replaces stale launchers by version stamp, so launcher changes need a version bump.
 - **The bundle's `graft.json` is what runs, not `shortcuts.json`.** `Installer.refreshConfig` repairs the bundle at every launch.
+- **A shortcut's app is found by the profile it opens,** its names first: `Installer.installedBundle(for:among:)`, the one lookup Open, the repairs and Delete share.
+- **`refreshConfig` repairs the source and never moves the profile.** A folder reaches the bundle only through Update; until then the window holds a created shortcut's folder edit back.
 - **The pid comes from `ps`, never pgrep;** `isClaudeProcess` picks the browser process out of the helpers.
 - **A bundle is not an instance:** `launch` passes `-n`, and no `--user-data-dir` for the main profile.
 - **Every `pgrep` on `user-data-dir=` is anchored with `([[:space:]]|$)`.**
