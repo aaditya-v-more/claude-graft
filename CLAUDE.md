@@ -100,6 +100,7 @@ any of these. The why is in [notes/updates-and-releases.md](notes/updates-and-re
 - **A first pass that finds a stash already there is a second one;** `dropBorrowedCopies` runs only on a folder resolving inside the profile.
 - **Chats an account switch left behind are copied, never moved,** and nothing moves while any Claude is up.
 - **That offer is silenced at the door, never in the window.**
+- **A new Claude reads its own chats;** only `ContentView.add()` says so. `Shortcut`'s default and decoding stay `.main`, so no saved Claude changes what it reads.
 - **A store may spell account and organization by their first eight characters** — `counterpartDirectory`. Every walk asks `isDirectory`; `skills-plugin` is not an account.
 
 ### Session records — [notes/session-records.md](notes/session-records.md)
@@ -147,7 +148,11 @@ any of these. The why is in [notes/updates-and-releases.md](notes/updates-and-re
 - **An artifact sign-in stays in its web store.** One `WKWebsiteDataStore` per account, loaded only with claude.ai; requests go out from a claude.ai page by `callAsyncJavaScript`, never from `URLSession`, and nothing reads `httpCookieStore`. Signing out removes the store. Claude profiles' cookies are never decrypted.
 - **Every `/api/frame` request carries `X-Frame-CP: go`,** or the service answers 404 as though the artifact did not exist.
 - **Artifacts are asked for when the list is shown or refreshed, never on a timer.**
-- **Groups are Graft's,** in `artifact-groups.json`; sharing with one invites each address as a `reader`, and only the owner is offered a change.
+- **Groups are Graft's,** in `artifact-groups.json`; each person is invited with the group's role for them, an address missing from `roles` is a `reader`, and only the owner is offered a change.
+- **A role an artifact does not take is lowered, never raised** — `ArtifactRole.offered(by:)`, asked of the permissions before every share.
+- **Only what the list allows is offered:** rename and delete to the owner, duplicate where `duplicable` says so.
+- **An export is drawn where no sign-in is.** Files come from the file host with `credentials: "omit"` into a temporary folder, and `ArtifactRenderer` draws them in a non-persistent store that follows no link out.
+- **Sign-in is by emailed code alone,** and every way into one says so (`ArtifactsView.signInHint`).
 
 ### Projects and search — [notes/projects-and-search.md](notes/projects-and-search.md)
 

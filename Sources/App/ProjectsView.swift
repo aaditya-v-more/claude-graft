@@ -498,6 +498,11 @@ private struct SignInPrompt: View {
             OneLineNote(text: L10n.text(text), more: note, topic: topic, id: "\(id).sign-in-note")
             Button("Sign In…") { accounts.signInNewAccount() }
                 .identified("\(id).sign-in")
+            Text(L10n.text(ArtifactsView.signInHint))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .identified("\(id).sign-in-hint")
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }

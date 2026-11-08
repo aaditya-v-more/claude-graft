@@ -39,6 +39,22 @@ same-account branch's early exit — and the link is made after the store is
 opened, since a same-account graft puts the whole store away and builds it back
 and would take the link to the stash with everything else.
 
+## What a new Claude reads
+
+**A new Claude starts with chats of its own.** Borrowing another Claude's
+chats was the way to use one account's history from another's usage, and the
+usage pool now lends usage without sharing anything, so the default moved to
+the choice that touches nothing: `ContentView.add()` makes a shortcut with
+`source: .own`, and borrowing is chosen afterwards in its detail, as before.
+
+The move is only there. `Shortcut`'s own default and its decoding fallback
+stay `.main`, because a `shortcuts.json` written before `source` existed means
+by a missing source exactly that, and a Claude that has been reading Claude's
+chats since must go on reading them after an update. Nothing is migrated, no
+graft is undone, and a Claude already sharing keeps sharing. The suite holds
+all three: the new default, the old one, and `add()` as the only place a new
+shortcut is made.
+
 ## Grafting, stashing and mirroring
 
 **Never destroy what a profile owns.** Anything a link replaces is moved to a

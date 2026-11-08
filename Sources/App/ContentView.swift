@@ -268,8 +268,14 @@ struct ContentView: View {
         return L10n.format("Reads chats from %@", store.label(for: shortcut.source))
     }
 
+    /// A new Claude starts with chats of its own, since lending usage
+    /// belongs to the pool now and needs no shared history; borrowing another
+    /// Claude's chats is a choice made afterwards in its detail. Only here:
+    /// `Shortcut`'s own default stays `.main`, which is what every list saved
+    /// before this change means by a Claude with no source written down, so
+    /// none of those changes what it reads.
     private func add() {
-        var shortcut = Shortcut(name: store.uniqueName())
+        var shortcut = Shortcut(name: store.uniqueName(), source: .own)
         // Set once, here: an existing Claude keeps the colour it has, so
         // nobody's Dock changes under them when this rule arrived.
         shortcut.iconPreset = Shortcut.IconPreset.next(besides: Shared.usagePool.coloursInUse)
@@ -291,7 +297,7 @@ private struct EmptyState: View {
             Text(L10n.text(hasShortcuts ? "Select a shortcut" : "No shortcuts yet"))
                 .font(.title3)
                 .accessibilityAddTraits(.isHeader)
-            Text("Each shortcut opens Claude on its own account,\nand can borrow another account's Claude Code chats.")
+            Text("Each shortcut opens Claude on its own account with its own chats,\nand can borrow another account's Claude Code chats if you choose.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)

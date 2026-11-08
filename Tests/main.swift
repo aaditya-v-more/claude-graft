@@ -5809,6 +5809,14 @@ do {
 
 // MARK: - Artifacts across accounts
 
+/// A group as Graft read it before roles, to prove an older Graft can still
+/// read what this one writes.
+struct LegacyGroup: Decodable {
+    var id: UUID
+    var name: String
+    var emails: [String]
+}
+
 section("Artifacts")
 
 do {
@@ -5916,6 +5924,140 @@ do {
     check(scene.contains(".modifier(SmallestWindow())") && !scene.contains("minWidth: 720, minHeight: 460")
             && scene.contains("CGSize(width: 820, height: 560)"),
           "the window cannot be dragged smaller than the 820 by 560 every page is laid out for")
+}
+
+section("Artifact roles, actions and exports")
+
+do {
+    let org = "8d22f6d4-6ac4-46cb-840d-3248ad76f2f7"
+    func text(_ data: Data) -> String { String(decoding: data, as: UTF8.self) }
+    check(text(ArtifactAPI.inviteBody(email: "a@example.com", role: .commenter))
+            == #"{"email":"a@example.com","role":"commenter"}"#
+            && text(ArtifactAPI.inviteBody(email: "a@example.com", role: .editor))
+            == #"{"email":"a@example.com","role":"editor"}"#,
+          "a commenter and an editor are invited by the role names claude.ai's invitations use")
+
+    let both = ArtifactAPI.permissions(from: Data(#"""
+        {"version":"v7","read":{"mode":"users","users":["u1"]},"commentersEnabled":true,"editorsEnabled":true}
+        """#.utf8))
+    let none = ArtifactAPI.permissions(from: Data(#"{"version":"v7","read":{"mode":"owner"}}"#.utf8))
+    let older = ArtifactAPI.permissions(from: Data(#"{"version":3,"writersEnabled":true}"#.utf8))
+    check(both?.commenters == true && both?.editors == true && both?.version == "v7"
+            && none?.commenters == false && none?.editors == false && older?.editors == true,
+          "an artifact's permissions say whether it takes commenters and editors, and silence offers neither")
+    if let both, let none {
+        var commentsOnly = none
+        commentsOnly.commenters = true
+        check(ArtifactRole.editor.offered(by: both) == .editor
+                && ArtifactRole.editor.offered(by: commentsOnly) == .commenter
+                && ArtifactRole.editor.offered(by: none) == .reader
+                && ArtifactRole.commenter.offered(by: none) == .reader
+                && ArtifactRole.reader.offered(by: both) == .reader,
+              "where an artifact does not take a role, the person gets the most it does take and never more")
+    }
+
+    let id = UUID(uuidString: "6E1F0F55-8C8B-4E64-8F73-6D3A50D3E5B1")!
+    let old = Data(#"{"emails":["a@example.com","b@example.com"],"id":"6E1F0F55-8C8B-4E64-8F73-6D3A50D3E5B1","name":"Design"}"#.utf8)
+    let oldGroup = try? JSONDecoder().decode(ArtifactGroup.self, from: old)
+    check(oldGroup?.emails == ["a@example.com", "b@example.com"] && oldGroup?.role(of: "a@example.com") == .reader
+            && oldGroup?.commonRole == .reader,
+          "a group saved before roles existed reads back with everyone a viewer, as it was shared before")
+    let encoder = JSONEncoder()
+    encoder.outputFormatting = [.sortedKeys]
+    check(oldGroup.flatMap { try? encoder.encode($0) }.map(text) == text(old),
+          "a group of viewers is written exactly as before roles, so an older Graft reads it unchanged")
+    var mixed = ArtifactGroup(id: id, name: "Review", emails: ["a@example.com", "b@example.com", "c@example.com"])
+    mixed.setRole(.editor, for: "a@example.com")
+    mixed.setRole(.commenter, for: "b@example.com")
+    let saved = try? encoder.encode(mixed)
+    let back = saved.flatMap { try? JSONDecoder().decode(ArtifactGroup.self, from: $0) }
+    check(back == mixed && back?.role(of: "c@example.com") == .reader && back?.commonRole == nil,
+          "a mixed group keeps each person's role through a save")
+    check(saved.flatMap { try? JSONDecoder().decode(LegacyGroup.self, from: $0) }?.emails == mixed.emails,
+          "an older Graft can still read a group with roles, as viewers only")
+    var editors = mixed
+    editors.setRoleForEveryone(.editor)
+    var viewers = mixed
+    viewers.setRoleForEveryone(.reader)
+    check(editors.commonRole == .editor && viewers.commonRole == .reader && viewers.roles.isEmpty,
+          "a group can be made all editors, or all viewers again")
+    let unknown = Data(#"{"emails":["a@example.com","b@example.com"],"id":"6E1F0F55-8C8B-4E64-8F73-6D3A50D3E5B1","name":"X","roles":{"a@example.com":"manager","b@example.com":"editor"}}"#.utf8)
+    let fromNewer = try? JSONDecoder().decode(ArtifactGroup.self, from: unknown)
+    check(fromNewer?.role(of: "a@example.com") == .reader && fromNewer?.role(of: "b@example.com") == .editor,
+          "a role this Graft does not know costs that one person their role, not the group")
+
+    check(ArtifactAPI.retitlePath("aadd31ed", org: org) == "/api/frame/retitle/aadd31ed?org=\(org)"
+            && text(ArtifactAPI.retitleBody("New \"name\"")) == #"{"title":"New \"name\""}"#
+            && ArtifactAPI.duplicatePath("aadd31ed", org: org) == "/api/frame/duplicate/aadd31ed?org=\(org)"
+            && ArtifactAPI.artifactPath("aadd31ed", org: org) == "/api/frame/aadd31ed?org=\(org)",
+          "renaming, copying, deleting and reading an artifact go to the artifact service's own paths")
+    check(ArtifactAPI.reason(from: Data(#"{"reason":"title_invalid"}"#.utf8)) == "title_invalid"
+            && ArtifactAPI.reason(from: Data(#"{"error":{"reason":"org_mismatch"}}"#.utf8)) == "org_mismatch",
+          "claude.ai's reason for a refusal is read wherever it puts it")
+
+    let row = Data(#"""
+        {"artifacts":[
+          {"kind":"page","id":"a1","rel":"mine","title":"T","audience":"owner","renamable":true,
+           "duplicable":true,"duplicate_available":false},
+          {"kind":"page","id":"a2","rel":"shared","title":"U","audience":"users"}]}
+        """#.utf8)
+    let rows = ArtifactAPI.page(from: row, account: UUID(), org: org)?.artifacts
+    check(rows?.first?.renamable == true && rows?.first?.duplicable == true && rows?.first?.duplicateAvailable == false
+            && rows?.last?.renamable == false && rows?.last?.duplicable == false,
+          "only what the list says claude.ai allows is offered, and a list that says nothing offers nothing")
+
+    let bootstrap = Data(#"""
+        {"ver":"v12","assetToken":"a.b.c.1900000000","title":"Plan","files":[
+          {"path":"index.html"},{"path":"app.js"},{"path":"img/a b.png"},
+          {"path":"../escape.html"},{"path":"/etc/passwd"},{"path":"a//b"}]}
+        """#.utf8)
+    let files = ArtifactAPI.source(from: bootstrap)
+    check(files?.files == ["index.html", "app.js", "img/a b.png"] && files?.version == "v12",
+          "an artifact's files are read by the paths it lists, and none that could climb out of the folder")
+    check(ArtifactAPI.source(from: Data(#"{"ver":"v1"}"#.utf8)) == nil,
+          "an artifact that gives no token to read its files with is not read")
+    if let files {
+        let url = ArtifactAPI.fileURL("AADD31ED-02A0", source: files, path: "img/a b.png")?.absoluteString
+        check(url == "https://aadd31ed-02a0.frame.claudeusercontent.com/_f/v12/_src/img/a%20b.png?__frame_t=a.b.c.1900000000",
+              "a file is read from the artifact's own file host, as its viewer reads it")
+        check(ArtifactAPI.fileURL("x", source: files, path: "../a") == nil,
+              "no file is read from outside the artifact")
+    }
+    check(ArtifactExportFormat.fileName(for: "Q3 plan: draft/2", format: .markdown, singleFile: true) == "Q3 plan- draft-2.md"
+            && ArtifactExportFormat.fileName(for: "  ", format: .pdf, singleFile: true) == "Artifact.pdf"
+            && ArtifactExportFormat.fileName(for: "Site", format: .html, singleFile: false) == "Site.zip"
+            && ArtifactExportFormat.fileName(for: "Site", format: .word, singleFile: false) == "Site.docx",
+          "an export is named after the artifact, and a page of several files goes out zipped")
+
+    let repo = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+    func source(_ name: String) -> String {
+        (try? String(contentsOf: repo.appending(path: "Sources/App/\(name)"), encoding: .utf8)) ?? ""
+    }
+    let export = source("ArtifactExport.swift")
+    let center = source("ArtifactCenter.swift")
+    check(export.contains("websiteDataStore = .nonPersistent()") && !export.contains("dataStore(for")
+            && export.contains("decidePolicyFor") && center.contains(#"credentials: "omit""#),
+          "an export is drawn where no sign-in is, and its files are read with no cookie")
+    check(!export.contains("URLSession") && !export.contains("httpCookieStore"),
+          "an export reads nothing a page of claude.ai did not hand it")
+    let view = source("ArtifactsView.swift")
+    check(view.contains("signInHint") && source("ProjectsView.swift").contains("ArtifactsView.signInHint")
+            && center.contains("ArtifactsView.signInHint"),
+          "every way into a sign-in says to use an emailed code")
+    check(view.contains("Circle()") && view.range(of: #"Circle\(\)[\s\S]*Menu \{"#, options: .regularExpression) != nil,
+          "an account's dot is drawn beside its menu, where a borderless menu cannot drop it")
+
+    let content = source("ContentView.swift")
+    let model = source("Model.swift")
+    check(content.contains("Shortcut(name: store.uniqueName(), source: .own)"),
+          "a new Claude starts with chats of its own")
+    check(model.contains("var source: Source = .main")
+            && model.contains("decodeIfPresent(Source.self, forKey: .source) ?? .main")
+            && content.components(separatedBy: "store.shortcuts.append(").count == 2,
+          "a Claude saved before that keeps reading the chats it read, and nothing else makes a new one")
+    let saved1 = Data(#"[{"id":"6E1F0F55-8C8B-4E64-8F73-6D3A50D3E5B1","name":"Work","folder":"Claude-Work"}]"#.utf8)
+    check((try? JSONDecoder().decode([Shortcut].self, from: saved1))?.first?.source == .main,
+          "a saved Claude with no source written down still reads Claude's own chats")
 }
 
 // MARK: - Projects and search across accounts

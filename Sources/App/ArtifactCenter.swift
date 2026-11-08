@@ -89,6 +89,39 @@ final class ClaudeWebSession: NSObject, WKNavigationDelegate {
         return (status, Data(text.utf8))
     }
 
+    /// One of an artifact's files, read from the host its viewer reads it
+    /// from. No cookie goes with it: the file host is not claude.ai, and the
+    /// token in the address is all it takes, as it is for claude.ai's own
+    /// viewer. The bytes come back as base64, the one way binary survives the
+    /// trip out of a page.
+    func download(_ url: URL) async throws -> (status: Int, data: Data) {
+        try await ready()
+        guard let webView else { throw Failure.unreachable }
+        let script = """
+            const response = await fetch(url, {credentials: "omit", cache: "no-store",
+                                               referrerPolicy: "no-referrer"});
+            if (!response.ok) return {status: response.status, body: ""};
+            const bytes = new Uint8Array(await response.arrayBuffer());
+            let binary = "";
+            for (let i = 0; i < bytes.length; i += 0x8000) {
+                binary += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+            }
+            return {status: response.status, body: btoa(binary)};
+            """
+        let result: Any?
+        do {
+            result = try await webView.callAsyncJavaScript(script, arguments: ["url": url.absoluteString],
+                                                           contentWorld: .defaultClient)
+        } catch {
+            throw Failure.unreachable
+        }
+        guard let answer = result as? [String: Any],
+              let status = (answer["status"] as? NSNumber)?.intValue,
+              let text = answer["body"] as? String,
+              let data = Data(base64Encoded: text) else { throw Failure.unreadable }
+        return (status, data)
+    }
+
     func identity() async throws -> ArtifactAPI.Identity {
         let answer = try await send("GET", ArtifactAPI.accountPath)
         guard answer.status == 200 else { throw Failure.signedOut }
@@ -398,6 +431,10 @@ final class ArtifactCenter: ObservableObject {
     /// One invitation per address, each as claude.ai sends it from its own
     /// panel, which also emails the person. An address that fails does not
     /// stop the rest.
+    ///
+    /// Each person gets the role the group gives them where this artifact
+    /// takes it. Where it does not, they get the most it does take, never
+    /// more, and the result says how many were given less.
     func share(_ artifact: Artifact, with group: ArtifactGroup) {
         let key = "share-\(artifact.id)"
         guard !busy.contains(key), !group.emails.isEmpty else { return }
@@ -406,13 +443,24 @@ final class ArtifactCenter: ObservableObject {
             defer { busy.remove(key) }
             let session = session(artifact.account)
             var invited = 0
+            var lowered = 0
             var refusal: String?
+            let permissions: ArtifactAPI.Permissions
+            do {
+                permissions = try await self.permissions(of: artifact, session: session)
+            } catch {
+                status = message(for: error, account: artifact.account)
+                return
+            }
             for email in group.emails {
+                let wanted = group.role(of: email)
+                let role = wanted.offered(by: permissions)
                 do {
                     let answer = try await session.send("POST", ArtifactAPI.invitePath(artifact.id, org: artifact.org),
-                                                        body: ArtifactAPI.inviteBody(email: email))
+                                                        body: ArtifactAPI.inviteBody(email: email, role: role))
                     if (200..<300).contains(answer.status) {
                         invited += 1
+                        if role != wanted { lowered += 1 }
                     } else {
                         refusal = refusal ?? "\(answer.status)"
                     }
@@ -421,14 +469,168 @@ final class ArtifactCenter: ObservableObject {
                     return
                 }
             }
-            status = L10n.format("Shared “%1$@” with %2$ld of %3$ld in %4$@",
-                                 artifact.title, invited, group.emails.count, group.name)
+            status = lowered == 0
+                ? L10n.format("Shared “%1$@” with %2$ld of %3$ld in %4$@",
+                              artifact.title, invited, group.emails.count, group.name)
+                : L10n.format("Shared “%1$@” with %2$ld of %3$ld in %4$@, %5$ld with less than asked",
+                              artifact.title, invited, group.emails.count, group.name, lowered)
             if invited > 0, artifact.access == .onlyYou {
                 replace(artifact.id) { $0.audience = "users" }
             }
             if let refusal {
                 Diagnostics.note("artifacts.invite refused", ["status": refusal])
             }
+        }
+    }
+
+    private func permissions(of artifact: Artifact, session: ClaudeWebSession) async throws -> ArtifactAPI.Permissions {
+        let answer = try await session.send("GET", ArtifactAPI.permPath(artifact.id, org: artifact.org))
+        guard answer.status == 200, let permissions = ArtifactAPI.permissions(from: answer.data)
+        else { throw ClaudeWebSession.Failure.unreadable }
+        return permissions
+    }
+
+    // MARK: - Changing an artifact
+
+    func rename(_ artifact: Artifact, to title: String) {
+        let title = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let key = "rename-\(artifact.id)"
+        guard artifact.isOwn, !title.isEmpty, title != artifact.title, !busy.contains(key) else { return }
+        busy.insert(key)
+        Task {
+            defer { busy.remove(key) }
+            do {
+                let answer = try await session(artifact.account).send(
+                    "POST", ArtifactAPI.retitlePath(artifact.id, org: artifact.org),
+                    body: ArtifactAPI.retitleBody(title))
+                guard (200..<300).contains(answer.status) else {
+                    status = refused(answer)
+                    return
+                }
+                replace(artifact.id) { $0.title = title }
+                status = L10n.format("Renamed “%@”", title)
+            } catch {
+                status = message(for: error, account: artifact.account)
+            }
+        }
+    }
+
+    /// The copy belongs to the account that made it, which is why only an
+    /// artifact that account can see is offered, and the list is asked again
+    /// for it rather than guessed.
+    func duplicate(_ artifact: Artifact) {
+        let key = "duplicate-\(artifact.id)"
+        guard artifact.duplicable, !busy.contains(key) else { return }
+        busy.insert(key)
+        Task {
+            defer { busy.remove(key) }
+            do {
+                let answer = try await session(artifact.account).send(
+                    "POST", ArtifactAPI.duplicatePath(artifact.id, org: artifact.org))
+                guard (200..<300).contains(answer.status) else {
+                    status = refused(answer)
+                    return
+                }
+                status = L10n.format("Made a copy of “%@”", artifact.title)
+                await load(artifact.account)
+            } catch {
+                status = message(for: error, account: artifact.account)
+            }
+        }
+    }
+
+    /// claude.ai keeps no bin for artifacts, so this is for good; the view
+    /// asks first and says so.
+    func delete(_ artifact: Artifact) {
+        let key = "delete-\(artifact.id)"
+        guard artifact.isOwn, !busy.contains(key) else { return }
+        busy.insert(key)
+        Task {
+            defer { busy.remove(key) }
+            do {
+                let answer = try await session(artifact.account).send(
+                    "DELETE", ArtifactAPI.artifactPath(artifact.id, org: artifact.org))
+                // Already gone is what was wanted.
+                guard (200..<300).contains(answer.status)
+                        || (answer.status == 404 && ArtifactAPI.reason(from: answer.data) == "not_found") else {
+                    status = refused(answer)
+                    return
+                }
+                for key in lists.keys { lists[key]?.removeAll { $0.id == artifact.id } }
+                artifacts.removeAll { $0.id == artifact.id }
+                status = L10n.format("Deleted “%@”", artifact.title)
+            } catch {
+                status = message(for: error, account: artifact.account)
+            }
+        }
+    }
+
+    // MARK: - Exporting
+
+    /// Reads the artifact's files as its viewer does, asks where to put the
+    /// export, and makes it on this Mac. Nothing of the export goes anywhere
+    /// but the file chosen.
+    func export(_ artifact: Artifact, as format: ArtifactExportFormat) {
+        let key = "export-\(artifact.id)"
+        guard !busy.contains(key) else { return }
+        busy.insert(key)
+        Task {
+            defer { busy.remove(key) }
+            let folder = FileManager.default.temporaryDirectory
+                .appending(path: "graft-export-\(UUID().uuidString)")
+            defer { try? FileManager.default.removeItem(at: folder) }
+            do {
+                let files = try await fetchFiles(of: artifact, into: folder)
+                let single = files.count == 1
+                guard let destination = ArtifactExport.askWhere(title: artifact.title, format: format,
+                                                                singleFile: single) else { return }
+                try await ArtifactExport.write(folder: folder, format: format, singleFile: single, to: destination)
+                status = L10n.format("Exported “%1$@” to %2$@", artifact.title, destination.lastPathComponent)
+            } catch let failure as ArtifactExport.Failure {
+                status = failure.message
+                Diagnostics.note("artifacts.export failed", ["reason": "\(failure)", "format": format.rawValue])
+            } catch {
+                status = message(for: error, account: artifact.account)
+            }
+        }
+    }
+
+    private func fetchFiles(of artifact: Artifact, into folder: URL) async throws -> [String] {
+        let session = session(artifact.account)
+        let answer = try await session.send("GET", ArtifactAPI.artifactPath(artifact.id, org: artifact.org))
+        guard answer.status == 200 else {
+            throw answer.status == 404 ? ArtifactExport.Failure.gone : ArtifactExport.Failure.refused(answer.status)
+        }
+        guard let source = ArtifactAPI.source(from: answer.data) else { throw ClaudeWebSession.Failure.unreadable }
+        var total = 0
+        var written: [String] = []
+        for path in source.files {
+            guard let url = ArtifactAPI.fileURL(artifact.id, source: source, path: path) else { continue }
+            let file = try await session.download(url)
+            guard file.status == 200 else {
+                // Only the page itself is needed; a file it lists that will
+                // not come is left out, as a broken link in the page would be.
+                if path == "index.html" { throw ArtifactExport.Failure.refused(file.status) }
+                continue
+            }
+            total += file.data.count
+            guard total <= ArtifactAPI.maximumExportBytes else { throw ArtifactExport.Failure.tooLarge }
+            let target = folder.appending(path: path)
+            try FileManager.default.createDirectory(at: target.deletingLastPathComponent(),
+                                                    withIntermediateDirectories: true)
+            try file.data.write(to: target)
+            written.append(path)
+        }
+        return written
+    }
+
+    private func refused(_ answer: (status: Int, data: Data)) -> String {
+        switch ArtifactAPI.reason(from: answer.data) {
+        case "title_invalid": return L10n.text("claude.ai won't take that title")
+        case "org_mismatch": return L10n.text("claude.ai won't copy it into this account")
+        case let reason? where reason.contains("limit") || reason.contains("cap"):
+            return L10n.text("claude.ai won't make more copies today")
+        default: return L10n.format("claude.ai refused the change (%ld)", answer.status)
         }
     }
 
@@ -524,7 +726,7 @@ final class ArtifactSignInWindow: NSObject, WKNavigationDelegate, WKUIDelegate, 
         let window = NSWindow(contentRect: view.frame, styleMask: [.titled, .closable, .resizable],
                               backing: .buffered, defer: false)
         window.title = L10n.text("Sign In to claude.ai")
-        window.contentView = view
+        window.contentView = Self.withHint(view)
         window.isReleasedWhenClosed = false
         window.delegate = self
         window.center()
@@ -537,6 +739,27 @@ final class ArtifactSignInWindow: NSObject, WKNavigationDelegate, WKUIDelegate, 
 
     func close() {
         window?.close()
+    }
+
+    /// The emailed code is the one way of signing in seen through to the end
+    /// here, so the window says so above claude.ai's page, where a person
+    /// chooses how.
+    private static func withHint(_ page: WKWebView) -> NSView {
+        let hint = NSTextField(labelWithString: L10n.text(ArtifactsView.signInHint))
+        hint.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+        hint.textColor = .secondaryLabelColor
+        hint.alignment = .center
+        hint.lineBreakMode = .byTruncatingTail
+        hint.setAccessibilityIdentifier("signin.hint")
+        let bar = NSStackView(views: [hint])
+        bar.edgeInsets = NSEdgeInsets(top: 6, left: 12, bottom: 6, right: 12)
+        let stack = NSStackView(views: [bar, page])
+        stack.orientation = .vertical
+        stack.spacing = 0
+        stack.alignment = .width
+        stack.frame = page.frame
+        page.setContentHuggingPriority(.defaultLow, for: .vertical)
+        return stack
     }
 
     nonisolated func windowWillClose(_ notification: Notification) {

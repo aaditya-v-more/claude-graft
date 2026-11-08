@@ -28,10 +28,20 @@ struct ArtifactsView: View {
         only by claude.ai's own pages and is never read by Graft or sent \
         anywhere else. Signing out deletes it.
 
+        Sign in with an emailed code: enter the account's address on \
+        claude.ai's page, choose Continue with email, and type the code \
+        claude.ai sends. That is the one way of signing in Graft supports.
+
         Groups are kept by Graft on this Mac. Sharing with a group invites each \
-        address as a viewer, and claude.ai emails each person, as it does when \
-        you invite them from the artifact's own Share panel.
+        person with the role the group gives them, and claude.ai emails each \
+        one, as it does when you invite them from the artifact's own Share \
+        panel. Where an artifact takes no commenters or editors, they are \
+        invited with the most it does take, never more.
         """
+
+    /// Under every Sign In button, since a sign-in that starts another way
+    /// is one Graft does not support.
+    static let signInHint = "Use Continue with email and the code claude.ai sends you"
 
     var body: some View {
         VStack(spacing: 0) {
@@ -100,6 +110,11 @@ struct ArtifactsView: View {
                         topic: "Artifacts", id: "artifacts.sign-in-note")
             Button("Sign In…") { center.signInNewAccount() }
                 .identified("artifacts.sign-in")
+            Text(L10n.text(Self.signInHint))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .identified("artifacts.sign-in-hint")
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -196,25 +211,30 @@ struct AccountChip: View {
     var body: some View {
         let state = center.state(of: account.id)
         let name = center.name(of: account.id)
-        Menu {
-            if let email = account.email, email != name { Text(email) }
-            Button("Sign In Again…") { center.signInAgain(account.id) }
-            Divider()
-            Button("Sign Out", role: .destructive) { center.signOut(account.id) }
-        } label: {
-            HStack(spacing: 4) {
-                Circle()
-                    .fill(color(state))
-                    .frame(width: 7, height: 7)
+        // A borderless menu draws its label as a native button title, which
+        // keeps the text and drops a shape beside it, so the dot stands
+        // outside the menu: inside it, a live run found every chip with no
+        // dot at all while each was read out as signed in.
+        HStack(spacing: 4) {
+            Circle()
+                .fill(color(state))
+                .frame(width: 7, height: 7)
+                .accessibilityHidden(true)
+            Menu {
+                if let email = account.email, email != name { Text(email) }
+                Button("Sign In Again…") { center.signInAgain(account.id) }
+                Divider()
+                Button("Sign Out", role: .destructive) { center.signOut(account.id) }
+            } label: {
                 Text(name).lineLimit(1)
             }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+            .help(help(state))
+            .accessibilityLabel(name)
+            .accessibilityValue(help(state))
+            .identified("\(scope).account.\(account.id.uuidString.prefix(8))")
         }
-        .menuStyle(.borderlessButton)
-        .fixedSize()
-        .help(help(state))
-        .accessibilityLabel(name)
-        .accessibilityValue(help(state))
-        .identified("\(scope).account.\(account.id.uuidString.prefix(8))")
     }
 
     private func color(_ state: ArtifactCenter.AccountState) -> Color {
@@ -239,6 +259,9 @@ struct AccountChip: View {
 private struct ArtifactRow: View {
     @ObservedObject var center: ArtifactCenter
     let artifact: Artifact
+    @State private var renaming = false
+    @State private var newTitle = ""
+    @State private var confirmingDelete = false
 
     private var token: String { String(artifact.id.prefix(8)) }
 
@@ -274,8 +297,63 @@ private struct ArtifactRow: View {
                 .help("Open in the browser")
                 .accessibilityLabel(L10n.format("Open %@", artifact.title))
                 .identified("artifact.\(token).open")
+            actions
         }
         .padding(.vertical, 2)
+        .alert(L10n.text("Rename Artifact"), isPresented: $renaming) {
+            TextField(L10n.text("Title"), text: $newTitle)
+                .identified("artifact.\(token).new-title")
+            Button(L10n.text("Rename")) { center.rename(artifact, to: newTitle) }
+            Button(L10n.text("Cancel"), role: .cancel) {}
+        }
+        .confirmationDialog(L10n.format("Delete “%@”?", artifact.title), isPresented: $confirmingDelete) {
+            Button(L10n.text("Delete"), role: .destructive) { center.delete(artifact) }
+                .identified("artifact.\(token).confirm-delete")
+            Button(L10n.text("Cancel"), role: .cancel) {}
+        } message: {
+            Text("claude.ai keeps no copy, and everyone it was shared with loses it too.")
+        }
+    }
+
+    /// What claude.ai's own menu offers for an artifact, each only where the
+    /// list says claude.ai would allow it.
+    private var actions: some View {
+        let working = ["rename", "duplicate", "delete", "export"]
+            .contains { center.busy.contains("\($0)-\(artifact.id)") }
+        return Menu {
+            if artifact.isOwn && artifact.renamable {
+                Button(L10n.text("Rename…")) {
+                    newTitle = artifact.title
+                    renaming = true
+                }
+            }
+            if artifact.duplicable {
+                Button(L10n.text("Duplicate")) { center.duplicate(artifact) }
+                    .disabled(!artifact.duplicateAvailable)
+            }
+            Menu(L10n.text("Export")) {
+                ForEach(ArtifactExportFormat.allCases) { format in
+                    Button(format.label + "…") { center.export(artifact, as: format) }
+                }
+            }
+            if artifact.isOwn {
+                Divider()
+                Button(L10n.text("Delete…"), role: .destructive) { confirmingDelete = true }
+            }
+        } label: {
+            if working {
+                ProgressView().controlSize(.small)
+            } else {
+                named("ellipsis.circle", L10n.format("More for %@", artifact.title))
+            }
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .disabled(working)
+        .help(L10n.text("Rename, duplicate, export or delete"))
+        .accessibilityLabel(L10n.format("More for %@", artifact.title))
+        .identified("artifact.\(token).more")
     }
 
     private var subtitle: String {
@@ -339,7 +417,8 @@ private struct ArtifactRow: View {
                 Text("No groups yet")
             }
             ForEach(center.groups) { group in
-                Button(L10n.format("%1$@ (%2$ld)", group.name, group.emails.count)) {
+                Button(L10n.format("%1$@ (%2$ld)", group.name, group.emails.count)
+                       + " · " + GroupsEditor.roleSummary(group)) {
                     center.share(artifact, with: group)
                 }
                 .disabled(group.emails.isEmpty)
@@ -360,12 +439,17 @@ private struct ArtifactRow: View {
     }
 }
 
-/// Groups on the left, the chosen one's name and addresses on the right.
-private struct GroupsEditor: View {
+/// Groups on the left; the chosen one's name, and each person in it with
+/// what they may do, on the right.
+struct GroupsEditor: View {
     @ObservedObject var center: ArtifactCenter
     @Environment(\.dismiss) private var dismiss
     @State private var selection: UUID?
-    @State private var addresses = ""
+    @State private var adding = ""
+
+    static func roleSummary(_ group: ArtifactGroup) -> String {
+        group.commonRole?.label ?? L10n.text("Mixed")
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -380,37 +464,42 @@ private struct GroupsEditor: View {
                                     .foregroundStyle(.secondary)
                                     .monospacedDigit()
                             }
-                            .spoken(group.name, value: L10n.format("%ld people", group.emails.count))
+                            .spoken(group.name, value: L10n.format("%ld people", group.emails.count)
+                                    + ", " + Self.roleSummary(group))
                             .tag(group.id)
                         }
                     }
                     .listStyle(.sidebar)
+                    // Each button carries its name in its own label: one
+                    // given only a picture and a label added from outside
+                    // was drawn and worked, and was missing from what
+                    // assistive apps could see.
                     HStack(spacing: 4) {
                         Button {
                             selection = center.addGroup(named: L10n.text("New Group")).id
-                        } label: { Image(systemName: "plus") }
+                        } label: { Label(L10n.text("New Group"), systemImage: "plus").labelStyle(.iconOnly) }
                             .buttonStyle(.borderless)
-                            .accessibilityLabel(L10n.text("New Group"))
+                            .help(L10n.text("New Group"))
                             .identified("groups.add")
                         Button {
                             if let selection { center.deleteGroup(selection) }
                             selection = center.groups.first?.id
-                        } label: { Image(systemName: "minus") }
+                        } label: { Label(L10n.text("Delete Group"), systemImage: "minus").labelStyle(.iconOnly) }
                             .buttonStyle(.borderless)
                             .disabled(selection == nil)
-                            .accessibilityLabel(L10n.text("Delete Group"))
+                            .help(L10n.text("Delete Group"))
                             .identified("groups.delete")
                         Spacer()
                     }
                     .padding(8)
                 }
-                .frame(minWidth: 160, idealWidth: 180, maxWidth: 220)
+                .frame(minWidth: 160, idealWidth: 170, maxWidth: 210)
                 detail
-                    .frame(minWidth: 300, maxWidth: .infinity, maxHeight: .infinity)
+                    .frame(minWidth: 340, maxWidth: .infinity, maxHeight: .infinity)
             }
             Divider()
             HStack {
-                OneLineNote(text: L10n.text("Sharing invites each address as a viewer"),
+                OneLineNote(text: L10n.text("Each person is invited with the role beside them"),
                             more: ArtifactsView.note, topic: "Groups", id: "groups.note")
                 Spacer()
                 Button("Done") { dismiss() }
@@ -419,31 +508,40 @@ private struct GroupsEditor: View {
             }
             .padding(12)
         }
-        .frame(width: 560, height: 380)
-        .onAppear {
-            selection = selection ?? center.groups.first?.id
-            loadAddresses()
-        }
-        .onChange(of: selection) { _ in loadAddresses() }
+        .frame(width: 600, height: 420)
+        .onAppear { selection = selection ?? center.groups.first?.id }
+        .onChange(of: selection) { _ in adding = "" }
     }
 
     @ViewBuilder
     private var detail: some View {
         if let index = center.groups.firstIndex(where: { $0.id == selection }) {
+            let group = center.groups[index]
             Form {
                 TextField("Name", text: $center.groups[index].name)
                     .identified("groups.name")
+                Picker(L10n.text("Everyone"), selection: Binding<ArtifactRole?>(
+                    get: { center.groups[index].commonRole },
+                    set: { if let role = $0 { center.groups[index].setRoleForEveryone(role) } })) {
+                    ForEach(ArtifactRole.allCases) { Text($0.label).tag(Optional($0)) }
+                    if group.commonRole == nil { Text("Mixed").tag(ArtifactRole?.none) }
+                }
+                .disabled(group.emails.isEmpty)
+                .identified("groups.everyone")
                 Section {
-                    TextEditor(text: $addresses)
-                        .font(.body.monospaced())
-                        .frame(minHeight: 150)
-                        .accessibilityLabel(L10n.text("Email Addresses"))
-                        .identified("groups.addresses")
-                        .onChange(of: addresses) { text in
-                            center.groups[index].emails = GroupAddresses.parse(text)
-                        }
+                    ForEach(Array(group.emails.enumerated()), id: \.element) { position, email in
+                        member(email, at: position, in: index)
+                    }
+                    HStack {
+                        TextField(L10n.text("Add addresses"), text: $adding)
+                            .onSubmit { add(to: index) }
+                            .identified("groups.new-addresses")
+                        Button(L10n.text("Add")) { add(to: index) }
+                            .disabled(GroupAddresses.parse(adding).isEmpty)
+                            .identified("groups.add-addresses")
+                    }
                 } header: {
-                    Text(L10n.format("Email addresses · %ld", center.groups[index].emails.count))
+                    Text(L10n.format("People · %ld", group.emails.count))
                 }
             }
             .formStyle(.grouped)
@@ -454,7 +552,41 @@ private struct GroupsEditor: View {
         }
     }
 
-    private func loadAddresses() {
-        addresses = center.groups.first { $0.id == selection }?.emails.joined(separator: "\n") ?? ""
+    private func member(_ email: String, at position: Int, in index: Int) -> some View {
+        HStack(spacing: 6) {
+            Text(email)
+                .font(.body.monospaced())
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .help(email)
+            Spacer(minLength: 4)
+            Picker(L10n.format("Role for %@", email), selection: Binding(
+                get: { center.groups[index].role(of: email) },
+                set: { center.groups[index].setRole($0, for: email) })) {
+                ForEach(ArtifactRole.allCases) { Text($0.label).tag($0) }
+            }
+            .labelsHidden()
+            .pickerStyle(.menu)
+            .fixedSize()
+            .identified("groups.member.\(position).role")
+            Button {
+                center.groups[index].emails.removeAll { $0 == email }
+                center.groups[index].roles[email] = nil
+            } label: { Label(L10n.format("Remove %@", email), systemImage: "minus.circle").labelStyle(.iconOnly) }
+                .buttonStyle(.borderless)
+                .help(L10n.text("Remove from the group"))
+                .identified("groups.member.\(position).remove")
+        }
+    }
+
+    /// Pasted addresses join with the role everyone already has, so adding
+    /// to a group of editors adds editors.
+    private func add(to index: Int) {
+        let role = center.groups[index].commonRole ?? .reader
+        for email in GroupAddresses.parse(adding) where !center.groups[index].emails.contains(email) {
+            center.groups[index].emails.append(email)
+            center.groups[index].setRole(role, for: email)
+        }
+        adding = ""
     }
 }

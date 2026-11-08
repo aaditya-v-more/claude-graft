@@ -1,4 +1,5 @@
 import AppKit
+import PDFKit
 import ApplicationServices
 import SwiftUI
 
@@ -755,6 +756,8 @@ MainActor.assumeIsolated {
             check(element("window.artifacts.sign-in", in: tree) != nil
                     && element("window.artifacts.sign-in-note-info", in: tree) != nil,
                   "\(name): with no account, one line says to sign in, and the rest is behind ⓘ")
+            check(element("window.artifacts.sign-in-hint", in: tree)?.value == L10n.text(ArtifactsView.signInHint),
+                  "\(name): under Sign In, one line says to use an emailed code")
         } else {
             for control in ["refresh", "add-account", "filter", "search", "groups"] {
                 check(element("window.artifacts.\(control)", in: tree) != nil,
@@ -767,6 +770,10 @@ MainActor.assumeIsolated {
             check(access?.value == ArtifactAccess.anyoneWithLink.label
                     && access?.name == L10n.format("Who Can Open %@", samples[0].title),
                   "\(name): who can open an artifact is read out with it, not as “Globe” \(access?.described ?? "missing")")
+            check(element("window.artifact.11111111.more", in: tree)?.name
+                    == L10n.format("More for %@", samples[0].title)
+                    && element("window.artifact.33333333.more", in: tree) != nil,
+                  "\(name): every artifact has its menu of actions, named for the artifact")
             check(element("window.artifact.33333333.access", in: tree) == nil,
                   "\(name): an artifact someone else owns offers no change to who can open it")
             let row = element("window.artifact.33333333", in: tree)
@@ -798,6 +805,114 @@ MainActor.assumeIsolated {
         }
         window.orderOut(nil)
     }
+}
+
+// Each person in a group with what they may do, and every control in the
+// editor reachable from outside: a live run found its minus button drawn and
+// working but missing from what assistive apps were given.
+MainActor.assumeIsolated {
+    var group = ArtifactGroup(id: UUID(), name: "Review",
+                              emails: ["editor@example.com", "commenter@example.com", "viewer@example.com"])
+    group.setRole(.editor, for: "editor@example.com")
+    group.setRole(.commenter, for: "commenter@example.com")
+    let center = ArtifactCenter(accounts: [], artifacts: [], groups: [group])
+    let hosting = NSHostingView(rootView: GroupsEditor(center: center)
+        .background(Color(nsColor: .windowBackgroundColor))
+        .environment(\.controlSurface, ControlSurface.window))
+    let window = LayoutWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 420),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+    window.title = "Groups check"
+    window.appearance = NSAppearance(named: .aqua)
+    window.contentView = hosting
+    window.setFrameOrigin(NSPoint(x: -10000, y: -10000))
+    window.orderBack(nil)
+    settle()
+    let tree = checkAccessibility(window, surface: ControlSurface.window, "groups")
+    check(element("window.groups.add", in: tree)?.name == L10n.text("New Group")
+            && element("window.groups.delete", in: tree)?.name == L10n.text("Delete Group"),
+          "groups: adding and deleting a group can both be found and say what they do")
+    for position in 0..<3 {
+        check(element("window.groups.member.\(position).role", in: tree) != nil
+                && element("window.groups.member.\(position).remove", in: tree) != nil,
+              "groups: person \(position + 1) has a role to choose and a way out of the group")
+    }
+    let editorRole = element("window.groups.member.0.role", in: tree)
+    check(editorRole?.value == ArtifactRole.editor.label || editorRole?.title == ArtifactRole.editor.label,
+          "groups: each person's role is read out as the one they have \(editorRole.map { "\($0.described) \($0.value)" } ?? "missing")")
+    check(element("window.groups.everyone", in: tree) != nil && element("window.groups.new-addresses", in: tree) != nil,
+          "groups: everyone can be given one role, and more addresses pasted in")
+    if let directory = ProcessInfo.processInfo.environment["GRAFT_LAYOUT_SNAPSHOTS"] {
+        let output = URL(fileURLWithPath: directory).appending(path: Bundle.main.preferredLocalizations.first ?? "en")
+        try! fm.createDirectory(at: output, withIntermediateDirectories: true)
+        if let bitmap = hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds) {
+            hosting.cacheDisplay(in: hosting.bounds, to: bitmap)
+            try! bitmap.representation(using: .png, properties: [:])!.write(to: output.appending(path: "groups.png"))
+        }
+    }
+    window.orderOut(nil)
+}
+
+// An export drawn from files on disk, as one read from claude.ai would be,
+// without reaching it. The page builds part of itself with script, which is
+// the part an export of the source alone would miss.
+MainActor.assumeIsolated {
+    let folder = fm.temporaryDirectory.appending(path: "graft-export-check-\(UUID().uuidString)")
+    try! fm.createDirectory(at: folder, withIntermediateDirectories: true)
+    defer { try? fm.removeItem(at: folder) }
+    let page = """
+        <!doctype html><html><head><title>Plan</title><style>.gone{display:none}</style></head><body>
+        <h1>Quarterly plan</h1>
+        <p>Ship <strong>roles</strong>, <em>exports</em> and <code>a_b</code>. See <a href="https://example.com/x">the notes</a>.</p>
+        <ul><li><input type="checkbox" checked> done</li><li><input type="checkbox"> next
+          <ol><li>first</li><li>second</li></ol></li></ul>
+        <table><tr><th>Name</th><th>Role</th></tr><tr><td>Ana</td><td>Editor</td></tr></table>
+        <pre>let x = 1</pre>
+        <p class="gone">hidden words</p>
+        <button>Press</button>
+        <div id="later"></div>
+        <script>document.getElementById("later").innerHTML = "<p>Drawn by script</p>";</script>
+        </body></html>
+        """
+    try! Data(page.utf8).write(to: folder.appending(path: "index.html"))
+    var results: [ArtifactExportFormat: Data] = [:]
+    var failed: [ArtifactExportFormat: String] = [:]
+    var finished = false
+    Task { @MainActor in
+        for format in [ArtifactExportFormat.markdown, .pdf, .word] {
+            do {
+                results[format] = try await ArtifactRenderer.render(folder.appending(path: "index.html"),
+                                                                    in: folder, as: format)
+            } catch {
+                failed[format] = "\(error)"
+            }
+        }
+        finished = true
+    }
+    let deadline = Date().addingTimeInterval(90)
+    while !finished && Date() < deadline { RunLoop.main.run(until: Date().addingTimeInterval(0.05)) }
+    let markdown = results[.markdown].map { String(decoding: $0, as: UTF8.self) } ?? ""
+    let expected = [
+        "# Quarterly plan",
+        "Ship **roles**, *exports* and `a_b`. See [the notes](https://example.com/x).",
+        "- [x] done\n- [ ] next\n  1. first\n  2. second",
+        "| Name | Role |\n| --- | --- |\n| Ana | Editor |",
+        "```\nlet x = 1\n```",
+        "Drawn by script",
+    ]
+    let missing = expected.filter { !markdown.contains($0) }
+    check(failed[.markdown] == nil && missing.isEmpty,
+          "export: Markdown keeps headings, emphasis, links, checkboxes, nested lists, tables and code \(failed[.markdown] ?? "") missing \(missing) in \(markdown.debugDescription)")
+    check(!markdown.contains("hidden words") && !markdown.contains("Press") && !markdown.contains("getElementById"),
+          "export: Markdown leaves out what is hidden, controls and scripts, as claude.ai's own does")
+    let pdf = results[.pdf].flatMap { PDFDocument(data: $0) }
+    check(failed[.pdf] == nil && pdf?.string?.contains("Quarterly plan") == true
+            && pdf?.string?.contains("Drawn by script") == true,
+          "export: the PDF holds the page as drawn \(failed[.pdf] ?? "")")
+    let word = results[.word]
+    let reread = word.flatMap { try? NSAttributedString(data: $0, options: [.documentType: NSAttributedString.DocumentType.officeOpenXML],
+                                                        documentAttributes: nil) }
+    check(failed[.word] == nil && word?.prefix(2) == Data("PK".utf8) && reread?.string.contains("Quarterly plan") == true,
+          "export: the Word document opens and holds the page's text \(failed[.word] ?? "")")
 }
 
 print("\(checks - failures)/\(checks) layout checks passed (\(Bundle.main.preferredLocalizations.joined(separator: ",")))")
