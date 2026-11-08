@@ -197,7 +197,13 @@ final class ShortcutStore: ObservableObject {
         guard let shortcut = shortcut(id) else { return nil }
         Installer.uninstall(shortcut)
 
-        let sharedWithAnother = shortcuts.contains { $0.id != id && $0.folder == shortcut.folder }
+        // As the disk compares them, which ignores case: `Claude-Work` and
+        // `claude-work` are one profile, and deleting either one's would take
+        // the other's.
+        let sharedWithAnother = shortcuts.contains {
+            $0.id != id && (Graft.isNamed($0.folder, shortcut.folder)
+                            || Graft.samePath($0.profileDir, shortcut.profileDir))
+        }
 
         var problem: String?
         if deletingProfile {

@@ -13,6 +13,18 @@ names. This rule exists because an earlier version matched on name and deleted
 Support, never `Claude`, never a path. Without this, typing `Claude` into the
 folder field pointed a shortcut at Claude's own profile.
 
+The reserved names are compared ignoring case, because a Mac's usual volume
+does. `claude` passed the old check and was Claude's own profile under another
+spelling; `claudegraft` passed it too and put a profile in Graft's own state
+folder, and deleting that profile would have taken every pair, baseline and
+record with it. `deleteProfile` refuses Graft's folder outright, by path and by
+name, since a path spelt in another case need not resolve to the same string,
+and `ShortcutStore.delete` counts two shortcuts as sharing a profile when their
+folders match ignoring case or resolve to the same place, not when the text is
+identical. The one place that still lets `Claude` through, the manual-update
+library for the main profile, asks the same way, so a profile reached through a
+lower-case path is not refused there.
+
 ## Opening, revealing and the shortcut bundle
 
 **Every route that opens a profile asks first.** Two Claudes on one chat store

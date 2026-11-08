@@ -105,6 +105,7 @@
 "Support Claude Graft…" = "Support Claude Graft…";
 "That account is rate-limited right now." = "That account is rate-limited right now.";
 "That folder belongs to Claude Graft itself. Pick another name." = "That folder belongs to Claude Graft itself. Pick another name.";
+"That folder belongs to Claude Graft itself and will not be deleted." = "That folder belongs to Claude Graft itself and will not be deleted.";
 "That folder belongs to Claude itself and will not be deleted." = "That folder belongs to Claude itself and will not be deleted.";
 "That is Claude's own profile folder. Pick another name." = "That is Claude's own profile folder. Pick another name.";
 "That login was refused. Open the profile once so Claude can renew it." = "That login was refused. Open the profile once so Claude can renew it.";

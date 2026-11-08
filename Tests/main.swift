@@ -648,6 +648,19 @@ do {
           "the root of the disk is refused")
     check(refusal(support.appending(path: "Claude/../Claude")) == .mainProfile,
           "a path that walks back round to the main profile is still refused")
+    check(refusal(support.appending(path: "claude")) == .mainProfile,
+          "so is the main profile spelt in lower case")
+    check(fm.fileExists(atPath: main.path), "which is still there")
+
+    let graftOwn = support.appending(path: "ClaudeGraft")
+    try? fm.createDirectory(at: graftOwn, withIntermediateDirectories: true)
+    let graftMarker = graftOwn.appending(path: "graft-deletion-marker")
+    try? Data("x".utf8).write(to: graftMarker)
+    check(refusal(graftOwn) == .graftFolder, "Graft's own folder is refused")
+    check(refusal(support.appending(path: "claudegraft")) == .graftFolder,
+          "and so is it in lower case")
+    check(fm.fileExists(atPath: graftMarker.path), "and what Graft keeps there survives")
+    try? fm.removeItem(at: graftMarker)
 
     let store = ShortcutStore()
     var keeper = Shortcut(name: "Work", source: .main)
@@ -674,6 +687,17 @@ do {
     store.delete(keepShortcut.id, deletingProfile: false)
     check(fm.fileExists(atPath: kept.path), "deleting the shortcut alone keeps the profile")
 
+    let cased = makeProfile("Claude-Cased", account: "DDDD", org: "ORG-D", chats: ["kept"])
+    var upper = Shortcut(name: "Cased", source: .own)
+    upper.folder = "Claude-Cased"
+    var lower = Shortcut(name: "cased", source: .own)
+    lower.folder = "claude-cased"
+    store.shortcuts = [upper, lower]
+    check(store.delete(lower.id, deletingProfile: true) != nil,
+          "a shortcut whose folder differs from another's only in case is sharing it")
+    check(fm.fileExists(atPath: cased.path), "so the profile both read survives")
+
+    try? fm.removeItem(at: cased)
     try? fm.removeItem(at: main)
     try? fm.removeItem(at: kept)
 }
@@ -768,6 +792,9 @@ check(Graft.validateFolder("a/b") != nil, "nor one with a separator")
 check(Graft.validateFolder(".hidden") != nil, "nor a hidden name")
 check(Graft.validateFolder("Claude") != nil, "Claude's own folder is refused")
 check(Graft.validateFolder("ClaudeGraft") != nil, "and so is Graft's own")
+check(Graft.validateFolder("claude") != nil, "Claude's folder is refused in any case, as the disk ignores it")
+check(Graft.validateFolder("CLAUDEGRAFT") != nil, "and so is Graft's")
+check(Graft.validateFolder("Claude-claude") == nil, "a name merely containing Claude is still fine")
 
 do {
     var shortcut = Shortcut(name: "Escapee", folder: "../Escaped", source: .own)

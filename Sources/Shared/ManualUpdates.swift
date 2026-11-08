@@ -112,7 +112,8 @@ enum ManualUpdates {
 
     static func library(for profile: URL) throws -> URL {
         guard Graft.samePath(profile.deletingLastPathComponent(), Graft.applicationSupport),
-              profile.lastPathComponent == "Claude" || Graft.validateFolder(profile.lastPathComponent) == nil
+              Graft.isNamed(profile.lastPathComponent, "Claude")
+                || Graft.validateFolder(profile.lastPathComponent) == nil
         else { throw Failure.invalidProfile }
         let folder = profile.lastPathComponent.hasSuffix("-3p")
             ? profile.lastPathComponent : profile.lastPathComponent + "-3p"

@@ -75,7 +75,7 @@ any of these. The why is in [notes/updates-and-releases.md](notes/updates-and-re
 ### Opening a profile — [notes/opening-profiles.md](notes/opening-profiles.md)
 
 - **Never touch an app Graft did not create.** Bundles are known by the `graft.json` they carry, never by name; `Claude` and `Claude Graft` are reserved.
-- **Profile folders are validated:** one plain component inside Application Support, never `Claude`, never a path.
+- **Profile folders are validated:** one plain component inside Application Support, never `Claude`, never a path. Reserved names and shared folders are compared as the disk compares them, ignoring case (`Graft.isNamed`), and `deleteProfile` refuses Graft's own folder.
 - **Every route that opens a profile asks first** through `ChatConflict`; the suite fails if one of the three views stops naming it.
 - **A missing shortcut is never permission to open another profile.** `ProfileOpener` reports an error instead.
 - **Opening a profile that is already open shows the Claude that is there.** Nothing in `Sources/App` calls `Graft.launch` directly.

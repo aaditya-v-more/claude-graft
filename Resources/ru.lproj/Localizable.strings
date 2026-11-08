@@ -105,6 +105,7 @@
 "Support Claude Graft…" = "Поддержать Claude Graft…";
 "That account is rate-limited right now." = "Сейчас для этой учётной записи действует ограничение частоты запросов.";
 "That folder belongs to Claude Graft itself. Pick another name." = "Эта папка принадлежит самому Claude Graft. Выберите другое имя.";
+"That folder belongs to Claude Graft itself and will not be deleted." = "Эта папка принадлежит самому Claude Graft и не будет удалена.";
 "That folder belongs to Claude itself and will not be deleted." = "Эта папка принадлежит самому Claude и не будет удалена.";
 "That is Claude's own profile folder. Pick another name." = "Это папка собственного профиля Claude. Выберите другое имя.";
 "That login was refused. Open the profile once so Claude can renew it." = "Данные входа отклонены. Откройте профиль, чтобы Claude обновил их.";

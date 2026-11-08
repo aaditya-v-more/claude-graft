@@ -63,13 +63,27 @@ enum Graft {
         if trimmed == "." || trimmed == ".." || trimmed.hasPrefix(".") {
             return L10n.format("“%@” is not a usable folder name.", trimmed)
         }
-        if trimmed == "Claude" {
+        // Ignoring case, because the disk does: `claude` is the same folder as
+        // `Claude` on a Mac's usual volume, and a shortcut on it was the main
+        // Claude under another name, while one on `claudegraft` put a profile
+        // inside Graft's own folder, which deleting that profile then removed.
+        if isNamed(trimmed, "Claude") {
             return L10n.text("That is Claude's own profile folder. Pick another name.")
         }
-        if trimmed == "ClaudeGraft" {
+        if isNamed(trimmed, graftFolderName) {
             return L10n.text("That folder belongs to Claude Graft itself. Pick another name.")
         }
         return nil
+    }
+
+    static let graftFolderName = "ClaudeGraft"
+
+    /// Where Graft keeps its own state, beside the profiles.
+    static var graftFolder: URL { applicationSupport.appending(path: graftFolderName) }
+
+    /// Two folder names the disk would take for one.
+    static func isNamed(_ folder: String, _ name: String) -> Bool {
+        folder.caseInsensitiveCompare(name) == .orderedSame
     }
 
     /// Files a second profile can share wholesale. Everything absent from this
@@ -3193,6 +3207,7 @@ enum Graft {
 
     enum ProfileError: LocalizedError, Equatable {
         case mainProfile
+        case graftFolder
         case outsideApplicationSupport
         case running
 
@@ -3200,6 +3215,8 @@ enum Graft {
             switch self {
             case .mainProfile:
                 return L10n.text("That folder belongs to Claude itself and will not be deleted.")
+            case .graftFolder:
+                return L10n.text("That folder belongs to Claude Graft itself and will not be deleted.")
             case .outsideApplicationSupport:
                 return L10n.text("Only folders directly inside ~/Library/Application Support can be deleted.")
             case .running:
@@ -3216,7 +3233,12 @@ enum Graft {
         guard samePath(profile.deletingLastPathComponent(), applicationSupport),
               !profile.lastPathComponent.isEmpty
         else { throw ProfileError.outsideApplicationSupport }
-        guard !samePath(profile, mainProfile) else { throw ProfileError.mainProfile }
+        // By name as well as by path. The disk folds case, and a path that
+        // does not resolve to the spelling on disk compares as another place.
+        guard !samePath(profile, mainProfile), !isNamed(profile.lastPathComponent, "Claude")
+        else { throw ProfileError.mainProfile }
+        guard !samePath(profile, graftFolder), !isNamed(profile.lastPathComponent, graftFolderName)
+        else { throw ProfileError.graftFolder }
         guard !isRunning(profile: profile) else { throw ProfileError.running }
         guard isDirectory(profile) else { return }
         try fm.removeItem(at: profile)
