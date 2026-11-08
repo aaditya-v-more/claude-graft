@@ -134,6 +134,7 @@ any of these. The why is in [notes/updates-and-releases.md](notes/updates-and-re
 - **The lines go only into a closed Claude,** under `SidebarSync.withLaunchLock`; a launcher swaps only the exact value `pool/environment.json` expects. `PoolEnvironment.swift` alone names the file.
 - **The lines take nothing away:** a proxy or certificate a person set is left alone, and copies in `scopedEnvVars` come out whenever the profile is found closed.
 - **No relay is worse than no sharing.** `graft-relay` outlives Graft; a launcher that cannot reach it opens without the lines, and the lines come out before the relay goes.
+- **A relay is replaced only by a Graft that can configure its successor** (`relayStep`): with the key shut nothing is configured, the relay there is kept with what it has, and the dropdown says lending is paused. One whose status will not decode is sent a bare quit.
 - **The authority vouches for `api.anthropic.com` alone,** its key deleted once it has signed and the identity imported with `kSecImportToMemoryOnly`, which is why sharing needs macOS 15.
 - **A sender is the SHA-256 of its bearer** against its profile's token cache; a request nobody owns passes through, and a pane sign-in's refresh token is never read.
 - **Which account answers:** room is under 98% of five hours and 99% of the week, soonest weekly reset first; a conversation stays while its cache lives, and a choice from the dropdown outranks both until a day of quiet.

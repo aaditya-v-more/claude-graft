@@ -326,7 +326,10 @@
 "Login refused · open that Claude to renew it" = "Вход отклонён · откройте тот Claude, чтобы обновить";
 "Login expired · sign in again" = "Вход истёк · войдите снова";
 "Login expired · open that Claude to renew it" = "Вход истёк · откройте тот Claude, чтобы обновить";
-"Login locked · turn on live usage in the menu bar" = "Вход заблокирован · включите живые данные в строке меню";
+"Login locked · open the keychain from the menu bar" = "Вход заблокирован · откройте Связку ключей из строки меню";
+"Lending is paused until the keychain is opened" = "Общие лимиты приостановлены, пока не будет открыт доступ к Связке ключей";
+"Lending paused · open the keychain" = "Общие лимиты на паузе · открыть Связку ключей";
+"Graft cannot read Claude's logins until macOS lets it into the keychain, so it cannot hand them to the relay. macOS asks once; choose Always Allow." = "Graft не может прочитать входы Claude, пока macOS не откроет ему доступ к Связке ключей, и поэтому не может передать их ретранслятору. macOS спросит один раз; выберите «Разрешать всегда».";
 "Week %ld%%" = "Неделя %ld%%";
 "5h %ld%%" = "5 ч %ld%%";
 "5 hours reset %@" = "5 часов обнулятся %@";

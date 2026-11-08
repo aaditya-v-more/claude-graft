@@ -313,7 +313,7 @@ private struct LenderRow: View {
             return isAccount ? L10n.text("Login expired · sign in again")
                              : L10n.text("Login expired · open that Claude to renew it")
         case .unreadable:
-            return L10n.text("Login locked · turn on live usage in the menu bar")
+            return L10n.text("Login locked · open the keychain from the menu bar")
         case .ready:
             break
         }
@@ -340,6 +340,28 @@ struct SharedChats: View {
     var body: some View {
         ConversationList(chats: pool.chats(front: frontmost.profile),
                          front: pool.claudeKey(for: frontmost.profile))
+    }
+}
+
+/// The dropdown's word that the relay is carrying on with the logins it was
+/// last given, because this Graft cannot read the key to give it current ones.
+/// Every update arrives under a signature the keychain item has never seen,
+/// and nothing else said why lending had stopped following the logins.
+struct LendingPausedNotice: View {
+    @ObservedObject private var pool = Shared.usagePool
+
+    var body: some View {
+        if pool.lendingPaused {
+            Button { pool.openKeychain(interactive: true) } label: {
+                Label("Lending paused · open the keychain", systemImage: "lock")
+                    .font(.callout)
+            }
+            .buttonStyle(.link)
+            .help("Graft cannot read Claude's logins until macOS lets it into the keychain, so it cannot hand them to the relay. macOS asks once; choose Always Allow.")
+            .identified("lending-paused")
+            .padding(.horizontal, 14)
+            .padding(.bottom, 8)
+        }
     }
 }
 

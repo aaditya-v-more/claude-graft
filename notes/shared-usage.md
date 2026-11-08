@@ -123,6 +123,32 @@ the proxy it was told to use refuses the connection. That is why the pane asks
 for Open at Login, why a launcher that finds no relay opens without the lines,
 and why the lines come out before the relay goes.
 
+**A relay is replaced only by a Graft that can tell its successor
+everything.** The logins it lends are sealed with Claude's safe-storage key,
+and every update of an ad-hoc signed Graft arrives under a code hash the
+keychain item has never seen, so the first silent read after it fails. 2.0.0
+handled that by replacing the old relay with its own binary all the same and
+configuring the new one with what it had: members with no token and nothing to
+recognise them by. Confirmed live on the update to 2.0.1: the new relay
+recorded no conversations and lent nothing until Refresh Usage was pressed and
+the keychain allowed. So while the key is shut, `deliver` sends no
+configuration at all — a bare status request instead — and keeps whatever relay
+is there, older binary or not, with the logins it was last given; with no relay
+running it still starts one, because no relay breaks a connected Claude, and
+leaves it unconfigured, passing everything through, until a pass can tell it
+more. `relayStep` is the rule. The dropdown says "Lending paused · open the
+keychain" meanwhile, and that button is a person asking, so it is allowed to
+raise the dialog a pass never may. A key that is missing rather than shut is a
+Mac with no logins, and is delivered as before.
+
+A relay whose status will not decode is a relay all the same. A later release
+that adds a required field or drops one would answer in a shape this one cannot
+read, and 2.0.0 asked a relay to quit only when its status decoded, so it left
+the old one serving, started another every twenty seconds that exited on the
+lock, and with the relay counted as not ready took the lines out of every
+borrowing Claude found closed. Now an unreadable answer is replaced like any
+other build, by a bare `{"quit":true}`, which every relay since 2.0.0 reads.
+
 **The authority it presents can vouch for one name.** A `CONNECT` for
 `api.anthropic.com:443` is taken apart by an inner TLS listener; every other is
 passed through as bytes. The certificate comes from an authority Graft makes

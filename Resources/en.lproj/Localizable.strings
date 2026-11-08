@@ -326,7 +326,10 @@
 "Login refused · open that Claude to renew it" = "Login refused · open that Claude to renew it";
 "Login expired · sign in again" = "Login expired · sign in again";
 "Login expired · open that Claude to renew it" = "Login expired · open that Claude to renew it";
-"Login locked · turn on live usage in the menu bar" = "Login locked · turn on live usage in the menu bar";
+"Login locked · open the keychain from the menu bar" = "Login locked · open the keychain from the menu bar";
+"Lending is paused until the keychain is opened" = "Lending is paused until the keychain is opened";
+"Lending paused · open the keychain" = "Lending paused · open the keychain";
+"Graft cannot read Claude's logins until macOS lets it into the keychain, so it cannot hand them to the relay. macOS asks once; choose Always Allow." = "Graft cannot read Claude's logins until macOS lets it into the keychain, so it cannot hand them to the relay. macOS asks once; choose Always Allow.";
 "Week %ld%%" = "Week %ld%%";
 "5h %ld%%" = "5h %ld%%";
 "5 hours reset %@" = "5 hours reset %@";

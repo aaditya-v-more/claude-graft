@@ -5569,6 +5569,57 @@ do {
     let delivered = (try? JSONEncoder().encode(command))
         .flatMap { try? JSONDecoder().decode(PoolCommand.self, from: $0) }
     check(delivered?.configure == command.configure, "the pool reaches the relay exactly as Graft described it")
+
+    // Replacing a relay. A relay holds the logins it was last given, and a new
+    // one knows none until it is told, so only a Graft that can tell it
+    // everything replaces one.
+    func relayAnswering(_ line: String) -> String {
+        let path = NSTemporaryDirectory() + "graft-\(getpid())-\(UUID().uuidString.prefix(6)).sock"
+        unlink(path)
+        let listener = socket(AF_UNIX, SOCK_STREAM, 0)
+        var address = PoolSocket.unixAddress(path)!
+        _ = withUnsafePointer(to: &address) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                bind(listener, $0, socklen_t(MemoryLayout<sockaddr_un>.size))
+            }
+        }
+        listen(listener, 1)
+        DispatchQueue.global().async {
+            let client = accept(listener, nil, nil)
+            _ = PoolSocket.readLine(client, limit: 1 << 20)
+            _ = PoolSocket.writeAll(client, Data((line + "\n").utf8))
+            close(client)
+            close(listener)
+            unlink(path)
+        }
+        return path
+    }
+    let today = PoolStatus(binary: "today", pid: 1, started: Date(), enabled: true, configured: true,
+                           members: [], recent: [], sessions: [], openExchanges: 0)
+    let todayLine = String(decoding: try! JSONEncoder().encode(today), as: UTF8.self)
+    check(UsagePoolController.ask(PoolCommand(), at: relayAnswering(todayLine)).reply == .running(binary: "today"),
+          "a relay that answers in this release's shape is known by its binary")
+    // A release that dropped fields this one requires: no sessions, no count
+    // of open exchanges.
+    let older = #"{"binary":"older","pid":1,"started":0,"enabled":true,"configured":true,"members":[],"recent":[]}"#
+    check(UsagePoolController.ask(PoolCommand(), at: relayAnswering(older)).reply == .unreadable,
+          "one answering in an older shape is still a relay, one whose status cannot be read")
+    check(UsagePoolController.ask(PoolCommand(), at: NSTemporaryDirectory() + "graft-nobody.sock").reply == .nobody,
+          "and a socket nobody listens on is no relay at all")
+    check(String(decoding: try! JSONEncoder().encode(PoolCommand(quit: true)), as: UTF8.self) == #"{"quit":true}"#,
+          "the quit sent to a relay that cannot be read is bare, which every relay since 2.0.0 reads")
+
+    let step = UsagePoolController.relayStep
+    check(step(.unreadable, "today", true) == .replace,
+          "a relay whose status cannot be read is asked to step aside, rather than a second started beside it")
+    check(step(.running(binary: "older"), "today", true) == .replace,
+          "and so is one built from another binary, by a Graft that can tell its successor everything")
+    check(step(.running(binary: "older"), "today", false) == .keep && step(.unreadable, "today", false) == .keep,
+          "but a Graft shut out of the keychain leaves either with the logins it was lending")
+    check(step(.running(binary: "today"), "today", true) == .keep && step(.running(binary: "today"), "today", false) == .keep,
+          "a relay built from this binary is kept whatever this Graft can read")
+    check(step(.nobody, "today", false) == .start && step(.nobody, "today", true) == .start,
+          "and with none at all one is started either way, since a Claude pointed at no relay has no Claude Code")
     check(UsagePool.digest("abc") == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
           "a login is known to the relay by its SHA-256 alone")
     check(PoolEnvironment.lines == ["HTTPS_PROXY": "http://127.0.0.1:47823",

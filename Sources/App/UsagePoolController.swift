@@ -193,6 +193,9 @@ final class UsagePoolController: ObservableObject {
     @Published private(set) var accounts: [PoolAccount]
     @Published private(set) var status: PoolStatus?
     @Published private(set) var problem: String?
+    /// Something is lent and this Graft cannot read the key the logins are
+    /// sealed with, so the relay is left with what it was last told.
+    @Published private(set) var lendingPaused = false
     @Published private(set) var lending: [String: Lending] = [:]
     /// By Claude key.
     @Published private(set) var environment: [String: ClaudeCodeEnvironment.State] = [:]
@@ -622,6 +625,21 @@ final class UsagePoolController: ObservableObject {
         })
     }
 
+    /// The dropdown's button while lending is paused. Pressing it is a person
+    /// asking, which is the one thing that may put the keychain dialog up for
+    /// a Graft whose new signature the item has never seen; a pass of its own
+    /// only ever reads silently. The figures follow without asking again.
+    func openKeychain(interactive: Bool) {
+        let asking: ClaudeCredentials.Prompting = interactive ? .yes : .no
+        queue.async {
+            _ = try? ClaudeCredentials.safeStorageKey(prompting: asking)
+            DispatchQueue.main.async {
+                self.sync()
+                if let store = self.store { self.usage?.refresh(store, prompting: .no, freshness: .recent) }
+            }
+        }
+    }
+
     func restartRelay() {
         queue.async {
             _ = try? PoolSocket.send(PoolCommand(quit: true))
@@ -683,7 +701,12 @@ final class UsagePoolController: ObservableObject {
         queue.async {
             var lending: [String: Lending] = [:]
             let signedInto = Self.readAccounts(claudeProfiles)
-            let key = try? ClaudeCredentials.safeStorageKey(prompting: .no)
+            // Shut is not missing: no item at all is a Mac with no logins to
+            // lend, while a shut one has them and this build may not read them
+            // yet, which every update does to an ad-hoc signed app.
+            var key: Data?
+            var keyShut = false
+            do { key = try ClaudeCredentials.safeStorageKey(prompting: .no) } catch { keyShut = true }
             let members = inputs.map { input -> PoolMember in
                 if let account = input.account {
                     let token = key.flatMap { ClaudeCredentials.unseal(account.sealed, key: $0) }
@@ -704,7 +727,8 @@ final class UsagePoolController: ObservableObject {
             let configuration = PoolConfiguration(enabled: true, members: members, assignments: assignments)
             let journal = PoolEnvironment.readJournal()
             let wanted = !members.isEmpty || !journal.profiles.isEmpty
-            var (status, problem) = self.deliver(configuration, wanted: wanted)
+            let paused = keyShut && !members.isEmpty
+            var (status, problem) = self.deliver(configuration, wanted: wanted, complete: !keyShut)
 
             var environment: [String: ClaudeCodeEnvironment.State] = [:]
             if let key, wanted {
@@ -723,10 +747,12 @@ final class UsagePoolController: ObservableObject {
                 }
                 // A relay that was not needed until the lines went in.
                 if status == nil, states.values.contains(where: \.holdsLines) {
-                    (status, problem) = self.deliver(configuration, wanted: true)
+                    (status, problem) = self.deliver(configuration, wanted: true, complete: true)
                 }
             } else if wanted, key == nil {
-                problem = problem ?? L10n.text("Graft needs keychain access to set up Claude Code for sharing.")
+                problem = problem ?? (paused
+                    ? L10n.text("Lending is paused until the keychain is opened")
+                    : L10n.text("Graft needs keychain access to set up Claude Code for sharing."))
             }
 
             let records = self.lookUpRecords(status?.sessions ?? [], profiles: claudeProfiles)
@@ -735,6 +761,7 @@ final class UsagePoolController: ObservableObject {
                 // Only what changed: every assignment redraws whatever is
                 // watching, and most passes change nothing.
                 if self.lending != lending { self.lending = lending }
+                if self.lendingPaused != paused { self.lendingPaused = paused }
                 if self.status != status { self.status = status }
                 if self.problem != problem { self.problem = problem }
                 if self.environment != environment { self.environment = environment }
@@ -1012,8 +1039,60 @@ final class UsagePoolController: ObservableObject {
         (try? Data(contentsOf: url, options: .alwaysMapped)).map(UsagePool.digest(data:))
     }
 
-    /// On `queue`.
-    private func deliver(_ configuration: PoolConfiguration, wanted: Bool) -> (PoolStatus?, String?) {
+    /// What answered on the relay's socket.
+    enum RelayReply: Equatable {
+        case running(binary: String)
+        /// Something answered in a shape this build cannot read: a relay from
+        /// a release whose status this one does not know.
+        case unreadable
+        case nobody
+    }
+
+    /// What becomes of the relay that is there before a pass's configuration
+    /// goes to it.
+    enum RelayStep: Equatable { case keep, replace, start }
+
+    /// A relay keeps the logins it was last given for as long as it runs, and
+    /// a new one knows none until it is told. So one from another build is
+    /// replaced only by a Graft that can tell its successor everything: after
+    /// an update this Graft is often shut out of the keychain, and replacing
+    /// the old relay then swapped lending that worked for a relay that knew
+    /// nobody. One whose reply cannot be read is a relay all the same; it used
+    /// to be left running while another was started every twenty seconds and
+    /// exited on its lock.
+    static func relayStep(_ reply: RelayReply, bundled: String, canConfigure: Bool) -> RelayStep {
+        switch reply {
+        case .nobody:
+            return .start
+        case .running(let binary) where binary == bundled:
+            return .keep
+        case .running, .unreadable:
+            return canConfigure ? .replace : .keep
+        }
+    }
+
+    /// Blocking; not on the main thread.
+    static func ask(_ command: PoolCommand,
+                    at path: String = UsagePool.socketFile.path) -> (status: PoolStatus?, reply: RelayReply) {
+        do {
+            let status = try PoolSocket.send(command, to: path)
+            return (status, .running(binary: status.binary))
+        } catch PoolSocket.Failure.garbled {
+            return (nil, .unreadable)
+        } catch {
+            return (nil, .nobody)
+        }
+    }
+
+    /// On `queue`. `complete` is false while the key cannot be read, when
+    /// every login in `configuration` reads as missing: such a configuration
+    /// is never sent, since a relay told it forgets every login it was
+    /// lending, and the relay that is there is left with what it has. With no
+    /// relay at all one is still started, because a Claude pointed at a relay
+    /// that is not there has no Claude Code; it passes everything through as
+    /// it came until a pass can tell it more.
+    private func deliver(_ configuration: PoolConfiguration, wanted: Bool,
+                         complete: Bool) -> (PoolStatus?, String?) {
         guard wanted else {
             // Nobody left to serve and no Claude still pointed at it. A relay
             // still running is asked to step aside; one that is not is left
@@ -1031,13 +1110,20 @@ final class UsagePoolController: ObservableObject {
         guard let executable = Self.relayExecutable, let expected = Self.bundledDigest else {
             return (nil, L10n.text("This copy of Claude Graft has no relay in it."))
         }
-        if let status = try? PoolSocket.send(PoolCommand(configure: configuration)) {
-            guard status.binary != expected else { return (status, nil) }
-            Diagnostics.note("relay replaced", ["running": String(status.binary.prefix(12)),
+        let command = complete ? PoolCommand(configure: configuration) : PoolCommand()
+        let (status, reply) = Self.ask(command)
+        switch Self.relayStep(reply, bundled: expected, canConfigure: complete) {
+        case .keep:
+            return (status, nil)
+        case .replace:
+            Diagnostics.note("relay replaced", ["running": status.map { String($0.binary.prefix(12)) } ?? "unreadable",
                                                 "bundled": String(expected.prefix(12))])
-            // Answered once the old relay has let go of its port and its lock,
-            // so the new one can start straight away.
+            // Bare, because every relay since 2.0.0 reads a quit whatever else
+            // has changed. Answered once the old relay has let go of its port
+            // and its lock, so the new one can start straight away.
             _ = try? PoolSocket.send(PoolCommand(quit: true))
+        case .start:
+            break
         }
         // A relay that will not stay up must not be started again every three
         // seconds while somebody watches.
@@ -1062,7 +1148,7 @@ final class UsagePoolController: ObservableObject {
         // The first start makes the certificate, which takes a second or two.
         for _ in 0..<60 {
             usleep(250_000)
-            if let status = try? PoolSocket.send(PoolCommand(configure: configuration)) {
+            if let status = try? PoolSocket.send(command) {
                 return (status, nil)
             }
         }

@@ -9,6 +9,7 @@ struct MenuBarContent: View {
     @EnvironmentObject private var usage: UsageMonitor
     @ObservedObject private var updater = Shared.updater
     @ObservedObject private var sessionRecords = Shared.sessionRecords
+    @ObservedObject private var pool = Shared.usagePool
 
     /// Passed in: this view is hosted by an NSPopover, outside any scene, so
     /// the openWindow environment action is not available here.
@@ -52,7 +53,11 @@ struct MenuBarContent: View {
                     .identified("problem")
                     .padding(.horizontal, 14)
                     .padding(.bottom, 8)
-            } else if usage.needsKeychainAccess {
+            }
+            LendingPausedNotice()
+            // One key opens both, so the notice that says lending stopped is
+            // the one shown, not two buttons for one dialog.
+            if problem == nil, usage.liveProblem == nil, usage.needsKeychainAccess, !pool.lendingPaused {
                 Button { usage.refresh(store, interactive: true) } label: {
                     Label("Turn on live usage", systemImage: "lock")
                         .font(.callout)
