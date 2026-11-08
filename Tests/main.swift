@@ -6750,6 +6750,21 @@ do {
           "each account signs in to a store of its own, and signing out deletes it")
     check(!center.contains("Timer") && !center.contains("onReceive"),
           "artifacts are asked for when the list is shown or refreshed, never on a timer")
+    check(center.range(of: #"session\?\.close\(\)[\s\S]*await session\?\.released\(\)\s*await ClaudeWebSession\.forget\(id\)"#,
+                       options: .regularExpression) != nil
+            && center.contains("if closed { throw Failure.signedOut }")
+            && center.range(of: #"guard account\(id\) != nil else \{\s*session\.close\(\)"#, options: .regularExpression) != nil,
+          "a store is removed only once every page on it has let go, and nothing builds a new one on it meanwhile")
+    check(center.range(of: #"release\(\)\s*let done = self\.done\s*Task \{ done\(identity\) \}"#,
+                       options: .regularExpression) != nil
+            && center.range(of: #"if signIn\?\.account == id \{\s*signIn\?\.close\(\)"#, options: .regularExpression) != nil,
+          "a sign-in window lets go of its pages before its sign-in is acted on, and signing out closes it")
+    check(!center.contains("try? await WKWebsiteDataStore.remove")
+            && center.contains(#"Diagnostics.note("artifacts.store removal failed""#),
+          "a store that will not be removed is written down and tried again, never dropped in silence")
+    check(center.contains("if accountsWereRead, #available(macOS 14, *)")
+            && center.contains("await WKWebsiteDataStore.allDataStoreIdentifiers"),
+          "stores no listed account is under are removed at launch, and only against an accounts file that was read")
     check(center.contains("mayWriteAccounts = Self.setAside(ArtifactFiles.accounts)")
             && center.contains("mayWriteGroups = Self.setAside(ArtifactFiles.groups)")
             && center.contains("guard mayWriteAccounts else { return }")
@@ -6886,7 +6901,7 @@ do {
           "an export file larger than what is left of the budget is refused in the page, before it is encoded there")
     check(center.contains("func webViewWebContentProcessDidTerminate"),
           "a page whose process died is dropped, so the account is not left answering nothing")
-    check(center.contains("if !loading.isEmpty { startLoading() }")
+    check(center.contains("if !loading.isEmpty, !closed { startLoading() }")
             && center.contains("guard view === webView else { return }")
             && center.contains("Task.sleep(nanoseconds: Self.loadLimit)"),
           "a page dropped while it loads leaves its waiting requests to the next page, and none waits for good")

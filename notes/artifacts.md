@@ -46,6 +46,29 @@ macOS 13 has no store that is both separate and kept, so there each account
 gets a non-persistent store and the sign-in lasts until Graft quits. Signing
 out removes the store with `WKWebsiteDataStore.remove(forIdentifier:)`.
 
+That call fails while any web view using the store is alive (the SDK header
+says so), and the failure used to be dropped with `try?`. Two paths met it
+every time: a sign-in handed on before its window let go of its page, and a
+sign-out while a request, a load or a search was still running, which kept
+the old page alive or built a new one on the id being removed. What was left
+on macOS 14 and later was a kept store holding a live claude.ai sign-in, and
+a Google one too if Continue with Google had been tried, since its popup
+shares the store, with nothing listing it and nothing to remove it. So:
+
+- `retire` closes the account's session first. A closed `ClaudeWebSession`
+  fails whatever waits on it as signed out and loads no page again, and
+  `session(_:)` hands an id that is no longer listed a closed one rather than
+  a new page. The store is removed once `released()` says every request
+  already sent has come back.
+- Signing out closes that account's sign-in window, and a sign-in window lets
+  go of its page and its popups before its sign-in is acted on.
+- A removal that fails is written to the diagnostics log as
+  `artifacts.store removal failed` and tried twice more.
+- At each launch on macOS 14 and later, before any page exists, every store
+  identifier not in `artifact-accounts.json` is removed, and only when that
+  file was read: one set aside, or never written, may name the accounts those
+  stores belong to.
+
 The same account signed in twice keeps its first store; the second is removed
 at once, so one account is never listed under two names.
 

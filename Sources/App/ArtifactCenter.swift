@@ -23,6 +23,12 @@ final class ClaudeWebSession: NSObject, WKNavigationDelegate {
     private var webView: WKWebView?
     private var loading: [CheckedContinuation<Void, Error>] = []
     private var isLoaded = false
+    /// Set when the account is signed out or replaced. Its store is about to
+    /// be removed, and a page made on it now would keep the store, and the
+    /// sign-in in it, alive.
+    private var closed = false
+    private var inFlight = 0
+    private var drained: [CheckedContinuation<Void, Never>] = []
 
     init(account: UUID) {
         self.account = account
@@ -41,10 +47,22 @@ final class ClaudeWebSession: NSObject, WKNavigationDelegate {
 
     private static var volatile: [UUID: WKWebsiteDataStore] = [:]
 
+    /// WebKit refuses to remove a store while a web view on it is alive, and
+    /// one can outlive the last reference to it by a moment, so a refusal is
+    /// written down and tried again. A store that still will not go is left
+    /// to the next launch, which removes every store no account is listed
+    /// under.
     static func forget(_ account: UUID) async {
         volatile[account] = nil
-        if #available(macOS 14, *) {
-            try? await WKWebsiteDataStore.remove(forIdentifier: account)
+        guard #available(macOS 14, *) else { return }
+        for attempt in 1...3 {
+            do {
+                try await WKWebsiteDataStore.remove(forIdentifier: account)
+                return
+            } catch {
+                Diagnostics.note("artifacts.store removal failed", ["attempt": attempt, "error": "\(error)"])
+                try? await Task.sleep(nanoseconds: UInt64(attempt) * 2_000_000_000)
+            }
         }
     }
 
@@ -75,6 +93,8 @@ final class ClaudeWebSession: NSObject, WKNavigationDelegate {
             """
         let arguments: [String: Any] = ["path": path, "method": method, "headers": all,
                                         "body": body.map { String(decoding: $0, as: UTF8.self) } ?? ""]
+        inFlight += 1
+        defer { requestEnded() }
         let result: Any?
         do {
             result = try await webView.callAsyncJavaScript(script, arguments: arguments,
@@ -130,6 +150,8 @@ final class ClaudeWebSession: NSObject, WKNavigationDelegate {
             }
             return {status: response.status, body: btoa(binary)};
             """
+        inFlight += 1
+        defer { requestEnded() }
         let result: Any?
         do {
             result = try await webView.callAsyncJavaScript(script, arguments: ["url": url.absoluteString,
@@ -164,7 +186,34 @@ final class ClaudeWebSession: NSObject, WKNavigationDelegate {
         webView?.navigationDelegate = nil
         webView = nil
         isLoaded = false
-        if !loading.isEmpty { startLoading() }
+        if !loading.isEmpty, !closed { startLoading() }
+    }
+
+    /// For good. Whatever is waiting is told the account is signed out, and
+    /// nothing asked of this session afterwards loads a page.
+    func close() {
+        closed = true
+        webView?.navigationDelegate = nil
+        webView = nil
+        isLoaded = false
+        let waiting = loading
+        loading = []
+        for continuation in waiting { continuation.resume(throwing: Failure.signedOut) }
+    }
+
+    /// Returns once every request already sent from the page has come back,
+    /// which is when the last thing holding the page lets go of it.
+    func released() async {
+        guard inFlight > 0 else { return }
+        await withCheckedContinuation { drained.append($0) }
+    }
+
+    private func requestEnded() {
+        inFlight -= 1
+        guard inFlight == 0 else { return }
+        let waiting = drained
+        drained = []
+        for continuation in waiting { continuation.resume() }
     }
 
     /// How long a page may take to load before the requests waiting on it are
@@ -173,6 +222,7 @@ final class ClaudeWebSession: NSObject, WKNavigationDelegate {
     static let loadLimit: UInt64 = 30_000_000_000
 
     private func ready() async throws {
+        if closed { throw Failure.signedOut }
         if isLoaded, webView != nil { return }
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             loading.append(continuation)
@@ -296,9 +346,11 @@ final class ArtifactCenter: ObservableObject {
 
     init() {
         offline = false
+        var accountsWereRead = false
         switch ArtifactFiles.read([ArtifactAccount].self, from: ArtifactFiles.accounts) {
         case .read(let list):
             accounts = list
+            accountsWereRead = true
         case .missing:
             accounts = []
         case .unreadable:
@@ -319,6 +371,24 @@ final class ArtifactCenter: ObservableObject {
         case .unreadable:
             groups = []
             mayWriteGroups = Self.setAside(ArtifactFiles.groups)
+        }
+        // Only against a list that was read: one set aside, or never written,
+        // may name the accounts these stores belong to.
+        if accountsWereRead, #available(macOS 14, *) {
+            Task { await removeStrayStores() }
+        }
+    }
+
+    /// Stores no listed account is under: a removal that would not go, a
+    /// sign-in window closed before it finished, a Graft that quit before
+    /// either. Asked once, before this launch has made a page on any of them.
+    @available(macOS 14, *)
+    private func removeStrayStores() async {
+        for id in await WKWebsiteDataStore.allDataStoreIdentifiers {
+            // A sign-in started since launch is writing into its store.
+            guard account(id) == nil, sessions[id] == nil, signIn?.account != id else { continue }
+            Diagnostics.note("artifacts.store stray", ["store": String(id.uuidString.prefix(8))])
+            await ClaudeWebSession.forget(id)
         }
     }
 
@@ -393,7 +463,7 @@ final class ArtifactCenter: ObservableObject {
         // The same account signed in twice keeps its first store, and the
         // second goes, so nothing is listed twice under two names.
         if let existing = accounts.first(where: { $0.accountUuid == identity.accountUuid && $0.id != id }) {
-            Task { await ClaudeWebSession.forget(id) }
+            retire(id)
             sessions[existing.id]?.reset()
             status = L10n.format("%@ was already signed in", identity.email)
             Task { await load(existing.id, again: true) }
@@ -414,14 +484,30 @@ final class ArtifactCenter: ObservableObject {
     }
 
     func signOut(_ id: UUID) {
+        if signIn?.account == id {
+            signIn?.close()
+            signIn = nil
+        }
         accounts.removeAll { $0.id == id }
         saveAccounts()
-        sessions[id]?.reset()
-        sessions[id] = nil
+        retire(id)
+        artifacts = ArtifactAPI.merge(Array(lists.values))
+    }
+
+    /// Lets go of everything made on an account's store, then removes the
+    /// store. WebKit will not remove one a web view still uses, and the error
+    /// used to be dropped, which left a kept store holding a live claude.ai
+    /// sign-in that nothing listed and nothing would ever remove.
+    private func retire(_ id: UUID) {
+        let session = sessions.removeValue(forKey: id)
+        session?.close()
         lists[id] = nil
         states[id] = nil
-        artifacts = ArtifactAPI.merge(Array(lists.values))
-        Task { await ClaudeWebSession.forget(id) }
+        loadGenerations[id] = nil
+        Task {
+            await session?.released()
+            await ClaudeWebSession.forget(id)
+        }
     }
 
     // MARK: - Listing
@@ -466,9 +552,17 @@ final class ArtifactCenter: ObservableObject {
 
     /// Shared with the Projects and Search panes, which ask from the same
     /// signed-in page rather than loading a second one per account.
+    ///
+    /// An account no longer listed gets one that answers signed out and loads
+    /// nothing: a load or search still running after a sign-out would
+    /// otherwise build a page on the store being removed, and keep it.
     func session(_ id: UUID) -> ClaudeWebSession {
         if let session = sessions[id] { return session }
         let session = ClaudeWebSession(account: id)
+        guard account(id) != nil else {
+            session.close()
+            return session
+        }
         sessions[id] = session
         return session
     }
@@ -814,7 +908,7 @@ final class ArtifactCenter: ObservableObject {
 /// who is signed in.
 @MainActor
 final class ArtifactSignInWindow: NSObject, WKNavigationDelegate, WKUIDelegate, NSWindowDelegate {
-    private let account: UUID
+    let account: UUID
     private let done: (ArtifactAPI.Identity) -> Void
     private var window: NSWindow?
     private var webView: WKWebView?
@@ -858,7 +952,27 @@ final class ArtifactSignInWindow: NSObject, WKNavigationDelegate, WKUIDelegate, 
     }
 
     func close() {
+        release()
+    }
+
+    /// Lets go of every web view this window made, at once rather than when
+    /// AppKit next gets round to it, since the store they write into cannot
+    /// be removed while one of them is alive.
+    private func release() {
+        urlWatch = nil
+        for popup in popups {
+            popup.delegate = nil
+            popup.contentView = nil
+            popup.close()
+        }
+        popups = []
+        webView?.navigationDelegate = nil
+        webView?.uiDelegate = nil
+        webView = nil
+        window?.delegate = nil
+        window?.contentView = nil
         window?.close()
+        window = nil
     }
 
     /// The emailed code is the one way of signing in seen through to the end
@@ -889,12 +1003,7 @@ final class ArtifactSignInWindow: NSObject, WKNavigationDelegate, WKUIDelegate, 
                 self.popups.removeAll { $0 === closing }
                 return
             }
-            self.urlWatch = nil
-            self.popups.forEach { $0.close() }
-            self.popups = []
-            self.webView?.navigationDelegate = nil
-            self.webView = nil
-            self.window = nil
+            self.release()
         }
     }
 
@@ -983,9 +1092,11 @@ final class ArtifactSignInWindow: NSObject, WKNavigationDelegate, WKUIDelegate, 
             return
         }
         finished = true
-        urlWatch = nil
-        done(identity)
-        popups.forEach { $0.close() }
-        window?.close()
+        // The window and its pages go first, and the sign-in is handed on
+        // only once this question has let go of its page too. Handed on
+        // first, a store removed because of it was still in use, and stayed.
+        release()
+        let done = self.done
+        Task { done(identity) }
     }
 }

@@ -153,6 +153,7 @@ any of these. The why is in [notes/updates-and-releases.md](notes/updates-and-re
 ### Artifacts — [notes/artifacts.md](notes/artifacts.md)
 
 - **An artifact sign-in stays in its web store.** One `WKWebsiteDataStore` per account, loaded only with claude.ai; requests go out from a claude.ai page by `callAsyncJavaScript`, never from `URLSession`, and nothing reads `httpCookieStore`. Signing out removes the store. Claude profiles' cookies are never decrypted.
+- **A store is removed only once nothing holds it:** `retire` closes the session and waits for `released()`, a sign-in window lets go before acting, a failed removal is logged and retried, and stores not in a readable `artifact-accounts.json` go at launch.
 - **Every `/api/frame` request carries `X-Frame-CP: go`,** or the service answers 404 as though the artifact did not exist.
 - **Artifacts are asked for when the list is shown or refreshed, never on a timer.**
 - **Groups are Graft's,** in `artifact-groups.json`; each person is invited with the group's role for them, an address missing from `roles` is a `reader`, and only the owner is offered a change.
