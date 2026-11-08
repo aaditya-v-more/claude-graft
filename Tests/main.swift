@@ -2154,8 +2154,26 @@ do {
         .deletingLastPathComponent().appending(path: "Sources/App/ShortcutDetail.swift"), encoding: .utf8)) ?? ""
     check(!detail.contains("text: $shortcut.folder") && detail.contains("folderDraft = typed"),
           "a created shortcut's folder edit waits for Update instead of going straight into the list")
-    check(detail.contains("shortcut.folder = target.folder") && detail.contains("replacing: shortcut"),
+    check(detail.contains("].folder = target.folder") && detail.contains("let previous = shortcut")
+            && detail.contains("replacing: previous"),
           "and Update hands the installer the shortcut as it was, so the old app is the one replaced")
+
+    // Create and Update end in a mirror pass, which on a newly shared profile
+    // copies every chat both ways; on the main thread the window stopped
+    // answering for as long as that took.
+    let pressed = detail.components(separatedBy: "private func install()").dropFirst().first?
+        .components(separatedBy: "private func refresh(").first ?? ""
+    if let away = pressed.range(of: "DispatchQueue.global"),
+       let call = pressed.range(of: "try Installer.install("),
+       let back = pressed.range(of: "DispatchQueue.main.async") {
+        check(away.lowerBound < call.lowerBound && call.lowerBound < back.lowerBound,
+              "Create and Update write the shortcut off the main thread and answer on it")
+    } else {
+        check(false, "Create and Update write the shortcut off the main thread and answer on it")
+    }
+    check(pressed.contains("guard !installing") && detail.contains(".disabled(installing)")
+            && detail.contains("ProgressView().controlSize(.small) } }"),
+          "with the button held and a spinner in it until the answer comes back")
 }
 
 // MARK: - Profiles lost during Claude's update restart

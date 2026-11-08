@@ -20,6 +20,7 @@ struct ShortcutDetail: View {
     @State private var isRunning = false
     @State private var profileExists = false
     @State private var startingSession = false
+    @State private var installing = false
     @State private var iconPreviews: [Shortcut.IconPreset: NSImage] = [:]
 
     /// Other instances found open on the same chat store when Open was pressed.
@@ -60,7 +61,10 @@ struct ShortcutDetail: View {
 
     var body: some View {
         Form {
+            // Held still while Create or Update runs: what it is writing was
+            // read from these fields as the button was pressed.
             identitySection
+                .disabled(installing)
 
             if let found = elsewhere {
                 Section {
@@ -221,6 +225,7 @@ struct ShortcutDetail: View {
         HStack(spacing: 8) {
             Button(L10n.text(isDraft ? "Discard" : "Delete Shortcut…"),
                    role: .destructive, action: requestDelete)
+                .disabled(installing)
                 .identified("delete")
             Spacer()
             if plan?.mayStartSession ?? true {
@@ -240,12 +245,21 @@ struct ShortcutDetail: View {
             }
 
             Button("Open", action: open)
-                .disabled(installedAt == nil)
+                .disabled(installedAt == nil || installing)
                 .identified("open")
-            Button(L10n.text(installedAt == nil ? "Create Shortcut" : "Update Shortcut"),
-                   action: install)
+            Button(action: install) {
+                // The button keeps its width, so nothing beside it moves
+                // while the spinner stands in for its title.
+                Text(installTitle)
+                    .opacity(installing ? 0 : 1)
+                    .overlay { if installing { ProgressView().controlSize(.small) } }
+            }
                 .keyboardShortcut(.defaultAction)
-                .disabled(shortcut.name.trimmingCharacters(in: .whitespaces).isEmpty || claudeMissing)
+                .disabled(shortcut.name.trimmingCharacters(in: .whitespaces).isEmpty || claudeMissing
+                          || installing)
+                // Named apart from its text, which the spinner hides while
+                // the shortcut is being written.
+                .accessibilityLabel(installTitle)
                 // Where it was put, which the status line used to carry.
                 .help(installedAt?.path ?? "")
                 .identified("install")
@@ -253,6 +267,10 @@ struct ShortcutDetail: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
         .background(.bar)
+    }
+
+    private var installTitle: String {
+        L10n.text(installedAt == nil ? "Create Shortcut" : "Update Shortcut")
     }
 
     /// Created or not, and running or not, in one line; where the shortcut
@@ -462,30 +480,51 @@ struct ShortcutDetail: View {
 
     /// The list takes the name and folder only once the app carries them, so
     /// a refused Update leaves it describing the shortcut that still runs.
+    ///
+    /// Off the main thread, with the page held still until it is done: it
+    /// signs the app, waits on the update-settings lock a launcher may be
+    /// holding, and ends in a mirror pass that on a newly shared profile
+    /// copies every chat both ways. On the main thread a few hundred chats
+    /// stopped the window answering for as long as that took.
+    ///
+    /// The answer goes to the list by id, not through this page: the page may
+    /// have been left, or the list changed, while it ran.
     private func install() {
+        guard !installing else { return }
         var target = shortcut
         target.name = shortcut.name.trimmingCharacters(in: .whitespaces)
         target.folder = (folderDraft ?? shortcut.folder).trimmingCharacters(in: .whitespaces)
-        do {
-            _ = try Installer.install(target,
-                                      sourceDir: store.sourceDir(for: target),
-                                      replacing: shortcut,
-                                      among: store.shortcuts)
-            shortcut.name = target.name
-            shortcut.folder = target.folder
-            shortcut.installedName = target.name
-            folderDraft = nil
-            refresh()
-        } catch {
-            errorTitle = L10n.text("Could not create the shortcut")
-            self.error = error.localizedDescription
+        let previous = shortcut
+        let sourceDir = store.sourceDir(for: target)
+        let list = store.shortcuts
+        installing = true
+        DispatchQueue.global(qos: .userInitiated).async {
+            let result = Result {
+                try Installer.install(target, sourceDir: sourceDir, replacing: previous, among: list)
+            }
+            DispatchQueue.main.async {
+                installing = false
+                switch result {
+                case .success(let bundle):
+                    guard let index = store.shortcuts.firstIndex(where: { $0.id == target.id }) else { return }
+                    store.shortcuts[index].name = target.name
+                    store.shortcuts[index].folder = target.folder
+                    store.shortcuts[index].installedName = target.name
+                    folderDraft = nil
+                    installedAt = bundle
+                    refresh(store.shortcuts[index])
+                case .failure(let failure):
+                    errorTitle = L10n.text("Could not create the shortcut")
+                    error = failure.localizedDescription
+                }
+            }
         }
     }
 
     /// Off the main thread: these hit the filesystem and run pgrep, neither of
     /// which belongs in a view update.
-    private func refresh() {
-        let target = shortcut
+    private func refresh(_ current: Shortcut? = nil) {
+        let target = current ?? shortcut
         DispatchQueue.global(qos: .utility).async {
             let bundle = ProfileOpener.bundle(for: target)
             let running = Graft.isRunning(profile: target.profileDir)

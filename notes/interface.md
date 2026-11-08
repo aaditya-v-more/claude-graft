@@ -153,6 +153,15 @@ the run loop, re-enters AppKit layout mid-update, and segfaults with a null
 program counter. Every process wait now uses a semaphore, and status is read on
 a background queue into `@State`.
 
+A button's action is not a body, but the same holds for anything that waits.
+Create and Update Shortcut signed the app, waited on the update-settings lock
+and ran a mirror pass that can copy every chat a profile has, all on the main
+thread, so the window stopped answering for as long as that took and a second
+press queued a second install behind the first. `ShortcutDetail.install` runs
+`Installer.install` on a background queue and holds the page still, with a
+spinner in the button, until it answers; the result is written back to the
+shortcut found by id, since the list may have moved under it meanwhile.
+
 **Long-lived objects live in `enum Shared`, not `@StateObject` on the App.**
 Observing them from the App value invalidates the whole scene on every poll.
 
