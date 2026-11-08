@@ -127,6 +127,28 @@ working profiles. Manual policy stays in place throughout. A refusal to quit,
 bad process read, failed download, or failed install is a visible error, never
 permission to force quit or claim success.
 
+**A restarted Graft holds the lock before it reads anything that can fail.**
+`resume` used to read the processes first and take the lock after, with one
+error path for both that went to `finish`, which deletes the journal and lets
+the lock go. The read fails while any Claude has no launch date yet, which is
+exactly the updater starting or a Claude closing — and `poll` treats the same
+failure as a reason to wait. A Graft that restarted in that window, through its
+own update, a crash or a quit, forgot the run: nothing blocked a shortcut, and
+when the updater nobody watched any more quit, Claude's installer could swap
+`Claude.app` under a Claude opened meanwhile. The lock is now taken as soon as
+the journal decodes, the saved phase is shown, and the decision
+`ClaudeUpdateResume` makes waits for the first snapshot that reads; until then
+each poll asks again and the journal stays.
+
+**Stopping the updater asks again, and stops hiding it.** One quit was sent and
+then nothing, for as long as it took. A quit the updater missed held the lock —
+every shortcut refused — behind a status line that never changed, with the one
+window that could have been closed by hand kept hidden even from its Dock icon.
+While stopping, `poll` sends the quit again every ten seconds, and a minute
+after the first one stops concealing the updater for the rest of the run
+(`ClaudeUpdateStop`). The lock is still held until it has gone; that part was
+right.
+
 **The updater stays out of sight and signed out.** `open -g -j` asks for a
 Claude launched behind everything, and Claude shows its window regardless. On
 6 November that window came up during an update with Claude's sign-in screen,

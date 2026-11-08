@@ -196,6 +196,7 @@ any of these. The why is in [notes/updates-and-releases.md](notes/updates-and-re
 - **A release carries both architectures. The build directory is `build.noindex`** so Spotlight skips it.
 - **An update restart is not permission to undo a quit** — `UpdateRecovery` needs a fresh `stealth-relaunch` marker.
 - **Checking for a Claude release never closes a Claude;** installing one asks first and never force quits.
+- **A resumed update takes the lock before it reads anything,** and decides on the first snapshot that reads (`ClaudeUpdateResume`); a stopping updater is asked again every ten seconds and shown after a minute (`ClaudeUpdateStop`).
 - **Claude's updater runs hidden and signed out** — `UpdaterProfile.reset` trashes a profile someone signed into.
 - **Graft's own update installs itself and says nothing,** a press included (`checkForUpdatesInBackground`); a hold is off unless turned on.
 - **`sparkle:minimumAutoupdateVersion` 1.1.0 is a floor** on every entry from 1.1.0 on, and **every release needs a note that says what upgrading from 1.0.x does**: a 1.0.x Mac is asked about the newest one.

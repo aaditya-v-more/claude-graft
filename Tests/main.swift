@@ -2644,6 +2644,38 @@ do {
     check(failed(update.advance(sample([]), at: now.addingTimeInterval(180))),
           "a quit alone is not mistaken for a successful installation")
 
+    check(ClaudeUpdateResume.decide(sample([helper], helper: helper), target: "1.2.4") == .follow(.downloading),
+          "a Graft restarted mid-update follows the updater it finds running")
+    check(ClaudeUpdateResume.decide(sample([], installing: true), target: "1.2.4") == .follow(.installing),
+          "and the installer it finds running")
+    check(ClaudeUpdateResume.decide(sample([], installed: "1.2.4"), target: "1.2.4") == .finished,
+          "a run whose version is already in place is finished")
+    check(ClaudeUpdateResume.decide(sample([one]), target: "1.2.4") == .abandoned,
+          "and one with nothing running and nothing installed is reported unfinished, not started again")
+    let updaterSource = (try? String(contentsOf: URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        .deletingLastPathComponent().appending(path: "Sources/App/ClaudeDesktopUpdater.swift"), encoding: .utf8)) ?? ""
+    if let body = updaterSource.range(of: "private func resume() {"),
+       let end = updaterSource.range(of: "private func settleResume()", range: body.upperBound..<updaterSource.endIndex) {
+        let resume = String(updaterSource[body.upperBound..<end.lowerBound])
+        check(resume.contains("lease = try ClaudeUpdateGate.acquire()") && !resume.contains("snapshot()"),
+              "a restarted Graft takes the update lock before it reads anything that can fail")
+    } else {
+        check(false, "a restarted Graft takes the update lock before it reads anything that can fail")
+    }
+    check(updaterSource.contains("if pendingResume != nil { settleResume(); return }")
+            && updaterSource.contains("do { sample = try Self.snapshot() } catch {\n            DispatchQueue.main.async { self.problem = error.localizedDescription }\n            return\n        }"),
+          "and a snapshot it cannot read keeps the journal and asks again on the next poll")
+
+    check(ClaudeUpdateStop.resendsQuit(lastQuit: now.addingTimeInterval(-10), now: now)
+            && !ClaudeUpdateStop.resendsQuit(lastQuit: now.addingTimeInterval(-4), now: now),
+          "an updater that has not closed is asked again every ten seconds, not every poll")
+    check(ClaudeUpdateStop.keepsHiding(stoppingSince: now.addingTimeInterval(-30), now: now)
+            && !ClaudeUpdateStop.keepsHiding(stoppingSince: now.addingTimeInterval(-60), now: now),
+          "and is no longer kept hidden a minute after the first quit")
+    check(updaterSource.contains("ClaudeUpdateStop.resendsQuit(lastQuit: lastQuit, now: now)")
+            && updaterSource.contains("guard !showingUpdater else { return }"),
+          "the stopping updater is quit again and, once shown, never hidden again")
+
     let previousSupport = Graft.applicationSupportOverride
     Graft.applicationSupportOverride = support.appending(path: "UpdateGate")
     defer { Graft.applicationSupportOverride = previousSupport }
