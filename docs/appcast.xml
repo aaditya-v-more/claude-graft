@@ -3,68 +3,6 @@
     <channel>
         <title>Claude Graft</title>
         <item>
-            <title>2.0.0</title>
-            <pubDate>Sun, 08 Nov 2026 19:19:40 +0530</pubDate>
-            <link>https://github.com/aaditya-v-more/claude-graft</link>
-            <sparkle:version>2.0.0</sparkle:version>
-            <sparkle:shortVersionString>2.0.0</sparkle:shortVersionString>
-            <sparkle:minimumAutoupdateVersion>1.1.0</sparkle:minimumAutoupdateVersion>
-            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
-            <description><![CDATA[<h2>Share usage between your accounts</h2>
-
-<p>A Claude can now let its Claude Code draw on your other accounts when its own
-allowance runs low, without signing out of anything. Add another of your
-Claudes under Shared usage, or sign in to an account from Graft without making a
-shortcut for it. Only the model's answers come from the other accounts; your
-chats, artifacts and connectors stay with the Claude's own account, and the Chat
-tab is never shared. The menu bar shows every account a Claude draws on and
-lights the one answering, a conversation that has just begun runs across the
-menu bar for two minutes, and the dropdown lets you choose which account
-answers each conversation. Sharing needs macOS 15.</p>
-
-<h2>Artifacts, projects and search across accounts</h2>
-
-<p>Three new panes reach claude.ai for every account you sign in to there.
-Artifacts lists them all together: open one, copy its link, make it private or
-public, rename, duplicate or delete it, and export it as Markdown, PDF, a Word
-document or its page source. Share an artifact with a group you keep in Graft,
-and each person is invited as a viewer, commenter or editor. Projects lists
-every account's projects, and Search Chats searches every account's chats and
-Claude Code sessions at once, with filters for where a session ran and whether
-a chat is archived. Each account signs in once, with the code claude.ai emails
-you, in a window of Graft's; the sign-in is kept apart for that account and
-is never read by Graft.</p>
-
-<h2>A new window</h2>
-
-<p>The window has a proper sidebar, and every page fits at its smallest size
-without scrolling. Every Claude and every lent account now gets a colour of its
-own, so no two look alike; the Claudes you already have keep theirs.</p>
-
-<p>A new Claude now starts with chats of its own, and sharing another Claude's
-chats is a choice you make on its page. Claudes you already have keep reading
-what they read before.</p>
-
-<p>The Help menu now leads to the site, the release list, a new issue, and an
-email that already carries your Graft and macOS versions.</p>
-
-<h2>Accounts without a five-hour limit</h2>
-
-<p>Some plans now have only a weekly limit. Usage for those accounts had stopped
-updating, and where it did show, the five-hour figure read 0%. Graft now says
-an account has no five-hour limit in place of that bar, leaves out Start
-Session for it, and shows its weekly figure in the menu bar with a W in front,
-so W 94% means 94% of the week.</p>
-
-<p>Pinned chats sync between profiles again with current versions of Claude,
-sessions from another Mac are left out of the sidebar, and Claude's updater
-now stays hidden and signed out while it installs.</p>
-
-<p>Works on Apple Silicon and Intel, with macOS 13 or later supported.</p>
-]]></description>
-            <enclosure url="https://github.com/aaditya-v-more/claude-graft/releases/download/v2.0.0/ClaudeGraft-2.0.0.zip" length="7600412" type="application/octet-stream" sparkle:edSignature="0S/Ut8btoW9GB7bD5jqYGdUozRfcdQ/ccvC9luzf9eH8LKDBcjgV/FJ5TRRfg4ne1VPyGCtwawj1zsEfpZJPBg=="/>
-        </item>
-        <item>
             <title>1.1.8</title>
             <pubDate>Fri, 06 Nov 2026 00:38:42 +0530</pubDate>
             <link>https://github.com/aaditya-v-more/claude-graft</link>
