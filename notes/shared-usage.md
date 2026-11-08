@@ -97,7 +97,24 @@ lines made there would outlive their removal and keep Claude Code pointed at a
 relay that may have stopped, out of reach of the one field a launcher swaps.
 Graft takes exact copies of the lines out of the scoped values whenever it finds
 the profile closed, leaving `envVars` to decide alone, and until then a copy
-counts as holding the lines and keeps the relay up. A launcher that can neither
+counts as holding the lines and keeps the relay up.
+
+A line stays Graft's after the person sets something beside it. Any name
+holding exactly the relay's proxy or Graft's certificate is Graft's, whatever
+else the environment says, and the profile counts as holding the lines while
+one of them is left. Until 2.0.1 a value of the person's own under either name
+made the whole reading a conflict before anything else was looked at: point
+`NODE_EXTRA_CA_CERTS` at a bundle of your own after the lines went in, and
+Graft's `HTTPS_PROXY` stayed for good, Claude Code dialling the relay without
+trusting it while the pane said only "Not shared"; and with lenders removed the
+profile read as holding nothing, its journal entry went, and the relay could be
+told to quit while that Claude still pointed at it. Now the lines never go in
+beside a value of the person's own, the one of Graft's that is left comes out at
+the next close, and the pane keeps naming the conflict. A field holding only
+part of the lines — a proxy whose certificate line was deleted by hand — matches
+neither finished value, so no launcher can swap it; Graft, which has just read
+that very value, writes the field without Graft's lines first, and then swaps
+as usual. A launcher that can neither
 reach nor start the relay puts the plain value back before opening, because a
 Claude pointed at a proxy that is not there has no Claude Code at all, and
 losing shared usage for one launch is the cheaper mistake. Removing the last

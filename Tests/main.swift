@@ -6026,47 +6026,51 @@ do {
     let lines = PoolEnvironment.lines
 
     let empty = profile("empty", nil)
-    if case .entry(let entry, let holding) = ClaudeCodeEnvironment.read(empty, wanted: true, key: key) {
-        check(!holding && entry.plain == nil && variables(entry.pooled) == lines,
+    if let reading = ClaudeCodeEnvironment.read(empty, wanted: true, key: key) {
+        check(!reading.holding && reading.entry.plain == nil && variables(reading.entry.pooled) == lines,
               "a Claude with no Code environment yet gets one holding just the two lines")
     } else { check(false, "a Claude with no Code environment yet gets one holding just the two lines") }
 
     let existing = ["FOO": "bar", "PATH_EXTRA": "/opt/x"]
     let kept = profile("kept", ["envVars": seal(existing), "tmpDirOverride": NSNull()])
-    if case .entry(let entry, let holding) = ClaudeCodeEnvironment.read(kept, wanted: true, key: key) {
-        check(!holding && entry.plain == seal(existing), "what a Claude already holds is recognised byte for byte")
-        check(variables(entry.pooled) == existing.merging(lines) { $1 },
+    if let reading = ClaudeCodeEnvironment.read(kept, wanted: true, key: key) {
+        check(!reading.holding && reading.entry.plain == seal(existing),
+              "what a Claude already holds is recognised byte for byte")
+        check(variables(reading.entry.pooled) == existing.merging(lines) { $1 },
               "and the lines go in beside its own variables, which stay as they were")
     } else { check(false, "what a Claude already holds is recognised byte for byte") }
 
     let holdingProfile = profile("holding", ["envVars": seal(existing.merging(lines) { $1 })])
-    if case .entry(let entry, let holding) = ClaudeCodeEnvironment.read(holdingProfile, wanted: false, key: key) {
-        check(holding && variables(entry.plain) == existing,
+    if let reading = ClaudeCodeEnvironment.read(holdingProfile, wanted: false, key: key) {
+        check(reading.holding && variables(reading.entry.plain) == existing,
               "a Claude holding the lines can be given back exactly what it had without them")
     } else { check(false, "a Claude holding the lines can be given back exactly what it had without them") }
     let bare = profile("bare", ["envVars": seal(lines)])
-    if case .entry(let entry, true) = ClaudeCodeEnvironment.read(bare, wanted: false, key: key) {
-        check(entry.plain == nil, "and one that had nothing before gets nothing back")
+    if let reading = ClaudeCodeEnvironment.read(bare, wanted: false, key: key), reading.holding {
+        check(reading.entry.plain == nil, "and one that had nothing before gets nothing back")
     } else { check(false, "and one that had nothing before gets nothing back") }
 
-    let corporate = profile("corporate", ["envVars": seal(["https_proxy": "http://proxy.example:8080"])])
-    check(ClaudeCodeEnvironment.read(corporate, wanted: true, key: key) == .conflict("HTTPS_PROXY"),
+    let ownProxy = ["https_proxy": "http://proxy.example:8080"]
+    let corporate = profile("corporate", ["envVars": seal(ownProxy)])
+    let corporateReading = ClaudeCodeEnvironment.read(corporate, wanted: true, key: key)
+    check(corporateReading?.conflict == "HTTPS_PROXY" && corporateReading?.entry.wanted == false
+            && corporateReading?.holding == false,
           "a proxy of the person's own is theirs, whatever its case, and is left alone")
     let scopedOwn = seal([:])
     let scoped = profile("scoped", ["envVars": scopedOwn,
                                     "scopedEnvVars": ClaudeCredentials.seal(
                                         Data(#"{"acct":{"scope":{"NODE_EXTRA_CA_CERTS":"/mine.pem"}}}"#.utf8),
                                         key: key)!])
-    check(ClaudeCodeEnvironment.read(scoped, wanted: true, key: key) == .conflict("NODE_EXTRA_CA_CERTS"),
+    check(ClaudeCodeEnvironment.read(scoped, wanted: true, key: key)?.conflict == "NODE_EXTRA_CA_CERTS",
           "and so is a certificate set for one folder, which would win over the lines without a word")
     let garbled = profile("garbled", ["envVars": "not sealed at all"])
-    check(ClaudeCodeEnvironment.read(garbled, wanted: true, key: key) == .unreadable,
+    check(ClaudeCodeEnvironment.read(garbled, wanted: true, key: key) == nil,
           "an environment that will not open is not read as an empty one")
-    check(ClaudeCodeEnvironment.read(kept, wanted: true, key: Data(repeating: 9, count: 16)) == .unreadable,
+    check(ClaudeCodeEnvironment.read(kept, wanted: true, key: Data(repeating: 9, count: 16)) == nil,
           "nor is one sealed with a key Graft does not have")
     let torn = profile("torn", ["envVars": seal(existing)])
     fm.createFile(atPath: torn.appending(path: PoolEnvironment.fileName + ".journal").path, contents: Data())
-    check(ClaudeCodeEnvironment.read(torn, wanted: true, key: key) == .unreadable,
+    check(ClaudeCodeEnvironment.read(torn, wanted: true, key: key) == nil,
           "nor one Claude was part way through writing")
 
     // The swap a launcher makes, which needs no key at all.
@@ -6126,6 +6130,49 @@ do {
                                           running: { _ in false })
     check(states[PoolEnvironment.key(for: closed)] == .waiting && variables(field(closed)) == existing,
           "with no relay to send it to, a Claude is not pointed at one")
+    _ = ClaudeCodeEnvironment.settle(wanted: [:], key: key, relay: nil, relayReady: false, running: { _ in false })
+
+    // A value of the person's own set beside the lines after they went in:
+    // the line of Graft's that is left is still Graft's, and still keeps the
+    // relay up while that Claude is open.
+    let ownCertificate = ["NODE_EXTRA_CA_CERTS": "/mine.pem"]
+    let beside = profile("beside", ["envVars": seal(existing.merging(ownCertificate) { $1 }
+        .merging([PoolEnvironment.proxyName: PoolEnvironment.proxyValue]) { $1 })])
+    let besideReading = ClaudeCodeEnvironment.read(beside, wanted: true, key: key)
+    check(besideReading?.holding == true && besideReading?.conflict == "NODE_EXTRA_CA_CERTS"
+            && variables(besideReading?.entry.plain) == existing.merging(ownCertificate) { $1 },
+          "a line of Graft's beside a certificate of the person's own is still Graft's to take out")
+    states = ClaudeCodeEnvironment.settle(wanted: [beside: true], key: key, relay: "/relay", relayReady: true,
+                                          running: { $0 == beside })
+    check(states[PoolEnvironment.key(for: beside)] == .conflict("NODE_EXTRA_CA_CERTS", holding: true)
+            && states[PoolEnvironment.key(for: beside)]?.holdsLines == true
+            && PoolEnvironment.readJournal().profiles[PoolEnvironment.key(for: beside)] != nil,
+          "and while that Claude is open it says why it is not shared and keeps the relay up")
+    states = ClaudeCodeEnvironment.settle(wanted: [:], key: key, relay: "/relay", relayReady: true,
+                                          running: { PoolEnvironment.key(for: $0) == PoolEnvironment.key(for: beside) })
+    check(states[PoolEnvironment.key(for: beside)] == .leaving,
+          "even once nothing is lent to it any more")
+    states = ClaudeCodeEnvironment.settle(wanted: [beside: true], key: key, relay: "/relay", relayReady: true,
+                                          running: { _ in false })
+    check(states[PoolEnvironment.key(for: beside)] == .conflict("NODE_EXTRA_CA_CERTS", holding: false)
+            && variables(field(beside)) == existing.merging(ownCertificate) { $1 },
+          "once it closes the proxy comes out and the person's certificate stays")
+    let lone = profile("lone", ["envVars": seal(existing.merging(
+        [PoolEnvironment.proxyName: PoolEnvironment.proxyValue]) { $1 })])
+    states = ClaudeCodeEnvironment.settle(wanted: [lone: false], key: key, relay: "/relay", relayReady: true,
+                                          running: { $0 == lone })
+    check(states[PoolEnvironment.key(for: lone)] == .leaving,
+          "a proxy of Graft's left alone after the certificate was deleted still counts as pointing at the relay")
+    states = ClaudeCodeEnvironment.settle(wanted: [lone: false], key: key, relay: "/relay", relayReady: true,
+                                          running: { _ in false })
+    check(states[PoolEnvironment.key(for: lone)] == .off && variables(field(lone)) == existing,
+          "and comes out when that Claude closes, though no finished value matched it")
+    _ = profile("lone", ["envVars": seal(existing.merging(
+        [PoolEnvironment.proxyName: PoolEnvironment.proxyValue]) { $1 })])
+    states = ClaudeCodeEnvironment.settle(wanted: [lone: true], key: key, relay: "/relay", relayReady: true,
+                                          running: { _ in false })
+    check(states[PoolEnvironment.key(for: lone)] == .on && variables(field(lone)) == existing.merging(lines) { $1 },
+          "while a Claude still borrowing has the pair made whole")
     _ = ClaudeCodeEnvironment.settle(wanted: [:], key: key, relay: nil, relayReady: false, running: { _ in false })
 
     // A copy Claude made of the lines for one folder, which it lays over the

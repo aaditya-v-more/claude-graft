@@ -176,7 +176,7 @@ struct SharedUsageSection: View {
             return (L10n.text("Starts the next time this Claude opens."), false)
         case .leaving:
             return (L10n.text("Stops when this Claude next closes."), false)
-        case .conflict(let name):
+        case .conflict(let name, _):
             return (L10n.format("Not shared: this Claude already sets %@", name), true)
         case .unreadable:
             return (L10n.text("Not shared: this Claude's Code environment is unreadable"), true)
