@@ -1688,6 +1688,38 @@ do {
         check(release.contains("[ \"$AFTER\" -eq \"$((BEFORE + 1))\" ]"),
               "and a run that adds one while losing another is caught, not waved through")
     }
+
+    // Every older entry is signed, so a search of the whole feed found a
+    // signature whether or not the new entry had one.
+    check(release.contains("ENTRY=\"$(awk -v zip=\"ClaudeGraft-$VERSION.zip\"")
+            && release.contains("grep -q \"sparkle:edSignature=\\\"[^\\\"]\" <<< \"$ENTRY\"")
+            && release.contains("grep -q \"length=\\\"$ZIP_SIZE\\\"\" <<< \"$ENTRY\"")
+            && release.contains("</sparkle:minimumAutoupdateVersion>\" <<< \"$ENTRY\""),
+          "the release asks the new entry itself for its signature, its length and the floor")
+    check(release.contains("[ \"$SIGNED_AFTER\" -eq \"$((SIGNED_BEFORE + 1))\" ]"),
+          "and counts signatures like the items, so an old one lost on the way is caught")
+    check(!release.contains("-o \"$ROOT/docs/appcast.xml\"") && release.contains("-o \"$FEED\""),
+          "the feed is generated beside the archives, not in the live file")
+    if let copied = release.range(of: "cp \"$FEED\" \"$ROOT/docs/appcast.xml\""),
+       let cask = release.range(of: "TAP_READY=\"yes\""),
+       let signed = release.range(of: "appcast has a signed entry for"),
+       let install = release.range(of: "if [ \"${1:-}\" = \"--install\" ]") {
+        check(signed.lowerBound < copied.lowerBound && cask.lowerBound < copied.lowerBound
+                && copied.lowerBound < install.lowerBound,
+              "and the live file gets it only once every check and the cask have passed")
+    } else {
+        check(false, "and the live file gets it only once every check and the cask have passed")
+    }
+
+    // A Mac on 1.0.x is offered the newest entry and asked about it with that
+    // entry's notes, so every release is the one that stops to ask.
+    let version = read("VERSION").trimmingCharacters(in: .whitespacesAndNewlines)
+    let notes = read("docs/release-notes/\(version).html")
+    check(notes.contains("from 1.0.x"),
+          "this version's notes say what upgrading from 1.0.x does to chats")
+    check(release.contains("grep -q \"from 1\\.0\\.x\" \"$NOTES\"")
+            && !release.contains("elif [ \"$VERSION\" = \"$CONFIRM_BELOW\" ]"),
+          "and the release refuses any version whose notes are missing or do not say it")
 }
 
 // MARK: - Who is allowed to put a keychain dialog on screen

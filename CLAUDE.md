@@ -198,8 +198,9 @@ any of these. The why is in [notes/updates-and-releases.md](notes/updates-and-re
 - **Checking for a Claude release never closes a Claude;** installing one asks first and never force quits.
 - **Claude's updater runs hidden and signed out** — `UpdaterProfile.reset` trashes a profile someone signed into.
 - **Graft's own update installs itself and says nothing,** a press included (`checkForUpdatesInBackground`); a hold is off unless turned on.
-- **`sparkle:minimumAutoupdateVersion` 1.1.0 is a floor** on every entry from 1.1.0 on, and that release needs a note.
+- **`sparkle:minimumAutoupdateVersion` 1.1.0 is a floor** on every entry from 1.1.0 on, and **every release needs a note that says what upgrading from 1.0.x does**: a 1.0.x Mac is asked about the newest one.
 - **The feed keeps every release** (`--maximum-versions 0`), **and its URL never changes.**
+- **The feed is built and checked in `dist/sparkle`** — signature, length and floor asked of the new `<item>` itself — and reaches `docs/` only after the cask.
 
 ### Sidebar and desktop settings — [notes/sidebar-and-settings.md](notes/sidebar-and-settings.md)
 

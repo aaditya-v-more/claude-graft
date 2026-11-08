@@ -245,9 +245,17 @@ shows a scheduled update alert immediately but, in its own words, "behind other
 running applications" — and that is a delay, not a silent merge, which is the
 half that matters.
 
-The release the floor names has to bring a note, and `release.sh` refuses to
-build it otherwise: it is the one release that puts a dialog in front of
-somebody, and a dialog with nothing in it is worse than no dialog. Notes live in
+Every release has to bring a note, and that note has to say what upgrading from
+1.0.x does; `release.sh` refuses to build one without both. This used to be
+asked of 1.1.0 alone, on the reasoning that it was the one release putting a
+dialog in front of somebody. It is not. Sparkle offers a 1.0.x machine the
+newest entry in the feed, not the one the floor names, and the dialog it puts
+up carries that entry's notes — so from a 1.0.11 Mac every release since 1.1.0
+has been the one that stops to ask, and 1.1.7, 1.1.8 and 2.0.0 asked with notes
+that never mentioned the merge the question exists for. A note with nothing to
+say about 1.0.x is as good as no note in that dialog. The check looks for
+"from 1.0.x", which both headings used so far carry: "Upgrading from 1.0.x"
+and "Coming from 1.0.x?". Notes live in
 `docs/release-notes/<version>.html` and are copied beside the archive, which is
 where `generate_appcast` looks for them; carrying no DOCTYPE or body tags is what
 makes them embed rather than become a link to somewhere that has to stay up.
@@ -261,6 +269,20 @@ again, so a dropped entry cannot be regenerated, only recovered out of git.
 `release.sh` passes `--maximum-versions 0` and checks the count went up by
 exactly one; the old check was "no fewer than before", which adding one and
 losing one satisfies perfectly.
+
+**The new entry is checked on its own, and the live feed changes last.** The
+signature check used to search the whole file for `sparkle:edSignature`, and
+every older entry carries one, so it passed whether or not the new entry was
+signed — the exact silent failure it was written for, when the key found does
+not match `SUPublicEDKey`. `release.sh` now cuts out the `<item>` naming this
+version's zip and asks that one for a signature, a `length` equal to the zip it
+built, and the floor; it also counts signatures across the file, one more than
+before, for a pass that lost an old one. All of this used to happen in
+`docs/appcast.xml` itself, so a run that stopped at a check, or at the cask
+after it, left the live file offering a release with no archive uploaded and no
+tag, one `git add docs` away from being served. The feed is built and checked in
+`dist/sparkle/appcast.xml` and copied into `docs/` as the last step before
+`--install`.
 
 **The feed URL is unchangeable once shipped.** A copy out in the world polls the
 URL it was born with, and GitHub gives Pages no redirect if the account is ever
