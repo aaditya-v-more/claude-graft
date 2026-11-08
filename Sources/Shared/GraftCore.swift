@@ -1473,7 +1473,13 @@ enum Graft {
             // this on the way in and it has to be asked on the way out too:
             // withdrawing is forever, and this is how 150 sessions across two
             // profiles were withdrawn in a single pass.
-            guard !answers(for: store).stashed else {
+            //
+            // A record this pass can see is not one of those, whatever sits
+            // beside its folder. Every mirrored folder has a stash beside it,
+            // so a record the sweep filed there was out of sight from the next
+            // pass on, and kept the title and the last activity it was filed
+            // with for as long as the graft lasted.
+            guard !answers(for: store).stashed || recorded.contains(session) else {
                 outOfSight.insert(session)
                 stashedStores.insert(store)
                 continue

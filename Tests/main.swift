@@ -4682,6 +4682,34 @@ do {
     try? fm.removeItem(at: profile)
 }
 
+do {
+    // Every mirrored folder has a stash beside it, and the sweep may file into
+    // one: it is there and it was read. The stash is about records that cannot
+    // be seen, though, and a record standing in the folder can.
+    let account = "3e3e3e3e-3e3e-4e3e-8e3e-3e3e3e3e3e3e"
+    let org = "3f3f3f3f-3f3f-4f3f-8f3f-3f3f3f3f3f3f"
+    let session = "3a3a3a3a-3a3a-4a3a-8a3a-3a3a3a3a3a3a"
+    let profile = makeProfile("Claude-Mirrored-Own", account: account, org: org)
+    let folder = profile.appending(path: "claude-code-sessions/\(account)/\(org)")
+    try! fm.createDirectory(at: Graft.stashURL(for: folder), withIntermediateDirectories: true)
+    let file = folder.appending(path: "local_\(session).json")
+
+    _ = makeTranscript(session: session, owner: account, org: org, title: "Filed beside a stash")
+    Graft.fileMissingSessionRecords(filingInto: [profile], now: Date())
+    check(Graft.exists(file), "a session is filed into a mirrored folder, which is there and was read")
+
+    let transcript = makeTranscript(session: session, owner: account, org: org, title: "Renamed since",
+                                    last: "2026-08-29T17:05:00.000Z")
+    Graft.fileMissingSessionRecords(filingInto: [profile], now: Date())
+    let record = (try? Data(contentsOf: file))
+        .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+    check(record?["title"] as? String == "Renamed since",
+          "and the record standing there is kept current, since a stash beside it does not hide it")
+
+    try? fm.removeItem(at: profile)
+    try? fm.removeItem(at: transcript)
+}
+
 // MARK: - A store put away whole
 
 section("A store put away whole")

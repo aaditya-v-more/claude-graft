@@ -211,6 +211,18 @@ as the paragraph above, reached by the half of the case its fix did not cover.
 `isStashedAway` asks about every folder up to the store, and everything that
 reasons about an absent folder goes through it.
 
+**A stash hides what is in it, not what stands beside it.** Every mirrored
+folder has a stash beside it, and `mayFileRecords` lets the sweep file into one,
+since it is there and was read. From the next pass on, though, the withdrawal
+loop put every session remembered in a folder with a stash beside it out of
+sight before asking anything else, so a record the sweep had filed there kept
+the title, model and last activity it was filed with for as long as the graft
+lasted. The guard is for records remembered before a first pass moved them into
+the stash, which the walk cannot see; it could not tell those from a record
+filed afterwards and standing in the live folder in plain view. A session the
+walk found a record for is in sight now, whatever sits beside its folder, and
+goes on to be refreshed like any other.
+
 **A record remembered where nothing exists any more is a pair to drop, not a
 fact to act on.** `state.records` was only ever added to, so a folder that
 stopped existing — the profile deleted, or a sign-in moving `<account>/<org>` —
