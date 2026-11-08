@@ -22,6 +22,11 @@ swiftc -swift-version 5 \
     "$ROOT"/Sources/Shared/*.swift "${sources[@]}" \
     "$BUILD/ClaudeGraftApp.swift" "$ROOT/Tests/Layout/main.swift" \
     -Xlinker -rpath -Xlinker "$ROOT/vendor" -o "$APP/Contents/MacOS/LayoutChecks"
+# A second process, so the checks can also read a window as an assistive app
+# does, from outside.
+swiftc -swift-version 5 \
+    -target "$(uname -m)-apple-macos${MACOS_DEPLOYMENT_TARGET:-13.0}" \
+    "$ROOT/Tests/Layout/outside.swift" -o "$APP/Contents/Resources/outside-reader"
 cat > "$APP/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">

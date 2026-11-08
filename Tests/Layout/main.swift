@@ -79,6 +79,31 @@ func descendants(_ view: NSView) -> [NSView] {
 }
 func settle() { RunLoop.main.run(until: Date().addingTimeInterval(0.3)) }
 
+/// Each identified element's name as a reader in another process gets it:
+/// its description, or its title when it has none. The run loop keeps turning
+/// while the reader works, because every question it asks is answered here, on
+/// the main thread, and waiting on it would leave nobody to answer.
+func readFromOutside(_ window: NSWindow) -> [String: String] {
+    guard let reader = Bundle.main.url(forResource: "outside-reader", withExtension: nil) else { return [:] }
+    let process = Process()
+    let pipe = Pipe()
+    process.executableURL = reader
+    process.arguments = [String(getpid()), window.title]
+    process.standardOutput = pipe
+    guard (try? process.run()) != nil else { return [:] }
+    let deadline = Date().addingTimeInterval(20)
+    while process.isRunning && Date() < deadline { RunLoop.main.run(until: Date().addingTimeInterval(0.05)) }
+    if process.isRunning { process.terminate() }
+    let output = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+    var names: [String: String] = [:]
+    for line in output.split(separator: "\n") {
+        let fields = line.split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
+        guard fields.count == 4 else { continue }
+        names[fields[0]] = fields[2].isEmpty ? fields[3] : fields[2]
+    }
+    return names
+}
+
 // MARK: - What VoiceOver and a script see
 
 /// One element as VoiceOver and every other client of the accessibility API
@@ -831,6 +856,36 @@ MainActor.assumeIsolated {
     check(element("window.groups.add", in: tree)?.name == L10n.text("New Group")
             && element("window.groups.delete", in: tree)?.name == L10n.text("Delete Group"),
           "groups: adding and deleting a group can both be found and say what they do")
+    // The same two read from another process. A reader in a second process is
+    // what VoiceOver and every script is, and it was there, not here, that the
+    // minus button turned up with its help and no name.
+    let outside = readFromOutside(window)
+    check(outside["window.groups.add"] == L10n.text("New Group")
+            && outside["window.groups.delete"] == L10n.text("Delete Group"),
+          "groups: read from another process, adding and deleting a group still say what they do")
+    // And as the app shows it, a sheet over the window, which is where the live
+    // run read it.
+    window.contentView = NSView()
+    let parent = LayoutWindow(contentRect: NSRect(x: 0, y: 0, width: 820, height: 560),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+    parent.title = "Groups sheet check"
+    parent.appearance = NSAppearance(named: .aqua)
+    parent.setFrameOrigin(NSPoint(x: -10000, y: -10000))
+    parent.orderBack(nil)
+    let sheet = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 420),
+                         styleMask: [.titled], backing: .buffered, defer: false)
+    sheet.contentView = hosting
+    parent.beginSheet(sheet)
+    settle()
+    let inSheet = readFromOutside(parent)
+    check(inSheet["window.groups.add"] == L10n.text("New Group")
+            && inSheet["window.groups.delete"] == L10n.text("Delete Group"),
+          "groups: in a sheet, read from another process, adding and deleting a group say what they do")
+    if inSheet["window.groups.delete"] != L10n.text("Delete Group") {
+        print("    outside read of the sheet: \(inSheet.filter { $0.key.hasPrefix("window.groups.") && !$0.key.contains("member") })")
+    }
+    parent.endSheet(sheet)
+    parent.orderOut(nil)
     for position in 0..<3 {
         check(element("window.groups.member.\(position).role", in: tree) != nil
                 && element("window.groups.member.\(position).remove", in: tree) != nil,

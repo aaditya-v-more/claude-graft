@@ -475,11 +475,15 @@ struct GroupsEditor: View {
                     // was drawn and worked, and was missing from what
                     // assistive apps could see.
                     HStack(spacing: 4) {
+                        // Named twice over, in the label and for assistive apps: a
+                        // live run read the minus button from outside with its help
+                        // and no name, which no in-place read has reproduced since.
                         Button {
                             selection = center.addGroup(named: L10n.text("New Group")).id
                         } label: { Label(L10n.text("New Group"), systemImage: "plus").labelStyle(.iconOnly) }
                             .buttonStyle(.borderless)
                             .help(L10n.text("New Group"))
+                            .accessibilityLabel(L10n.text("New Group"))
                             .identified("groups.add")
                         Button {
                             if let selection { center.deleteGroup(selection) }
@@ -488,6 +492,7 @@ struct GroupsEditor: View {
                             .buttonStyle(.borderless)
                             .disabled(selection == nil)
                             .help(L10n.text("Delete Group"))
+                            .accessibilityLabel(L10n.text("Delete Group"))
                             .identified("groups.delete")
                         Spacer()
                     }
