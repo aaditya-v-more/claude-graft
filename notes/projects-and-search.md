@@ -86,14 +86,27 @@ lists. That is the whole link between the two, and it is exact:
   signed-in account, whose ids are none of the ones that account lists. This is
   only claimed when the account's whole list was read. If the walk stopped at
   its page limit or failed partway, a session past the end is unknown, not
-  gone. Such a hit has no link and opens its transcript in Finder.
+  gone. The transcript must also be owned under the organization the list was
+  read for (`ownerOrganizationUuid`), and its last line must be older than the
+  start of that list's walk. Such a hit has no link and opens its transcript
+  in Finder.
+
+An account in two organizations has a session list in each, and the search
+reads only one of them, so a session of the other was called gone while it was
+still on claude.ai. A session begun here after the list was read is not in it
+yet, so it was called gone too until the list was walked again.
 
 The transcripts are read out of the sweep's `transcript-cache.json` wherever its
 entry still matches the file's date and size. A transcript the sweep has not
 reached is parsed with the sweep's own `sessionFacts`, and **the cache is never
 written from here**. On the development Mac, 330 transcripts with a bridge line
-took 2.9 seconds cold, so the read is kept for the same two minutes as the
-session lists.
+took 2.9 seconds cold, so the read is kept for two minutes, as the session
+lists are, but it is never older than the list it is set beside
+(`localReadServes`): one read before the list misses whatever began here in
+between, which the list holds and would place on another Mac. The two used to
+be kept two minutes each from reads of their own, which let either be the
+older one. A search waits for a read already under way rather than starting a
+second.
 
 ## Filters
 

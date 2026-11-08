@@ -7051,23 +7051,24 @@ do {
             && sessions?.sessions[1].repository == "https://github.com/a/claude-graft",
           "a session list is read with its cursor, where each ran, and its repository")
     let transcriptHere = URL(fileURLWithPath: "/tmp/here.jsonl")
+    let listedAt = Date().addingTimeInterval(60)
     let local = [
-        LocalCodeSession(bridgeIds: ["cse_here"], owner: "acct-mine", title: "Fix the graft build",
+        LocalCodeSession(bridgeIds: ["cse_here"], owner: "acct-mine", organization: "org-chat", title: "Fix the graft build",
                          folder: "/Users/Shared/graft", transcript: transcriptHere,
                          lastActive: Date(), folderIsHere: true),
-        LocalCodeSession(bridgeIds: ["cse_carried"], owner: "acct-mine", title: "Graft carried over",
+        LocalCodeSession(bridgeIds: ["cse_carried"], owner: "acct-mine", organization: "org-chat", title: "Graft carried over",
                          folder: "/Users/someone-else/graft", transcript: URL(fileURLWithPath: "/tmp/c.jsonl"),
                          lastActive: Date(), folderIsHere: false),
-        LocalCodeSession(bridgeIds: ["cse_deleted"], owner: "acct-mine", title: "Graft notes, deleted",
+        LocalCodeSession(bridgeIds: ["cse_deleted"], owner: "acct-mine", organization: "org-chat", title: "Graft notes, deleted",
                          folder: "/Users/Shared/graft", transcript: URL(fileURLWithPath: "/tmp/d.jsonl"),
                          lastActive: Date(), folderIsHere: true),
-        LocalCodeSession(bridgeIds: ["cse_someone"], owner: "acct-other", title: "Graft, not this account",
+        LocalCodeSession(bridgeIds: ["cse_someone"], owner: "acct-other", organization: "org-chat", title: "Graft, not this account",
                          folder: "/Users/Shared/graft", transcript: URL(fileURLWithPath: "/tmp/o.jsonl"),
                          lastActive: Date(), folderIsHere: true),
     ]
     let remote = sessions?.sessions ?? []
-    let hits = ClaudeAPI.codeHits("graft", account: mine, accountUuid: "acct-mine",
-                                  remote: remote, complete: true, local: local)
+    let hits = ClaudeAPI.codeHits("graft", account: mine, accountUuid: "acct-mine", organization: "org-chat",
+                                  remote: remote, complete: true, listedAt: listedAt, local: local)
     func place(_ id: String) -> SearchHit.Place? { hits.first { $0.id == id }?.place }
     check(place("cse_here") == .thisMac && place("cse_cloud") == .cloud && place("cse_far") == .otherMac
             && place("cse_carried") == .otherMac,
@@ -7081,10 +7082,26 @@ do {
     check(gone.count == 1 && gone.first?.title == "Graft notes, deleted" && gone.first?.openURL == nil
             && gone.first?.transcript?.path == "/tmp/d.jsonl",
           "a transcript of this account's that claude.ai no longer lists is found, and opens in Finder")
-    let partial = ClaudeAPI.codeHits("graft", account: mine, accountUuid: "acct-mine",
-                                     remote: remote, complete: false, local: local)
+    let partial = ClaudeAPI.codeHits("graft", account: mine, accountUuid: "acct-mine", organization: "org-chat",
+                                     remote: remote, complete: false, listedAt: listedAt, local: local)
     check(!partial.contains { $0.place == .goneFromClaude },
           "nothing is called gone from claude.ai when the session list was not read to its end")
+    let otherOrg = ClaudeAPI.codeHits("graft", account: mine, accountUuid: "acct-mine", organization: "org-team",
+                                      remote: remote, complete: true, listedAt: listedAt, local: local)
+    let noOrg = ClaudeAPI.codeHits("graft", account: mine, accountUuid: "acct-mine", organization: nil,
+                                   remote: remote, complete: true, listedAt: listedAt, local: local)
+    check(!otherOrg.contains { $0.place == .goneFromClaude } && !noOrg.contains { $0.place == .goneFromClaude },
+          "a session owned under another organization than the list was read for is not called gone from claude.ai")
+    let stale = ClaudeAPI.codeHits("graft", account: mine, accountUuid: "acct-mine", organization: "org-chat",
+                                   remote: remote, complete: true, listedAt: Date().addingTimeInterval(-60),
+                                   local: local)
+    check(!stale.contains { $0.place == .goneFromClaude },
+          "a transcript that moved on after its session list was read is not called gone from claude.ai")
+    let listRead = Date()
+    check(ClaudeAPI.localReadServes(listRead.addingTimeInterval(1), list: listRead, now: listRead, lifetime: 120)
+            && !ClaudeAPI.localReadServes(listRead.addingTimeInterval(-1), list: listRead, now: listRead, lifetime: 120)
+            && !ClaudeAPI.localReadServes(listRead, list: listRead, now: listRead.addingTimeInterval(121), lifetime: 120),
+          "this Mac's transcripts are read again when a session list is newer than them, or they are two minutes old")
     check(ClaudeAPI.codeMatch("mini graft", title: "Graft on the mini", also: []) != nil
             && ClaudeAPI.codeMatch("graft cloud", title: "Graft release notes",
                                    also: ["https://github.com/a/claude-graft"]) == nil,
@@ -7155,6 +7172,8 @@ do {
           "this Mac's transcripts are found by the ids claude.ai lists their sessions under")
     check(read.first { $0.bridgeIds == ["cse_carriedone"] }?.folderIsHere == false,
           "a transcript carried from a home this Mac does not have is known as another Mac's")
+    check(read.first { $0.bridgeIds == ["cse_carriedone"] }?.organization == ownerOrg,
+          "a transcript here carries the organization it was owned under, as the sweep read it")
     Graft.claudeProjectsOverride = saved
 
     let repo = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
@@ -7170,6 +7189,10 @@ do {
     check(!center.contains("throw ClaudeWebSession.Failure.signedOut\n        } catch {\n            return (found, false)")
             && center.contains("let code = await codeSessions(id, org: org, session: session)"),
           "an account whose Code session list is refused still has its chats searched, and is not signed out for it")
+    check(center.contains("let local = await localSessions(readSince: code.read)")
+            && center.contains("organization: org, remote: code.sessions, complete: code.complete")
+            && center.contains("listedAt: code.read, local: local"),
+          "a search sets each account's session list beside a read of this Mac's transcripts made after it")
     check(views.contains(".onSubmit { center.search(query) }") && !views.contains("onChange(of: query"),
           "a search goes out on Return or the button, never as the query is typed")
     check(!center.contains("URLSession") && !model.contains("URLSession"),

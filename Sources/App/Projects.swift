@@ -76,6 +76,9 @@ struct RemoteCodeSession: Equatable {
 struct LocalCodeSession: Equatable {
     var bridgeIds: [String]
     var owner: String
+    /// `ownerOrganizationUuid`: an account in two organizations has a
+    /// session list in each, and only one of them is read.
+    var organization: String
     var title: String
     var folder: String
     var transcript: URL
@@ -227,9 +230,12 @@ enum ClaudeAPI {
     /// transcripts say about it, and the transcripts claude.ai no longer has.
     ///
     /// A session is only called gone when the account's whole list was read:
-    /// one past the last page read is simply not known.
-    static func codeHits(_ query: String, account: UUID, accountUuid: String?,
-                         remote: [RemoteCodeSession], complete: Bool,
+    /// one past the last page read is simply not known. So is one owned under
+    /// another organization than the list was read for, which that list never
+    /// holds, and one whose transcript moved on after the list was read, which
+    /// may have begun since.
+    static func codeHits(_ query: String, account: UUID, accountUuid: String?, organization: String?,
+                         remote: [RemoteCodeSession], complete: Bool, listedAt: Date?,
                          local: [LocalCodeSession]) -> [SearchHit] {
         var byBridge: [String: LocalCodeSession] = [:]
         for session in local {
@@ -249,9 +255,10 @@ enum ClaudeAPI {
                                   place: place, folder: here?.folder, transcript: here?.transcript,
                                   rank: index, openURL: codeSessionURL(session.id)))
         }
-        guard complete, let accountUuid else { return hits }
+        guard complete, let accountUuid, let organization, let listedAt else { return hits }
         let listed = Set(remote.map(\.id))
-        for session in local where session.owner == accountUuid
+        for session in local where session.owner == accountUuid && session.organization == organization
+            && session.lastActive < listedAt
             && !session.bridgeIds.contains(where: listed.contains) {
             guard let matches = codeMatch(query, title: session.title, also: [session.folder]) else { continue }
             hits.append(SearchHit(id: "local:" + session.transcript.path, account: account, kind: .code,
@@ -262,6 +269,14 @@ enum ClaudeAPI {
                                   rank: hits.count, openURL: nil))
         }
         return hits
+    }
+
+    /// Whether a read of this Mac's transcripts can stand beside a session
+    /// list: still fresh, and made no earlier than the list. One made earlier
+    /// is missing whatever began here in between, which the list holds and
+    /// would place on another Mac.
+    static func localReadServes(_ read: Date, list: Date, now: Date, lifetime: TimeInterval) -> Bool {
+        read >= list && now.timeIntervalSince(read) < lifetime
     }
 
     /// Every account's projects in one list: starred ones first, as on
@@ -448,7 +463,8 @@ enum LocalCodeSessions {
                 }
                 guard let facts else { continue }
                 sessions.append(LocalCodeSession(
-                    bridgeIds: facts.bridgeIds, owner: facts.ownerAccount, title: facts.title,
+                    bridgeIds: facts.bridgeIds, owner: facts.ownerAccount,
+                    organization: facts.ownerOrganization, title: facts.title,
                     folder: facts.cwd, transcript: url,
                     lastActive: Date(timeIntervalSince1970: facts.lastActivityAt / 1000),
                     folderIsHere: Graft.sessionFolderIsHere(facts.cwd)))

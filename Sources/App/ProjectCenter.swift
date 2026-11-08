@@ -44,6 +44,9 @@ final class ProjectCenter: ObservableObject {
     /// of three hundred of them took three seconds here, too long to stand in
     /// front of every search.
     private var localRead: (read: Date, sessions: [LocalCodeSession])?
+    /// The read under way, which every account whose list came before it
+    /// waits for rather than starting one of its own.
+    private var localReading: Task<(read: Date, sessions: [LocalCodeSession]), Never>?
     /// Whether the Projects pane has asked yet. A sign-in made before it was
     /// ever shown waits for it, like every other account.
     private var askedForProjects = false
@@ -195,17 +198,10 @@ final class ProjectCenter: ObservableObject {
         for id in ids { searchStates[id] = .loading }
         if projects.isEmpty { refreshProjects() }
         Task {
-            let local: [LocalCodeSession]
-            if let kept = localRead, Date().timeIntervalSince(kept.read) < Self.codeListLifetime {
-                local = kept.sessions
-            } else {
-                local = await Task.detached(priority: .userInitiated) { LocalCodeSessions.read() }.value
-                localRead = (Date(), local)
-            }
             var lists: [UUID: [SearchHit]] = [:]
             await withTaskGroup(of: (UUID, Result<[SearchHit], Error>).self) { group in
                 for id in ids {
-                    group.addTask { (id, await self.searchOne(id, query, local: local)) }
+                    group.addTask { (id, await self.searchOne(id, query)) }
                 }
                 for await (id, outcome) in group {
                     // A newer search has started, and this one's answers would
@@ -230,7 +226,7 @@ final class ProjectCenter: ObservableObject {
         }
     }
 
-    private func searchOne(_ id: UUID, _ query: String, local: [LocalCodeSession]) async -> Result<[SearchHit], Error> {
+    private func searchOne(_ id: UUID, _ query: String) async -> Result<[SearchHit], Error> {
         do {
             let org = try await accounts.organization(of: id)
             let session = accounts.session(id)
@@ -239,8 +235,10 @@ final class ProjectCenter: ObservableObject {
             guard answer.status == 200, let chats = ClaudeAPI.chats(from: answer.data, account: id)
             else { throw ClaudeWebSession.Failure.unreadable }
             let code = await codeSessions(id, org: org, session: session)
+            let local = await localSessions(readSince: code.read)
             let hits = ClaudeAPI.codeHits(query, account: id, accountUuid: accounts.account(id)?.accountUuid,
-                                          remote: code.sessions, complete: code.complete, local: local)
+                                          organization: org, remote: code.sessions, complete: code.complete,
+                                          listedAt: code.read, local: local)
             return .success(chats + hits)
         } catch {
             return .failure(error)
@@ -250,10 +248,14 @@ final class ProjectCenter: ObservableObject {
     /// An account with no Code sessions, or whose session list will not
     /// answer, still has its chats searched; only the chats' failure fails it.
     private func codeSessions(_ id: UUID, org: String,
-                              session: ClaudeWebSession) async -> (sessions: [RemoteCodeSession], complete: Bool) {
+                              session: ClaudeWebSession) async
+        -> (sessions: [RemoteCodeSession], complete: Bool, read: Date) {
         if let kept = codeLists[id], Date().timeIntervalSince(kept.read) < Self.codeListLifetime {
-            return (kept.sessions, kept.complete)
+            return (kept.sessions, kept.complete, kept.read)
         }
+        // From before the walk: a session that began while it ran may be on a
+        // page already read.
+        let started = Date()
         var found: [RemoteCodeSession] = []
         var cursor: String?
         var complete = false
@@ -263,17 +265,44 @@ final class ProjectCenter: ObservableObject {
                                                     headers: ClaudeAPI.codeHeaders(org: org))
                 guard answer.status == 200, let page = ClaudeAPI.codeSessions(from: answer.data) else {
                     Diagnostics.note("search.code-sessions refused", ["status": "\(answer.status)"])
-                    return (found, false)
+                    return (found, false, started)
                 }
                 found += page.sessions
                 cursor = page.next
                 if cursor == nil { complete = true; break }
             }
         } catch {
-            return (found, false)
+            return (found, false, started)
         }
-        codeLists[id] = (Date(), found, complete)
-        return (found, complete)
+        codeLists[id] = (started, found, complete)
+        return (found, complete, started)
+    }
+
+    /// This Mac's transcripts, read no earlier than a session list they are
+    /// set beside. The two used to be kept two minutes each from reads of
+    /// their own, so a session begun here between a list and a newer read of
+    /// the transcripts showed as gone from claude.ai, and one begun between a
+    /// read and a newer list as on another Mac.
+    private func localSessions(readSince list: Date) async -> [LocalCodeSession] {
+        if let kept = localRead,
+           ClaudeAPI.localReadServes(kept.read, list: list, now: Date(), lifetime: Self.codeListLifetime) {
+            return kept.sessions
+        }
+        if let reading = localReading {
+            let done = await reading.value
+            if ClaudeAPI.localReadServes(done.read, list: list, now: Date(), lifetime: Self.codeListLifetime) {
+                return done.sessions
+            }
+        }
+        let reading = Task.detached(priority: .userInitiated) { () -> (read: Date, sessions: [LocalCodeSession]) in
+            let started = Date()
+            return (started, LocalCodeSessions.read())
+        }
+        localReading = reading
+        let done = await reading.value
+        if localReading == reading { localReading = nil }
+        if (localRead?.read ?? .distantPast) < done.read { localRead = done }
+        return done.sessions
     }
 
     func clearSearch() {
