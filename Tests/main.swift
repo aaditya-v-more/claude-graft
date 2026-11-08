@@ -7193,7 +7193,15 @@ do {
             && center.contains("organization: org, remote: code.sessions, complete: code.complete")
             && center.contains("listedAt: code.read, local: local"),
           "a search sets each account's session list beside a read of this Mac's transcripts made after it")
-    check(views.contains(".onSubmit { center.search(query) }") && !views.contains("onChange(of: query"),
+    check(center.contains("askForProjectsNotYetAsked()") && !center.contains("if projects.isEmpty { refreshProjects() }")
+            && center.contains("filter { projectStates[$0] == nil }"),
+          "a search asks for projects only from accounts never asked, not from every account whenever none has any")
+    check(views.contains(".onSubmit { if !center.searching { center.search(query) } }"),
+          "Return held in the search field starts no second search while one is running, as the button starts none")
+    check(source("ArtifactExport.swift").contains("try await Task.detached(priority: .userInitiated) {")
+            && source("ArtifactExport.swift").contains("try await zip(folder"),
+          "a many-file export waits for its archive off the main thread")
+    check(views.contains(".onSubmit { if !center.searching { center.search(query) } }") && !views.contains("onChange(of: query"),
           "a search goes out on Return or the button, never as the query is typed")
     check(!center.contains("URLSession") && !model.contains("URLSession"),
           "projects and searches go from claude.ai's own page, never from a request Graft builds")

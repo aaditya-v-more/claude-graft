@@ -169,7 +169,7 @@ struct ChatSearchView: View {
                     TextField("Search every account's chats", text: $query)
                         .textFieldStyle(.roundedBorder)
                         .focused($focused)
-                        .onSubmit { center.search(query) }
+                        .onSubmit { if !center.searching { center.search(query) } }
                         .accessibilityLabel(L10n.text("Search Chats"))
                         .identified("search.query")
                     Button {

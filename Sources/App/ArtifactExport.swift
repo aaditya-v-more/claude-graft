@@ -43,7 +43,7 @@ enum ArtifactExport {
             guard let page = try? Data(contentsOf: index) else { throw Failure.unwritable }
             data = page
         case .html:
-            try zip(folder, to: destination)
+            try await zip(folder, to: destination)
             return
         case .markdown, .pdf, .word:
             data = try await ArtifactRenderer.render(index, in: folder, as: format)
@@ -52,15 +52,18 @@ enum ArtifactExport {
     }
 
     /// `ditto` makes the archive Finder makes, which is the one a person
-    /// double-clicks expecting it to open.
-    private static func zip(_ folder: URL, to destination: URL) throws {
-        try? FileManager.default.removeItem(at: destination)
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/ditto")
-        process.arguments = ["-c", "-k", "--norsrc", folder.path, destination.path]
-        do { try process.run() } catch { throw Failure.unwritable }
-        process.waitUntilExit()
-        guard process.terminationStatus == 0 else { throw Failure.unwritable }
+    /// double-clicks expecting it to open. It is waited on off the main
+    /// thread, where an archive of many files held the whole window still.
+    private static func zip(_ folder: URL, to destination: URL) async throws {
+        try await Task.detached(priority: .userInitiated) {
+            try? FileManager.default.removeItem(at: destination)
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/ditto")
+            process.arguments = ["-c", "-k", "--norsrc", folder.path, destination.path]
+            do { try process.run() } catch { throw Failure.unwritable }
+            process.waitUntilExit()
+            guard process.terminationStatus == 0 else { throw Failure.unwritable }
+        }.value
     }
 
     /// Walks the page as drawn, so an artifact that builds itself with

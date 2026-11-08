@@ -60,7 +60,11 @@ page and its search box. None is documented.
 A search is one `POST` per account, plus the session list, which is kept for
 two minutes so a second search in a row does not walk it again. Nothing is
 asked as the query is typed, only on Return or the Search button, and changing
-a filter asks nothing.
+a filter asks nothing. Return does nothing while a search runs, as the button
+does nothing: a list cut short is not kept, so a held key started one walk of
+it after another. A search asks for projects only from an account never asked
+for them, so it can name the project a chat is in; it used to ask every
+account again whenever no account had a project.
 
 A session list that is refused or fails partway leaves the account's chats
 searched and its Code sessions unknown; it does not fail the search, and it

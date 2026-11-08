@@ -136,6 +136,18 @@ final class ProjectCenter: ObservableObject {
         }
     }
 
+    /// What a search needs to name the project a chat is in.
+    private func askForProjectsNotYetAsked() {
+        let unasked = accounts.accounts.map(\.id).filter { projectStates[$0] == nil }
+        guard !unasked.isEmpty else { return }
+        askedForProjects = true
+        Task {
+            await withTaskGroup(of: Void.self) { group in
+                for id in unasked { group.addTask { await self.loadProjects(id) } }
+            }
+        }
+    }
+
     private func loadProjects(_ id: UUID) async {
         guard accounts.account(id) != nil, projectStates[id] != .loading else { return }
         projectStates[id] = .loading
@@ -196,7 +208,10 @@ final class ProjectCenter: ObservableObject {
         results = []
         let ids = accounts.accounts.map(\.id)
         for id in ids { searchStates[id] = .loading }
-        if projects.isEmpty { refreshProjects() }
+        // Only accounts never asked: one with no projects is answered already,
+        // and asking again whenever the list was empty walked every account's
+        // projects on every search.
+        askForProjectsNotYetAsked()
         Task {
             var lists: [UUID: [SearchHit]] = [:]
             await withTaskGroup(of: (UUID, Result<[SearchHit], Error>).self) { group in
