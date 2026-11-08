@@ -172,7 +172,10 @@ struct MenuBarContent: View {
             DispatchQueue.main.async {
                 starting = nil
                 problem = failure?.errorDescription
-                usage.refresh(store, interactive: true)
+                // Starting the session already asked the keychain for this
+                // press; asking here too was a second dialog after a Deny, and
+                // without a focus one for every signed-in Claude.
+                usage.refresh(store, interactive: true, prompting: .no, focus: profile)
             }
         }
     }

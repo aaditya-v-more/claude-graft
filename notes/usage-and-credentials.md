@@ -166,4 +166,31 @@ Opening the dropdown asks for a current figure but does not skip the backoff,
 because a failing endpoint would then be asked again on every open. Failures
 back off 60/120/300/900/1800 seconds and a success clears the count; a
 `Retry-After` from the service wins and is the one wait a person pressing
-refresh cannot skip.
+refresh cannot skip. It holds only as long as the service is the one asking: a
+later failure that carries none starts a wait of Graft's own, and the service's
+mark comes off with it, or a press would sit out an ordinary backoff as though
+the service had asked for it.
+
+Only a failure that came back from the service, or no answer at all, backs
+off. One on this Mac — the keychain shut, no login, an expired one, a config
+caught mid-write — happens before anything is sent, is put right on this Mac,
+and is tried again on the next pass. All of them used to read "Anthropic didn't
+answer" and wait up to half an hour, which pointed the person at the network
+and kept the account stale for thirty minutes after they had fixed the cause.
+`UsageMonitor.cameFromService` is the line between the two, and each local one
+says what it is in the row.
+
+A config that is there and will not parse is Claude renaming a new one over it,
+not a profile with no login, so `ClaudeCredentials.tokens` reads it through
+`readableConfigJSON` and throws `configUnreadable`: retried, never taken for
+signed out. Read as empty, it left a lender with nothing to be recognised by
+for a pass.
+
+**A pass that has been told no asks nobody after it.** The key is one item for
+every profile, so once a read in a pass comes back shut, every profile after it
+in that pass is read silently. Before, `mayRaiseDialog(.yes)` answered yes for
+each profile whatever had just happened, and Start Session's follow-up refresh
+went out allowed to ask and with no focus, so a Deny on a Mac with three
+Claudes was answered with three more dialogs. That refresh now asks nobody and
+only about the account the session was started on: the press already asked the
+keychain once, in starting the session.

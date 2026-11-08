@@ -179,7 +179,9 @@ struct MainProfileDetail: View {
                 startingSession = false
                 error = failure?.errorDescription
                 refresh()
-                usage.refresh(store, interactive: true)
+                // Starting the session already asked the keychain for this
+                // press, so this asks nobody, and only about this account.
+                usage.refresh(store, interactive: true, prompting: .no, focus: profile)
             }
         }
     }

@@ -1345,6 +1345,15 @@ do {
     check((try? ClaudeCredentials.token(for: bare, prompting: .no)) ?? nil == nil,
           "a profile with no stored login has no token")
 
+    // Claude renames a new config over the old, and a read landing between
+    // the two sees a file that is there and will not parse.
+    let midWrite = makeProfile("Claude-MidWrite", account: "AAAA")
+    try? Data(#"{"oauth:tokenCacheV2": "djEw"#.utf8).write(to: midWrite.appending(path: "config.json"))
+    var caught: Error?
+    do { _ = try ClaudeCredentials.tokens(for: midWrite, prompting: .no) } catch { caught = error }
+    check(caught as? ClaudeCredentials.Failure == .configUnreadable,
+          "a config caught mid-write is a read to try again, not a profile with no login")
+
     // Starting a session goes to Anthropic, per profile, with a real model id.
     check(SessionStarter.endpoint.host == "api.anthropic.com", "sessions start against Anthropic")
     check(SessionStarter.endpoint.scheme == "https", "over https as well")
@@ -1634,6 +1643,16 @@ do {
     // app. The monitor starts willing; the app turns it off for a login launch.
     let monitor = UsageMonitor()
     check(monitor.mayPromptUnasked, "a monitor is willing to ask until something says otherwise")
+
+    // The key is one item for every profile, so a pass that has been told no
+    // asks nobody after that.
+    check(UsageMonitor.prompting(asking: .yes, elsewhere: .onceIfShut, focused: true, locked: false) == .yes,
+          "a press asks the keychain for the account it is about")
+    check(UsageMonitor.prompting(asking: .yes, elsewhere: .onceIfShut, focused: false, locked: false) == .onceIfShut,
+          "and reads the others the way a tick would")
+    check(UsageMonitor.prompting(asking: .yes, elsewhere: .onceIfShut, focused: true, locked: true) == .no
+            && UsageMonitor.prompting(asking: .yes, elsewhere: .onceIfShut, focused: false, locked: true) == .no,
+          "but once the keychain has said no in a pass, no profile after it raises another dialog")
 }
 
 // MARK: - Nothing asks for a session by itself
@@ -1682,6 +1701,15 @@ do {
           "only the three Start Session buttons ask Anthropic for a session")
     check(automatic.isEmpty, "and nothing that runs on its own is wired to one")
     check(quiet.isEmpty, "each of the three says a person asked, which is what allows the keychain prompt")
+
+    // Starting the session is where the press asks the keychain. The refresh
+    // after it went out unfocused and allowed to ask, which after a Deny was a
+    // dialog for every signed-in Claude in turn.
+    let followUps = ["MainProfileDetail.swift", "MenuBarContent.swift", "ShortcutDetail.swift"].map { name in
+        (try? String(contentsOf: appSource.appending(path: name), encoding: .utf8)) ?? ""
+    }
+    check(followUps.allSatisfy { $0.contains("usage.refresh(store, interactive: true, prompting: .no, focus: profile)") },
+          "the refresh after a session starts asks nobody, and only about that account")
 
     // `.yes` asks unconditionally. Nothing should name it directly: it is
     // reached by saying a person pressed something, which is auditable.
@@ -1831,6 +1859,30 @@ do {
     check(UsageMonitor.mayAttempt(now: now, until: now.addingTimeInterval(-1),
                                   interactive: false, serverAsked: true),
           "and an expired wait releases either way")
+
+    // Only the service's own answer is the service's wait. A failure after a
+    // Retry-After that carries none starts a wait a press may skip again.
+    check(UsageMonitor.waitAsked(by: UsageAPI.Failure.http(429, retryAfter: 900)) == 900,
+          "a refusal that says how long to wait is the service asking")
+    check(UsageMonitor.waitAsked(by: UsageAPI.Failure.http(500, retryAfter: nil)) == nil
+            && UsageMonitor.waitAsked(by: URLError(.timedOut)) == nil,
+          "and one that does not, or no answer at all, asks nothing of a press")
+
+    // A failure on this Mac is not the service failing, and waiting longer
+    // between tries fixes none of them.
+    let local: [ClaudeCredentials.Failure] = [.notSignedIn, .expired, .configUnreadable,
+                                              .noKeychainAccess, .keychainDeclined]
+    check(local.allSatisfy { !UsageMonitor.cameFromService($0) },
+          "a login that cannot be read here is retried on the next pass, with no backoff")
+    check(UsageMonitor.cameFromService(UsageAPI.Failure.http(503, retryAfter: nil))
+            && UsageMonitor.cameFromService(UsageAPI.Failure.unreadable)
+            && UsageMonitor.cameFromService(URLError(.notConnectedToInternet)),
+          "while an answer from the service, or none, backs off as before")
+    let anthropic = L10n.text("Anthropic didn't answer")
+    check(local.allSatisfy { UsageMonitor.failureLine($0) != anthropic },
+          "and a local failure never reads as Anthropic not answering")
+    check(UsageMonitor.failureLine(URLError(.timedOut)) == anthropic,
+          "which is kept for the service")
 }
 
 // MARK: - Telling instances apart

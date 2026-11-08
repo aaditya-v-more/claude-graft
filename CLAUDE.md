@@ -119,11 +119,11 @@ any of these. The why is in [notes/updates-and-releases.md](notes/updates-and-re
 
 - **Credentials are borrowed, never taken.** Only the access token is decrypted; nothing is written back; a token goes to `api.anthropic.com` alone, `platform.claude.com` sees only a pane sign-in's one-time code, and claude.ai sees only an artifact sign-in made in Graft's own window, which Graft never reads.
 - **A borrowed token touches no cache:** it goes out through `UsageAPI.session`, ephemeral with no `URLCache`; nothing names `URLSession.shared`, and a launch empties its cache.
-- **The keychain is asked once, and only when asking is the way through** — `ClaudeCredentials.mayRaiseDialog`, made silent by `SecKeychainSetUserInteractionAllowed`.
+- **The keychain is asked once, and only when asking is the way through** — `ClaudeCredentials.mayRaiseDialog`, made silent by `SecKeychainSetUserInteractionAllowed`. A pass told no asks no other profile (`UsageMonitor.prompting`), and Start Session's follow-up refresh asks nobody.
 - **Only a person starts a session.** The suite fails on a fourth caller or one wired to `onAppear`, `onReceive` or a timer.
 - **One account, one figure:** both detail views read `UsageMonitor.entry(for:)`.
 - **No five-hour limit is not 0%:** `fiveHour` is nil for such an account, never zero; the menu bar shows its week as `W`, and Start Session is hidden.
-- **Polling:** `mayUseCache` gives five minutes to a tick, two for an open profile, a minute for the dropdown, two seconds for a press; `arrival` queues rather than drops; failures back off and `Retry-After` wins.
+- **Polling:** `mayUseCache` gives five minutes to a tick, two for an open profile, a minute for the dropdown, two seconds for a press; `arrival` queues rather than drops; only the service's failures back off (`cameFromService`), a local one is retried next pass under its own name, and `Retry-After` wins until a failure arrives without one.
 
 ### Shared usage — [notes/shared-usage.md](notes/shared-usage.md)
 

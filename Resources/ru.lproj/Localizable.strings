@@ -311,6 +311,9 @@
 "No saved login to ask Anthropic with" = "Нет сохранённого входа для запроса к Anthropic";
 "Live usage needs keychain access" = "Для живых данных нужен доступ к связке ключей";
 "Anthropic didn't answer" = "Anthropic не ответил";
+"Its login could not be read on this Mac" = "Не удалось прочитать вход на этом Mac";
+"Its settings were being saved · trying again" = "Настройки сохранялись · пробуем снова";
+"That profile's settings file could not be read just now. The next refresh tries again." = "Файл настроек этого профиля сейчас не удалось прочитать. При следующем обновлении Graft попробует снова.";
 "next try soon" = "скоро новая попытка";
 "Next try soon" = "Скоро новая попытка";
 "next try in %@" = "новая попытка через %@";

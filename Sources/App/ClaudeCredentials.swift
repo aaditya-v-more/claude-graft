@@ -45,6 +45,10 @@ enum ClaudeCredentials {
         case keychainDeclined
         case notSignedIn
         case expired
+        /// `config.json` is there and did not parse, which is Claude part way
+        /// through renaming a new one over it. Not the same as no login: the
+        /// next read finds the file whole.
+        case configUnreadable
 
         var errorDescription: String? {
             switch self {
@@ -62,6 +66,8 @@ enum ClaudeCredentials {
                 return L10n.text("No Claude Desktop login was found for this profile.")
             case .expired:
                 return L10n.text("That profile's login has expired. Open it once so Claude can renew it.")
+            case .configUnreadable:
+                return L10n.text("That profile's settings file could not be read just now. The next refresh tries again.")
             }
         }
     }
@@ -297,8 +303,11 @@ enum ClaudeCredentials {
     /// Every entry the profile's cache holds, current or not. The usage pool
     /// needs the lot: Claude hands Claude Code one of these, and which one is
     /// Claude's business, so a request is recognised by any of them.
+    ///
+    /// A config caught mid-write throws rather than reading as no login: taken
+    /// for none, it left a lender with nothing to be recognised by for a pass.
     static func tokens(for profile: URL, prompting: Prompting) throws -> [Token]? {
-        let config = Graft.configJSON(of: profile)
+        guard let config = Graft.readableConfigJSON(of: profile) else { throw Failure.configUnreadable }
         let encoded = cacheKeys.compactMap { config[$0] as? String }.first
         guard let encoded, let blob = Data(base64Encoded: encoded) else { return nil }
 

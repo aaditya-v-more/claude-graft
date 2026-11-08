@@ -311,6 +311,9 @@
 "No saved login to ask Anthropic with" = "No saved login to ask Anthropic with";
 "Live usage needs keychain access" = "Live usage needs keychain access";
 "Anthropic didn't answer" = "Anthropic didn't answer";
+"Its login could not be read on this Mac" = "Its login could not be read on this Mac";
+"Its settings were being saved · trying again" = "Its settings were being saved · trying again";
+"That profile's settings file could not be read just now. The next refresh tries again." = "That profile's settings file could not be read just now. The next refresh tries again.";
 "next try soon" = "next try soon";
 "Next try soon" = "Next try soon";
 "next try in %@" = "next try in %@";
