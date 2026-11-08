@@ -93,7 +93,7 @@ enum SessionStarter {
         var response: URLResponse?
         var transportFailure: Error?
         let finished = DispatchSemaphore(value: 0)
-        URLSession.shared.dataTask(with: request) { data, urlResponse, error in
+        UsageAPI.session.dataTask(with: request) { data, urlResponse, error in
             payload = data
             response = urlResponse
             transportFailure = error

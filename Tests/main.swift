@@ -1321,6 +1321,25 @@ do {
     check(UsageAPI.endpoint.host == "api.anthropic.com", "usage is read from Anthropic")
     check(UsageAPI.endpoint.scheme == "https", "over https")
 
+    // The shared session's cache keeps each request beside its answer, its
+    // Authorization header included, in a file anyone running as the person
+    // can read, so a borrowed token never goes near it.
+    check(UsageAPI.session.configuration.urlCache == nil
+            && UsageAPI.session.configuration.requestCachePolicy == .reloadIgnoringLocalCacheData,
+          "a borrowed token goes out through a session that writes nothing down")
+    let repoRoot = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+    let sourceFiles = (fm.enumerator(at: repoRoot.appending(path: "Sources"), includingPropertiesForKeys: nil)?
+        .compactMap { $0 as? URL } ?? []).filter { $0.pathExtension == "swift" }
+    let usingShared = sourceFiles.filter {
+        (try? String(contentsOf: $0, encoding: .utf8))?.contains("URLSession.shared") == true
+    }
+    check(sourceFiles.count > 10 && usingShared.isEmpty,
+          "nothing in the app sends a request through the shared session and its cache")
+    let launch = (try? String(contentsOf: repoRoot.appending(path: "Sources/App/ClaudeGraftApp.swift"),
+                              encoding: .utf8)) ?? ""
+    check(launch.contains("URLCache.shared.removeAllCachedResponses()"),
+          "and a launch empties that cache, so a token an older version left in it goes")
+
     // A profile with no cached login yields nothing rather than throwing.
     let bare = makeProfile("Claude-NoLogin", account: "AAAA")
     check((try? ClaudeCredentials.token(for: bare, prompting: .no)) ?? nil == nil,

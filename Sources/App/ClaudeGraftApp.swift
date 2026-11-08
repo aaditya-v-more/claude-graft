@@ -124,6 +124,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // keychain dialog; the first poll stays quiet and the prompt waits for
         // the window or the dropdown.
         Shared.usage.mayPromptUnasked = !Shared.startHidden
+        // Up to 2.0.0 the usage request went through the shared session, whose
+        // cache kept the bearer token it carried on disk. Nothing borrowed goes
+        // through that cache now, so emptying it takes the last one with it.
+        DispatchQueue.global(qos: .utility).async { URLCache.shared.removeAllCachedResponses() }
         Shared.usage.start(watching: Shared.store)
         Shared.frontmost.onActivation = { profile in
             Shared.usage.claudeCameForward(profile, store: Shared.store)

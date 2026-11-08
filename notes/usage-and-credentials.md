@@ -17,6 +17,17 @@ own, never one of Claude's. claude.ai is the third, for [artifacts](artifacts.md
 sign-in made in Graft's own window, which stays in that window's web store and
 is never read out of it.
 
+**A borrowed token is never written down on the way out.** Up to 2.0.0 the
+usage request and Start Session went through `URLSession.shared`, whose
+`URLCache` stores the request it answered beside the answer, `Authorization`
+header included, in `~/Library/Caches/graft.claude-graft/Cache.db`. The review
+before 2.0.1 found one `api.anthropic.com` exchange there with a bearer token in
+it, readable by any process running as the person without the keychain being
+asked. Both now go through `UsageAPI.session`, ephemeral and with no cache at
+all, the way `AccountSignIn` and `ClaudeDesktopUpdater` already did; every
+launch empties `URLCache.shared` so what an older version left there goes, and
+the suite fails if anything under `Sources/` names `URLSession.shared` again.
+
 **The keychain is asked once, and only when asking is the way through.** Every
 read tries silently first, so a build already on the item's ACL never sees a
 dialog no matter who asked. When that read comes back shut the app asks rather
