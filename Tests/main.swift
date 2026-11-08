@@ -3265,6 +3265,19 @@ do {
           "so nothing is written for it")
     check(Graft.loadSessionRecordState().withdrawn == [id],
           "and it is written down, so the marker may be tidied away without the session coming back")
+
+    // The marker outlives the withdrawal, and the next pass meets it again.
+    try? fm.removeItem(at: Diagnostics.file)
+    _ = Graft.fileMissingSessionRecords(filingInto: [home], now: now.addingTimeInterval(60))
+    let events = ((try? String(contentsOf: Diagnostics.file, encoding: .utf8)) ?? "")
+        .split(separator: "\n")
+        .compactMap { (try? JSONSerialization.jsonObject(with: Data($0.utf8))) as? [String: Any] }
+    check(!events.contains { $0["event"] as? String == "sweep.withdraw" },
+          "a session withdrawn on an earlier pass is not withdrawn again because its marker is still there")
+    let end = events.last { $0["event"] as? String == "sweep.end" }
+    check(end?["withdrawn"] as? Int == 0 && end?["withdrawnInAll"] as? Int == 1,
+          "and the end of the pass counts what it withdrew, with the running total named as one")
+    try? fm.removeItem(at: Diagnostics.file)
 }
 
 do {

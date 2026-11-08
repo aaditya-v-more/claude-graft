@@ -214,6 +214,21 @@ outright — and markers accumulate and are never pruned, so one deletion went o
 suppressing whatever else had happened to go quiet in the minute before it, for
 as long as the marker existed. Only markers naming no transcript reach it now.
 
+**A marker that withdrew a session is not news the next time it is read.**
+Markers are never pruned, so the one that named a session goes on naming it on
+every pass for good, and the sweep read it afresh each time: one session,
+deleted from Claude's sidebar on 16 October, was logged as withdrawn on 54
+passes in a row across 1.1.8 and 2.0.0 builds, and every `sweep.end` said
+`"withdrawn":5`. Nothing was being done to it. Its marker, its transcript and
+the copies a mirror had carried into Claude-2 were all untouched since the day
+they were written, no record for it existed anywhere, and `session-records.json`
+had it in `withdrawn` and nowhere else; the count was the running total of all
+five sessions ever withdrawn, under a name that reads as this pass's. The four
+withdrawn by a store read twice were each logged once, because a withdrawal
+drops them from `records` and nothing brings them back to be read again. Only a
+session not yet withdrawn is withdrawn by its marker now, `withdrawn` on
+`sweep.end` is the pass's own count, and the total is `withdrawnInAll`.
+
 ## Resumed copies and forks
 
 **A conversation carried on is not a conversation lost.** Claude gives a
