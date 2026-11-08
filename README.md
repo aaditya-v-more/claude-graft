@@ -65,10 +65,15 @@ another Claude's chats is a choice you make.
 
 <img src="docs/images/02-new-claude.png" width="820" alt="A new Claude, reading its own chats">
 
-## Usage at a glance
+## The menu bar
 
-The menu bar shows every account's five-hour and weekly usage, kept current
-while the Claudes are closed.
+The menu bar says which Claude is in front, with its icon and its account's
+usage, and its name too if you like. While a Claude shares usage, the bar shows
+every account it draws on and lights the one answering right now; a
+conversation that has just begun runs across it for two minutes, so you see
+which account took it. The dropdown lists every account's five-hour and weekly
+usage, kept current while the Claudes are closed, and lets you pick which
+account answers each conversation.
 
 <img src="docs/images/03-dropdown.png" width="346" alt="Graft's menu bar dropdown with each account's usage">
 
