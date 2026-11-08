@@ -64,6 +64,27 @@ enum QuitPolicy {
     }
 }
 
+/// When the window may go away and take the Dock icon with it.
+///
+/// With the window closed and the app an accessory, the status item is the
+/// only way back in. So the setting is not enough: an item the bar had no room
+/// for, or one sitting behind the notch, leaves an app with nothing to click,
+/// and the only way to reach it again was to open it from Finder.
+enum WindowPolicy {
+    static func hidesDockIcon(showInMenuBar: Bool, hasShownWindow: Bool,
+                              hasWindow: Bool, menuBarShowing: Bool) -> Bool {
+        showInMenuBar && hasShownWindow && !hasWindow && menuBarShowing
+    }
+
+    /// A login launch closes its window before the status item has been
+    /// placed, so reachability is asked again once the bar has had a moment.
+    static let placementGrace: TimeInterval = 3
+
+    static func showsWindowAfterHiddenLaunch(menuBarShowing: Bool, hasWindow: Bool) -> Bool {
+        !menuBarShowing && !hasWindow
+    }
+}
+
 /// What holding Graft's own updates changes, and what it leaves alone.
 ///
 /// Off, which is where every copy starts and where every copy already out there

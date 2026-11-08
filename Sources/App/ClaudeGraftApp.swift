@@ -209,6 +209,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // Everything after launch behaves normally.
             Shared.startHidden = false
         }
+        DispatchQueue.main.asyncAfter(deadline: .now() + WindowPolicy.placementGrace) { [weak self] in
+            guard let self,
+                  WindowPolicy.showsWindowAfterHiddenLaunch(menuBarShowing: self.menuBar?.isShowing == true,
+                                                            hasWindow: Self.hasVisibleWindow)
+            else { return }
+            Diagnostics.note("window.shown", ["reason": "status item out of reach after a hidden launch"])
+            self.showMainWindow()
+        }
+    }
+
+    private static var hasVisibleWindow: Bool {
+        NSApp.windows.contains { $0.isVisible && $0.canBecomeMain && !$0.isMiniaturized }
     }
 
     static let windowOpenKey = "mainWindowOpen"
@@ -262,16 +274,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    private func hideDockIconIfWindowless() {
+    @MainActor private func hideDockIconIfWindowless() {
         guard !Self.isTerminating else { return }
-        guard Shared.settings.showInMenuBar, hasShownWindow else { return }
-        let hasWindow = NSApp.windows.contains {
-            $0.isVisible && $0.canBecomeMain && !$0.isMiniaturized
-        }
-        if !hasWindow {
-            UserDefaults.standard.set(false, forKey: Self.windowOpenKey)
-            NSApp.setActivationPolicy(.accessory)
-        }
+        // Out of reach, the window is left as though it were still open, so the
+        // next launch brings one up rather than starting hidden behind nothing.
+        guard WindowPolicy.hidesDockIcon(showInMenuBar: Shared.settings.showInMenuBar,
+                                         hasShownWindow: hasShownWindow,
+                                         hasWindow: Self.hasVisibleWindow,
+                                         menuBarShowing: menuBar?.isShowing == true)
+        else { return }
+        UserDefaults.standard.set(false, forKey: Self.windowOpenKey)
+        NSApp.setActivationPolicy(.accessory)
     }
 }
 

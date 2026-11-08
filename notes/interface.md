@@ -43,6 +43,18 @@ edge test while no pointer could reach it. `isReachable` also takes the notches,
 each one the gap between a screen's `auxiliaryTopLeftArea` and
 `auxiliaryTopRightArea`, and any overlap with one counts as out of reach.
 
+Quitting was not the only place that asked the setting. Closing the last window
+made the app an accessory whenever Show in Menu Bar was on, and a login launch
+whose window had been put away last time came up the same way, so with the item
+dropped or behind the notch Graft was running with no window, no Dock icon and
+nothing in the bar — reachable again only by opening it from Finder.
+`WindowPolicy` is the rule for both. A closing window takes the Dock icon only
+when `isShowing` says yes; otherwise nothing changes, and the window is still
+recorded as open so the next launch brings one up. A hidden launch cannot ask at
+once, since its window closes before the item has been placed, so it asks again
+`placementGrace` later and puts the window up if the item is still out of
+reach.
+
 ## SwiftUI and accessibility
 
 **The profile selector is a `NavigationSplitView`, and the notices sit inside

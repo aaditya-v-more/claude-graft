@@ -2995,6 +2995,31 @@ do {
 
     check(QuitPolicy.endsTheApp(askedFor: false, installingUpdate: false, systemGoingDown: false, menuBarShowing: false),
           "with nothing in the bar to go back to, a quit is a quit")
+
+    check(WindowPolicy.hidesDockIcon(showInMenuBar: true, hasShownWindow: true,
+                                     hasWindow: false, menuBarShowing: true),
+          "closing the last window with the item in reach takes the Dock icon with it")
+    check(!WindowPolicy.hidesDockIcon(showInMenuBar: true, hasShownWindow: true,
+                                      hasWindow: false, menuBarShowing: false),
+          "closing it with the item behind the notch leaves the Dock icon, the one way back")
+    check(!WindowPolicy.hidesDockIcon(showInMenuBar: false, hasShownWindow: true,
+                                      hasWindow: false, menuBarShowing: true),
+          "with the item turned off the Dock icon always stays")
+    check(!WindowPolicy.hidesDockIcon(showInMenuBar: true, hasShownWindow: true,
+                                      hasWindow: true, menuBarShowing: true),
+          "a window still open keeps the Dock icon")
+    check(WindowPolicy.showsWindowAfterHiddenLaunch(menuBarShowing: false, hasWindow: false),
+          "a hidden launch whose item cannot be reached puts the window up after all")
+    check(!WindowPolicy.showsWindowAfterHiddenLaunch(menuBarShowing: true, hasWindow: false),
+          "a hidden launch whose item can be reached stays hidden")
+    let delegate = (try? String(contentsOf: URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        .deletingLastPathComponent().appending(path: "Sources/App/ClaudeGraftApp.swift"), encoding: .utf8)) ?? ""
+    check(delegate.contains("guard WindowPolicy.hidesDockIcon(")
+            && delegate.contains("menuBarShowing: menuBar?.isShowing == true)\n        else { return }"),
+          "the window closing asks whether the item can be reached before hiding the Dock icon")
+    check(delegate.contains("asyncAfter(deadline: .now() + WindowPolicy.placementGrace)")
+            && delegate.contains("WindowPolicy.showsWindowAfterHiddenLaunch("),
+          "a hidden launch looks again once the item has been placed")
 }
 
 section("Session records")
