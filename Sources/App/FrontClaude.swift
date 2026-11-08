@@ -315,9 +315,9 @@ enum FrontTitle {
     }
 }
 
-/// A conversation that has just begun, running across the bar beside the
-/// figure: its title, or "New chat" until it has one, and the account
-/// answering it.
+/// The conversation on screen, running across the bar beside the figure for
+/// as long as it is there: its title, or "New chat" until it has one, and the
+/// account answering it.
 ///
 /// Drawn into a picture of fixed width rather than set as text. Text that
 /// scrolls a character at a time changes width with every letter in a
@@ -339,7 +339,7 @@ enum NewChatTicker {
     }
 
     static func spoken(title: String?, account: String) -> String {
-        L10n.format("New conversation “%@”, answered by %@", title ?? L10n.text("New chat"), account)
+        L10n.format("Conversation on screen “%@”, answered by %@", title ?? L10n.text("New chat"), account)
     }
 
     static func attributes(_ font: NSFont) -> [NSAttributedString.Key: Any] {

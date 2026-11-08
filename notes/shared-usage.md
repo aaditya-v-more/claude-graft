@@ -297,8 +297,8 @@ while the short continuations that leave the tools to the thread moved freely.
 conversations it has seen by `X-Claude-Code-Session-Id`, which is the
 `cliSessionId` a record names, so a title comes from that record or, before one
 exists, from the title line in the transcript. Listed are conversations from a
-Claude with something to borrow, active in the last half hour, the Claude in
-front first and five at most.
+Claude with something to borrow, active in the last half hour and not put away,
+the Claude in front first and five at most.
 
 **Which Claude is in front is `FrontmostClaude`'s answer,** the one the status
 item draws. Matching a Claude to its profile costs a `ps`, and the list used to
@@ -307,19 +307,60 @@ paying for. Its answer is also the right one for a dropdown: Graft coming
 forward leaves it where it was, so opening the dropdown keeps the Claude the
 person was just using at the top.
 
-**A conversation that has just begun runs across the menu bar** for its first
-two minutes: its title, or "New chat" until it has one, and the account
-answering it, and a right click on the item moves it with the same choices as
-its row. "Just begun" is the relay's word, `startedAt`, set only when the first
-request it sees for a session carries no answer — a relay restarted part way
-through a conversation sees every conversation for the first time, and none
-of those is new to the person. The text is drawn into a picture of fixed
-width and scrolled inside it, because text scrolled a character at a time
-changes width with every letter, and a status item that changes width moves
-every item to its left with it. Finding it costs a two-second ask of the relay
-alone, with titles read only for conversations that have just begun; a full
-pass reads logins and walks records, which is why that one waits half a
-minute.
+**The conversation on screen runs across the menu bar** for as long as it is
+there: its title, or "New chat" until it has one, and the account answering it,
+and a right click on the item moves it with the same choices as its row. Until
+2.0.1 it was only a conversation that had just begun, for its first two
+minutes, and a person who switched chats saw the bar go on naming one no longer
+in front, or "New session" for a test chat begun minutes earlier.
+
+Which conversation is on screen is Claude's word alone. It writes
+`lastFocusedAt`, in milliseconds, into a conversation's record the moment its
+window switches to it, so the bar names the conversation the front Claude's
+store focused last, provided the relay has carried it. When it has not — an old
+chat opened to read, which has sent nothing since sharing began — the bar names
+nothing, since the conversation before it is the one thing certain not to be on
+screen. A Claude whose records say nothing of focus falls back on the
+conversation typed into last, `promptedAt`: a turn on a conversation's thread
+whose last user message is not a tool's answer. A lone message with no thread
+does not count, because the title Claude Code asks for beside a conversation is
+exactly that, and a first message is marked by `startedAt` anyway, set only
+when the first request the relay sees for a session carries no answer — a relay
+restarted part way through sees every conversation for the first time. Each
+change of conversation is logged as `menu.chat`, with the first eight
+characters of its session and whether an account was chosen for it, so a run
+can be checked against what was on screen.
+
+The text is drawn into a picture of fixed width and scrolled inside it, because
+text scrolled a character at a time changes width with every letter, and a
+status item that changes width moves every item to its left with it. Following
+the screen costs a two-second ask of the relay and a look at each record's
+modification date while anything is shared, a record parsed again only when it
+changed and a missing transcript looked for once a minute; a full pass reads
+logins as well, which is why that one waits half a minute.
+
+**A conversation put away leaves the bar and the dropdown.** Archived means
+every record its own Claude keeps for it says `isArchived`. A copy in a Claude
+that shares the chats is not asked: the mirror carries a change across only on
+its next pass, and read first, a copy kept a deleted conversation on the bar.
+Deleted is a `deleted_` marker naming the session, which Claude writes only for
+a record Graft filed, since those are named for their session; or a record seen
+before and missing on two passes running, since one pass can land while Claude
+rewrites the file. A store that will not open hides nothing, and the walk skips
+stashes as the sweep does, or a deleted conversation's old record there would
+keep it listed. Deleting the conversation on screen takes the latest focus with
+its record, so the focus it had stays the word until Claude writes a newer one;
+before that, the bar named the conversation focused before it. A conversation
+deleted while Graft was not running was never seen with a record, and the
+dropdown goes on listing it for the rest of its half hour.
+
+**The account menu marks the choice in force.** It is an inline `Picker`
+inside the row's `Menu`, which draws macOS's own checkmark; a `Label` with a
+`checkmark` image in a plain `Menu` loses the image. Automatic names the account
+the ranking settled on, "Automatic · now Claude 2", and the row reads
+"Auto · Claude 2" against a chosen account's bare name, because a conversation
+answered by Claude 2 looked the same whether someone had chosen Claude 2 or the
+ranking had. The right click's menu says the same.
 
 The text gives way when the bar has no room for it. The wider item is not
 refused by macOS but put past the edge of the screen, still reporting itself

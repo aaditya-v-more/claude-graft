@@ -64,23 +64,85 @@ final class UsagePoolController: ObservableObject {
         var passedOver: Bool
         /// Set for one the relay saw begin; see `PoolSession.startedAt`.
         var startedAt: Date? = nil
+        /// When its Claude last showed it, from the record Claude keeps.
+        var focusedAt: Date? = nil
+        /// When a person last typed into it; see `PoolSession.promptedAt`.
+        var promptedAt: Date? = nil
+
+        /// The latest sign of someone looking at it. Claude writes
+        /// `lastFocusedAt` the moment its window switches to a conversation,
+        /// which is the one thing that says which is on screen; a Claude that
+        /// reads another's chats writes no records, and there the last thing
+        /// typed is the next best word.
+        var attention: Date? { [focusedAt, promptedAt, startedAt].compactMap { $0 }.max() }
     }
 
-    /// How long a conversation that has just begun runs across the menu bar.
-    /// Long enough to see where it went and move it before its second turn,
-    /// short enough not to stay once it is simply a conversation.
-    static let newChatShown: TimeInterval = 120
+    /// What the record of a conversation says about it. A conversation
+    /// archived, or deleted from the sidebar, is one the person has put away,
+    /// and the menu bar stops naming it.
+    struct Filed: Equatable {
+        var title: String?
+        var archived = false
+        var gone = false
+        var focusedAt: Date?
+    }
 
-    /// The conversation that began most recently, while it is still new.
-    static func newest(_ chats: [Chat], now: Date = Date()) -> Chat? {
-        chats.filter { chat in
-            chat.startedAt.map { now.timeIntervalSince($0) < newChatShown && $0 <= now.addingTimeInterval(5) } == true
+    /// The conversation Claude last brought on screen in one profile, read
+    /// from the `lastFocusedAt` Claude writes into the records in its store.
+    struct Focus: Equatable {
+        var session: String
+        var at: Date
+    }
+
+    /// The conversation on screen in the Claude in front, which the menu bar
+    /// names for as long as it is there.
+    ///
+    /// Claude's own word decides: the conversation its window focused last,
+    /// when that is one the relay has carried. When it is not — an old chat
+    /// opened to read, which has not sent anything since sharing began — the
+    /// bar names nothing rather than the conversation before it, which would
+    /// be naming the wrong one. A Claude whose records say nothing of focus
+    /// falls back on the conversation typed into last, and only when nothing
+    /// says even that, on the one that last heard back.
+    static func current(_ chats: [Chat], focused: Focus? = nil, now: Date = Date()) -> Chat? {
+        if let focused {
+            if let shown = chats.first(where: { $0.id == focused.session }) { return shown }
+            if chats.allSatisfy({ ($0.attention ?? .distantPast) < focused.at }) { return nil }
         }
-        .max { $0.startedAt! < $1.startedAt! }
+        return chats
+            .filter { now.timeIntervalSince($0.lastAt) < 30 * 60 }
+            .max { a, b in
+                let x = a.attention ?? .distantPast, y = b.attention ?? .distantPast
+                return x != y ? x < y : a.lastAt < b.lastAt
+            }
     }
 
-    func newChat(front: URL?, now: Date = Date()) -> Chat? {
-        Self.newest(chats(front: front, now: now), now: now)
+    /// The account answering a conversation now: the one it was moved to,
+    /// until that one has no room and another answers in its place, or else
+    /// the one that answered last. Right after a move nothing has answered
+    /// from there yet, and naming the account that answered before it read as
+    /// though the choice had not taken.
+    static func answeringKey(_ chat: Chat) -> String? {
+        guard let assigned = chat.assigned, !chat.passedOver else { return chat.servedBy ?? chat.assigned }
+        return assigned
+    }
+
+    /// "Automatic" alone did not say whether a conversation answered by Claude 2
+    /// was there because it was chosen or because the ranking put it there, so
+    /// the choice names the account it has settled on.
+    func automaticTitle(_ chat: Chat) -> String {
+        guard chat.assigned == nil, let served = chat.servedBy else { return L10n.text("Automatic") }
+        return L10n.format("Automatic · now %@", name(of: served))
+    }
+
+    func current(front: URL?, now: Date = Date()) -> Chat? {
+        guard let front, let status else { return nil }
+        let key = PoolEnvironment.key(for: front)
+        let mine = status.sessions.filter { session in
+            isShown(session) && profile(of: session.from).map(PoolEnvironment.key(for:)) == key
+        }
+        let claude = claudes.first { profile(of: $0).map(PoolEnvironment.key(for:)) == key }
+        return Self.current(mine.map(chat(for:)), focused: claude.flatMap { focused[$0] }, now: now)
     }
 
     static let mainKey = "main"
@@ -96,7 +158,9 @@ final class UsagePoolController: ObservableObject {
     /// By Claude key.
     @Published private(set) var environment: [String: ClaudeCodeEnvironment.State] = [:]
     /// By session.
-    @Published private(set) var titles: [String: String] = [:]
+    @Published private(set) var filed: [String: Filed] = [:]
+    /// By Claude key.
+    @Published private(set) var focused: [String: Focus] = [:]
     /// Which account each Claude is signed into, by key. It comes out of each
     /// profile's `config.json`, so a pass reads it on `queue` and a view only
     /// ever reads this.
@@ -115,7 +179,18 @@ final class UsagePoolController: ObservableObject {
     /// Touched on `queue` alone.
     private var children: [pid_t: DispatchSourceProcess] = [:]
     private var lastSpawn = Date.distantPast
-    private var titleCache: [String: (stamp: Date, session: String?, title: String?)] = [:]
+    private var recordCache: [String: (stamp: Date, session: String?, filed: Filed)] = [:]
+    /// Sessions a record was seen for, in their own Claude's store and in
+    /// another's. One of them with no record any more was deleted from its
+    /// sidebar; one never seen is too new to have one.
+    private var everOwn: Set<String> = []
+    private var everElsewhere: Set<String> = []
+    private var missingBefore: Set<String> = []
+    /// By Claude key.
+    private var lastFocus: [String: Focus] = [:]
+    private var transcriptTitles: [String: (stamp: Date, title: String?)] = [:]
+    private var transcriptURLs: [String: URL] = [:]
+    private var transcriptMisses: [String: Date] = [:]
 
     init() {
         sharing = (try? Data(contentsOf: UsagePool.settingsFile))
@@ -146,12 +221,11 @@ final class UsagePoolController: ObservableObject {
         peekTimer = peek
     }
 
-    /// A conversation that has just begun is worth showing while it is still
-    /// the one being typed into, and a full pass reads logins and walks
-    /// records — half a minute apart for that reason. This only asks the
-    /// relay what it carried, and reads titles only for conversations that
-    /// have just begun, so it can run every two seconds while anything is
-    /// shared.
+    /// The menu bar follows the conversation on screen, and Claude says which
+    /// that is only in its records, so they are read every two seconds while
+    /// anything is shared. A full pass reads logins as well, which is why it
+    /// waits half a minute; this asks the relay what it carried and reads
+    /// again only the records whose files changed.
     private func peek() {
         guard status != nil, !syncing, !peeking,
               sharing.lenders.values.contains(where: { !$0.isEmpty }) else { return }
@@ -159,17 +233,14 @@ final class UsagePoolController: ObservableObject {
         let claudeProfiles = claudes.compactMap { key in profile(of: key).map { (key, $0) } }
         queue.async {
             let status = try? PoolSocket.send(PoolCommand())
-            let fresh = (status?.sessions ?? []).filter { session in
-                session.startedAt.map { Date().timeIntervalSince($0) < Self.newChatShown } == true
-            }
-            let titles = fresh.isEmpty ? [:] : self.lookUpTitles(fresh, profiles: claudeProfiles)
+            let records = status.map { self.lookUpRecords($0.sessions, profiles: claudeProfiles) }
             DispatchQueue.main.async {
                 self.peeking = false
                 // A relay that stopped answering is a full pass's business.
-                guard let status, !self.syncing else { return }
+                guard let status, let records, !self.syncing else { return }
                 if self.status != status { self.status = status }
-                let merged = self.titles.merging(titles) { _, new in new }
-                if self.titles != merged { self.titles = merged }
+                if self.filed != records.filed { self.filed = records.filed }
+                if self.focused != records.focused { self.focused = records.focused }
             }
         }
     }
@@ -377,7 +448,7 @@ final class UsagePoolController: ObservableObject {
         guard let status else { return [] }
         let front = front.map(PoolEnvironment.key(for:))
         let listed = status.sessions.filter { session in
-            now.timeIntervalSince(session.lastAt) < 30 * 60 && !lenders(of: session.from).isEmpty
+            now.timeIntervalSince(session.lastAt) < 30 * 60 && isShown(session)
         }
         let inFront = { (session: PoolSession) -> Bool in
             front != nil && self.profile(of: session.from).map(PoolEnvironment.key(for:)) == front
@@ -388,16 +459,27 @@ final class UsagePoolController: ObservableObject {
                 return fa != fb ? fa : a.lastAt > b.lastAt
             }
             .prefix(5)
-            .map { session in
-                let assigned = sharing.assignments[session.id]?.to
-                return Chat(id: session.id, title: titles[session.id], claude: session.from,
-                            servedBy: session.servedBy, assigned: assigned,
-                            choices: oneEach([session.from] + lenders(of: session.from)),
-                            lastAt: session.lastAt,
-                            passedOver: assigned != nil && session.servedBy != assigned
-                                && !session.passedOver.isEmpty,
-                            startedAt: session.startedAt)
-            }
+            .map(chat(for:))
+    }
+
+    /// A conversation archived or deleted in its sidebar has been put away,
+    /// and the menu bar stops naming it; so has one in a Claude that no
+    /// longer draws on anybody.
+    private func isShown(_ session: PoolSession) -> Bool {
+        !lenders(of: session.from).isEmpty && filed[session.id].map { !$0.archived && !$0.gone } != false
+    }
+
+    private func chat(for session: PoolSession) -> Chat {
+        let assigned = sharing.assignments[session.id]?.to
+        return Chat(id: session.id, title: filed[session.id]?.title, claude: session.from,
+                    servedBy: session.servedBy, assigned: assigned,
+                    choices: oneEach([session.from] + lenders(of: session.from)),
+                    lastAt: session.lastAt,
+                    passedOver: assigned != nil && session.servedBy != assigned
+                        && !session.passedOver.isEmpty,
+                    startedAt: session.startedAt,
+                    focusedAt: filed[session.id]?.focusedAt,
+                    promptedAt: session.promptedAt)
     }
 
     /// Everyone a Claude draws on, itself first, one name to an account.
@@ -570,7 +652,7 @@ final class UsagePoolController: ObservableObject {
                 problem = problem ?? L10n.text("Graft needs keychain access to set up Claude Code for sharing.")
             }
 
-            let titles = self.lookUpTitles(status?.sessions ?? [], profiles: claudeProfiles)
+            let records = self.lookUpRecords(status?.sessions ?? [], profiles: claudeProfiles)
             DispatchQueue.main.async {
                 self.learnAccounts(signedInto)
                 // Only what changed: every assignment redraws whatever is
@@ -579,7 +661,8 @@ final class UsagePoolController: ObservableObject {
                 if self.status != status { self.status = status }
                 if self.problem != problem { self.problem = problem }
                 if self.environment != environment { self.environment = environment }
-                if self.titles != titles { self.titles = titles }
+                if self.filed != records.filed { self.filed = records.filed }
+                if self.focused != records.focused { self.focused = records.focused }
                 self.syncing = false
                 if self.syncAgain {
                     self.syncAgain = false
@@ -609,68 +692,184 @@ final class UsagePoolController: ObservableObject {
         }
     }
 
-    // MARK: - Titles
+    // MARK: - Records
 
-    /// A conversation's title is what its record in the sidebar says, found by
-    /// the session id every request carries, which is the record's
-    /// `cliSessionId`. Records are read again only when they change.
-    private func lookUpTitles(_ sessions: [PoolSession], profiles: [(String, URL)]) -> [String: String] {
-        let recent = sessions.filter { Date().timeIntervalSince($0.lastAt) < 30 * 60 }
-        guard !recent.isEmpty else { return [:] }
-        let wanted = Set(recent.map(\.id))
-        var found: [String: String] = [:]
+    /// What each conversation's record in a sidebar says, found by the session
+    /// id every request carries, which is the record's `cliSessionId`. Records
+    /// are read again only when their files change. On `queue`.
+    func lookUpRecords(_ sessions: [PoolSession], profiles: [(String, URL)], now: Date = Date())
+        -> (filed: [String: Filed], focused: [String: Focus]) {
+        // Every conversation the relay remembers, not only the last half
+        // hour's: the one on screen may have been quiet for longer.
+        let from = Dictionary(sessions.map { ($0.id, $0.from) }, uniquingKeysWith: { first, _ in first })
+        var focused: [String: Focus] = [:]
+        // A conversation is put away in the Claude it is in; the same session
+        // listed by another profile that shares its chats says nothing of that.
+        var own: [String: [Filed]] = [:]
+        var elsewhere: [String: [Filed]] = [:]
+        var markers: Set<String> = []
+        var walked: Set<String> = []
+        // A store that would not open is not an empty one, and what it holds
+        // is not gone; nothing is judged missing on such a pass.
+        var unreadable = false
         let fm = FileManager.default
-        for (_, profile) in profiles {
+        func list(_ url: URL) -> [String] {
+            do {
+                return try fm.contentsOfDirectory(atPath: url.path)
+            } catch let error as CocoaError where error.code == .fileReadNoSuchFile {
+                return []
+            } catch {
+                unreadable = true
+                return []
+            }
+        }
+        for (key, profile) in profiles {
             let store = profile.appending(path: "claude-code-sessions")
-            for account in (try? fm.contentsOfDirectory(atPath: store.path)) ?? [] {
+            // Walked as the sweep walks it: a stash holds what a profile had
+            // before it was grafted, and a deleted conversation's old record
+            // there would keep it on the bar.
+            for account in list(store) where !account.hasPrefix(".") && !account.hasSuffix(Graft.stashSuffix)
+                && !Graft.nonAccountStoreItems.contains(account) {
                 let accountDir = store.appending(path: account)
-                for org in (try? fm.contentsOfDirectory(atPath: accountDir.path)) ?? [] {
+                guard Graft.isDirectory(accountDir) else { continue }
+                for org in list(accountDir) where !org.hasPrefix(".") && !org.hasSuffix(Graft.stashSuffix) {
                     let orgDir = accountDir.appending(path: org)
-                    for name in (try? fm.contentsOfDirectory(atPath: orgDir.path)) ?? []
-                    where name.hasSuffix(".json") {
+                    guard Graft.isDirectory(orgDir) else { continue }
+                    for name in list(orgDir) {
+                        if name.hasPrefix("deleted_") { markers.insert(String(name.dropFirst(8))); continue }
+                        guard name.hasPrefix("local_"), name.hasSuffix(".json") else { continue }
                         let url = orgDir.appending(path: name)
+                        walked.insert(url.path)
                         let stamp = (try? fm.attributesOfItem(atPath: url.path))?[.modificationDate] as? Date
                             ?? .distantPast
-                        var entry = titleCache[url.path]
+                        var entry = recordCache[url.path]
                         if entry?.stamp != stamp {
                             let record = (try? Data(contentsOf: url))
                                 .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
-                            entry = (stamp, record?["cliSessionId"] as? String, record?["title"] as? String)
-                            titleCache[url.path] = entry
+                            let focused = (record?["lastFocusedAt"] as? NSNumber)
+                                .map { Date(timeIntervalSince1970: $0.doubleValue / 1000) }
+                            entry = (stamp, record?["cliSessionId"] as? String,
+                                     Filed(title: (record?["title"] as? String).flatMap { $0.isEmpty ? nil : $0 },
+                                           archived: record?["isArchived"] as? Bool ?? false,
+                                           focusedAt: focused))
+                            recordCache[url.path] = entry
                         }
-                        if let session = entry?.session, wanted.contains(session),
-                           let title = entry?.title, !title.isEmpty {
-                            found[session] = title
+                        guard let entry, let session = entry.session else { continue }
+                        if let at = entry.filed.focusedAt, at > focused[key]?.at ?? .distantPast {
+                            focused[key] = Focus(session: session, at: at)
+                        }
+                        guard let owner = from[session] else { continue }
+                        if owner == key {
+                            own[session, default: []].append(entry.filed)
+                            everOwn.insert(session)
+                        } else {
+                            elsewhere[session, default: []].append(entry.filed)
+                            everElsewhere.insert(session)
                         }
                     }
                 }
             }
         }
-        for session in wanted where found[session] == nil {
-            if let title = Self.transcriptTitle(session) { found[session] = title }
+        recordCache = recordCache.filter { walked.contains($0.key) }
+
+        // Deleting the conversation on screen takes its record, and with it
+        // the latest focus in the store; the one focused before it is not
+        // what Claude shows now, so the focus that went stays the word until
+        // Claude writes a newer one.
+        // A store that would not open keeps its last focus the same way.
+        for (key, last) in lastFocus where profiles.contains(where: { $0.0 == key })
+            && focused[key].map({ $0.at < last.at }) ?? true {
+            focused[key] = last
         }
-        return found
+        lastFocus = focused
+
+        var found: [String: Filed] = [:]
+        var missing: Set<String> = []
+        for session in from.keys {
+            // Its own Claude's record decides. A copy in a store that shares
+            // its chats lingers until the next pass that mirrors them, and
+            // read first it kept a deleted conversation on the bar.
+            let mine = own[session] ?? []
+            let records = mine.isEmpty ? elsewhere[session] ?? [] : mine
+            var filed = Filed(title: records.lazy.compactMap(\.title).first,
+                              archived: !records.isEmpty && records.allSatisfy(\.archived),
+                              focusedAt: records.compactMap(\.focusedAt).max())
+            // A marker names a session only for a record Graft filed; one
+            // Claude named itself is known gone by having been seen before
+            // and missing on two passes running, since a file rewritten in
+            // place can be caught between the two.
+            let vanished = !unreadable && (mine.isEmpty && everOwn.contains(session)
+                || records.isEmpty && everElsewhere.contains(session))
+            if vanished { missing.insert(session) }
+            filed.gone = markers.contains(session) || vanished && missingBefore.contains(session)
+            if filed.title == nil { filed.title = transcriptTitle(session, now: now) }
+            found[session] = filed
+        }
+        if !unreadable { missingBefore = missing }
+        return (found, focused)
+    }
+
+    /// Read again only when the transcript has grown, since a conversation
+    /// on screen that has no record would otherwise have its last quarter
+    /// megabyte read every two seconds; and looked for again only once a
+    /// minute when there is none, since the relay remembers a day of them.
+    /// On `queue`.
+    private func transcriptTitle(_ session: String, now: Date) -> String? {
+        let fm = FileManager.default
+        let url: URL
+        if let known = transcriptURLs[session], fm.fileExists(atPath: known.path) {
+            url = known
+        } else {
+            if let missed = transcriptMisses[session], now.timeIntervalSince(missed) < 60 { return nil }
+            guard let found = Self.transcript(of: session) else {
+                transcriptMisses[session] = now
+                return nil
+            }
+            transcriptMisses[session] = nil
+            transcriptURLs[session] = found
+            url = found
+        }
+        let stamp = (try? fm.attributesOfItem(atPath: url.path))?[.modificationDate] as? Date ?? .distantPast
+        if let known = transcriptTitles[session], known.stamp == stamp { return known.title }
+        let title = Self.transcriptTitle(at: url)
+        transcriptTitles[session] = (stamp, title)
+        return title
+    }
+
+    static func transcript(of session: String) -> URL? {
+        let fm = FileManager.default
+        let projects = Graft.claudeProjects
+        return ((try? fm.contentsOfDirectory(atPath: projects.path)) ?? [])
+            .lazy
+            .map { projects.appending(path: $0).appending(path: "\(session).jsonl") }
+            .first { fm.fileExists(atPath: $0.path) }
     }
 
     /// A conversation that has no record yet still has its transcript, and
     /// the command line writes the title it settles on there as it goes.
     static func transcriptTitle(_ session: String) -> String? {
-        let fm = FileManager.default
-        let projects = Graft.claudeProjects
-        for folder in (try? fm.contentsOfDirectory(atPath: projects.path)) ?? [] {
-            let url = projects.appending(path: folder).appending(path: "\(session).jsonl")
-            guard let handle = try? FileHandle(forReadingFrom: url) else { continue }
-            defer { try? handle.close() }
-            let size = (try? handle.seekToEnd()) ?? 0
-            try? handle.seek(toOffset: size > 262_144 ? size - 262_144 : 0)
-            let tail = String(decoding: handle.readDataToEndOfFile(), as: UTF8.self)
-            for key in ["\"customTitle\":\"", "\"aiTitle\":\""] {
-                guard let start = tail.range(of: key, options: .backwards)?.upperBound,
-                      let end = tail[start...].firstIndex(of: "\"") else { continue }
-                let title = String(tail[start..<end])
-                if !title.isEmpty { return title }
-            }
-            return nil
+        transcript(of: session).flatMap(transcriptTitle(at:))
+    }
+
+    static func transcriptTitle(at url: URL) -> String? {
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
+        defer { try? handle.close() }
+        let size = (try? handle.seekToEnd()) ?? 0
+        try? handle.seek(toOffset: size > 262_144 ? size - 262_144 : 0)
+        let tail = String(decoding: handle.readDataToEndOfFile(), as: UTF8.self)
+        for key in ["\"customTitle\":\"", "\"aiTitle\":\""] {
+            guard let open = tail.range(of: key, options: .backwards) else { continue }
+            // Up to the first quote no backslash escapes, and read as JSON: a
+            // title with a quote in it was cut off at the quote, and one with
+            // a dash came out as its escape.
+            var escaped = false
+            guard let close = tail[open.upperBound...].indices.first(where: { index in
+                defer { escaped = !escaped && tail[index] == "\\" }
+                return !escaped && tail[index] == "\""
+            }) else { continue }
+            let literal = Data(tail[tail.index(before: open.upperBound)...close].utf8)
+            if let title = try? JSONSerialization.jsonObject(with: literal, options: .fragmentsAllowed) as? String,
+               !title.isEmpty { return title }
         }
         return nil
     }

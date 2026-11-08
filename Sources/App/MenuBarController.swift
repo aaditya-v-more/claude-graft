@@ -205,15 +205,11 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
             .joined(separator: ". "))
     }
 
-    // MARK: - A conversation that has just begun
+    // MARK: - The conversation on screen
 
-    /// Who answered it last, or who it was moved to and has not answered yet,
-    /// as the dropdown says it.
+    /// As the dropdown says it, without the "Auto" the bar has no room for.
     private func answering(_ chat: UsagePoolController.Chat) -> String {
-        let pool = Shared.usagePool
-        if let served = chat.servedBy { return pool.name(of: served) }
-        if let assigned = chat.assigned { return pool.name(of: assigned) }
-        return L10n.text("Automatic")
+        UsagePoolController.answeringKey(chat).map(Shared.usagePool.name(of:)) ?? L10n.text("Automatic")
     }
 
     private func updateNewChat() {
@@ -221,13 +217,17 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
     }
 
     private func showNewChat() {
-        let chat = item == nil ? nil : Shared.usagePool.newChat(front: Shared.frontmost.profile)
+        let chat = item == nil ? nil : Shared.usagePool.current(front: Shared.frontmost.profile)
         let words = chat.map { NewChatTicker.text(title: $0.title, account: answering($0)) }
         guard chat?.id != newChat?.id || words != tickerWords else { return }
         let text = chat?.id == tickerRefused ? nil : words
         if chat?.id != newChat?.id {
             tickerOffset = 0
             tickerHeld = 0
+            // Which conversation the bar names, by the start of its id and never
+            // its title, so a run can be checked against what was on screen.
+            Diagnostics.note("menu.chat", ["session": chat.map { String($0.id.prefix(8)) } ?? "none",
+                                           "chosen": chat?.assigned != nil])
         }
         // Measured before the text goes in: an item already out of reach is
         // not one the text pushed there.
@@ -269,13 +269,6 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
     }
 
     private func advanceTicker() {
-        // A conversation stops being new on the clock, not only when the
-        // relay next has something to say.
-        if let started = newChat?.startedAt,
-           Date().timeIntervalSince(started) >= UsagePoolController.newChatShown {
-            showNewChat()
-            return
-        }
         guard let text = tickerText, let button = item?.button,
               let cycle = NewChatTicker.cycle(text, font: button.font ?? NSFont.menuBarFont(ofSize: 0))
         else { return }
@@ -298,7 +291,7 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
         heading.isEnabled = false
         menu.addItem(heading)
         menu.addItem(.separator())
-        let automatic = NSMenuItem(title: L10n.text("Automatic"), action: #selector(moveNewChat(_:)),
+        let automatic = NSMenuItem(title: pool.automaticTitle(chat), action: #selector(moveNewChat(_:)),
                                    keyEquivalent: "")
         automatic.target = self
         automatic.representedObject = [chat.id, ""]
@@ -336,8 +329,10 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
         let claude = entry.shortcut?.uuidString ?? UsagePoolController.mainKey
         let members = pool.members(of: claude)
         guard members.count > 1 else { return nil }
-        let chat = pool.chats(front: Shared.frontmost.profile).first { $0.claude == claude }
-        let answering = chat.flatMap { $0.servedBy ?? $0.assigned }
+        // The conversation the bar names, so the lit account and the words
+        // beside it are always about the same one.
+        let chat = pool.current(front: Shared.frontmost.profile).flatMap { $0.claude == claude ? $0 : nil }
+        let answering = chat.flatMap(UsagePoolController.answeringKey)
         // Matched by account, since the relay may name an account by a
         // different one of its names than the list does.
         let lit = answering.flatMap { key in

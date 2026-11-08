@@ -5765,25 +5765,180 @@ do {
           "the relay never writes a login into the diagnostics log")
 }
 
-section("A conversation that has just begun")
+section("The conversation on screen")
 
 do {
     let now = Date()
-    func chat(_ id: String, started: TimeInterval?) -> UsagePoolController.Chat {
-        UsagePoolController.Chat(id: id, title: nil, claude: "c2", servedBy: "main", assigned: nil,
-                                 choices: ["c2", "main"], lastAt: now, passedOver: false,
-                                 startedAt: started.map { now.addingTimeInterval(-$0) })
+    func chat(_ id: String, quiet: TimeInterval = 0, focused: TimeInterval? = nil, typed: TimeInterval? = nil,
+              begun: TimeInterval? = nil, servedBy: String? = "main", assigned: String? = nil)
+        -> UsagePoolController.Chat {
+        UsagePoolController.Chat(id: id, title: nil, claude: "main", servedBy: servedBy, assigned: assigned,
+                                 choices: ["main", "c2"], lastAt: now.addingTimeInterval(-quiet), passedOver: false,
+                                 startedAt: begun.map { now.addingTimeInterval(-$0) },
+                                 focusedAt: focused.map { now.addingTimeInterval(-$0) },
+                                 promptedAt: typed.map { now.addingTimeInterval(-$0) })
     }
-    check(UsagePoolController.newest([chat("a", started: 30), chat("b", started: 5)], now: now)?.id == "b",
-          "the menu bar shows the conversation that began most recently")
-    check(UsagePoolController.newest([chat("a", started: nil)], now: now) == nil,
-          "a conversation already under way when the relay saw it is not shown as new")
-    check(UsagePoolController.newest([chat("a", started: UsagePoolController.newChatShown + 1)], now: now) == nil,
-          "a conversation stops running across the bar once it is two minutes old")
+    func focus(_ session: String, _ ago: TimeInterval) -> UsagePoolController.Focus {
+        UsagePoolController.Focus(session: session, at: now.addingTimeInterval(-ago))
+    }
+    check(UsagePoolController.current([chat("a", typed: 5), chat("b", quiet: 900, focused: 60)],
+                                      focused: focus("b", 60), now: now)?.id == "b",
+          "the bar names the conversation Claude last brought on screen, whatever was typed elsewhere")
+    var twin = chat("a", focused: 10), other = chat("b", focused: 30)
+    twin.title = "Is 391 prime?"
+    other.title = "Is 391 prime?"
+    check(UsagePoolController.current([twin, other], focused: focus("a", 10), now: now)?.id == "a"
+            && UsagePoolController.current([twin, other], focused: focus("b", 5), now: now)?.id == "b",
+          "two conversations with one name are told apart by their session, never their title")
+    check(UsagePoolController.current([chat("a", quiet: 3 * 3600, focused: 3 * 3600)],
+                                      focused: focus("a", 3 * 3600), now: now)?.id == "a",
+          "and goes on naming it however long it has been quiet")
+    check(UsagePoolController.current([chat("a", focused: 300, typed: 30)], focused: focus("x", 2), now: now) == nil,
+          "a conversation opened that the relay has not carried names nothing, rather than the one before it")
+    check(UsagePoolController.current([chat("a", typed: 5)], focused: focus("x", 600), now: now)?.id == "a",
+          "one typed into since the last focus Claude recorded is the one on screen")
+    check(UsagePoolController.current([chat("a", typed: 120), chat("b", begun: 30)], now: now)?.id == "b",
+          "with no word from Claude, the conversation begun or typed into last is named")
+    check(UsagePoolController.current([chat("a", quiet: 60), chat("b", quiet: 10)], now: now)?.id == "b",
+          "and with nothing to say even that, the one that last heard back")
+    check(UsagePoolController.current([chat("a", quiet: 31 * 60, typed: 31 * 60)], now: now) == nil,
+          "a conversation quiet for half an hour is not guessed to be on screen")
+
+    let pool = UsagePoolController()
+    check(UsagePoolController.answeringKey(chat("a", servedBy: "main", assigned: "c2")) == "c2",
+          "a conversation just moved names the account it was moved to, before that account has answered")
+    var refused = chat("a", servedBy: "main", assigned: "c2")
+    refused.passedOver = true
+    check(UsagePoolController.answeringKey(refused) == "main"
+            && UsagePoolController.answeringKey(chat("a", servedBy: "main")) == "main",
+          "and the one that answered in its place once it had no room, as for one left to the ranking")
+    check(pool.automaticTitle(chat("a", servedBy: "main")) == "Automatic · now Claude",
+          "Automatic says which account it has settled on")
+    check(pool.automaticTitle(chat("a", servedBy: "c2", assigned: "c2")) == "Automatic"
+            && pool.automaticTitle(chat("a", servedBy: nil)) == "Automatic",
+          "and only that, once an account is chosen or before anyone has answered")
+
+    let typed = #"{"model":"m","messages":[{"role":"user","content":[{"type":"text","text":"Is 391 prime?"}]}],"thread":{"type":"create"}}"#
+    let lone = #"{"model":"m","messages":[{"role":"user","content":"Name this conversation: Is 391 prime?"}]}"#
+    let toolAnswer = #"{"model":"m","thread":{"id":"t"},"messages":[{"role":"user","content":"Is 391 prime?"},"#
+        + #"{"role":"assistant","content":[{"type":"tool_use","id":"u"}]},"#
+        + #"{"role":"user","content":[{"type":"tool_result","tool_use_id":"u","content":"17 x 23"}]}]}"#
+    let nextTurn = #"{"model":"m","thread":{"id":"t"},"messages":[{"role":"user","content":[{"type":"tool_result","tool_use_id":"u","content":"17 x 23"}]},"#
+        + #"{"role":"assistant","content":"No: 17 x 23."},{"role":"user","content":"And 397?"}]}"#
+    let aside = #"{"model":"m","messages":[{"role":"user","content":"Is 391 prime?"},"#
+        + #"{"role":"assistant","content":"No."},{"role":"user","content":"Name this conversation."}]}"#
+    check(PoolRequest.startsTurn(body: Data(typed.utf8)) && PoolRequest.startsTurn(body: Data(nextTurn.utf8)),
+          "a conversation's first message and a turn typed on its thread are a person typing")
+    check(!PoolRequest.startsTurn(body: Data(toolAnswer.utf8)),
+          "Claude Code carrying on with a tool's answer is not")
+    check(!PoolRequest.startsTurn(body: Data(aside.utf8)),
+          "nor is a short request made beside a conversation, which carries no thread")
+    check(!PoolRequest.startsTurn(body: Data(lone.utf8)),
+          "nor a lone message with no thread, as likely a title asked for as a first message")
 
     let older = #"{"id":"s","from":"c2","lastAt":0,"requests":1,"passedOver":[]}"#
-    check((try? JSONDecoder().decode(PoolSession.self, from: Data(older.utf8)))?.startedAt == nil,
-          "a relay from before conversations were marked new is still read")
+    let read = try? JSONDecoder().decode(PoolSession.self, from: Data(older.utf8))
+    check(read != nil && read?.startedAt == nil && read?.promptedAt == nil,
+          "a relay from before conversations were marked new or typed into is still read")
+
+    // Two Claudes whose chats are shared, laid out as Claude keeps them.
+    let mainProfile = root.appending(path: "on-screen/Claude")
+    let otherProfile = root.appending(path: "on-screen/Claude-2")
+    func store(_ profile: URL) -> URL {
+        let dir = profile.appending(path: "claude-code-sessions/\(ownerAccount)/\(ownerOrg)")
+        try! fm.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }
+    func record(_ profile: URL, _ name: String, session: String, title: String? = nil,
+                archived: Bool = false, focused: TimeInterval? = nil) {
+        var json: [String: Any] = ["sessionId": "local_\(name)", "cliSessionId": session, "isArchived": archived]
+        if let title { json["title"] = title }
+        if let focused { json["lastFocusedAt"] = Int(now.addingTimeInterval(-focused).timeIntervalSince1970 * 1000) }
+        try! JSONSerialization.data(withJSONObject: json).write(to: store(profile).appending(path: "local_\(name).json"))
+    }
+    func gone(_ profile: URL, _ name: String) {
+        try? fm.removeItem(at: store(profile).appending(path: "local_\(name).json"))
+    }
+    record(mainProfile, "r-open", session: "s-open", title: "Is 391 prime?", focused: 60)
+    record(otherProfile, "r-open", session: "s-open", title: "Is 391 prime?", archived: true)
+    record(mainProfile, "r-earlier", session: "s-earlier", title: "Earlier", focused: 300)
+    record(mainProfile, "r-archived", session: "s-archived", title: "Old idea", archived: true, focused: 600)
+    record(mainProfile, "s-marked", session: "s-marked", title: "Filed by Graft")
+    try! Data("1762600000000".utf8).write(to: store(mainProfile).appending(path: "deleted_s-marked"))
+    record(mainProfile, "r-deleted", session: "s-deleted", title: "Throwaway")
+    record(mainProfile, "r-mirrored", session: "s-mirrored", title: "Mirrored")
+    record(otherProfile, "r-mirrored", session: "s-mirrored", title: "Mirrored")
+    let stash = mainProfile.appending(path: "claude-code-sessions/\(ownerAccount)/.\(ownerOrg)\(Graft.stashSuffix)")
+    try! fm.createDirectory(at: stash, withIntermediateDirectories: true)
+    try! JSONSerialization.data(withJSONObject: ["cliSessionId": "s-deleted", "title": "Stashed"])
+        .write(to: stash.appending(path: "local_r-stashed.json"))
+    let projects = Graft.claudeProjects.appending(path: "-Users-test-on-screen")
+    try! fm.createDirectory(at: projects, withIntermediateDirectories: true)
+    try! (#"{"type":"user","message":{"role":"user","content":"hi"},"sessionId":"s-untitled"}"# + "\n"
+          + #"{"type":"custom-title","customTitle":"Prime \"numbers\" — checked","sessionId":"s-untitled"}"#)
+        .write(to: projects.appending(path: "s-untitled.jsonl"), atomically: true, encoding: .utf8)
+
+    let sessions = ["s-open", "s-earlier", "s-archived", "s-marked", "s-deleted", "s-mirrored", "s-untitled"].map {
+        PoolSession(id: $0, from: "main", servedBy: "main", lastAt: now, requests: 1, model: nil,
+                    cachedUntil: nil, passedOver: [])
+    }
+    let profiles = [("main", mainProfile), ("c2", otherProfile)]
+    let first = pool.lookUpRecords(sessions, profiles: profiles, now: now)
+    let open = first.filed["s-open"]
+    check(open?.title == "Is 391 prime?" && open?.archived == false && open?.gone == false,
+          "a conversation is named by the record its Claude keeps")
+    check(open?.focusedAt.map { abs($0.timeIntervalSince(now.addingTimeInterval(-60))) < 0.01 } == true
+            && first.focused["main"] == UsagePoolController.Focus(session: "s-open", at: open!.focusedAt!),
+          "and the one Claude focused last is read from the milliseconds Claude writes")
+    check(first.filed["s-archived"]?.archived == true,
+          "a conversation archived in its sidebar is put away")
+    check(open?.archived == false,
+          "a copy archived in a Claude that shares the chats does not put away the one in its own")
+    check(first.filed["s-marked"]?.gone == true,
+          "a record of Graft's with a deletion marker beside it is gone at once")
+    check(first.filed["s-untitled"]?.title == "Prime \"numbers\" — checked",
+          "a conversation with no record yet takes its title from the transcript, quotes and dashes whole")
+    check(first.filed["s-deleted"]?.title == "Throwaway",
+          "a stash beside the store is not read as a record")
+
+    gone(mainProfile, "r-deleted")
+    gone(mainProfile, "r-mirrored")
+    let second = pool.lookUpRecords(sessions, profiles: profiles, now: now)
+    check(second.filed["s-deleted"]?.gone == false,
+          "a record caught missing once may be in the middle of being rewritten, so nothing is gone yet")
+    let third = pool.lookUpRecords(sessions, profiles: profiles, now: now)
+    check(third.filed["s-deleted"]?.gone == true,
+          "a record seen before and missing on two passes was deleted from its sidebar")
+    check(third.filed["s-mirrored"]?.gone == true,
+          "and a copy still in a Claude that shares the chats does not keep it")
+
+    gone(mainProfile, "r-open")
+    let afterDelete = pool.lookUpRecords(sessions, profiles: profiles, now: now)
+    check(afterDelete.focused["main"]?.session == "s-open"
+            && UsagePoolController.current([chat("s-earlier", focused: 300)],
+                                           focused: afterDelete.focused["main"], now: now) == nil,
+          "deleting the conversation on screen names nothing, never the one focused before it")
+
+    gone(mainProfile, "r-earlier")
+    let org = store(mainProfile)
+    try! fm.setAttributes([.posixPermissions: 0o000], ofItemAtPath: org.path)
+    _ = pool.lookUpRecords(sessions, profiles: profiles, now: now)
+    let unopened = pool.lookUpRecords(sessions, profiles: profiles, now: now)
+    try! fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: org.path)
+    check(unopened.filed["s-earlier"]?.gone == false && unopened.focused["main"]?.session == "s-open",
+          "a store that will not open hides nothing, and what it held last still stands")
+
+    let controllerSource = (try? String(contentsOf: URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        .deletingLastPathComponent().appending(path: "Sources/App/UsagePoolController.swift"),
+        encoding: .utf8)) ?? ""
+    check(controllerSource.contains("now.timeIntervalSince(session.lastAt) < 30 * 60 && isShown(session)")
+            && controllerSource.contains("isShown(session) && profile(of: session.from).map(PoolEnvironment.key(for:)) == key"),
+          "a conversation put away leaves the dropdown and the bar alike")
+    let rowSource = (try? String(contentsOf: URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        .deletingLastPathComponent().appending(path: "Sources/App/SharedUsageSection.swift"),
+        encoding: .utf8)) ?? ""
+    check(rowSource.contains(".pickerStyle(.inline)") && rowSource.contains("Text(pool.automaticTitle(chat)).tag(\"\")"),
+          "the account menu in the dropdown marks the choice in force, Automatic included")
 
     let font = NSFont.menuBarFont(ofSize: 0)
     check(NewChatTicker.text(title: nil, account: "Claude") == "New chat · Claude",

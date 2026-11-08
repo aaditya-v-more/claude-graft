@@ -711,7 +711,10 @@ let conversationTree = checkAccessibility(conversations, surface: ControlSurface
 let moving = element("dropdown.conversation.first-session.account", in: conversationTree)
 check(moving?.name == L10n.format("Account answering “%@”", "Plan the next release"),
       "the menu moving a conversation says which conversation it moves, not only an account")
-check(moving?.value == "Claude 2", "and it says which account answers that conversation now")
+check(moving?.value == L10n.format("Auto · %@", "Claude 2"),
+      "and it says which account answers that conversation now, and that the ranking put it there")
+check(element("dropdown.conversation.second-session.account", in: conversationTree)?.value == "Claude",
+      "one moved by hand reads the account's name alone")
 check(element("dropdown.conversation.second-session", in: conversationTree)?.value
         == L10n.format("%@ had no room", "Claude 2"),
       "a conversation the chosen account could not take says so out loud as well as in orange")

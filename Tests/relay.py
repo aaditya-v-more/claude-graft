@@ -517,6 +517,23 @@ sessions = {entry["id"]: entry for entry in control({})["sessions"]}
 check("s43" in sessions and sessions["s43"].get("startedAt") is None,
       "one first seen part way through, as after the relay restarts, is not")
 
+# The menu bar follows the conversation typed into last, so only a turn a
+# person typed on a conversation's thread marks it; a tool's answer carried on,
+# or a title asked for beside it, does not.
+typed_at = sessions.get("s40", {}).get("promptedAt")
+check(typed_at is not None and sessions["s43"].get("promptedAt") is None,
+      "a turn typed on a thread marks when the conversation was typed into, and a request without one does not")
+tool_answer = (b'{"model":"claude-opus-5-5","messages":[{"role":"user","content":[{"type":"tool_result",'
+               b'"tool_use_id":"u1","content":"17 x 23"}]}],"thread":{"type":"continue","previous_message_id":"m2"}}')
+response, payload, went = ask_thread("tok-H", "s40", tool_answer)
+response, payload, went = ask_thread("tok-H", "s40", title)
+held = {entry["id"]: entry for entry in control({})["sessions"]}.get("s40", {})
+check(response.status == 200 and held.get("promptedAt") == typed_at and held.get("lastAt", 0) > typed_at,
+      "Claude Code carrying on with a tool's answer, or asking for a title, leaves it as it was")
+response, payload, went = ask_thread("tok-H", "s40", threaded("continue", "m2"))
+held = {entry["id"]: entry for entry in control({})["sessions"]}.get("s40", {})
+check(held.get("promptedAt", 0) > typed_at, "and the next turn typed marks it again")
+
 control({"configure": {"enabled": True, "members": [
     dict(member("F", "tok-F"), limits=pushed(now + 1800, 100)),
     dict(member("H", "tok-H", borrows=["F"]), limits=pushed(now + 5 * 86400, 100))],

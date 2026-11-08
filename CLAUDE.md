@@ -141,7 +141,8 @@ any of these. The why is in [notes/updates-and-releases.md](notes/updates-and-re
 - **A borrowed login's refusal is retried, never shown:** a 429 moves on, a 401 marks that login refused, and a 400, 403 or 404 sends the request home — except `thread_not_found` on a moved thread, which Claude Code must hear to start it again where it went.
 - **Some requests never move:** a body referring to a file, container or MCP server by value (`accountBoundMarks`, never the bare key, which a tool schema can carry), or one that is encoded.
 - **The dropdown's front Claude is `FrontmostClaude`'s,** and its watch on the relay ends in `popoverDidClose`, never in the view.
-- **A new conversation runs across the bar for two minutes,** drawn at a fixed width (`NewChatTicker`), and only one the relay saw begin (`startedAt`) counts as new. The text gives way when it would push the item out of the bar (`keepReachable`).
+- **The conversation on screen runs across the bar** while it is there, drawn at a fixed width (`NewChatTicker`): the one Claude's records focused last (`lastFocusedAt`) if the relay carried it, nothing if not, and only where no record says, the one typed into last (`promptedAt`, a turn on a thread). The text gives way when it would push the item out of the bar (`keepReachable`).
+- **A conversation archived or deleted leaves the bar and the dropdown** (`lookUpRecords`): its own Claude's records decide, a record is gone only after missing twice, and deleting the one on screen keeps its focus.
 
 ### Artifacts — [notes/artifacts.md](notes/artifacts.md)
 

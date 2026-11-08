@@ -307,9 +307,6 @@ enum PoolRequest {
         body.range(of: Data(threadContinuation.utf8)) != nil
     }
 
-    /// The conversation's own turns carry a thread; the short requests Claude
-    /// Code makes beside them — a title, a summary — share its session id and
-    /// carry none.
     /// A conversation's first message carries no answer yet. Every later
     /// request, and every short one Claude Code asks beside an existing
     /// conversation, carries the turns so far.
@@ -317,6 +314,24 @@ enum PoolRequest {
         body.range(of: Data("\"role\":\"assistant\"".utf8)) == nil
     }
 
+    /// A turn a person typed: one on the conversation's thread whose last user
+    /// message holds no tool's answer. Claude Code carries on after every tool
+    /// with a user message that is nothing but `tool_result`s, and the short
+    /// requests it makes beside a conversation carry no thread; a lone message
+    /// with no thread is as likely a title asked for as a first message, and a
+    /// first message is marked as begun anyway. A message typed while a tool
+    /// was running rides along with that tool's answer and is missed; the next
+    /// one typed is not.
+    static func startsTurn(body: Data) -> Bool {
+        guard carriesThread(body: body),
+              let last = body.range(of: Data("\"role\":\"user\"".utf8), options: .backwards)
+        else { return false }
+        return body[last.upperBound...].range(of: Data("\"type\":\"tool_result\"".utf8)) == nil
+    }
+
+    /// The conversation's own turns carry a thread; the short requests Claude
+    /// Code makes beside them — a title, a summary — share its session id and
+    /// carry none.
     static func carriesThread(body: Data) -> Bool {
         body.range(of: Data(threadKey.utf8)) != nil
     }
@@ -435,6 +450,11 @@ struct PoolSession: Codable, Equatable {
     /// mid-conversation sees every conversation for the first time, and only
     /// one with no answer in it yet is new to the person too.
     var startedAt: Date?
+    /// The last time a person typed into it, as against Claude Code carrying
+    /// on with a tool's answer or asking for a title beside it. The menu bar
+    /// follows the conversation typed into last, because a window shows only
+    /// one and the relay cannot see which; nil from a relay that predates it.
+    var promptedAt: Date? = nil
 }
 
 struct PoolMemberStatus: Codable, Equatable {

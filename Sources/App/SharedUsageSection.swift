@@ -435,23 +435,21 @@ private struct ChatRow: View {
             .identified("conversation.\(chat.id)")
             Spacer(minLength: 4)
             Menu {
-                Button {
-                    pool.assign(chat.id, to: nil)
-                } label: {
-                    if chat.assigned == nil { Label("Automatic", systemImage: "checkmark") } else { Text("Automatic") }
-                }
-                Divider()
-                ForEach(chat.choices, id: \.self) { choice in
-                    Button {
-                        pool.assign(chat.id, to: choice)
-                    } label: {
-                        if chat.assigned == choice {
-                            Label(pool.name(of: choice), systemImage: "checkmark")
-                        } else {
-                            Text(pool.name(of: choice))
-                        }
+                // A picker, because a menu draws a picker's choice with the
+                // checkmark it draws for any menu item that is on. A label
+                // carrying a checkmark symbol was dropped as an icon, and the
+                // menu showed no choice at all.
+                Picker(selection: Binding(get: { chat.assigned ?? "" },
+                                          set: { pool.assign(chat.id, to: $0.isEmpty ? nil : $0) })) {
+                    Text(pool.automaticTitle(chat)).tag("")
+                    ForEach(chat.choices, id: \.self) { choice in
+                        Text(pool.name(of: choice)).tag(choice)
                     }
+                } label: {
+                    EmptyView()
                 }
+                .pickerStyle(.inline)
+                .labelsHidden()
             } label: {
                 // The same picture the menu bar lights, so the two are read
                 // as one fact.
@@ -475,13 +473,14 @@ private struct ChatRow: View {
 
     private var showsDetail: Bool { showClaude || chat.passedOver }
 
-    private var answeringKey: String? { chat.servedBy ?? chat.assigned }
+    private var answeringKey: String? { UsagePoolController.answeringKey(chat) }
 
-    /// Who answered last, or who it was moved to and has not answered yet.
+    /// Who answered last, or who it was moved to and has not answered yet,
+    /// and whether that was chosen or left to the ranking: with "Auto" in
+    /// front it may move on its own, without it it stays where it was put.
     private var answering: String {
-        if let served = chat.servedBy { return pool.name(of: served) }
-        if let assigned = chat.assigned { return pool.name(of: assigned) }
-        return L10n.text("Automatic")
+        guard let key = answeringKey else { return L10n.text("Automatic") }
+        return chat.assigned == nil ? L10n.format("Auto · %@", pool.name(of: key)) : pool.name(of: key)
     }
 
     private var detail: String {

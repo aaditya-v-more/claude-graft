@@ -36,6 +36,7 @@ actor PoolState {
         /// answered `thread_not_found` and named the wrong one in the dropdown.
         var threaded = false
         var startedAt: Date?
+        var promptedAt: Date?
     }
 
     /// Long enough for the menu to go on naming a conversation somebody stepped
@@ -195,7 +196,8 @@ actor PoolState {
 
     func served(by member: String, from own: String, session: String?, status: Int,
                 passedOver: [PoolPass], model: String?, cacheLifetime: TimeInterval,
-                threaded: Bool = false, starts: Bool = false, now: Date = Date()) {
+                threaded: Bool = false, starts: Bool = false, prompted: Bool = false,
+                now: Date = Date()) {
         runtime[member, default: Runtime()].served += 1
         runtime[member, default: Runtime()].lastServed = now
         if let session {
@@ -203,6 +205,7 @@ actor PoolState {
                 ?? Conversation(from: own, lastAt: now, startedAt: starts ? now : nil)
             held.from = own
             held.requests += 1
+            if prompted { held.promptedAt = now }
             if threaded || !held.threaded {
                 held.lastAt = now
                 held.model = model ?? held.model
@@ -247,7 +250,8 @@ actor PoolState {
                             requests: held.requests, model: held.model,
                             cachedUntil: held.servedBy == nil ? nil
                                 : held.lastAt.addingTimeInterval(held.cacheLifetime),
-                            passedOver: held.passedOver, startedAt: held.startedAt)
+                            passedOver: held.passedOver, startedAt: held.startedAt,
+                            promptedAt: held.promptedAt)
             }
         return PoolStatus(binary: binary, pid: pid, started: started,
                           enabled: configuration?.enabled ?? false,
