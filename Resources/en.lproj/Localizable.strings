@@ -300,6 +300,7 @@
 "New chat" = "New chat";
 "%@ · %@" = "%@ · %@";
 "Conversation on screen “%@”, answered by %@" = "Conversation on screen “%@”, answered by %@";
+"Conversation on screen “%@”" = "Conversation on screen “%@”";
 "Details" = "Details";
 "Shared both ways with %@" = "Shared both ways with %@";
 "%@ holds %ld chats for this account" = "%@ holds %ld chats for this account";

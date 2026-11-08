@@ -133,6 +133,20 @@ not seen: Claude in Chrome on a shared conversation (the extension was not
 connected to Claude 2), a held conversation past its hour of cache, and the
 dropdown with two Claudes sharing at once.
 
+A run on 8 November 2026 watched the conversation on screen with the first
+2.0.1 candidate installed, Claude open and Claude 2 closed, a recorder matching
+each `menu.chat` against the record Claude had just focused. Switches between
+two test chats, between two that shared a name, and to an idle one, which that
+candidate named nothing for, were followed every time within the four seconds
+the recorder allowed. A chat moved to Claude 2 from the dropdown was answered
+there and the bar said so, and archiving one chat and deleting the other took
+both off the bar and the dropdown. The first messages after the candidate went
+in reached the relay only once the keychain had been asked again and allowed.
+Not seen: a new chat's "New chat" giving way to its name, and the right
+click's menu, which the recorder could not open. Old chats named by their
+titles, the watch that wakes on Claude's write and the red ring came after
+that run.
+
 Unproven: **Start Session** has never successfully opened a window. It POSTs one
 Haiku message with `max_tokens: 4` and Claude Code's system prompt, which these
 tokens are minted for. If that turns out to be wrong the API's own error message

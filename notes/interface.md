@@ -340,10 +340,16 @@ Claude's colour afterwards through `UsagePoolController.preset(of:)`.
 
 **A Claude that draws on other accounts shows all of them in the menu bar**
 (`PoolStrip`), its own first and always in the same order. The account
-answering that Claude's newest conversation is drawn full size and the rest
-small and faint, so which allowance is being spent reads off the bar. The
-dropdown leads with that same conversation and the same icon beside its
-account; the other conversations wait behind "Other conversations · n".
+answering the conversation on screen is drawn full size in a red ring and the
+rest small and faint, so which allowance is being spent reads off the bar.
+Size alone was easy to miss, so 2.0.1 added the ring: a one-point `systemRed`
+stroke at the edge of the lit icon's own square, with the icon drawn two points
+smaller inside it, because Claude's icon fills nearly all of its square and is
+as warm as the ring, and at full size the two ran together. The ring stays
+inside the square because a taller strip would no longer line up with the
+figure beside it. A conversation no account has answered lights nothing. The
+dropdown leads with the front Claude's latest conversation, usually the same
+one, and the others wait behind "Other conversations · n".
 
 ## The Help menu
 

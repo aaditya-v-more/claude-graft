@@ -300,6 +300,7 @@
 "New chat" = "Новый чат";
 "%@ · %@" = "%@ · %@";
 "Conversation on screen “%@”, answered by %@" = "Разговор на экране «%@», отвечает %@";
+"Conversation on screen “%@”" = "Разговор на экране «%@»";
 "Details" = "Подробности";
 "Shared both ways with %@" = "Общие в обе стороны с %@";
 "%@ holds %ld chats for this account" = "%@ хранит чаты этого аккаунта: %ld";

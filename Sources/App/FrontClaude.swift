@@ -193,12 +193,20 @@ enum FrontIcon {
 
 /// Everyone the Claude in front draws on, in the order it draws on them, its
 /// own account first. The account answering the conversation in front is
-/// drawn full size and the rest small and faint, so which one is spending is
-/// read off the bar without opening anything. The order never changes; only
-/// the light moves, so an icon is always found where it was.
+/// drawn full size in a red ring and the rest small and faint, so which one
+/// is spending is read off the bar without opening anything. The order never
+/// changes; only the light moves, so an icon is always found where it was.
 enum PoolStrip {
     static let faint: CGFloat = 13
     static let gap: CGFloat = 3
+    /// The ring goes inside the lit icon's own square, since a taller strip
+    /// would no longer sit where the figure beside it expects. Claude's icon
+    /// fills nearly all of that square and is as warm as the ring, so drawn
+    /// full size the two ran together; two points smaller leaves a hairline
+    /// between them.
+    static let ring: CGFloat = 1
+    static let ringed: CGFloat = 16
+    static let ringRadius: CGFloat = 4.75
     private static var drawn: [String: NSImage] = [:]
 
     static func image(_ presets: [Shortcut.IconPreset], lit: Int?) -> NSImage? {
@@ -207,22 +215,36 @@ enum PoolStrip {
         if let image = drawn[key] { return image }
         let icons = presets.compactMap(FrontIcon.image(for:))
         guard icons.count == presets.count else { return nil }
+        let image = strip(icons, lit: lit)
+        drawn[key] = image
+        return image
+    }
+
+    static func strip(_ icons: [NSImage], lit: Int?) -> NSImage {
         let full = FrontIcon.side
-        let sides = presets.indices.map { lit == nil || $0 == lit ? full : faint }
+        let sides = icons.indices.map { lit == nil || $0 == lit ? full : faint }
         let width = sides.reduce(0, +) + gap * CGFloat(sides.count - 1)
-        let image = NSImage(size: NSSize(width: width, height: full), flipped: false) { _ in
+        return NSImage(size: NSSize(width: width, height: full), flipped: false) { _ in
             var x: CGFloat = 0
             for (index, icon) in icons.enumerated() {
                 let side = sides[index]
-                icon.draw(in: NSRect(x: x, y: ((full - side) / 2).rounded(), width: side, height: side),
-                          from: .zero, operation: .sourceOver,
-                          fraction: lit == nil || index == lit ? 1 : 0.45)
+                let slot = NSRect(x: x, y: ((full - side) / 2).rounded(), width: side, height: side)
+                if index == lit {
+                    let inset = (side - ringed) / 2
+                    icon.draw(in: slot.insetBy(dx: inset, dy: inset), from: .zero, operation: .sourceOver,
+                              fraction: 1)
+                    let path = NSBezierPath(roundedRect: slot.insetBy(dx: ring / 2, dy: ring / 2),
+                                            xRadius: ringRadius, yRadius: ringRadius)
+                    path.lineWidth = ring
+                    NSColor.systemRed.setStroke()
+                    path.stroke()
+                } else {
+                    icon.draw(in: slot, from: .zero, operation: .sourceOver, fraction: lit == nil ? 1 : 0.45)
+                }
                 x += side + gap
             }
             return true
         }
-        drawn[key] = image
-        return image
     }
 }
 
@@ -317,7 +339,8 @@ enum FrontTitle {
 
 /// The conversation on screen, running across the bar beside the figure for
 /// as long as it is there: its title, or "New chat" until it has one, and the
-/// account answering it.
+/// account answering it. A conversation from before sharing began, opened to
+/// read, has no account answering it and shows its title alone.
 ///
 /// Drawn into a picture of fixed width rather than set as text. Text that
 /// scrolls a character at a time changes width with every letter in a
@@ -334,12 +357,15 @@ enum NewChatTicker {
     /// Ticks held at the start of each pass, so the beginning can be read.
     static let pause = 18
 
-    static func text(title: String?, account: String) -> String {
-        L10n.format("%@ · %@", title ?? L10n.text("New chat"), account)
+    static func text(title: String?, account: String?) -> String {
+        let name = title ?? L10n.text("New chat")
+        return account.map { L10n.format("%@ · %@", name, $0) } ?? name
     }
 
-    static func spoken(title: String?, account: String) -> String {
-        L10n.format("Conversation on screen “%@”, answered by %@", title ?? L10n.text("New chat"), account)
+    static func spoken(title: String?, account: String?) -> String {
+        let name = title ?? L10n.text("New chat")
+        return account.map { L10n.format("Conversation on screen “%@”, answered by %@", name, $0) }
+            ?? L10n.format("Conversation on screen “%@”", name)
     }
 
     static func attributes(_ font: NSFont) -> [NSAttributedString.Key: Any] {

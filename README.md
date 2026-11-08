@@ -69,10 +69,11 @@ another Claude's chats is a choice you make.
 
 The menu bar says which Claude is in front, with its icon and its account's
 usage, and its name too if you like. While a Claude shares usage, the bar shows
-every account it draws on and lights the one answering right now, and the
+every account it draws on and rings the one answering right now in red, and the
 conversation on screen runs across it with that account's name, so you always
-know who is answering the chat in front of you. Archive or delete a
-conversation and it leaves the bar. The dropdown lists every account's
+know who is answering the chat in front of you. An older chat that no account
+has answered since you began sharing shows by its name alone. Archive or delete
+a conversation and it leaves the bar. The dropdown lists every account's
 five-hour and weekly usage, kept current while the Claudes are closed, and lets
 you pick which account answers each conversation, with a tick beside the one in
 force.

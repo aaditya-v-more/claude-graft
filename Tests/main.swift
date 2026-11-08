@@ -5794,7 +5794,24 @@ do {
                                       focused: focus("a", 3 * 3600), now: now)?.id == "a",
           "and goes on naming it however long it has been quiet")
     check(UsagePoolController.current([chat("a", focused: 300, typed: 30)], focused: focus("x", 2), now: now) == nil,
-          "a conversation opened that the relay has not carried names nothing, rather than the one before it")
+          "a conversation on screen that the bar may not name names nothing, rather than the one before it")
+    let unsent = UsagePoolController.Focus(session: "old", at: now.addingTimeInterval(-2), title: "Before sharing began")
+    let alone = UsagePoolController.uncarried(unsent, in: "main", carried: [], choices: ["main", "c2"], assigned: nil)
+    check(alone?.title == "Before sharing began" && alone?.carried == false
+            && UsagePoolController.current([chat("a", focused: 300, typed: 30)] + [alone].compactMap { $0 },
+                                           focused: unsent, now: now)?.id == "old",
+          "a conversation opened that the relay has not carried is named from its record")
+    check(alone.map(UsagePoolController.answeringKey) == .some(nil)
+            && NewChatTicker.text(title: alone?.title, account: nil) == "Before sharing began"
+            && NewChatTicker.spoken(title: alone?.title, account: nil) == "Conversation on screen “Before sharing began”",
+          "by its title alone, since no account has answered it")
+    var archivedUnsent = unsent
+    archivedUnsent.putAway = true
+    let carriedOld = PoolSession(id: "old", from: "main", servedBy: "main", lastAt: now, requests: 1, model: nil,
+                                 cachedUntil: nil, passedOver: [])
+    check(UsagePoolController.uncarried(archivedUnsent, in: "main", carried: [], choices: [], assigned: nil) == nil
+            && UsagePoolController.uncarried(unsent, in: "main", carried: [carriedOld], choices: [], assigned: nil) == nil,
+          "but not once it is put away, nor when the relay carried it and its own row decides")
     check(UsagePoolController.current([chat("a", typed: 5)], focused: focus("x", 600), now: now)?.id == "a",
           "one typed into since the last focus Claude recorded is the one on screen")
     check(UsagePoolController.current([chat("a", typed: 120), chat("b", begun: 30)], now: now)?.id == "b",
@@ -5888,8 +5905,9 @@ do {
     check(open?.title == "Is 391 prime?" && open?.archived == false && open?.gone == false,
           "a conversation is named by the record its Claude keeps")
     check(open?.focusedAt.map { abs($0.timeIntervalSince(now.addingTimeInterval(-60))) < 0.01 } == true
-            && first.focused["main"] == UsagePoolController.Focus(session: "s-open", at: open!.focusedAt!),
-          "and the one Claude focused last is read from the milliseconds Claude writes")
+            && first.focused["main"] == UsagePoolController.Focus(session: "s-open", at: open!.focusedAt!,
+                                                                  title: "Is 391 prime?"),
+          "and the one Claude focused last is read from the milliseconds Claude writes, with its title")
     check(first.filed["s-archived"]?.archived == true,
           "a conversation archived in its sidebar is put away")
     check(open?.archived == false,
@@ -5928,9 +5946,99 @@ do {
     check(unopened.filed["s-earlier"]?.gone == false && unopened.focused["main"]?.session == "s-open",
           "a store that will not open hides nothing, and what it held last still stands")
 
+    // Two Claudes whose stores the mirror keeps alike, the second one used last.
+    let mirrorPool = UsagePoolController()
+    let here = root.appending(path: "mirror-focus/Claude"), there = root.appending(path: "mirror-focus/Claude-2")
+    let pair = [("main", here), ("c2", there)]
+    record(here, "m-a", session: "m-a", title: "Here", focused: 120)
+    record(there, "m-a", session: "m-a", title: "Here", focused: 120)
+    _ = mirrorPool.lookUpRecords([], profiles: pair, now: now)
+    record(there, "m-b", session: "m-b", title: "There", focused: 30)
+    let seenThere = mirrorPool.lookUpRecords([], profiles: pair, now: now)
+    record(here, "m-b", session: "m-b", title: "There", focused: 30)
+    let copiedHere = mirrorPool.lookUpRecords([], profiles: pair, now: now)
+    check(seenThere.focused["c2"]?.session == "m-b" && copiedHere.focused["c2"]?.session == "m-b"
+            && copiedHere.focused["main"]?.session == "m-a",
+          "a focus the mirror copies in from another Claude is that Claude's, and this one still shows its own")
+    record(there, "m-a", session: "m-a", title: "Here", focused: 20)
+    _ = mirrorPool.lookUpRecords([], profiles: pair, now: now)
+    record(here, "m-a", session: "m-a", title: "Here, renamed", focused: 20)
+    let overwritten = mirrorPool.lookUpRecords([], profiles: pair, now: now)
+    check(overwritten.focused["main"]?.session == "m-a" && overwritten.focused["main"]?.putAway == false
+            && overwritten.focused["main"]?.title == "Here, renamed",
+          "and keeps showing it when the mirror writes another Claude's focus over its record")
+    record(here, "m-c", session: "m-c", title: "Back here", focused: 1)
+    let back = mirrorPool.lookUpRecords([], profiles: pair, now: now)
+    check(back.focused["main"]?.session == "m-c" && back.focused["main"]?.title == "Back here",
+          "a conversation this Claude brings on screen afterwards is its own again")
+    gone(here, "m-c")
+    let missingOnce = mirrorPool.lookUpRecords([], profiles: pair, now: now)
+    let missingTwice = mirrorPool.lookUpRecords([], profiles: pair, now: now)
+    check(missingOnce.focused["main"]?.session == "m-c" && missingOnce.focused["main"]?.putAway == false
+            && missingTwice.focused["main"]?.session == "m-c" && missingTwice.focused["main"]?.putAway == true,
+          "the conversation on screen is deleted once its record is missing on two passes, not one caught mid-write")
+    record(here, "m-d", session: "s-untitled", focused: 0.5)
+    check(mirrorPool.lookUpRecords([], profiles: pair, now: now).focused["main"]?.title == "Prime \"numbers\" — checked",
+          "one on screen whose record has no title yet takes it from the transcript")
+
+    // FSEvents leaves out the process that wrote, so the write comes from another.
+    let watchedProfile = root.appending(path: "watched")
+    let watchedOrg = watchedProfile.appending(path: "claude-code-sessions/\(ownerAccount)/\(ownerOrg)")
+    try! fm.createDirectory(at: watchedOrg, withIntermediateDirectories: true)
+    var wakes = 0
+    let storeWatch = StoreWatch { wakes += 1 }
+    storeWatch.watch([UsagePoolController.recordStore(of: watchedProfile),
+                      UsagePoolController.recordStore(of: root.appending(path: "never-made"))])
+    RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+    let touch = Process()
+    touch.executableURL = URL(fileURLWithPath: "/usr/bin/touch")
+    touch.arguments = [watchedOrg.appending(path: "local_w.json").path]
+    try? touch.run()
+    touch.waitUntilExit()
+    let wakeBy = Date().addingTimeInterval(5)
+    while wakes == 0 && Date() < wakeBy { RunLoop.main.run(until: Date().addingTimeInterval(0.05)) }
+    check(wakes > 0, "a record written into a watched store is read when it lands, not on the next tick")
+    RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+    wakes = 0
+    try! Data("{}".utf8).write(to: watchedOrg.appending(path: "local_x.json"))
+    RunLoop.main.run(until: Date().addingTimeInterval(1))
+    check(wakes == 0, "while Graft's own writes, the sweep's and the mirror's, wake nothing")
+    storeWatch.watch([])
+
+    let plainIcon = NSImage(size: NSSize(width: 18, height: 18), flipped: false) { rect in
+        NSColor.systemBlue.setFill()
+        rect.fill()
+        return true
+    }
+    let ringed = PoolStrip.strip([plainIcon, plainIcon], lit: 0)
+    let stripPixels = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(ringed.size.width * 2),
+                                       pixelsHigh: Int(ringed.size.height * 2), bitsPerSample: 8,
+                                       samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+                                       colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
+    stripPixels.size = ringed.size
+    NSGraphicsContext.saveGraphicsState()
+    NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: stripPixels)
+    ringed.draw(in: NSRect(origin: .zero, size: ringed.size))
+    NSGraphicsContext.restoreGraphicsState()
+    func reddish(_ x: CGFloat) -> Bool {
+        guard let colour = stripPixels.colorAt(x: Int(x * 2), y: Int(ringed.size.height)) else { return false }
+        return colour.redComponent > 0.7 && colour.blueComponent < 0.5 && colour.alphaComponent > 0.5
+    }
+    let faintAt = FrontIcon.side + PoolStrip.gap
+    check(reddish(0.5) && !reddish(FrontIcon.side / 2) && !reddish(faintAt + 0.5),
+          "the account answering is ringed in red, and only that one")
+
     let controllerSource = (try? String(contentsOf: URL(fileURLWithPath: #filePath).deletingLastPathComponent()
         .deletingLastPathComponent().appending(path: "Sources/App/UsagePoolController.swift"),
         encoding: .utf8)) ?? ""
+    let barSource = (try? String(contentsOf: URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        .deletingLastPathComponent().appending(path: "Sources/App/MenuBarController.swift"),
+        encoding: .utf8)) ?? ""
+    let removal = barSource.components(separatedBy: "func remove()").last?.components(separatedBy: "\n    }").first ?? ""
+    check(removal.contains("newChat = nil") && removal.contains("tickerText = nil")
+            && (barSource.components(separatedBy: "func install()").last?.components(separatedBy: "\n    }").first ?? "")
+                .contains("showNewChat()"),
+          "a status item taken out and put back starts the conversation's text moving again")
     check(controllerSource.contains("now.timeIntervalSince(session.lastAt) < 30 * 60 && isShown(session)")
             && controllerSource.contains("isShown(session) && profile(of: session.from).map(PoolEnvironment.key(for:)) == key"),
           "a conversation put away leaves the dropdown and the bar alike")

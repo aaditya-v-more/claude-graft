@@ -1,4 +1,5 @@
 import AppKit
+import CoreServices
 import Foundation
 
 /// Which Claudes draw on which accounts. Every Claude has its own list, kept
@@ -68,6 +69,10 @@ final class UsagePoolController: ObservableObject {
         var focusedAt: Date? = nil
         /// When a person last typed into it; see `PoolSession.promptedAt`.
         var promptedAt: Date? = nil
+        /// False for one named from its record alone, which the relay has not
+        /// carried since it began: no account has answered it, and none will
+        /// until it is written in again.
+        var carried = true
 
         /// The latest sign of someone looking at it. Claude writes
         /// `lastFocusedAt` the moment its window switches to a conversation,
@@ -92,18 +97,31 @@ final class UsagePoolController: ObservableObject {
     struct Focus: Equatable {
         var session: String
         var at: Date
+        /// What the record says of it, which is all there is to name a
+        /// conversation by when the relay has not carried it.
+        var title: String? = nil
+        /// Archived, or its record deleted.
+        var putAway = false
+    }
+
+    /// A focus as one store held it, which is how the store that wrote it is
+    /// told from the ones the mirror copied it into.
+    private struct Stamp: Hashable {
+        var session: String
+        var at: Date
     }
 
     /// The conversation on screen in the Claude in front, which the menu bar
     /// names for as long as it is there.
     ///
-    /// Claude's own word decides: the conversation its window focused last,
-    /// when that is one the relay has carried. When it is not — an old chat
-    /// opened to read, which has not sent anything since sharing began — the
-    /// bar names nothing rather than the conversation before it, which would
-    /// be naming the wrong one. A Claude whose records say nothing of focus
-    /// falls back on the conversation typed into last, and only when nothing
-    /// says even that, on the one that last heard back.
+    /// Claude's own word decides: the conversation its window focused last.
+    /// One the relay has not carried, such as an old chat opened to read, is
+    /// among `chats` by its record alone (`uncarried`). A focus matching none
+    /// of them, because that conversation was put away, names nothing rather
+    /// than the conversation before it, which is the one thing certain not to
+    /// be on screen. A Claude whose records say nothing of focus falls back on
+    /// the conversation typed into last, and only when nothing says even
+    /// that, on the one that last heard back.
     static func current(_ chats: [Chat], focused: Focus? = nil, now: Date = Date()) -> Chat? {
         if let focused {
             if let shown = chats.first(where: { $0.id == focused.session }) { return shown }
@@ -142,7 +160,28 @@ final class UsagePoolController: ObservableObject {
             isShown(session) && profile(of: session.from).map(PoolEnvironment.key(for:)) == key
         }
         let claude = claudes.first { profile(of: $0).map(PoolEnvironment.key(for:)) == key }
-        return Self.current(mine.map(chat(for:)), focused: claude.flatMap { focused[$0] }, now: now)
+        let focus = claude.flatMap { focused[$0] }
+        var chats = mine.map(chat(for:))
+        if let claude, let focus, !lenders(of: claude).isEmpty,
+           let alone = Self.uncarried(focus, in: claude, carried: status.sessions,
+                                      choices: oneEach([claude] + lenders(of: claude)),
+                                      assigned: sharing.assignments[focus.session]?.to) {
+            chats.append(alone)
+        }
+        return Self.current(chats, focused: focus, now: now)
+    }
+
+    /// The conversation on screen when the relay has never carried it, or has
+    /// forgotten it after a day: a chat from before sharing began, opened to
+    /// read. Its record is the only thing that knows its name, and no account
+    /// has answered it, so the bar says the name alone. One the relay did
+    /// carry is left to its own row, which an archived or deleted one has
+    /// already left; named from its record, it would be back on the bar.
+    static func uncarried(_ focus: Focus, in claude: String, carried: [PoolSession],
+                          choices: [String], assigned: String?) -> Chat? {
+        guard !focus.putAway, !carried.contains(where: { $0.id == focus.session }) else { return nil }
+        return Chat(id: focus.session, title: focus.title, claude: claude, servedBy: nil, assigned: assigned,
+                    choices: choices, lastAt: focus.at, passedOver: false, focusedAt: focus.at, carried: false)
     }
 
     static let mainKey = "main"
@@ -171,6 +210,8 @@ final class UsagePoolController: ObservableObject {
     private var timer: Timer?
     private var peekTimer: Timer?
     private var peeking = false
+    private var peekAgain = false
+    private lazy var storeWatch = StoreWatch { [weak self] in self?.peek() }
     private var watchers = 0
     private var syncing = false
     private var syncAgain = false
@@ -188,6 +229,10 @@ final class UsagePoolController: ObservableObject {
     private var missingBefore: Set<String> = []
     /// By Claude key.
     private var lastFocus: [String: Focus] = [:]
+    /// Every focus a store holds, against the stores it was first seen in.
+    private var focusOrigins: [Stamp: Set<String>] = [:]
+    /// Claudes whose last focus had no record on the previous pass.
+    private var focusMissingBefore: Set<String> = []
     private var transcriptTitles: [String: (stamp: Date, title: String?)] = [:]
     private var transcriptURLs: [String: URL] = [:]
     private var transcriptMisses: [String: Date] = [:]
@@ -216,19 +261,29 @@ final class UsagePoolController: ObservableObject {
         schedule()
         watchClaudes()
         sync()
-        let peek = Timer(timeInterval: 2, repeats: true) { [weak self] _ in self?.peek() }
+        let peek = Timer(timeInterval: 2, repeats: true) { [weak self] _ in
+            self?.followStores()
+            self?.peek()
+        }
         RunLoop.main.add(peek, forMode: .common)
         peekTimer = peek
     }
 
     /// The menu bar follows the conversation on screen, and Claude says which
-    /// that is only in its records, so they are read every two seconds while
-    /// anything is shared. A full pass reads logins as well, which is why it
-    /// waits half a minute; this asks the relay what it carried and reads
-    /// again only the records whose files changed.
+    /// that is only in its records. Claude writes a record about a second
+    /// after its window switches conversation, and with the records read every
+    /// two seconds the bar trailed a switch by up to three; so the stores are
+    /// watched as well, and a write there is read a tenth of a second later.
+    /// The two-second look stays for the relay's news, which no file carries.
+    /// A full pass reads logins as well, which is why it waits half a minute;
+    /// this asks the relay what it carried and reads again only the records
+    /// whose files changed.
     private func peek() {
-        guard status != nil, !syncing, !peeking,
-              sharing.lenders.values.contains(where: { !$0.isEmpty }) else { return }
+        guard status != nil, sharing.lenders.values.contains(where: { !$0.isEmpty }) else { return }
+        // A write that lands while records are being read may be the one that
+        // matters, so it is read once the current look is done rather than
+        // waiting out the next tick.
+        guard !syncing, !peeking else { peekAgain = true; return }
         peeking = true
         let claudeProfiles = claudes.compactMap { key in profile(of: key).map { (key, $0) } }
         queue.async {
@@ -237,12 +292,34 @@ final class UsagePoolController: ObservableObject {
             DispatchQueue.main.async {
                 self.peeking = false
                 // A relay that stopped answering is a full pass's business.
-                guard let status, let records, !self.syncing else { return }
-                if self.status != status { self.status = status }
-                if self.filed != records.filed { self.filed = records.filed }
-                if self.focused != records.focused { self.focused = records.focused }
+                if let status, let records, !self.syncing {
+                    if self.status != status { self.status = status }
+                    if self.filed != records.filed { self.filed = records.filed }
+                    if self.focused != records.focused { self.focused = records.focused }
+                }
+                self.peekAgainIfAsked()
             }
         }
+    }
+
+    /// Asked again on every tick, so a Claude added or a store made since the
+    /// last one is watched from the next, and here rather than in `peek`, which
+    /// the watch itself calls and so must not tear the watch down.
+    private func followStores() {
+        let sharing = self.sharing.lenders.values.contains(where: { !$0.isEmpty })
+        storeWatch.watch(sharing ? claudes.compactMap(profile(of:)).map(Self.recordStore(of:)) : [])
+    }
+
+    private func peekAgainIfAsked() {
+        guard peekAgain else { return }
+        peekAgain = false
+        peek()
+    }
+
+    /// Where a Claude keeps its conversations' records, as FSEvents names it:
+    /// the stream reports real paths, so a link on the way is resolved first.
+    static func recordStore(of profile: URL) -> String {
+        profile.appending(path: "claude-code-sessions").resolvingSymlinksInPath().path
     }
 
     // MARK: - Who lends to whom
@@ -668,6 +745,7 @@ final class UsagePoolController: ObservableObject {
                     self.syncAgain = false
                     self.sync()
                 }
+                self.peekAgainIfAsked()
             }
         }
     }
@@ -702,7 +780,9 @@ final class UsagePoolController: ObservableObject {
         // Every conversation the relay remembers, not only the last half
         // hour's: the one on screen may have been quiet for longer.
         let from = Dictionary(sessions.map { ($0.id, $0.from) }, uniquingKeysWith: { first, _ in first })
-        var focused: [String: Focus] = [:]
+        // Every record each store holds, by session: the one with the newest
+        // focus where a session has a record under two accounts.
+        var held: [String: [String: Filed]] = [:]
         // A conversation is put away in the Claude it is in; the same session
         // listed by another profile that shares its chats says nothing of that.
         var own: [String: [Filed]] = [:]
@@ -755,8 +835,9 @@ final class UsagePoolController: ObservableObject {
                             recordCache[url.path] = entry
                         }
                         guard let entry, let session = entry.session else { continue }
-                        if let at = entry.filed.focusedAt, at > focused[key]?.at ?? .distantPast {
-                            focused[key] = Focus(session: session, at: at)
+                        if entry.filed.focusedAt ?? .distantPast
+                            >= held[key]?[session]?.focusedAt ?? .distantPast {
+                            held[key, default: [:]][session] = entry.filed
                         }
                         guard let owner = from[session] else { continue }
                         if owner == key {
@@ -772,14 +853,58 @@ final class UsagePoolController: ObservableObject {
         }
         recordCache = recordCache.filter { walked.contains($0.key) }
 
+        // A focus belongs to the store it turned up in first. The mirror
+        // carries a record across with its focus, and read as this store's
+        // own, the copy named the conversation another Claude had shown as
+        // the one on screen here. One that several stores held when it was
+        // first seen, as everything is on the first pass, counts for each.
+        var origins: [Stamp: Set<String>] = [:]
+        for (key, records) in held {
+            for (session, record) in records {
+                guard let at = record.focusedAt else { continue }
+                let stamp = Stamp(session: session, at: at)
+                if let first = focusOrigins[stamp] {
+                    origins[stamp] = first
+                } else {
+                    origins[stamp, default: []].insert(key)
+                }
+            }
+        }
+        focusOrigins = origins
+        var focused: [String: Focus] = [:]
+        for (key, records) in held {
+            for (session, record) in records {
+                guard let at = record.focusedAt, at > focused[key]?.at ?? .distantPast,
+                      origins[Stamp(session: session, at: at)]?.contains(key) == true else { continue }
+                focused[key] = Focus(session: session, at: at, title: record.title, putAway: record.archived)
+            }
+        }
+
         // Deleting the conversation on screen takes its record, and with it
         // the latest focus in the store; the one focused before it is not
         // what Claude shows now, so the focus that went stays the word until
-        // Claude writes a newer one.
-        // A store that would not open keeps its last focus the same way.
+        // Claude writes a newer one. So does a focus the mirror wrote over
+        // with another Claude's, since this Claude still shows that
+        // conversation. A store that would not open keeps its last focus too.
+        var focusMissing: Set<String> = []
         for (key, last) in lastFocus where profiles.contains(where: { $0.0 == key })
             && focused[key].map({ $0.at < last.at }) ?? true {
-            focused[key] = last
+            var kept = last
+            if let record = held[key]?[last.session] {
+                kept.title = record.title ?? kept.title
+                kept.putAway = record.archived
+            } else if !unreadable {
+                // Deleted, but only once it is missing on two passes running:
+                // a pass woken by Claude's write can land before the record is
+                // moved into place.
+                focusMissing.insert(key)
+                if focusMissingBefore.contains(key) { kept.putAway = true }
+            }
+            focused[key] = kept
+        }
+        if !unreadable { focusMissingBefore = focusMissing }
+        for (key, focus) in focused where focus.title == nil && !focus.putAway {
+            focused[key]?.title = transcriptTitle(focus.session, now: now)
         }
         lastFocus = focused
 
@@ -942,5 +1067,63 @@ final class UsagePoolController: ObservableObject {
             }
         }
         return (nil, L10n.text("The relay is not running. Diagnostics has the reason."))
+    }
+}
+
+/// Says when anything in the given folders changes, a tenth of a second after
+/// it does, so a write is read when it lands rather than on the next tick.
+/// FSEvents gathers a burst of writes into one call, Claude's write and its
+/// rename alike. Graft's own writes are left out: the sweep files records and
+/// the mirror copies them, and neither says which conversation is on screen.
+final class StoreWatch {
+    private var stream: FSEventStreamRef?
+    private var watched: [String] = []
+    private let changed: () -> Void
+
+    init(changed: @escaping () -> Void) {
+        self.changed = changed
+    }
+
+    /// Main thread. A folder that does not exist yet is left out until it
+    /// does, which the next call finds.
+    func watch(_ folders: [String]) {
+        // Two Claudes can keep their records in one place.
+        var seen = Set<String>()
+        let wanted = folders.filter { seen.insert($0).inserted && Graft.isDirectory(URL(fileURLWithPath: $0)) }
+        guard wanted != watched else { return }
+        stop()
+        watched = wanted
+        guard !wanted.isEmpty else { return }
+        var context = FSEventStreamContext(version: 0, info: Unmanaged.passUnretained(self).toOpaque(),
+                                           retain: nil, release: nil, copyDescription: nil)
+        let callback: FSEventStreamCallback = { _, info, _, _, _, _ in
+            guard let info else { return }
+            Unmanaged<StoreWatch>.fromOpaque(info).takeUnretainedValue().changed()
+        }
+        guard let stream = FSEventStreamCreate(kCFAllocatorDefault, callback, &context, wanted as CFArray,
+                                               FSEventStreamEventId(kFSEventStreamEventIdSinceNow), 0.1,
+                                               FSEventStreamCreateFlags(kFSEventStreamCreateFlagIgnoreSelf))
+        else {
+            watched = []
+            return
+        }
+        // On the main queue, where the watch is started and stopped and where
+        // the pass it wakes is asked for.
+        FSEventStreamSetDispatchQueue(stream, .main)
+        FSEventStreamStart(stream)
+        self.stream = stream
+    }
+
+    private func stop() {
+        guard let stream else { return }
+        FSEventStreamStop(stream)
+        FSEventStreamInvalidate(stream)
+        FSEventStreamRelease(stream)
+        self.stream = nil
+        watched = []
+    }
+
+    deinit {
+        stop()
     }
 }

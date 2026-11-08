@@ -317,10 +317,15 @@ in front, or "New session" for a test chat begun minutes earlier.
 Which conversation is on screen is Claude's word alone. It writes
 `lastFocusedAt`, in milliseconds, into a conversation's record the moment its
 window switches to it, so the bar names the conversation the front Claude's
-store focused last, provided the relay has carried it. When it has not — an old
-chat opened to read, which has sent nothing since sharing began — the bar names
-nothing, since the conversation before it is the one thing certain not to be on
-screen. A Claude whose records say nothing of focus falls back on the
+store focused last. One the relay has not carried — an old chat opened to read,
+which has sent nothing since sharing began — is named by its record's title
+alone, with nothing lit and no account beside it, since none has answered it.
+The first 2.0.1 candidate named nothing there, and on a machine whose chats
+mostly began before 2.0 the text went whenever one of them was opened. The bar
+never names the conversation before, the one thing certain not to be on screen.
+One the relay did carry is left to its row, which an archived or deleted one
+has already left; named from its record, it would be back on the bar. A Claude
+whose records say nothing of focus falls back on the
 conversation typed into last, `promptedAt`: a turn on a conversation's thread
 whose last user message is not a tool's answer. A lone message with no thread
 does not count, because the title Claude Code asks for beside a conversation is
@@ -328,16 +333,40 @@ exactly that, and a first message is marked by `startedAt` anyway, set only
 when the first request the relay sees for a session carries no answer — a relay
 restarted part way through sees every conversation for the first time. Each
 change of conversation is logged as `menu.chat`, with the first eight
-characters of its session and whether an account was chosen for it, so a run
-can be checked against what was on screen.
+characters of its session, whether an account was chosen for it and whether
+the relay carried it, so a run can be checked against what was on screen.
+
+**A focus belongs to the store it turned up in first.** Claudes that share
+chats each keep a mirrored folder, and the mirror copies a changed record
+across with its `lastFocusedAt`. Read as the second store's own, the copy made
+the conversation on one Claude's screen the newest focus in the other's, and
+once old chats were named from their records, the other Claude's bar would
+have named it too. So each focus, a session and the moment it was focused, is
+held against the stores that had it when it was first seen, and a Claude's
+focus is the newest of its own. On the first pass after Graft starts every
+store holding a focus owns it, as every store did before; a copy made after
+that is told apart. The mirror can also write the other Claude's copy of a
+record over this one's, and an older focus with it. The focus this store had
+then stays the word, as for a deleted record, since this Claude still shows
+that conversation.
 
 The text is drawn into a picture of fixed width and scrolled inside it, because
 text scrolled a character at a time changes width with every letter, and a
 status item that changes width moves every item to its left with it. Following
-the screen costs a two-second ask of the relay and a look at each record's
-modification date while anything is shared, a record parsed again only when it
-changed and a missing transcript looked for once a minute; a full pass reads
-logins as well, which is why that one waits half a minute.
+the screen costs a look at each record's modification date while anything is
+shared, with a record parsed again only when it changed and a missing
+transcript looked for once a minute; a full pass reads logins as well, which is
+why that one waits half a minute. The look ran every two seconds, and a switch
+took up to four to reach the bar: Claude writes the record about a second after
+its window changes conversation, and the look could come two seconds after
+that. `StoreWatch` now has FSEvents say when a store changes, a tenth of a
+second after it does, which leaves Claude's own second as the wait. It leaves
+out Graft's own writes, since the sweep files records and the mirror copies
+them and neither says what is on screen; the suite wakes it with `touch` for
+that reason. A look woken while another is under way runs as soon as that one
+ends, and the two-second look stays for the relay's news, which no file
+carries. The timer, not a look, decides which stores are watched, because the
+watch itself wakes a look and must not be torn down from inside its own call.
 
 **A conversation put away leaves the bar and the dropdown.** Archived means
 every record its own Claude keeps for it says `isArchived`. A copy in a Claude
@@ -350,7 +379,11 @@ rewrites the file. A store that will not open hides nothing, and the walk skips
 stashes as the sweep does, or a deleted conversation's old record there would
 keep it listed. Deleting the conversation on screen takes the latest focus with
 its record, so the focus it had stays the word until Claude writes a newer one;
-before that, the bar named the conversation focused before it. A conversation
+before that, the bar named the conversation focused before it. Once that record
+has been missing on two passes running, the conversation is taken as deleted
+and the bar names nothing, or one from before sharing would stay there by its
+title. One pass is not enough, because the watch can wake a pass before
+Claude's write has put the new file in place. A conversation
 deleted while Graft was not running was never seen with a record, and the
 dropdown goes on listing it for the rest of its half hour.
 

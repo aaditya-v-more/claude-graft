@@ -18,7 +18,7 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
     /// without the usage figures being worked out again on every tick.
     private var parts: (icon: NSImage?, tag: NSImage?, figure: Graft.Usage.Headline?)?
     private var spokenTitle = ""
-    /// The conversation running across the bar, if one has just begun.
+    /// The conversation on screen, running across the bar.
     private var newChat: UsagePoolController.Chat?
     private var tickerText: String?
     /// What the text would say, drawn or not, so a conversation whose text
@@ -107,7 +107,7 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         item.button?.target = self
         item.button?.action = #selector(togglePopover)
-        // A right click moves a conversation that has just begun.
+        // A right click moves the conversation on screen.
         item.button?.sendAction(on: [.leftMouseUp, .rightMouseUp])
         item.button?.imagePosition = .imageLeading
         item.button?.image = NSImage(systemSymbolName: StatusSymbol.idle,
@@ -117,11 +117,20 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
         item.button?.setAccessibilityIdentifier("status-item")
         self.item = item
         updateTitle()
+        showNewChat()
     }
 
     func remove() {
         ticker?.invalidate()
         ticker = nil
+        // Forgotten with the timer, or the item put back would find the same
+        // conversation already named and never start the text moving again.
+        newChat = nil
+        tickerText = nil
+        tickerWords = nil
+        tickerRefused = nil
+        tickerOffset = 0
+        tickerHeld = 0
         popover.performClose(nil)
         if let item { NSStatusBar.system.removeStatusItem(item) }
         item = nil
@@ -208,8 +217,12 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
     // MARK: - The conversation on screen
 
     /// As the dropdown says it, without the "Auto" the bar has no room for.
-    private func answering(_ chat: UsagePoolController.Chat) -> String {
-        UsagePoolController.answeringKey(chat).map(Shared.usagePool.name(of:)) ?? L10n.text("Automatic")
+    /// Nothing for a conversation the relay has not carried and nobody has
+    /// chosen an account for: no account answers it, and "Automatic" would
+    /// say one was about to.
+    private func answering(_ chat: UsagePoolController.Chat) -> String? {
+        UsagePoolController.answeringKey(chat).map(Shared.usagePool.name(of:))
+            ?? (chat.carried ? L10n.text("Automatic") : nil)
     }
 
     private func updateNewChat() {
@@ -227,7 +240,8 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
             // Which conversation the bar names, by the start of its id and never
             // its title, so a run can be checked against what was on screen.
             Diagnostics.note("menu.chat", ["session": chat.map { String($0.id.prefix(8)) } ?? "none",
-                                           "chosen": chat?.assigned != nil])
+                                           "chosen": chat?.assigned != nil,
+                                           "carried": chat?.carried ?? true])
         }
         // Measured before the text goes in: an item already out of reach is
         // not one the text pushed there.
@@ -322,8 +336,8 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
     }
 
     /// The accounts a Claude in front draws on, as one picture, with the one
-    /// answering its newest conversation lit. Nil for a Claude that draws on
-    /// nobody, which keeps its single icon.
+    /// answering the conversation on screen lit. Nil for a Claude that draws
+    /// on nobody, which keeps its single icon.
     private func poolInFront(_ entry: UsageMonitor.Entry) -> (strip: NSImage, spoken: String)? {
         let pool = Shared.usagePool
         let claude = entry.shortcut?.uuidString ?? UsagePoolController.mainKey
