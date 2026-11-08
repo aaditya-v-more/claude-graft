@@ -190,6 +190,23 @@ enum ArtifactAccess: Equatable {
         case .anyoneWithLink: return "globe"
         }
     }
+
+    /// The entry the access menu checks. Graft offers only invited and
+    /// public, so an artifact only its owner opens checks the invited entry,
+    /// as claude.ai's own panel does, and one shared with the organization
+    /// checks an entry of its own: read as invited, choosing the checked
+    /// entry took the organization's access away without a word.
+    var menuChoice: ArtifactAccess { self == .onlyYou ? .invited : self }
+
+    /// Whether making an artifact public, or no longer public, changes who
+    /// can open it. Asked for what it already is, nothing is sent.
+    func changes(toPublic isPublic: Bool) -> Bool {
+        switch self {
+        case .anyoneWithLink: return !isPublic
+        case .onlyYou, .invited: return isPublic
+        case .organization: return true
+        }
+    }
 }
 
 /// The requests claude.ai's own artifact pages make, measured against its
@@ -336,6 +353,9 @@ enum ArtifactAPI {
         /// own panel offers only the roles these allow.
         var commenters = false
         var editors = false
+        /// `read.mode` as claude.ai has it now, which a list read earlier
+        /// may not.
+        var mode: String? = nil
     }
 
     static func permissions(from data: Data) -> Permissions? {
@@ -348,7 +368,8 @@ enum ArtifactAPI {
         return Permissions(version: object["version"] as? String ?? (object["version"] as? Int).map(String.init),
                            invited: read?["users"] as? [String] ?? [],
                            commenters: object["commentersEnabled"] as? Bool ?? false,
-                           editors: editors)
+                           editors: editors,
+                           mode: read?["mode"] as? String)
     }
 
     /// Why claude.ai refused, when it says: `title_invalid`, `org_mismatch`,

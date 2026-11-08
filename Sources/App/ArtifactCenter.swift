@@ -609,7 +609,7 @@ final class ArtifactCenter: ObservableObject {
 
     func setPublic(_ artifact: Artifact, _ isPublic: Bool) {
         let key = "access-\(artifact.id)"
-        guard !busy.contains(key) else { return }
+        guard artifact.access.changes(toPublic: isPublic), !busy.contains(key) else { return }
         busy.insert(key)
         Task {
             defer { busy.remove(key) }
@@ -618,6 +618,12 @@ final class ArtifactCenter: ObservableObject {
                 let current = try await session.send("GET", ArtifactAPI.permPath(artifact.id, org: artifact.org))
                 guard current.status == 200, let permissions = ArtifactAPI.permissions(from: current.data)
                 else { throw ClaudeWebSession.Failure.unreadable }
+                // Changed elsewhere since the list was read: what it is now is
+                // shown, and nothing is sent to make it what it already is.
+                if let mode = permissions.mode, !ArtifactAccess(audience: mode).changes(toPublic: isPublic) {
+                    replace(artifact.id) { $0.audience = mode }
+                    return
+                }
                 let answer = try await session.send(
                     "PATCH", ArtifactAPI.permPath(artifact.id, org: artifact.org),
                     body: ArtifactAPI.readModeBody(public: isPublic, invited: permissions.invited),

@@ -104,6 +104,14 @@ request is kept to exactly what that page sends.
 - `PATCH /api/frame/perm/<uuid>?org=…` with `{"read":{"mode":"public"}}` opens
   it to anyone with the link. Closing it sends `users` with whoever was invited,
   or `owner` when nobody was, which is what the share panel does.
+
+The access menu offers invited and public, and checks an entry of its own for
+an artifact shared with its organization, which Graft does not offer to set.
+It used to check the invited entry for one, so choosing what looked like the
+current state sent `users` and took the organization's access away without a
+word. Choosing the entry already checked sends nothing, and `setPublic` asks
+the permissions first and sends nothing when `read.mode` is already what was
+asked for, showing that instead.
 - `POST /api/frame/invite/<uuid>?org=…` with `{"email":…,"role":…}`
   invites one person. claude.ai emails them, as it does from its own panel.
   The share panel maps its levels as view → `reader`, comment → `commenter`

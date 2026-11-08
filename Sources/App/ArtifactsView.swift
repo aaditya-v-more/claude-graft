@@ -371,10 +371,18 @@ private struct ArtifactRow: View {
         if artifact.isOwn {
             Menu {
                 Picker("Who Can Open It", selection: Binding(
-                    get: { current == .anyoneWithLink },
-                    set: { center.setPublic(artifact, $0) })) {
-                    Text("Only People Invited").tag(false)
-                    Text("Anyone with the Link").tag(true)
+                    get: { current.menuChoice },
+                    set: { choice in
+                        // The organization entry only says what it is; Graft
+                        // does not share with an organization.
+                        guard choice != current.menuChoice, choice != .organization else { return }
+                        center.setPublic(artifact, choice == .anyoneWithLink)
+                    })) {
+                    Text("Only People Invited").tag(ArtifactAccess.invited)
+                    if current == .organization {
+                        Text("Your Organization").tag(ArtifactAccess.organization)
+                    }
+                    Text("Anyone with the Link").tag(ArtifactAccess.anyoneWithLink)
                 }
                 .pickerStyle(.inline)
                 .labelsHidden()

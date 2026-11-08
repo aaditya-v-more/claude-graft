@@ -6713,6 +6713,18 @@ do {
     check(ArtifactAccess(audience: "users") == .invited && ArtifactAccess(audience: "owner") == .onlyYou
             && ArtifactAccess(audience: "org") == .organization,
           "each audience the service names reads as who can open it")
+    check(ArtifactAccess.organization.menuChoice == .organization && ArtifactAccess.onlyYou.menuChoice == .invited
+            && ArtifactAccess.invited.menuChoice == .invited
+            && ArtifactAccess.anyoneWithLink.menuChoice == .anyoneWithLink,
+          "an artifact shared with its organization checks an entry of its own, never the invited one")
+    check(!ArtifactAccess.anyoneWithLink.changes(toPublic: true) && !ArtifactAccess.invited.changes(toPublic: false)
+            && !ArtifactAccess.onlyYou.changes(toPublic: false)
+            && ArtifactAccess.invited.changes(toPublic: true) && ArtifactAccess.anyoneWithLink.changes(toPublic: false)
+            && ArtifactAccess.organization.changes(toPublic: false),
+          "asking an artifact to be what it already is changes nothing, and leaving the organization is a change")
+    check(ArtifactAPI.permissions(from: Data(#"{"read":{"mode":"org"}}"#.utf8))?.mode == "org"
+            && ArtifactAPI.permissions(from: Data(#"{"version":"v1"}"#.utf8))?.mode == nil,
+          "who can open an artifact is read from its permissions as claude.ai has it now")
     check(ArtifactAPI.page(from: Data("<html>".utf8), account: mine, org: org) == nil,
           "a challenge page in place of a list is not taken for an empty one")
 
@@ -6955,6 +6967,12 @@ do {
           "every way into a sign-in says to use an emailed code")
     check(view.contains("Circle()") && view.range(of: #"Circle\(\)[\s\S]*Menu \{"#, options: .regularExpression) != nil,
           "an account's dot is drawn beside its menu, where a borderless menu cannot drop it")
+    check(view.contains("get: { current.menuChoice }")
+            && view.contains("guard choice != current.menuChoice, choice != .organization else { return }")
+            && view.contains(#"Text("Your Organization").tag(ArtifactAccess.organization)"#)
+            && center.contains("guard artifact.access.changes(toPublic: isPublic), !busy.contains(key) else { return }")
+            && center.contains("!ArtifactAccess(audience: mode).changes(toPublic: isPublic)"),
+          "choosing the entry already checked sends nothing, and an organization's access is never dropped unasked")
 
     let content = source("ContentView.swift")
     let model = source("Model.swift")

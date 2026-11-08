@@ -162,6 +162,7 @@ any of these. The why is in [notes/updates-and-releases.md](notes/updates-and-re
 - **An unreadable groups or accounts file is set aside, never saved over** (`ArtifactFiles.read`), and groups are read one by one (`readEach`).
 - **A role an artifact does not take is lowered, never raised** — `ArtifactRole.offered(by:)`, asked of the permissions before every share.
 - **Only what the list allows is offered:** rename and delete to the owner, duplicate where `duplicable` says so.
+- **An access change is sent only when it changes something** (`ArtifactAccess.changes`, asked of the list and of `read.mode`); an organization-shared artifact checks its own entry (`menuChoice`).
 - **An export is drawn where no sign-in is.** Files come from the file host with `credentials: "omit"` into a temporary folder, and `ArtifactRenderer` draws them in a non-persistent store that follows no link out.
 - **Sign-in is by emailed code alone,** and every way into one says so (`ArtifactsView.signInHint`).
 
