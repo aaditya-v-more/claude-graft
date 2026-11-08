@@ -55,14 +55,6 @@ struct ShortcutDetail: View {
 
     var body: some View {
         Form {
-            if claudeMissing {
-                Section {
-                    Label("Claude.app was not found.", systemImage: "exclamationmark.triangle")
-                        .foregroundStyle(.secondary)
-                        .identified("claude-missing")
-                }
-            }
-
             identitySection
 
             if let found = elsewhere {
@@ -259,10 +251,14 @@ struct ShortcutDetail: View {
     }
 
     /// Created or not, and running or not, in one line; where the shortcut
-    /// was put is on its tooltip.
+    /// was put is on its tooltip. A missing Claude is said here rather than
+    /// in a section of its own: that section was the 46 points that made the
+    /// fullest page scroll on a Mac without Claude, and nothing can be running
+    /// without it anyway.
     private var status: String {
         [L10n.text(installedAt == nil ? "Not created yet" : "Created"),
-         L10n.text(isRunning ? "Running" : "Not running")].joined(separator: " · ")
+         L10n.text(claudeMissing ? "Claude.app was not found." : isRunning ? "Running" : "Not running")]
+            .joined(separator: " · ")
     }
 
     /// The icon in use, opening the rest only when asked: twelve of them laid

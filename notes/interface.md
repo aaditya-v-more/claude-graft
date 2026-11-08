@@ -195,6 +195,14 @@ row, and where it reads chats from is a labelled picker with the sharing note
 under its label. At 820 by 560 that page has 6 points to spare, in both
 languages; a new row there needs another row to give one up.
 
+CI found the next row nobody had counted. Its runner has no Claude.app, and
+the "Claude.app was not found." notice was a section of its own, 46 points
+that put that page 40 over; on this machine, with Claude installed, the page
+had never drawn it. The notice is now the window's subtitle, in place of
+Running or Not running, which a Mac without Claude cannot be anyway. A
+failing fit check prints every row's position (`ROWS …`), so a page over on a
+machine nobody can sit at says which row grew.
+
 Settings is a grouped form too, and a grouped form scrolls, so it asks for no
 height and a window sized from it opens as a bare titlebar. It is held to its
 rows with `fixedSize(horizontal: false, vertical: true)`.
