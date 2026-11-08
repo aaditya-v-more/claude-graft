@@ -206,6 +206,7 @@ any of these. The why is in [notes/updates-and-releases.md](notes/updates-and-re
 
 - **Pins live in IndexedDB and local storage, not session records.** `SidebarSync` runs only with every connected profile closed and never writes Chromium files directly.
 - **No pin record means no pins**, not an uninitialized profile. The helper seals its own integrity digest into its cloned framework, since Electron 44 checks the dictionary against one.
+- **The helper cache holds one key** — `pruneHelperCache` after every `prepareHelper`, excluded from backups — and a damaged copy is set aside for a fresh one, never a refusal.
 - **`claude_desktop_config.json` belongs to each profile;** `copyDesktopServers` adds only missing MCP definitions.
 
 ### Diagnostics and verification — [notes/diagnostics-and-verification.md](notes/diagnostics-and-verification.md)

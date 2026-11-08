@@ -5755,6 +5755,56 @@ do {
           shared: ["local_a", "local_b"], wanted: ["local_b", "local_a"]) == ["remote", "local_b", "project", "local_a"],
           "reordering shared pins preserves the positions of unrelated sidebar entries")
 
+    // The helper is a clone of all of Electron, made again for every Claude
+    // update, and nothing ever took an old one away.
+    do {
+        let cache = root.appending(path: "sidebar-runtime-\(UUID().uuidString).noindex")
+        let current = "0123456789abcdef0123", older = "fedcba9876543210fedc"
+        let now = Date()
+        for name in [current, older, ".build-fresh.noindex", ".build-stale.noindex", ".damaged-x.noindex", "Notes"] {
+            try! fm.createDirectory(at: cache.appending(path: "\(name)/Sidebar.app"), withIntermediateDirectories: true)
+        }
+        try! fm.setAttributes([.creationDate: now.addingTimeInterval(-7200)],
+                              ofItemAtPath: cache.appending(path: ".build-stale.noindex").path)
+        SidebarSync.pruneHelperCache(cache, keeping: current, now: now)
+        let left = Set((try? fm.contentsOfDirectory(atPath: cache.path)) ?? [])
+        check(left.contains(current), "the helper this Claude needs is kept")
+        check(!left.contains(older), "a helper built for an earlier Claude is removed")
+        check(!left.contains(".build-stale.noindex"), "a staging folder abandoned over an hour ago is removed")
+        check(left.contains(".build-fresh.noindex"), "a staging folder that may still be in use is left alone")
+        check(!left.contains(".damaged-x.noindex"), "a damaged copy set aside is removed")
+        check(left.contains("Notes"), "and nothing the cache did not make is touched")
+        check((try? cache.resourceValues(forKeys: [.isExcludedFromBackupKey]))?.isExcludedFromBackup == true,
+              "the helper cache is left out of backups")
+
+        let destination = cache.appending(path: "\(current)/Sidebar.app")
+        try! Data("half written".utf8).write(to: destination.appending(path: "leftover"))
+        let fresh = cache.appending(path: ".build-new.noindex/Sidebar.app")
+        try! fm.createDirectory(at: fresh, withIntermediateDirectories: true)
+        try! Data("fresh".utf8).write(to: fresh.appending(path: "marker"))
+        let installed: Bool
+        do { try SidebarSync.installHelper(fresh, at: destination, cache: cache); installed = true } catch { installed = false }
+        check(installed && Graft.exists(destination.appending(path: "marker"))
+                && !Graft.exists(destination.appending(path: "leftover")),
+              "a damaged cached helper is replaced by the fresh one rather than refusing the sync")
+        SidebarSync.pruneHelperCache(cache, keeping: current, now: now)
+        check(!((try? fm.contentsOfDirectory(atPath: cache.path)) ?? []).contains { $0.hasPrefix(".damaged-") },
+              "and the copy it replaced is gone after the next prune")
+
+        let backups = cache.appending(path: "backups")
+        try! fm.createDirectory(at: backups, withIntermediateDirectories: true)
+        for index in 0..<25 {
+            let file = backups.appending(path: "backup-\(index).json")
+            try! Data("{}".utf8).write(to: file)
+            try! fm.setAttributes([.modificationDate: now.addingTimeInterval(Double(index - 25) * 60)], ofItemAtPath: file.path)
+        }
+        SidebarSync.pruneBackups(backups)
+        let kept = Set((try? fm.contentsOfDirectory(atPath: backups.path)) ?? [])
+        check(kept.count == SidebarSync.keptBackups && kept.contains("backup-24.json") && !kept.contains("backup-4.json"),
+              "only the newest sidebar backups are kept")
+        try? fm.removeItem(at: cache)
+    }
+
     let previousSupport = Graft.applicationSupportOverride
     let isolated = root.appending(path: "sidebar-support")
     Graft.applicationSupportOverride = isolated

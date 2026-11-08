@@ -64,6 +64,24 @@ again too. The installed Claude's framework hashes the same before and after.
 `helperFormat` is part of the cache key, because the helper cached before this
 still verified as signed and still could not start.
 
+**The cache keeps one helper, and a bad one is replaced rather than obeyed.**
+Every Claude update and every change to the script makes a new key, and each
+key a new clone of the whole runtime under `sidebar-runtime.noindex`. A clone
+is free on disk only while it shares its blocks with the installed Claude; the
+next Claude update unshares them, and a backup copies every clone in full.
+Nothing removed an old one — this machine was keeping two, two days apart — nor
+a `.build-` folder left by a pass that was killed, nor the backups in
+`sidebar-backups`, one per writing pass. `pruneHelperCache` now runs after
+every `prepareHelper` that succeeds, under the launch lock: it removes every
+other key's folder, `.build-` folders more than an hour old, and copies set
+aside as damaged, touches nothing whose name it did not make, and marks the
+cache as excluded from backups. `pruneBackups` keeps the newest twenty.
+
+A copy at the destination that lacked its marker or failed verification used to
+stop the pass with `runtime-cache-damaged`, and since the key does not change
+until Claude does, every later pass stopped the same way until someone deleted
+the folder by hand. `installHelper` moves it aside and puts the fresh copy in.
+
 `./test-sidebar.sh` checks the selective updates and then uses actual Chromium
 databases in disposable profiles, including a fresh process after each change.
 It needs a local Claude installation and Node for the JavaScript checks; neither

@@ -308,6 +308,7 @@ enum SidebarSync {
         let output = scratch.appending(path: "result.json")
         let backups = root.appending(path: "sidebar-backups")
         try Graft.fm.createDirectory(at: backups, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        pruneBackups(backups)
         let entries: [[String: Any]] = profiles.map { profile in
             var entry: [String: Any] = ["path": profile.path]
             if let snapshot = changes?[profile.path], let ids = shared[profile.path] {
@@ -358,9 +359,13 @@ enum SidebarSync {
         let hash = SHA256.hash(data: infoData + Data(SidebarStorage.script.utf8) + Data(helperFormat.utf8))
             .map { String(format: "%02x", $0) }.joined()
         let cache = root.appending(path: "sidebar-runtime.noindex")
-        let destination = cache.appending(path: "\(hash.prefix(20))/Sidebar.app")
+        let key = String(hash.prefix(20))
+        let destination = cache.appending(path: "\(key)/Sidebar.app")
         if Graft.exists(destination.appending(path: "Contents/Resources/graft-sidebar.json")),
-           Graft.runTool("/usr/bin/codesign", ["--verify", "--strict", destination.path]) == 0 { return destination }
+           Graft.runTool("/usr/bin/codesign", ["--verify", "--strict", destination.path]) == 0 {
+            pruneHelperCache(cache, keeping: key)
+            return destination
+        }
         let staging = cache.appending(path: ".build-\(UUID().uuidString).noindex")
         defer { try? Graft.fm.removeItem(at: staging) }
         let app = staging.appending(path: "Sidebar.app")
@@ -394,10 +399,66 @@ enum SidebarSync {
             .write(to: entitlements)
         guard Graft.runTool("/usr/bin/codesign", ["--force", "--sign", "-", "--entitlements", entitlements.path, app.path]) == 0,
               Graft.runTool("/usr/bin/codesign", ["--verify", "--strict", app.path]) == 0 else { throw Failure("runtime-signing-failed") }
-        try Graft.fm.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
-        if Graft.exists(destination) { throw Failure("runtime-cache-damaged") }
-        try Graft.fm.moveItem(at: app, to: destination)
+        try installHelper(app, at: destination, cache: cache)
+        pruneHelperCache(cache, keeping: key)
         return destination
+    }
+
+    /// A copy already at the destination is one `prepareHelper` found wanting
+    /// — a folder left half written by a pass that was killed, or one that no
+    /// longer verifies — and refusing over it refused every sync on that
+    /// Claude until somebody found the folder and deleted it by hand. It is
+    /// moved aside rather than deleted in place, because a removal that fails
+    /// part way leaves a third state, and the moved copy goes with the prune.
+    static func installHelper(_ app: URL, at destination: URL, cache: URL) throws {
+        try Graft.fm.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
+        if Graft.exists(destination) {
+            let aside = cache.appending(path: ".damaged-\(UUID().uuidString).noindex")
+            try Graft.fm.moveItem(at: destination, to: aside)
+            Diagnostics.note("sidebar.helper-replaced", ["reason": "cached copy failed verification"])
+        }
+        try Graft.fm.moveItem(at: app, to: destination)
+    }
+
+    /// Kept for this machine's own Claude only. Every Claude update and every
+    /// change to the script makes a new key, and each copy is a clone of the
+    /// whole Electron runtime: free on the disk while the clone shares its
+    /// blocks, but every Claude update unshares them, and a backup copies each
+    /// one in full. Nothing ever removed them: this machine was keeping two,
+    /// made two days apart. Runs under the launch lock, so no other helper is
+    /// running out of a folder this removes; a staging folder is left for an
+    /// hour all the same, in case a caller without the lock is building in it.
+    static func pruneHelperCache(_ cache: URL, keeping key: String, now: Date = Date()) {
+        var excluded = cache
+        var values = URLResourceValues()
+        values.isExcludedFromBackup = true
+        try? excluded.setResourceValues(values)
+        let entries = (try? Graft.fm.contentsOfDirectory(at: cache, includingPropertiesForKeys: [.creationDateKey])) ?? []
+        for entry in entries {
+            let name = entry.lastPathComponent
+            let created = (try? entry.resourceValues(forKeys: [.creationDateKey]))?.creationDate ?? now
+            let isKey = name.count == 20 && name.allSatisfy { $0.isHexDigit && !$0.isUppercase }
+            let remove = (isKey && name != key)
+                || name.hasPrefix(".damaged-")
+                || (name.hasPrefix(".build-") && now.timeIntervalSince(created) > 3600)
+            if remove { try? Graft.fm.removeItem(at: entry) }
+        }
+    }
+
+    /// Every pass that writes leaves one, each holding whole sidebar records
+    /// for every profile in it, and nothing removed them. An interrupted pass
+    /// is recovered from the newest; twenty is room for several bad days.
+    static let keptBackups = 20
+
+    static func pruneBackups(_ backups: URL, keeping count: Int = keptBackups) {
+        let files = ((try? Graft.fm.contentsOfDirectory(at: backups, includingPropertiesForKeys: [.contentModificationDateKey])) ?? [])
+            .filter { $0.pathExtension == "json" }
+        guard files.count > count else { return }
+        func modified(_ url: URL) -> Date {
+            (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
+        }
+        let newestFirst = files.sorted { (modified($0), $0.lastPathComponent) > (modified($1), $1.lastPathComponent) }
+        for file in newestFirst.dropFirst(count) { try? Graft.fm.removeItem(at: file) }
     }
 
     /// Part of the cache key, so a helper built by an earlier version of this
