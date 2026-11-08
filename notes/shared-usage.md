@@ -194,6 +194,14 @@ takes Claude Code's requests on that last one has not been seen; a refusal is a
 refused login and the request goes back to its own account, so being wrong
 costs a retry.
 
+A profile's token cache is read out of its `config.json`, which Claude replaces
+by renaming a new file over it, and a pass landing in between reads a file that
+will not parse. Read as no login, that handed the relay the member with nothing
+to recognise it by for a pass; now it is a login that cannot be read, and with
+the key in hand `UsagePoolController.steady` lends the last one read whole in
+its place, for ten minutes at most, after which an unreadable file is no rename
+and the token held may be one Claude has since replaced.
+
 An account signed in from the pane lends the one login it has: a
 `user:inference` token asked for with a year's lifetime, through the same
 authorization Claude Code's own long-lived token comes from, and sealed with

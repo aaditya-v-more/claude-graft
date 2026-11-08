@@ -222,6 +222,8 @@ final class UsagePoolController: ObservableObject {
     private let queue = DispatchQueue(label: "graft.usage-pool")
     /// Touched on `queue` alone.
     private var children: [pid_t: DispatchSourceProcess] = [:]
+    /// Touched on `queue` alone: each Claude's last login read whole, by key.
+    private var lastLogins: [String: (login: Login, at: Date)] = [:]
     private var lastSpawn = Date.distantPast
     private var recordCache: [String: (stamp: Date, session: String?, filed: Filed)] = [:]
     /// Sessions a record was seen for, in their own Claude's store and in
@@ -717,7 +719,11 @@ final class UsagePoolController: ObservableObject {
                                       identify: token.map { [UsagePool.digest($0)] } ?? [],
                                       token: current ? token : nil, limits: nil, borrowsFrom: nil)
                 }
-                let login = Self.login(of: input.profile!)
+                var login = Self.login(of: input.profile!)
+                if !keyShut {
+                    if login.state != .unreadable { self.lastLogins[input.key] = (login, Date()) }
+                    login = Self.steady(login, kept: self.lastLogins[input.key])
+                }
                 lending[input.key] = login.state
                 return PoolMember(id: input.key, name: input.name,
                                   account: signedInto[input.key],
@@ -777,9 +783,22 @@ final class UsagePoolController: ObservableObject {
         }
     }
 
+    typealias Login = (state: Lending, identify: [String], token: String?)
+
+    /// A login that could not be read this pass, with the key in hand, is a
+    /// `config.json` caught as Claude renames a new one over it. Sent as it
+    /// stands, it took the member's identity out of the relay for a pass, so
+    /// the last one read stands in for it — for ten minutes, after which a
+    /// file still unreadable is not a rename and the token in hand may be one
+    /// Claude has replaced.
+    static func steady(_ login: Login, kept: (login: Login, at: Date)?, now: Date = Date()) -> Login {
+        guard login.state == .unreadable, let kept, now.timeIntervalSince(kept.at) < 10 * 60 else { return login }
+        return kept.login
+    }
+
     /// Never prompts. The usage monitor is what asks for keychain access, once,
     /// and the key it gets is the one every read in this process shares.
-    private static func login(of profile: URL) -> (state: Lending, identify: [String], token: String?) {
+    private static func login(of profile: URL) -> Login {
         do {
             guard let all = try ClaudeCredentials.tokens(for: profile, prompting: .no) else {
                 return (.signedOut, [], nil)

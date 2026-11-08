@@ -5620,6 +5620,20 @@ do {
           "a relay built from this binary is kept whatever this Graft can read")
     check(step(.nobody, "today", false) == .start && step(.nobody, "today", true) == .start,
           "and with none at all one is started either way, since a Claude pointed at no relay has no Claude Code")
+
+    // A config caught mid-write reads as a login that cannot be read, and the
+    // relay would forget who that Claude is for the pass.
+    let whole: UsagePoolController.Login = (.ready, ["digest"], "token")
+    let caughtMidWrite: UsagePoolController.Login = (.unreadable, [], nil)
+    let carried = UsagePoolController.steady(caughtMidWrite, kept: (whole, now.addingTimeInterval(-30)), now: now)
+    check(carried.state == .ready && carried.identify == ["digest"] && carried.token == "token",
+          "a login caught mid-write is lent as it was last read whole")
+    check(UsagePoolController.steady(caughtMidWrite, kept: (whole, now.addingTimeInterval(-3600)), now: now).state
+            == .unreadable,
+          "but not for long: a file still unreadable after ten minutes is not a rename")
+    check(UsagePoolController.steady((.signedOut, [], nil), kept: (whole, now.addingTimeInterval(-30)), now: now).state
+            == .signedOut,
+          "and a login read whole always says what it says")
     check(UsagePool.digest("abc") == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
           "a login is known to the relay by its SHA-256 alone")
     check(PoolEnvironment.lines == ["HTTPS_PROXY": "http://127.0.0.1:47823",
