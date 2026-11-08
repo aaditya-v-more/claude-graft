@@ -30,6 +30,18 @@ only where the browser engine sends it, to claude.ai, and Graft never holds
 it. The suite fails if `httpCookieStore` or `HTTPCookieStorage` appears in the
 app, or if the center starts using `URLSession`.
 
+The hidden page is dropped and loaded again after a sign-in, since only a page
+loaded after it sees it. Dropping it while it was still loading used to leave
+the requests waiting on it unanswered, and since the next request queued
+behind them never started a page of its own, every request for that account
+hung until Graft quit. Now the waiting requests wait for the new page instead,
+a page dropped like that cannot report in afterwards and mark the new one
+loaded, no page may take more than thirty seconds to load, and a page whose
+content process has died is dropped too, where before it still read as loaded
+and every request sent to it failed as though claude.ai were down. Each
+account's list load has a generation, so one a sign-in has superseded writes
+nothing over the one that followed it.
+
 macOS 13 has no store that is both separate and kept, so there each account
 gets a non-persistent store and the sign-in lasts until Graft quits. Signing
 out removes the store with `WKWebsiteDataStore.remove(forIdentifier:)`.
@@ -141,7 +153,10 @@ the page's source. Graft makes the first three and the source on this Mac and
 leaves out Google Docs and Notion, each of which is a connection to another
 service rather than a file. The files are read as the viewer reads them (the
 last two requests above) into a temporary folder, at most 200MB as claude.ai's
-own download allows, and only paths that stay inside it. A page of one file
+own download allows, and only paths that stay inside it. The budget is held to
+in the page, file by file, against `Content-Length` and then against the bytes
+as they stream in: a file read whole and encoded in the page before it was
+measured could take the page's process down. A page of one file
 goes out as that file; a page of several goes out zipped, since its page alone
 would open with pieces missing.
 

@@ -6881,6 +6881,18 @@ do {
           "an export is drawn where no sign-in is, and its files are read with no cookie")
     check(!export.contains("URLSession") && !export.contains("httpCookieStore"),
           "an export reads nothing a page of claude.ai did not hand it")
+    check(center.contains(#"response.headers.get("Content-Length")"#) && center.contains("if (size > limit)")
+            && center.contains("download(url, limit: ArtifactAPI.maximumExportBytes - total)"),
+          "an export file larger than what is left of the budget is refused in the page, before it is encoded there")
+    check(center.contains("func webViewWebContentProcessDidTerminate"),
+          "a page whose process died is dropped, so the account is not left answering nothing")
+    check(center.contains("if !loading.isEmpty { startLoading() }")
+            && center.contains("guard view === webView else { return }")
+            && center.contains("Task.sleep(nanoseconds: Self.loadLimit)"),
+          "a page dropped while it loads leaves its waiting requests to the next page, and none waits for good")
+    check(center.contains("guard loadGenerations[id] == generation else { return }")
+            && center.components(separatedBy: "load(id, again: true)").count >= 2,
+          "a list a sign-in has since superseded writes nothing over the one that followed it")
     let view = source("ArtifactsView.swift")
     check(view.contains("signInHint") && source("ProjectsView.swift").contains("ArtifactsView.signInHint")
             && center.contains("ArtifactsView.signInHint"),

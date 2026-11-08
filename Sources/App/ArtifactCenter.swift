@@ -94,14 +94,36 @@ final class ClaudeWebSession: NSObject, WKNavigationDelegate {
     /// token in the address is all it takes, as it is for claude.ai's own
     /// viewer. The bytes come back as base64, the one way binary survives the
     /// trip out of a page.
-    func download(_ url: URL) async throws -> (status: Int, data: Data) {
+    ///
+    /// `limit` is what is left of the export's budget, and it is held to in
+    /// the page, before the file is encoded there: a file read whole first and
+    /// measured after can take the page's process down with it, and that
+    /// leaves the account answering nothing.
+    func download(_ url: URL, limit: Int) async throws -> (status: Int, data: Data) {
         try await ready()
         guard let webView else { throw Failure.unreachable }
         let script = """
             const response = await fetch(url, {credentials: "omit", cache: "no-store",
                                                referrerPolicy: "no-referrer"});
             if (!response.ok) return {status: response.status, body: ""};
-            const bytes = new Uint8Array(await response.arrayBuffer());
+            const declared = Number(response.headers.get("Content-Length") || 0);
+            if (declared > limit) return {status: response.status, body: "", tooLarge: true};
+            const reader = response.body.getReader();
+            const chunks = [];
+            let size = 0;
+            for (;;) {
+                const {done, value} = await reader.read();
+                if (done) break;
+                size += value.length;
+                if (size > limit) {
+                    await reader.cancel();
+                    return {status: response.status, body: "", tooLarge: true};
+                }
+                chunks.push(value);
+            }
+            const bytes = new Uint8Array(size);
+            let offset = 0;
+            for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.length; }
             let binary = "";
             for (let i = 0; i < bytes.length; i += 0x8000) {
                 binary += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
@@ -110,13 +132,15 @@ final class ClaudeWebSession: NSObject, WKNavigationDelegate {
             """
         let result: Any?
         do {
-            result = try await webView.callAsyncJavaScript(script, arguments: ["url": url.absoluteString],
+            result = try await webView.callAsyncJavaScript(script, arguments: ["url": url.absoluteString,
+                                                                               "limit": max(0, limit)],
                                                            contentWorld: .defaultClient)
         } catch {
             throw Failure.unreachable
         }
-        guard let answer = result as? [String: Any],
-              let status = (answer["status"] as? NSNumber)?.intValue,
+        guard let answer = result as? [String: Any] else { throw Failure.unreadable }
+        if answer["tooLarge"] as? Bool == true { throw ArtifactExport.Failure.tooLarge }
+        guard let status = (answer["status"] as? NSNumber)?.intValue,
               let text = answer["body"] as? String,
               let data = Data(base64Encoded: text) else { throw Failure.unreadable }
         return (status, data)
@@ -131,28 +155,55 @@ final class ClaudeWebSession: NSObject, WKNavigationDelegate {
 
     /// Drops the page, so the next request loads a fresh one. A sign-in made
     /// since is only seen by a page loaded after it.
+    ///
+    /// Requests already waiting for the old page wait for the new one instead.
+    /// Dropped with the page, they were never answered, and the next request
+    /// queued behind them never started a page of its own, so every request
+    /// for the account hung until Graft quit.
     func reset() {
         webView?.navigationDelegate = nil
         webView = nil
         isLoaded = false
+        if !loading.isEmpty { startLoading() }
     }
+
+    /// How long a page may take to load before the requests waiting on it are
+    /// told claude.ai did not answer. A page that never finishes and never
+    /// fails would otherwise hold them for good.
+    static let loadLimit: UInt64 = 30_000_000_000
 
     private func ready() async throws {
         if isLoaded, webView != nil { return }
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             loading.append(continuation)
             guard loading.count == 1 else { return }
-            let view = WKWebView(frame: .zero, configuration: Self.configuration(for: account))
-            view.customUserAgent = Self.userAgent
-            view.navigationDelegate = self
-            webView = view
-            view.load(URLRequest(url: ArtifactAPI.origin.appending(path: ArtifactAPI.accountPath)))
+            startLoading()
         }
     }
 
-    private func finishLoading(_ error: Error?) {
+    private func startLoading() {
+        let view = WKWebView(frame: .zero, configuration: Self.configuration(for: account))
+        view.customUserAgent = Self.userAgent
+        view.navigationDelegate = self
+        webView = view
+        view.load(URLRequest(url: ArtifactAPI.origin.appending(path: ArtifactAPI.accountPath)))
+        Task { [weak self, weak view] in
+            try? await Task.sleep(nanoseconds: Self.loadLimit)
+            guard let self, let view, view === self.webView, !self.isLoaded else { return }
+            self.finishLoading(view, Failure.unreachable)
+        }
+    }
+
+    /// Only the page now in use may finish a load. A page dropped by `reset`
+    /// can still report in afterwards, and taken at its word it would mark the
+    /// new page loaded before it was.
+    private func finishLoading(_ view: WKWebView, _ error: Error?) {
+        guard view === webView else { return }
         isLoaded = error == nil
-        if error != nil { webView = nil }
+        if error != nil {
+            webView?.navigationDelegate = nil
+            webView = nil
+        }
         let waiting = loading
         loading = []
         for continuation in waiting {
@@ -165,20 +216,35 @@ final class ClaudeWebSession: NSObject, WKNavigationDelegate {
             // A challenge page or a redirect elsewhere is not a claude.ai page
             // to ask from, and a request from it would carry nothing.
             if webView.url?.host == ArtifactAPI.origin.host {
-                self.finishLoading(nil)
+                self.finishLoading(webView, nil)
             } else {
-                self.finishLoading(Failure.signedOut)
+                self.finishLoading(webView, Failure.signedOut)
             }
         }
     }
 
     nonisolated func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
-        Task { @MainActor in self.finishLoading(Failure.unreachable) }
+        Task { @MainActor in self.finishLoading(webView, Failure.unreachable) }
     }
 
     nonisolated func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!,
                              withError error: Error) {
-        Task { @MainActor in self.finishLoading(Failure.unreachable) }
+        Task { @MainActor in self.finishLoading(webView, Failure.unreachable) }
+    }
+
+    /// A page whose process died still reads as loaded, and every request
+    /// sent to it fails as though claude.ai were down until something else
+    /// drops it. So it is dropped here, and the next request loads another.
+    nonisolated func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        Task { @MainActor in
+            guard webView === self.webView else { return }
+            Diagnostics.note("artifacts.page ended", [:])
+            if self.isLoaded {
+                self.reset()
+            } else {
+                self.finishLoading(webView, Failure.unreachable)
+            }
+        }
     }
 }
 
@@ -219,6 +285,9 @@ final class ArtifactCenter: ObservableObject {
     private let offline: Bool
     private var sessions: [UUID: ClaudeWebSession] = [:]
     private var lists: [UUID: [Artifact]] = [:]
+    /// Which load of each account is the latest, so one a sign-in has since
+    /// superseded writes nothing over the one that followed it.
+    private var loadGenerations: [UUID: Int] = [:]
     private var signIn: ArtifactSignInWindow?
     /// False only when a file that would not be read could not be set aside
     /// either, so saving would write over it.
@@ -327,7 +396,7 @@ final class ArtifactCenter: ObservableObject {
             Task { await ClaudeWebSession.forget(id) }
             sessions[existing.id]?.reset()
             status = L10n.format("%@ was already signed in", identity.email)
-            Task { await load(existing.id) }
+            Task { await load(existing.id, again: true) }
             lastSignIn = SignIn(account: existing.id, at: Date())
             return
         }
@@ -340,7 +409,7 @@ final class ArtifactCenter: ObservableObject {
         }
         saveAccounts()
         sessions[id]?.reset()
-        Task { await load(id) }
+        Task { await load(id, again: true) }
         lastSignIn = SignIn(account: id, at: Date())
     }
 
@@ -404,10 +473,15 @@ final class ArtifactCenter: ObservableObject {
         return session
     }
 
-    private func load(_ id: UUID) async {
-        guard states[id] != .loading else { return }
+    /// `again` is for a sign-in just made: a load already under way was
+    /// asked of the page before it, and is left to finish without writing.
+    private func load(_ id: UUID, again: Bool = false) async {
+        guard again || states[id] != .loading else { return }
+        let generation = (loadGenerations[id] ?? 0) + 1
+        loadGenerations[id] = generation
         states[id] = .loading
         let session = session(id)
+        let outcome: Result<[Artifact], Error>
         do {
             let org = try await organization(of: id)
             var found: [Artifact] = []
@@ -423,12 +497,20 @@ final class ArtifactCenter: ObservableObject {
                     if token == nil { break }
                 }
             }
+            outcome = .success(found)
+        } catch {
+            outcome = .failure(error)
+        }
+        // A newer load owns what is shown now.
+        guard loadGenerations[id] == generation else { return }
+        switch outcome {
+        case .success(let found):
             lists[id] = found
             states[id] = .ready
-        } catch ClaudeWebSession.Failure.signedOut {
+        case .failure(ClaudeWebSession.Failure.signedOut):
             lists[id] = nil
             states[id] = .signedOut
-        } catch {
+        case .failure(let error):
             states[id] = .failed
             Diagnostics.note("artifacts.list failed", ["reason": "\(error)"])
         }
@@ -644,7 +726,7 @@ final class ArtifactCenter: ObservableObject {
         var written: [String] = []
         for path in source.files {
             guard let url = ArtifactAPI.fileURL(artifact.id, source: source, path: path) else { continue }
-            let file = try await session.download(url)
+            let file = try await session.download(url, limit: ArtifactAPI.maximumExportBytes - total)
             guard file.status == 200 else {
                 // Only the page itself is needed; a file it lists that will
                 // not come is left out, as a broken link in the page would be.
