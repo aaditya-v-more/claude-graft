@@ -110,6 +110,7 @@ func readFromOutside(_ window: NSWindow) -> [String: String] {
 /// sees it.
 struct Seen {
     var role = "", subrole = "", label = "", title = "", titledBy = "", value = "", identifier = ""
+    var frame = CGRect.zero
     /// What VoiceOver says the element is. A control in a grouped form has
     /// none of its own: AppKit links it to the label drawn beside it instead,
     /// and VoiceOver reads that.
@@ -144,6 +145,12 @@ func seen(_ window: NSWindow) -> [Seen]? {
             default: return ""
             }
         }
+        func frame(_ element: AXUIElement) -> CGRect {
+            var origin = CGPoint.zero, size = CGSize.zero
+            if let value = attribute(element, kAXPositionAttribute) { AXValueGetValue(value as! AXValue, .cgPoint, &origin) }
+            if let value = attribute(element, kAXSizeAttribute) { AXValueGetValue(value as! AXValue, .cgSize, &size) }
+            return CGRect(origin: origin, size: size)
+        }
         // A scroller's arrows belong to AppKit, which names them itself.
         func walk(_ element: AXUIElement) -> [Seen] {
             let role = text(element, kAXRoleAttribute)
@@ -159,7 +166,8 @@ func seen(_ window: NSWindow) -> [Seen]? {
                             title: text(element, kAXTitleAttribute),
                             titledBy: titledBy,
                             value: described.isEmpty ? text(element, kAXValueAttribute) : described,
-                            identifier: text(element, "AXIdentifier"))
+                            identifier: text(element, "AXIdentifier"),
+                            frame: frame(element))
             return [here] + ((attribute(element, kAXChildrenAttribute) as? [AXUIElement]) ?? []).flatMap(walk)
         }
         let windows = (attribute(app, kAXWindowsAttribute) as? [AXUIElement]) ?? []
@@ -582,6 +590,15 @@ for page in pages {
                     ?? document.frame.height
                 let overflow = content - room(in: scroll)
                 check(overflow <= 1, "\(place): fits without scrolling (\(Int(overflow)) points over)")
+                // A page over on one macOS and not another is found by which
+                // row grew, and the machine that sees it may be one nobody can
+                // sit at, so the failure says where every row lies.
+                if overflow > 1 || ProcessInfo.processInfo.environment["GRAFT_LAYOUT_ROWS"] == "1", state == "current" {
+                    print("ROWS \(place): document \(Int(content)), room \(Int(room(in: scroll)))")
+                    for row in seen(window) ?? [] where row.frame.height > 0 && (!row.identifier.isEmpty || row.role == kAXStaticTextRole) {
+                        print("    y \(Int(row.frame.minY)) h \(Int(row.frame.height)) \(row.described) \(row.value.prefix(40))")
+                    }
+                }
                 if ProcessInfo.processInfo.environment["GRAFT_LAYOUT_MARGINS"] == "1" {
                     print("MARGIN \(page.name) \(state) \(Int(-overflow))")
                 }
