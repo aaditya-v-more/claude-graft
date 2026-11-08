@@ -161,7 +161,16 @@ flag is macOS 15's, which is why sharing needs 15 while the app needs 13. Node
 takes a name-constrained authority through `NODE_EXTRA_CA_CERTS` alone: measured
 with Desktop's Claude Code 2.1.317 and no `NODE_USE_SYSTEM_CA`. A new authority
 is only ever made as a relay starts, since a session already running trusts the
-one it read when it started.
+one it read when it started, and only by the relay that has taken `relay.lock`.
+It used to be made first and the lock taken after, so a second relay started
+while the first was slow to answer could renew both files inside the renewal
+window and then leave on the lock, with the running relay still presenting the
+old certificate to every session that had since read the new authority. A
+renewal still cuts off the sessions already running, which trust only the old
+authority, until they start again; it comes about two years after a machine
+first shares, at a login or after one of Graft's updates, which install
+themselves at any hour. Trusting both authorities across the switch would
+avoid that and has not been built.
 
 **What cannot change accounts goes out as it came.** Only a model request from
 a member is ever taken apart and written again; everything else is sent byte

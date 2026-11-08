@@ -640,8 +640,16 @@ while True:
 check(b'"path": "/plain"' in data, "and what goes through it arrives untouched")
 raw.close()
 
+# Without the leaf a starting relay would make a new authority and leaf; one
+# that finds another relay running must leave before it gets that far.
+leaf = os.path.join(pool, "relay-leaf.pem")
+authority, presented = open(ca, "rb").read(), open(leaf, "rb").read()
+os.remove(leaf)
 second = subprocess.run(args, cwd=work, stdin=subprocess.DEVNULL, capture_output=True, timeout=10)
 check(second.returncode == 0 and relay.poll() is None, "a second relay leaves at once and the first keeps answering")
+check(open(ca, "rb").read() == authority and not os.path.exists(leaf),
+      "and without renewing the certificate the first one presents")
+open(leaf, "wb").write(presented)
 
 control({"quit": True})
 check(not os.path.exists(socket_path), "a relay stepping aside takes its socket with it")

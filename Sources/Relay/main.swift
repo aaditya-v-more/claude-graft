@@ -36,19 +36,24 @@ final class Relay {
 
     func start() {
         let directory = UsagePool.directory
-        do {
-            try PoolCertificates.ensure()
-        } catch {
-            fail("certificate", error)
-        }
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true,
+                                                 attributes: [.posixPermissions: 0o700])
         // One relay at a time, settled before anything is bound: the one
         // stepping aside lets go of this as it stops listening, and a second
         // copy started by mistake leaves without touching the socket the first
-        // is answering on.
+        // is answering on. Settled before the certificate as well: a second
+        // copy that renewed it on its way to finding the lock taken would
+        // leave the running relay presenting a certificate from an authority
+        // every session started afterwards no longer trusts.
         lock = open(directory.appending(path: "relay.lock").path, O_CREAT | O_RDWR, 0o600)
         guard lock >= 0, flock(lock, LOCK_EX | LOCK_NB) == 0 else {
             Diagnostics.note("relay already running", [:])
             exit(0)
+        }
+        do {
+            try PoolCertificates.ensure()
+        } catch {
+            fail("certificate", error)
         }
         binary = Relay.digest(of: Relay.executable())
 

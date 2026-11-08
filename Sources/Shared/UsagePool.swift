@@ -571,9 +571,12 @@ enum PoolCertificates {
         }
     }
 
-    /// Regenerated a couple of months before the leaf runs out. A session
-    /// started before then goes on trusting the old authority, so it is done
-    /// at a relay start, which is a login or an update — not mid-afternoon.
+    /// Regenerated a couple of months before the leaf runs out, and only by
+    /// the relay holding `relay.lock`, as it starts. A session started before
+    /// then goes on trusting the old authority and cannot reach the service
+    /// through the new relay until it starts again. A relay starts at a login
+    /// or after an update, and Graft's updates install themselves at any
+    /// hour, so this can land mid-afternoon; it is once in some two years.
     static let renewal: TimeInterval = 60 * 24 * 60 * 60
 
     static var isPresent: Bool {
