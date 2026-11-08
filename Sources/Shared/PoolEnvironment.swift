@@ -111,8 +111,14 @@ enum PoolEnvironment {
     }
 
     static func readJournal() -> Journal {
-        (try? Data(contentsOf: journalFile))
-            .flatMap { try? JSONDecoder().decode(Journal.self, from: $0) } ?? Journal()
+        journalOnDisk() ?? Journal()
+    }
+
+    /// Nil when there is no journal, or none that reads: after `brew
+    /// uninstall --zap` the folder holding it is gone, and the relay works
+    /// from the copy it read last.
+    static func journalOnDisk() -> Journal? {
+        (try? Data(contentsOf: journalFile)).flatMap { try? JSONDecoder().decode(Journal.self, from: $0) }
     }
 
     static func writeJournal(_ journal: Journal) {
@@ -159,6 +165,54 @@ enum PoolEnvironment {
         let written = write(target, into: profile)
         Diagnostics.note("pool.environment written", ["profile": profile.lastPathComponent,
                                                       "lines": wanted, "ok": written])
+    }
+
+    /// Puts every closed profile's environment back as it was without the
+    /// lines, for when Graft itself is going: `graft-launch --stop-sharing`,
+    /// for the cask's uninstall step to run, and the relay once its own file
+    /// has been gone a while. Nothing else takes the lines out of Claude's own
+    /// profile, which has no launcher, and a Claude still holding them after
+    /// the relay has gone — the next logout, at the latest — has no Claude Code
+    /// at all. The swap needs no key: the journal holds the finished value.
+    ///
+    /// Every entry is marked unwanted, so a launcher left behind puts nothing
+    /// back. A Graft that is still installed sets them again on its next pass.
+    ///
+    /// Answers the profiles that may still point at the relay: one that is
+    /// open, which would only write its own copy back, and one whose field is
+    /// neither value Graft left, which without the key cannot be read. Lines
+    /// copied into a folder's scoped values cannot be reached this way either.
+    @discardableResult
+    static func takeOutLines(_ remembered: Journal? = nil, running: (URL) -> Bool) -> [String] {
+        let onDisk = journalOnDisk()
+        var journal = onDisk ?? remembered ?? Journal()
+        // A zap has taken the folder. Taking the launch lock or writing a note
+        // would make it again, and no launcher can be acting on a journal that
+        // is not there.
+        let present = FileManager.default.fileExists(atPath: Graft.applicationSupport
+            .appending(path: "ClaudeGraft").path)
+        var left: [String] = []
+        for (path, entry) in journal.profiles.sorted(by: { $0.key < $1.key }) {
+            let profile = URL(fileURLWithPath: path)
+            func restore() -> Bool {
+                guard FileManager.default.fileExists(atPath: profile.path) else { return true }
+                guard !running(profile) else { return false }
+                let current = field(in: profile)
+                guard current != .unreadable else { return false }
+                if current.value == entry.plain { return true }
+                guard current.value == entry.pooled else { return false }
+                let written = write(entry.plain, into: profile)
+                if present {
+                    Diagnostics.note("pool.environment taken out", ["profile": profile.lastPathComponent,
+                                                                    "ok": written])
+                }
+                return written
+            }
+            if !(present ? SidebarSync.withLaunchLock(restore) : restore()) { left.append(path) }
+            journal.profiles[path]?.wanted = false
+        }
+        if onDisk != nil { writeJournal(journal) }
+        return left
     }
 
     /// What a launcher asks: the relay a running Graft keeps up, or one it

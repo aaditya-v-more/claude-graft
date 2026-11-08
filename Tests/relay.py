@@ -1,7 +1,7 @@
 # Drives a built graft-relay against a stand-in for the service on loopback:
 # which account each request reached, what came back, and how the relay steps
 # aside. Nothing here touches a real profile, port 47823 or the network.
-import gzip, hashlib, http.client, http.server, json, os, re, socket, ssl, subprocess, sys, tempfile, threading, time
+import gzip, hashlib, http.client, http.server, json, os, re, shutil, socket, ssl, subprocess, sys, tempfile, threading, time
 
 RELAY = os.path.abspath(sys.argv[1])
 failures = 0
@@ -673,6 +673,53 @@ try:
     replacement.wait(timeout=10)
 except subprocess.TimeoutExpired:
     replacement.kill()
+
+# A relay whose Graft has been removed, and the folder Graft kept with it, as
+# `brew uninstall --zap` leaves things: one borrowing Claude closed and one
+# still open, both holding the lines.
+gone = tempfile.mkdtemp(prefix="relay-gone-")
+copy = os.path.join(gone, "graft-relay")
+with open(RELAY, "rb") as source, open(copy, "wb") as target: target.write(source.read())
+os.chmod(copy, 0o755)
+gone_support = os.path.join(gone, "support")
+gone_pool = os.path.join(gone_support, "ClaudeGraft", "pool")
+os.makedirs(gone_pool)
+def claude(name, field):
+    path = os.path.join(gone, name)
+    os.makedirs(path)
+    with open(os.path.join(path, "ccd-environment-config.json"), "w") as f: json.dump({"envVars": field, "kept": 1}, f)
+    return path
+def environment(path):
+    with open(os.path.join(path, "ccd-environment-config.json")) as f: return json.load(f)
+closed_claude, open_claude = claude("Closed", "pooled-1"), claude("Open", "pooled-2")
+with open(os.path.join(gone_pool, "environment.json"), "w") as f:
+    json.dump({"profiles": {closed_claude: {"wanted": True, "plain": "plain-1", "pooled": "pooled-1"},
+                            open_claude: {"wanted": True, "pooled": "pooled-2"}}}, f)
+still_open = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)", "--user-data-dir=" + open_claude])
+gone_args = [copy, "--support", gone_support, "--port", str(free_port()), "--socket", "g.sock",
+             "--upstream-loopback-port", str(upstream_port), "--removal-check", "0.4"]
+left = subprocess.Popen(gone_args, cwd=gone, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL)
+time.sleep(1.5)
+check(environment(closed_claude)["envVars"] == "pooled-1" and left.poll() is None,
+      "a relay whose file is still there leaves every Claude as it is")
+os.remove(copy)
+shutil.rmtree(os.path.join(gone_support, "ClaudeGraft"))
+time.sleep(2)
+check(environment(closed_claude) == {"envVars": "plain-1", "kept": 1},
+      "once its file has gone, a closed Claude gets back what it held before sharing, from the journal it read last")
+check(environment(open_claude)["envVars"] == "pooled-2" and left.poll() is None,
+      "while one still open keeps the lines and the relay keeps answering it")
+check(not os.path.exists(os.path.join(gone_support, "ClaudeGraft")),
+      "and nothing of Graft's that was removed is made again")
+still_open.kill(); still_open.wait()
+try:
+    left.wait(timeout=10)
+except subprocess.TimeoutExpired:
+    left.kill()
+check(environment(open_claude) == {"kept": 1} and left.returncode == 0,
+      "once that one closes too its lines come out, and the relay leaves")
+
 service.shutdown()
 
 print("%d relay checks, %d failed" % (checks, failures))

@@ -166,6 +166,33 @@ lock, and with the relay counted as not ready took the lines out of every
 borrowing Claude found closed. Now an unreadable answer is replaced like any
 other build, by a bare `{"quit":true}`, which every relay since 2.0.0 reads.
 
+**Graft going takes the lines with it.** Only a Graft pass took the lines out
+of Claude's own profile, which has no launcher, so trashing Graft, `brew
+uninstall --zap`, or going back to 1.1.8 — whose launchers know nothing of the
+journal, and whose bundle carries no relay — left every borrowing Claude
+holding them. Nothing broke until the next logout, since the relay outlives
+Graft; after it, nothing listened on 47823 and every Claude Code request from
+those Claudes failed to connect, with nothing pointing at Graft. Two things now
+put them back, neither needing the key, since the journal already holds each
+profile's finished value without them. `graft-launch --stop-sharing` swaps it in
+for every closed profile under the launch lock and marks every entry unwanted,
+so a launcher left behind puts nothing back; it is what the cask's uninstall
+step is meant to run, after stopping Graft with a `TERM` (a quit event only
+hides it), since a Graft still running sets the lines again on its next pass.
+And the relay looks for its own file once a minute. Missing at two looks running
+— an update swapping the bundle is back well inside a minute — it stops lending,
+does the same swap for each closed profile as it finds them closed, and leaves
+once none still holds the lines. It keeps the last journal it read, because a
+zap takes the file with it while the Claudes it describes may still be open,
+and writes nothing into a folder a zap has removed, the launch lock and the log
+included. What neither can reach: lines copied into a folder's scoped values,
+and a field changed since Graft last read it, both of which need the key to
+read; the relay counts such a profile as still holding and stays up for it
+until the logout. A development build cleared by `./build.sh` for over a minute
+looks the same to its relay, which costs sharing until Graft's next pass. The
+cask lives in its own repository and `release.sh` only changes its version and
+checksum, so the uninstall step and the zap list are the tap's to carry.
+
 **The authority it presents can vouch for one name.** A `CONNECT` for
 `api.anthropic.com:443` is taken apart by an inner TLS listener; every other is
 passed through as bytes. The certificate comes from an authority Graft makes

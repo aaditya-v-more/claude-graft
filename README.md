@@ -55,6 +55,11 @@ without leaving the Claude you are in. Under **Shared usage**, add another of
 your Claudes or sign in to an account. Only the model's answers come from the
 other account; your chats, files and connectors stay where they are.
 
+Sharing sends that Claude's Claude Code through a small relay Graft runs. Before
+you remove Graft, take away the accounts each Claude borrows and close those
+Claudes once, which puts their Code settings back as they were. If Graft goes
+first, the relay puts each Claude back as it closes, then stops.
+
 ## A Claude for every account
 
 **New Shortcut** makes a small app that opens Claude on a profile of its own.

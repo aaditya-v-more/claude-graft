@@ -16,6 +16,8 @@ final class Relay {
         var port = UsagePool.port
         var socket: String?
         var upstream = Upstream.service
+        /// How often the relay looks for its own file. A test shortens it.
+        var removalCheck: TimeInterval = 60
     }
 
     private let options: Options
@@ -29,6 +31,9 @@ final class Relay {
     private var control: ControlServer?
     private var lock: Int32 = -1
     private var quitting = false
+    private var watch: DispatchSourceTimer?
+    private var missing = 0
+    private var remembered: PoolEnvironment.Journal?
 
     init(options: Options) {
         self.options = options
@@ -155,6 +160,46 @@ final class Relay {
         } catch {
             fail("control socket", error)
         }
+        watchForRemoval()
+    }
+
+    /// The relay outlives Graft, so it is the one left to notice Graft has
+    /// gone: trashed, uninstalled, or replaced by a version from before
+    /// sharing, whose bundle carries no relay. Each Claude that borrowed still
+    /// holds the lines, and once this relay goes — at the next logout, since
+    /// nothing will start it again — every Claude Code request there fails.
+    /// So once its own file has been missing at two looks a minute apart,
+    /// which an update swapping the bundle never is, it stops lending, puts
+    /// back each closed Claude's environment as it was, and leaves once none
+    /// still points at it.
+    private func watchForRemoval() {
+        let path = Relay.executable().path
+        let timer = DispatchSource.makeTimerSource(queue: DispatchQueue(label: "relay.removal"))
+        timer.schedule(deadline: .now() + options.removalCheck, repeating: options.removalCheck)
+        timer.setEventHandler { [weak self] in
+            guard let self else { return }
+            if FileManager.default.fileExists(atPath: path) {
+                self.missing = 0
+                // Kept for the zap that follows an uninstall, which takes the
+                // journal with it while the Claudes it describes are still open.
+                if let journal = PoolEnvironment.journalOnDisk() { self.remembered = journal }
+                return
+            }
+            self.missing += 1
+            guard self.missing >= 2 else { return }
+            if self.missing == 2 {
+                Task { await self.state.configure(PoolConfiguration(enabled: false, members: [])) }
+            }
+            let left = PoolEnvironment.takeOutLines(self.remembered, running: Graft.isRunning(profile:))
+            guard left.isEmpty else { return }
+            Task {
+                guard await self.state.inFlight == 0 else { return }
+                self.control?.stop()
+                exit(0)
+            }
+        }
+        timer.resume()
+        watch = timer
     }
 
     private func handle(_ command: PoolCommand) async -> PoolStatus {
@@ -334,6 +379,8 @@ while let argument = arguments.next() {
         if let path = arguments.next() { options.socket = path }
     case "--upstream-loopback-port":
         if let value = arguments.next().flatMap(UInt16.init) { options.upstream = .loopback(value) }
+    case "--removal-check":
+        if let value = arguments.next().flatMap(TimeInterval.init), value > 0 { options.removalCheck = value }
     default:
         break
     }

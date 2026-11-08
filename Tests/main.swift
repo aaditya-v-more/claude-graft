@@ -6107,6 +6107,27 @@ do {
     try? fm.removeItem(at: tornSwap.appending(path: PoolEnvironment.fileName + ".journal"))
     check(field(tornSwap) == "P", "and so is one Claude was part way through writing")
 
+    // What removing Graft runs, as `graft-launch --stop-sharing`, with no key.
+    let leftClosed = profile("leftClosed", ["envVars": "Q"])
+    let leftOpen = profile("leftOpen", ["envVars": "Q2"])
+    let leftEdited = profile("leftEdited", ["envVars": "edited since"])
+    journal([leftClosed: PoolEnvironment.Entry(wanted: true, plain: "P", pooled: "Q"),
+             leftOpen: PoolEnvironment.Entry(wanted: true, plain: nil, pooled: "Q2"),
+             leftEdited: PoolEnvironment.Entry(wanted: true, plain: "P", pooled: "Q3")])
+    let stillHeld = PoolEnvironment.takeOutLines { PoolEnvironment.key(for: $0) == PoolEnvironment.key(for: leftOpen) }
+    check(field(leftClosed) == "P", "removing Graft gives a closed Claude back what it held before sharing")
+    check(field(leftOpen) == "Q2" && field(leftEdited) == "edited since"
+            && Set(stillHeld) == [PoolEnvironment.key(for: leftOpen), PoolEnvironment.key(for: leftEdited)],
+          "and leaves an open one, and one changed since Graft read it, saying both may still point at the relay")
+    check(PoolEnvironment.readJournal().profiles.values.allSatisfy { !$0.wanted },
+          "while nothing is left wanting the lines, so a launcher left behind puts none back")
+    let remembered = PoolEnvironment.readJournal()
+    try? fm.removeItem(at: PoolEnvironment.journalFile)
+    let stillOpen = PoolEnvironment.takeOutLines(remembered) { _ in false }
+    check(field(leftOpen) == nil && stillOpen == [PoolEnvironment.key(for: leftEdited)]
+            && !fm.fileExists(atPath: PoolEnvironment.journalFile.path),
+          "a journal remembered after a zap took the file still serves, and is not written back")
+
     // A whole pass, as Graft runs it.
     PoolEnvironment.writeJournal(PoolEnvironment.Journal())
     let closed = profile("closed", ["envVars": seal(existing)])
