@@ -17,6 +17,13 @@ been shown) and searched again (if a search is on screen). What one pane learns
 about a sign-in, accepted or refused, goes back through `noteSignIn`, so the
 account chips in all three agree.
 
+A list or search still running when its account is signed out writes nothing
+when it comes back. It used to: an artifact load wrote its list back after
+the sign-out and the next sign-out merged every list kept, and a search kept
+the accounts it started with and added the gone account's hits to its
+results. Every write now asks first whether the account is still listed, and
+every merge reads only the listed accounts' lists.
+
 The `X-Frame-*` headers are the artifact service's alone. `ClaudeWebSession`
 adds them only to `/api/frame/` paths. The rest of claude.ai is asked as its
 own pages ask, without them.

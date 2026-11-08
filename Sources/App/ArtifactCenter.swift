@@ -480,7 +480,7 @@ final class ArtifactCenter: ObservableObject {
         accounts.removeAll { $0.id == id }
         saveAccounts()
         retire(id)
-        artifacts = ArtifactAPI.merge(Array(lists.values))
+        artifacts = ArtifactAPI.merge(accounts.compactMap { lists[$0.id] })
     }
 
     /// Lets go of everything made on an account's store, then removes the
@@ -559,7 +559,7 @@ final class ArtifactCenter: ObservableObject {
     /// `again` is for a sign-in just made: a load already under way was
     /// asked of the page before it, and is left to finish without writing.
     private func load(_ id: UUID, again: Bool = false) async {
-        guard again || states[id] != .loading else { return }
+        guard account(id) != nil, again || states[id] != .loading else { return }
         let generation = (loadGenerations[id] ?? 0) + 1
         loadGenerations[id] = generation
         states[id] = .loading
@@ -584,8 +584,10 @@ final class ArtifactCenter: ObservableObject {
         } catch {
             outcome = .failure(error)
         }
-        // A newer load owns what is shown now.
-        guard loadGenerations[id] == generation else { return }
+        // A newer load owns what is shown now, and an account signed out
+        // while this one ran owns nothing: written back, its list came back
+        // with it at the next sign-out.
+        guard loadGenerations[id] == generation, account(id) != nil else { return }
         switch outcome {
         case .success(let found):
             lists[id] = found
@@ -597,7 +599,6 @@ final class ArtifactCenter: ObservableObject {
             states[id] = .failed
             Diagnostics.note("artifacts.list failed", ["reason": "\(error)"])
         }
-        guard account(id) != nil else { return }
         artifacts = ArtifactAPI.merge(accounts.compactMap { lists[$0.id] })
     }
 

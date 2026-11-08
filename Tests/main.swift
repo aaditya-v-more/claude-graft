@@ -6931,7 +6931,7 @@ do {
             && center.contains("guard view === webView else { return }")
             && center.contains("Task.sleep(nanoseconds: Self.loadLimit)"),
           "a page dropped while it loads leaves its waiting requests to the next page, and none waits for good")
-    check(center.contains("guard loadGenerations[id] == generation else { return }")
+    check(center.contains("guard loadGenerations[id] == generation, account(id) != nil else { return }")
             && center.components(separatedBy: "load(id, again: true)").count >= 2,
           "a list a sign-in has since superseded writes nothing over the one that followed it")
     let view = source("ArtifactsView.swift")
@@ -7164,6 +7164,13 @@ do {
             && !views.contains("ArtifactSignInWindow") && !center.contains("ArtifactSignInWindow")
             && views.contains("accounts.signInNewAccount()"),
           "one sign-in serves every pane: an account added or signed out in one is added or gone in all")
+    check(source("ArtifactCenter.swift").contains("guard loadGenerations[id] == generation, account(id) != nil else { return }")
+            && source("ArtifactCenter.swift").contains("artifacts = ArtifactAPI.merge(accounts.compactMap { lists[$0.id] })")
+            && !source("ArtifactCenter.swift").contains("merge(Array(lists.values))")
+            && center.contains("guard generation == self.searchGeneration, accounts.account(id) != nil else { continue }")
+            && center.contains("results = ClaudeAPI.interleave(accounts.accounts.compactMap { lists[$0.id] })")
+            && center.contains("guard accounts.account(id) != nil else { return }\n            projectLists[id] = found"),
+          "an account signed out while its list or search was running does not come back with what it found")
     check(source("ArtifactCenter.swift").components(separatedBy: "lastSignIn = SignIn(").count == 2
             && source("ArtifactCenter.swift").contains("ArtifactAccounts.signedIn(accounts, store: id, as: identity)")
             && source("ArtifactCenter.swift").contains("for earlier in change.retired { retire(earlier) }"),

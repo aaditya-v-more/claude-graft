@@ -134,7 +134,7 @@ final class ProjectCenter: ObservableObject {
     }
 
     private func loadProjects(_ id: UUID) async {
-        guard projectStates[id] != .loading else { return }
+        guard accounts.account(id) != nil, projectStates[id] != .loading else { return }
         projectStates[id] = .loading
         do {
             let org = try await accounts.organization(of: id)
@@ -148,14 +148,18 @@ final class ProjectCenter: ObservableObject {
                 found += list.projects
                 if !list.hasMore { break }
             }
+            // Signed out while this ran: what it found goes with the account.
+            guard accounts.account(id) != nil else { return }
             projectLists[id] = found
             projectStates[id] = .ready
             accounts.noteSignIn(id, accepted: true)
         } catch ClaudeWebSession.Failure.signedOut {
+            guard accounts.account(id) != nil else { return }
             projectLists[id] = nil
             projectStates[id] = .signedOut
             accounts.noteSignIn(id, accepted: false)
         } catch {
+            guard accounts.account(id) != nil else { return }
             projectStates[id] = .failed
             Diagnostics.note("projects.list failed", ["reason": "\(error)"])
         }
@@ -204,9 +208,10 @@ final class ProjectCenter: ObservableObject {
                     group.addTask { (id, await self.searchOne(id, query, local: local)) }
                 }
                 for await (id, outcome) in group {
-                    // A newer search has started; this one's answers would
-                    // only mix into its list.
-                    guard generation == self.searchGeneration else { continue }
+                    // A newer search has started, and this one's answers would
+                    // only mix into its list; or the account was signed out
+                    // while it ran, and its hits would come back with it.
+                    guard generation == self.searchGeneration, accounts.account(id) != nil else { continue }
                     switch outcome {
                     case .success(let found):
                         lists[id] = found
@@ -219,7 +224,7 @@ final class ProjectCenter: ObservableObject {
                         searchStates[id] = .failed
                         Diagnostics.note("search failed", ["reason": "\(error)"])
                     }
-                    results = ClaudeAPI.interleave(ids.compactMap { lists[$0] })
+                    results = ClaudeAPI.interleave(accounts.accounts.compactMap { lists[$0.id] })
                 }
             }
         }
