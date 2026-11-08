@@ -1396,6 +1396,7 @@ enum Graft {
 
         let recorded = Set(contents.records.keys)
         var withdrawn = Set(state.withdrawn)
+        let withdrawnBefore = withdrawn.count
         let vanished = Set(state.vanished)
         var missing: Set<String> = []
         // Sessions whose record is remembered in a store this pass never got
@@ -1582,7 +1583,12 @@ enum Graft {
             // The records this app files are named for their session, so
             // a marker naming one names the session outright. Nothing to
             // infer, and nothing for an unreadable store to confuse.
-            if contents.deleted.contains(facts.cliSessionId) {
+            // Markers are never pruned, so the one that withdrew a session
+            // is still there on every pass after; reading it as news put a
+            // withdrawal in the log for one session on each of 54 passes
+            // when nothing had been done to it since October.
+            if contents.deleted.contains(facts.cliSessionId),
+               !withdrawn.contains(facts.cliSessionId) {
                 withdrawn.insert(facts.cliSessionId)
                 state.authored.removeValue(forKey: facts.cliSessionId)
                 Diagnostics.note("sweep.withdraw", [
@@ -1697,7 +1703,10 @@ enum Graft {
         saveSessionRecordState(state)
         Diagnostics.note("sweep.end", [
             "filed": filed.count,
-            "withdrawn": withdrawn.count,
+            // Every other count here is this pass's, and a running total
+            // under the same kind of name read as five withdrawals a pass.
+            "withdrawn": withdrawn.count - withdrawnBefore,
+            "withdrawnInAll": withdrawn.count,
             "missingThisPass": missing.count,
             "outOfSight": outOfSight.count,
             "forgotten": forgotten.count,
