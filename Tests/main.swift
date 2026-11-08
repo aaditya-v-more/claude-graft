@@ -7219,6 +7219,32 @@ do {
     check(source("ArtifactExport.swift").contains("try await Task.detached(priority: .userInitiated) {")
             && source("ArtifactExport.swift").contains("try await zip(folder"),
           "a many-file export waits for its archive off the main thread")
+    // A note's text as Swift reads its literal: the closing delimiter's
+    // indentation off every line, and a line ending in a backslash joined to
+    // the next.
+    func notes(in text: String) -> [String] {
+        text.components(separatedBy: "static let note = L10n.text(\"\"\"\n").dropFirst().compactMap { rest in
+            guard let end = rest.range(of: "\"\"\")") else { return nil }
+            let lines = rest[..<end.lowerBound].components(separatedBy: "\n")
+            let indent = lines.last ?? ""
+            return lines.dropLast()
+                .map { $0.hasPrefix(indent) ? String($0.dropFirst(indent.count)) : "" }
+                .joined(separator: "\n").replacingOccurrences(of: "\\\n", with: "")
+        }
+    }
+    let pageNotes = notes(in: source("ArtifactsView.swift")) + notes(in: views)
+    func strings(_ language: String) -> [String: String] {
+        let file = repo.appending(path: "Resources/\(language).lproj/Localizable.strings")
+        return (try? Data(contentsOf: file)).flatMap {
+            try? PropertyListSerialization.propertyList(from: $0, format: nil) as? [String: String]
+        } ?? [:]
+    }
+    let russianNotes = strings("ru")
+    check(pageNotes.count == 3 && !source("ArtifactsView.swift").contains("static let note = \"\"\"")
+            && !views.contains("static let note = \"\"\""),
+          "the Artifacts, Projects and Search Chats notes are each looked up in the catalog")
+    check(pageNotes.allSatisfy { note in russianNotes[note].map { $0 != note } ?? false },
+          "each of those notes reads in Russian when macOS does")
     check(views.contains(".onSubmit { if !center.searching { center.search(query) } }") && !views.contains("onChange(of: query"),
           "a search goes out on Return or the button, never as the query is typed")
     check(!center.contains("URLSession") && !model.contains("URLSession"),

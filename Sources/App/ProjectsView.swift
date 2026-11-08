@@ -13,14 +13,14 @@ struct ProjectsView: View {
         accounts = center.accounts
     }
 
-    static let note = """
+    static let note = L10n.text("""
         Projects are listed from every account signed in under Artifacts, with \
         the same sign-in. Graft only lists them; opening one takes you to \
         claude.ai, where it is changed.
 
         claude.ai is asked when this page is shown and when you refresh it, \
         never in the background.
-        """
+        """)
 
     var body: some View {
         VStack(spacing: 0) {
@@ -144,7 +144,7 @@ struct ChatSearchView: View {
         _query = State(initialValue: center.searched ?? "")
     }
 
-    static let note = """
+    static let note = L10n.text("""
         Searches the chats of every account signed in under Artifacts with \
         claude.ai's own search, and their Code sessions by title and folder. \
         Each search asks every account once, when you press Return; the \
@@ -154,7 +154,7 @@ struct ChatSearchView: View {
         whose transcript is here but which claude.ai no longer lists is shown \
         as gone from claude.ai, and opens in Finder. A chat deleted on \
         claude.ai is not kept anywhere and cannot be found.
-        """
+        """)
 
     var body: some View {
         VStack(spacing: 0) {

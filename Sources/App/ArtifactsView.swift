@@ -21,7 +21,7 @@ struct ArtifactsView: View {
         }
     }
 
-    static let note = """
+    static let note = L10n.text("""
         Graft signs in to claude.ai once for each account, in a window of its own, \
         and keeps that sign-in in a web store of its own for that account. One \
         sign-in serves Artifacts, Projects and Search Chats alike. It is used \
@@ -37,7 +37,7 @@ struct ArtifactsView: View {
         one, as it does when you invite them from the artifact's own Share \
         panel. Where an artifact takes no commenters or editors, they are \
         invited with the most it does take, never more.
-        """
+        """)
 
     /// Under every Sign In button, since a sign-in that starts another way
     /// is one Graft does not support.
