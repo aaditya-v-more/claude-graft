@@ -6698,10 +6698,42 @@ do {
           "addresses pasted from a mail header are read once each, and what is not an address is dropped")
 
     let groups = [ArtifactGroup(id: UUID(), name: "Design", emails: ["a@example.com"])]
-    check(ArtifactFiles.save(groups, to: ArtifactFiles.groups)
-            && ArtifactFiles.load([ArtifactGroup].self, from: ArtifactFiles.groups) == groups
-            && ArtifactFiles.groups.path.hasPrefix(Graft.applicationSupport.path),
-          "groups are kept in Graft's own folder and read back as they were saved")
+    let savedGroups = ArtifactFiles.save(groups, to: ArtifactFiles.groups)
+    if case .read(let back) = ArtifactFiles.readEach(ArtifactGroup.self, from: ArtifactFiles.groups) {
+        check(savedGroups && back.values == groups && back.lost == 0
+                && ArtifactFiles.groups.path.hasPrefix(Graft.applicationSupport.path),
+              "groups are kept in Graft's own folder and read back as they were saved")
+    } else {
+        check(false, "groups are kept in Graft's own folder and read back as they were saved")
+    }
+
+    let filesFolder = root.appending(path: "artifact-files")
+    try? fm.createDirectory(at: filesFolder, withIntermediateDirectories: true)
+    let absent = filesFolder.appending(path: "absent.json")
+    let garbled = filesFolder.appending(path: "artifact-accounts.json")
+    try? Data("{not json".utf8).write(to: garbled)
+    func isMissing<T>(_ reading: ArtifactFiles.Reading<T>) -> Bool { if case .missing = reading { return true }; return false }
+    func isUnreadable<T>(_ reading: ArtifactFiles.Reading<T>) -> Bool { if case .unreadable = reading { return true }; return false }
+    check(isMissing(ArtifactFiles.read([ArtifactAccount].self, from: absent))
+            && isUnreadable(ArtifactFiles.read([ArtifactAccount].self, from: garbled)),
+          "a file that is not there is told apart from one that is there and will not decode")
+    let aside = ArtifactFiles.setAside(garbled, at: Date(timeIntervalSince1970: 1_700_000_000))
+    check(aside?.lastPathComponent == "artifact-accounts.unreadable-1700000000.json"
+            && !fm.fileExists(atPath: garbled.path)
+            && (try? Data(contentsOf: aside!)) == Data("{not json".utf8),
+          "an unreadable file is moved aside whole, beside where it was, rather than saved over")
+    let oneBad = filesFolder.appending(path: "groups.json")
+    try? Data(#"""
+        [{"id":"6E1F0F55-8C8B-4E64-8F73-6D3A50D3E5B1","name":"Design","emails":["a@example.com"]},
+         {"id":"not a uuid","name":"Broken","emails":["b@example.com"]},
+         {"id":"7E1F0F55-8C8B-4E64-8F73-6D3A50D3E5B1","name":"Review","emails":[]}]
+        """#.utf8).write(to: oneBad)
+    if case .read(let found) = ArtifactFiles.readEach(ArtifactGroup.self, from: oneBad) {
+        check(found.values.map(\.name) == ["Design", "Review"] && found.lost == 1,
+              "one group that will not decode costs that group, not every group in the file")
+    } else {
+        check(false, "one group that will not decode costs that group, not every group in the file")
+    }
 
     let repo = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
     let center = (try? String(contentsOf: repo.appending(path: "Sources/App/ArtifactCenter.swift"),
@@ -6718,6 +6750,11 @@ do {
           "each account signs in to a store of its own, and signing out deletes it")
     check(!center.contains("Timer") && !center.contains("onReceive"),
           "artifacts are asked for when the list is shown or refreshed, never on a timer")
+    check(center.contains("mayWriteAccounts = Self.setAside(ArtifactFiles.accounts)")
+            && center.contains("mayWriteGroups = Self.setAside(ArtifactFiles.groups)")
+            && center.contains("guard mayWriteAccounts else { return }")
+            && center.components(separatedBy: "ArtifactFiles.save(accounts").count == 2,
+          "an accounts or groups file that will not read is set aside before anything is saved where it was")
     check(center.contains("observe(\\.url"),
           "a sign-in that ends by moving inside claude.ai's page is noticed, not only one that loads a new page")
     check(center.contains("configuration: configuration") && center.contains("func webViewDidClose"),

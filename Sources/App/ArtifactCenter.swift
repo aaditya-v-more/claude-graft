@@ -197,7 +197,7 @@ final class ArtifactCenter: ObservableObject {
     @Published private(set) var states: [UUID: AccountState] = [:]
     @Published private(set) var artifacts: [Artifact] = []
     @Published var groups: [ArtifactGroup] {
-        didSet { if groups != oldValue { ArtifactFiles.save(groups, to: ArtifactFiles.groups) } }
+        didSet { if groups != oldValue, mayWriteGroups { ArtifactFiles.save(groups, to: ArtifactFiles.groups) } }
     }
     /// One line saying how the last thing done went.
     @Published private(set) var status: String?
@@ -220,11 +220,37 @@ final class ArtifactCenter: ObservableObject {
     private var sessions: [UUID: ClaudeWebSession] = [:]
     private var lists: [UUID: [Artifact]] = [:]
     private var signIn: ArtifactSignInWindow?
+    /// False only when a file that would not be read could not be set aside
+    /// either, so saving would write over it.
+    private var mayWriteAccounts = true
+    private var mayWriteGroups = true
 
     init() {
-        accounts = ArtifactFiles.load([ArtifactAccount].self, from: ArtifactFiles.accounts) ?? []
-        groups = ArtifactFiles.load([ArtifactGroup].self, from: ArtifactFiles.groups) ?? []
         offline = false
+        switch ArtifactFiles.read([ArtifactAccount].self, from: ArtifactFiles.accounts) {
+        case .read(let list):
+            accounts = list
+        case .missing:
+            accounts = []
+        case .unreadable:
+            accounts = []
+            mayWriteAccounts = Self.setAside(ArtifactFiles.accounts)
+        }
+        switch ArtifactFiles.readEach(ArtifactGroup.self, from: ArtifactFiles.groups) {
+        case .read(let found):
+            groups = found.values
+            // The whole file is kept aside before the groups that did read
+            // are written back, so the one that did not is still on disk.
+            if found.lost > 0 {
+                mayWriteGroups = Self.setAside(ArtifactFiles.groups)
+                if mayWriteGroups { ArtifactFiles.save(found.values, to: ArtifactFiles.groups) }
+            }
+        case .missing:
+            groups = []
+        case .unreadable:
+            groups = []
+            mayWriteGroups = Self.setAside(ArtifactFiles.groups)
+        }
     }
 
     /// For the layout checks, which must not reach claude.ai.
@@ -234,6 +260,18 @@ final class ArtifactCenter: ObservableObject {
         self.groups = groups
         offline = true
         for account in accounts { states[account.id] = .ready }
+    }
+
+    private static func setAside(_ file: URL) -> Bool {
+        let moved = ArtifactFiles.setAside(file)
+        Diagnostics.note("artifacts.file unreadable", ["file": file.lastPathComponent,
+                                                       "setAside": moved?.lastPathComponent ?? "could not move"])
+        return moved != nil
+    }
+
+    private func saveAccounts() {
+        guard mayWriteAccounts else { return }
+        ArtifactFiles.save(accounts, to: ArtifactFiles.accounts)
     }
 
     func state(of account: UUID) -> AccountState { states[account] ?? .unknown }
@@ -300,7 +338,7 @@ final class ArtifactCenter: ObservableObject {
         } else {
             accounts.append(account)
         }
-        ArtifactFiles.save(accounts, to: ArtifactFiles.accounts)
+        saveAccounts()
         sessions[id]?.reset()
         Task { await load(id) }
         lastSignIn = SignIn(account: id, at: Date())
@@ -308,7 +346,7 @@ final class ArtifactCenter: ObservableObject {
 
     func signOut(_ id: UUID) {
         accounts.removeAll { $0.id == id }
-        ArtifactFiles.save(accounts, to: ArtifactFiles.accounts)
+        saveAccounts()
         sessions[id]?.reset()
         sessions[id] = nil
         lists[id] = nil
@@ -350,7 +388,7 @@ final class ArtifactCenter: ObservableObject {
             account.org = identity.org
             if let index = accounts.firstIndex(where: { $0.id == id }) {
                 accounts[index] = account
-                ArtifactFiles.save(accounts, to: ArtifactFiles.accounts)
+                saveAccounts()
             }
         }
         guard let org = account.org else { throw ClaudeWebSession.Failure.unreadable }

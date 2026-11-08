@@ -156,6 +156,7 @@ any of these. The why is in [notes/updates-and-releases.md](notes/updates-and-re
 - **Every `/api/frame` request carries `X-Frame-CP: go`,** or the service answers 404 as though the artifact did not exist.
 - **Artifacts are asked for when the list is shown or refreshed, never on a timer.**
 - **Groups are Graft's,** in `artifact-groups.json`; each person is invited with the group's role for them, an address missing from `roles` is a `reader`, and only the owner is offered a change.
+- **An unreadable groups or accounts file is set aside, never saved over** (`ArtifactFiles.read`), and groups are read one by one (`readEach`).
 - **A role an artifact does not take is lowered, never raised** — `ArtifactRole.offered(by:)`, asked of the permissions before every share.
 - **Only what the list allows is offered:** rename and delete to the owner, duplicate where `duplicable` says so.
 - **An export is drawn where no sign-in is.** Files come from the file host with `credentials: "omit"` into a temporary folder, and `ArtifactRenderer` draws them in a non-persistent store that follows no link out.

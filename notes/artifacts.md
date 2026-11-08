@@ -111,6 +111,18 @@ invites everyone as a viewer, which is less than asked and never more. A role
 a newer Graft wrote that this one does not know costs that person their role,
 not the group.
 
+An unreadable `artifact-groups.json` or `artifact-accounts.json` is not an
+empty one, the same mistake `readableConfigJSON` exists for in the chat
+mirror. Read as empty, the first edit saved an empty list over every group,
+and the first sign-in saved one account over all the others and left their
+stores with nobody to remove them. So `ArtifactFiles.read` tells a missing
+file from one that will not decode, and the second is moved aside whole, as
+`<name>.unreadable-<seconds>.json` beside where it was, before anything is
+saved there; if it cannot be moved, nothing is saved over it that session.
+Groups are read one at a time, so a group a newer Graft or a damaged write
+left unreadable costs that group: the file is set aside with it and the
+groups that did read are written back at once.
+
 Before inviting, the share asks the artifact's permissions. A person whose
 role the artifact does not take gets the most it does take, never more: an
 editor becomes a commenter where comments are on, a viewer otherwise. The

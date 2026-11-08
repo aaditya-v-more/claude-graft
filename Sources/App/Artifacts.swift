@@ -394,9 +394,53 @@ enum ArtifactFiles {
     static var accounts: URL { directory.appending(path: "artifact-accounts.json") }
     static var groups: URL { directory.appending(path: "artifact-groups.json") }
 
-    static func load<T: Decodable>(_ type: T.Type, from url: URL) -> T? {
-        guard let data = try? Data(contentsOf: url) else { return nil }
-        return try? JSONDecoder().decode(type, from: data)
+    /// A file that is not there and one that is there but cannot be read are
+    /// told apart, because only the first may be written over: saving an empty
+    /// list over one that would not decode throws away every account or group
+    /// in it, and an account thrown away leaves its store with nobody to
+    /// remove it.
+    enum Reading<Value> {
+        case missing
+        case unreadable
+        case read(Value)
+    }
+
+    static func read<T: Decodable>(_ type: T.Type, from url: URL) -> Reading<T> {
+        guard FileManager.default.fileExists(atPath: url.path) else { return .missing }
+        guard let data = try? Data(contentsOf: url),
+              let value = try? JSONDecoder().decode(type, from: data) else { return .unreadable }
+        return .read(value)
+    }
+
+    /// A list read one entry at a time, so an entry a newer Graft or a damaged
+    /// write left unreadable costs that entry and not the whole list. `lost`
+    /// says how many were left out, which is when the file is set aside before
+    /// anything is saved over it.
+    static func readEach<T: Decodable>(_ type: T.Type, from url: URL) -> Reading<(values: [T], lost: Int)> {
+        switch read([Lenient<T>].self, from: url) {
+        case .missing: return .missing
+        case .unreadable: return .unreadable
+        case .read(let entries):
+            let values = entries.compactMap(\.value)
+            return .read((values, entries.count - values.count))
+        }
+    }
+
+    private struct Lenient<T: Decodable>: Decodable {
+        let value: T?
+        init(from decoder: Decoder) throws { value = try? T(from: decoder) }
+    }
+
+    /// Moves a file that could not be read out of the way, beside where it
+    /// was, so the next save starts a new one and the old one is still there
+    /// to be read by hand. Nil when it could not be moved, and then nothing
+    /// may be saved over it.
+    @discardableResult
+    static func setAside(_ url: URL, at now: Date = Date()) -> URL? {
+        let name = url.deletingPathExtension().lastPathComponent
+            + ".unreadable-\(Int(now.timeIntervalSince1970))." + url.pathExtension
+        let target = url.deletingLastPathComponent().appending(path: name)
+        return (try? FileManager.default.moveItem(at: url, to: target)) != nil ? target : nil
     }
 
     @discardableResult
