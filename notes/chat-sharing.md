@@ -168,6 +168,28 @@ name gone from both sides is dropped too: the loop only visits what one of them
 holds, so such an entry sat there for good, growing the file and standing ready
 to read that name coming back on one side alone as a deletion to carry across.
 
+**One pass at a time, across processes.** `mirrored-chats.json` and
+`session-records.json` are each read, worked on and written back, by Graft's
+sweep and by every launcher, and those are separate processes. An atomic write
+keeps the file whole but not the other pass's work: two shortcuts clicked
+together, or one clicked while the dropdown's sweep ran, each saved the state
+it had read, and the second to finish put back a baseline from before the
+first's copies, which the next pass then read as deletions. So
+`Graft.withStateLock` takes a flock on `ClaudeGraft/state.lock` around
+`squareUp`, `apply`, `mirrorChatFolders`, `fileMissingSessionRecords` and
+dropping pairs. It is reentrant within a process, because those call one
+another, and only the outermost hold opens the file: flock belongs to the open
+file, so a second descriptor would wait on the first for good. A launcher holds
+it across `apply` and `squareUp` together and lets it go before `launch`, which
+takes `SidebarSync.withLaunchLock`; nothing takes the state lock on the way into
+the launch lock's work, so the two are never held in opposite orders. The usual
+case costs one non-blocking `flock` and no wait. A pass that waits longer than
+`stateLockPatience` (twenty seconds) goes ahead without it and notes
+`state-lock.gave-up`, because a launcher that waited for good on a hung pass
+would never open its Claude, and going ahead is what every pass did before. The
+App's own callers on the main thread (saving a shortcut, deleting one) can now
+wait for a sweep in progress; that is the price of not losing its work.
+
 **Nothing goes to the stash before the source has been read.** The
 same-account branch opened the destination first and consulted the source
 second, so a source that turned out to hold nothing under this account — spelled

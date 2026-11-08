@@ -94,6 +94,7 @@ any of these. The why is in [notes/updates-and-releases.md](notes/updates-and-re
 - **Going back is a handover, not a delete.** A copy goes only when the other side holds the same bytes at that moment.
 - **A folder that lost everything at once was moved, not cleared.** Forget the baseline; `forgetStalePairs` drops dead pairs.
 - **The baseline says what the filesystem did, never what a pass meant to do.**
+- **One pass at a time, across processes:** `Graft.withStateLock` holds `ClaudeGraft/state.lock` over every read-modify-write of `mirrored-chats.json` and `session-records.json`, and is let go before `launch` takes the launch lock.
 - **Nothing goes to the stash before the source has been read.**
 - **A stash beside a folder blocks withdrawal as well as filing** (`mayFileRecords`, both directions).
 - **Every way out drops the pairs**, and a pair is read by its borrowing half: `mirrorPairs(borrowedBy:)`.

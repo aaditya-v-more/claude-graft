@@ -5225,6 +5225,70 @@ do {
 section("What the mirror writes down")
 
 do {
+    // A launcher and Graft's sweep are separate processes writing the same
+    // two state files. Another process is stood in for by a second open of
+    // the lock file: flock belongs to the open file, so this process's own
+    // passes wait on it exactly as they would on a launcher's.
+    let one = support.appending(path: "Locked/one")
+    let other = support.appending(path: "Locked/other")
+    for dir in [one, other] {
+        try? fm.removeItem(at: dir)
+        try! fm.createDirectory(at: dir, withIntermediateDirectories: true)
+    }
+    try! "a".write(to: one.appending(path: "local_lock-a.json"), atomically: true, encoding: .utf8)
+    try? fm.createDirectory(at: Graft.stateLockFile.deletingLastPathComponent(),
+                            withIntermediateDirectories: true)
+
+    func outsideHolder() -> Int32 {
+        let fd = open(Graft.stateLockFile.path, O_CREAT | O_RDWR, 0o600)
+        return flock(fd, LOCK_EX | LOCK_NB) == 0 ? fd : -1
+    }
+    func letGo(_ fd: Int32) { _ = flock(fd, LOCK_UN); close(fd) }
+
+    var heldElsewhere: Int32 = 0
+    Graft.withStateLock { heldElsewhere = outsideHolder() }
+    check(heldElsewhere < 0, "while a pass runs, no other process can take the state lock")
+    let afterwards = outsideHolder()
+    check(afterwards >= 0, "and it is let go when the pass ends")
+
+    let started = Date()
+    DispatchQueue.global().asyncAfter(deadline: .now() + 0.4) { letGo(afterwards) }
+    Graft.mirrorChatFolders(one, other)
+    check(Date().timeIntervalSince(started) >= 0.3,
+          "a pass waits for one another process is in the middle of")
+    check(fm.fileExists(atPath: other.appending(path: "local_lock-a.json").path),
+          "and then does its work")
+
+    let nested = Date()
+    var finished = false
+    Graft.withStateLock { Graft.withStateLock { Graft.mirrorChatFolders(one, other); finished = true } }
+    check(finished && Date().timeIntervalSince(nested) < 2,
+          "a pass holding the lock may call one that takes it again without waiting on itself")
+
+    let inLaunch = Date()
+    SidebarSync.withLaunchLock { Graft.mirrorChatFolders(one, other) }
+    check(Date().timeIntervalSince(inLaunch) < 2, "the launch lock and the state lock do not wait on each other")
+
+    let stuck = outsideHolder()
+    let patience = Graft.stateLockPatience
+    Graft.stateLockPatience = 0.2
+    try! "b".write(to: one.appending(path: "local_lock-b.json"), atomically: true, encoding: .utf8)
+    Graft.mirrorChatFolders(one, other)
+    check(fm.fileExists(atPath: other.appending(path: "local_lock-b.json").path),
+          "a pass kept waiting past its patience goes ahead, so a hung one never stops a Claude opening")
+    Graft.stateLockPatience = patience
+    letGo(stuck)
+
+    let core = (try? String(contentsOf: URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        .deletingLastPathComponent().appending(path: "Sources/Shared/GraftCore.swift"), encoding: .utf8)) ?? ""
+    let compact = core.filter { !$0.isWhitespace }
+    check(compact.contains("withStateLock{apply(config)squareUp(filingInto:filing,checkingRunning:false)}launch(profile:profile)"),
+          "a launcher links and squares up under one hold of the state lock, and lets it go before launching")
+    for dir in [one, other] { try? fm.removeItem(at: dir) }
+    try? fm.removeItem(at: Graft.mirrorStateFile)
+}
+
+do {
     // The baseline is what makes an absence mean something, so it may only say
     // what the filesystem actually did. A removal was written down whether or
     // not it happened, and a removal that failed left a name on one side with

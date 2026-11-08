@@ -1417,6 +1417,8 @@ enum Graft {
     static func fileMissingSessionRecords(filingInto profiles: [URL],
                                           now: Date = Date(),
                                           quietWindow: TimeInterval = 60) -> [SessionFacts] {
+        enterStateLock()
+        defer { leaveStateLock() }
         var state = loadSessionRecordState()
         let contents = sessionStoreContents()
         let candidates = recordFilingProfiles(named: profiles)
@@ -1909,6 +1911,82 @@ enum Graft {
         }
     }
 
+    // MARK: The state lock
+
+    /// One pass at a time over `mirrored-chats.json` and `session-records.json`,
+    /// across every process that writes them.
+    ///
+    /// Graft's own sweep and each shortcut's launcher are separate processes,
+    /// and both read a state file, work for a while and write it back. An
+    /// atomic write keeps the file whole but not the other pass's work: two
+    /// launchers clicked together, or one clicked while the dropdown's sweep
+    /// was running, each wrote the state it had read, and whichever finished
+    /// second put back a baseline from before the other's copies. A baseline
+    /// that no longer says what the filesystem did reads the next pass's
+    /// copies as deletions.
+    ///
+    /// Reentrant within a process, since a pass holding it calls functions
+    /// that take it themselves. Never taken inside `SidebarSync.withLaunchLock`
+    /// on the way to it: `launch` takes that one after this is let go, so
+    /// nothing holds the two in opposite orders.
+    @discardableResult
+    static func withStateLock<T>(_ work: () -> T) -> T {
+        enterStateLock()
+        defer { leaveStateLock() }
+        return work()
+    }
+
+    /// How long a pass waits for another before going ahead without it.
+    /// A launcher stands in front of a window opening, and one that waited
+    /// forever on a pass that had hung would never open it; going ahead is
+    /// what every pass did before there was a lock.
+    static var stateLockPatience: TimeInterval = 20
+
+    private static let stateLockLocal = NSRecursiveLock()
+    private static var stateLockDepth = 0
+    private static var stateLockDescriptor: Int32 = -1
+
+    static var stateLockFile: URL { applicationSupport.appending(path: "ClaudeGraft/state.lock") }
+
+    static func enterStateLock() {
+        stateLockLocal.lock()
+        stateLockDepth += 1
+        // Only the outermost hold takes the file. flock belongs to the open
+        // file, so a second descriptor from a nested hold would wait on the
+        // first one forever.
+        guard stateLockDepth == 1 else { return }
+        try? fm.createDirectory(at: stateLockFile.deletingLastPathComponent(),
+                                withIntermediateDirectories: true)
+        let fd = Darwin.open(stateLockFile.path, O_CREAT | O_RDWR, 0o600)
+        guard fd >= 0 else {
+            Diagnostics.note("state-lock.unavailable", ["errno": Int(errno)])
+            return
+        }
+        // Tried at once first, so the usual case — nobody else in a pass —
+        // costs one system call and no wait.
+        let deadline = Date().addingTimeInterval(stateLockPatience)
+        while flock(fd, LOCK_EX | LOCK_NB) != 0 {
+            let failure = errno
+            guard failure == EWOULDBLOCK || failure == EINTR, Date() < deadline else {
+                Diagnostics.note("state-lock.gave-up", ["errno": Int(failure)])
+                Darwin.close(fd)
+                return
+            }
+            usleep(20_000)
+        }
+        stateLockDescriptor = fd
+    }
+
+    static func leaveStateLock() {
+        stateLockDepth -= 1
+        if stateLockDepth == 0, stateLockDescriptor >= 0 {
+            _ = flock(stateLockDescriptor, LOCK_UN)
+            Darwin.close(stateLockDescriptor)
+            stateLockDescriptor = -1
+        }
+        stateLockLocal.unlock()
+    }
+
     /// A byte no path can contain, so the two halves of a key always come
     /// back apart the way they went together.
     static let pairSeparator = "\u{0}"
@@ -2064,6 +2142,8 @@ enum Graft {
     @discardableResult
     static func mirrorChatFolders(_ one: URL, _ other: URL) -> Int {
         guard !samePath(one, other) else { return 0 }
+        enterStateLock()
+        defer { leaveStateLock() }
         for folder in [one, other] where !exists(folder) {
             // Only the folder itself, never the path to it. A profile someone
             // deleted has no account directory left, and a pass whose whole
@@ -2811,6 +2891,8 @@ enum Graft {
     }
 
     private static func dropPairs(_ stale: Set<String>) {
+        enterStateLock()
+        defer { leaveStateLock() }
         var state = loadMirrorState()
         state.pairs = state.pairs.filter { !stale.contains($0.key) }
         saveMirrorState(state)
@@ -3474,10 +3556,12 @@ enum Graft {
     @discardableResult
     static func squareUp(filingInto profiles: [URL],
                          checkingRunning: Bool = true) -> [SessionFacts] {
-        mirrorKnownPairs()
-        let filed = fileMissingSessionRecords(filingInto: profiles)
-        writeStateReport(checkingRunning: checkingRunning)
-        return filed
+        withStateLock {
+            mirrorKnownPairs()
+            let filed = fileMissingSessionRecords(filingInto: profiles)
+            writeStateReport(checkingRunning: checkingRunning)
+            return filed
+        }
     }
 
     /// Opening a profile that is already open shows the Claude that is there.
@@ -3545,13 +3629,20 @@ enum Graft {
             return
         }
         guard prepareUpdatePolicy(for: profile) else { return }
-        apply(config)
         // After the links, so a record filed through a graft lands where the
         // link now points rather than where it pointed last time. The mirror
         // runs here for the same reason and one more: this profile may be the
         // source somebody else borrows from, and opening it is the only
         // moment their changes have to reach the sidebar about to be built.
-        squareUp(filingInto: filing, checkingRunning: false)
+        //
+        // One hold for both, so no other pass reads the pairs between the
+        // links changing and the mirror catching up with them; and let go
+        // before `launch`, which takes the launch lock, so the two locks are
+        // never held in both orders.
+        withStateLock {
+            apply(config)
+            squareUp(filingInto: filing, checkingRunning: false)
+        }
         launch(profile: profile)
     }
 
@@ -3570,6 +3661,8 @@ enum Graft {
 
     /// Bring a profile's storage in line with its configuration.
     static func apply(_ config: GraftConfig) {
+        enterStateLock()
+        defer { leaveStateLock() }
         let profile = URL(fileURLWithPath: config.profileDir)
         try? fm.createDirectory(at: profile, withIntermediateDirectories: true)
         if let source = config.sourceDir, !source.isEmpty {
