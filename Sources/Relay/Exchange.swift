@@ -166,9 +166,11 @@ final class Exchange {
                     default:
                         // What one plan lacks the next may lack too; the
                         // account Claude chose the request for is the one sure
-                        // to take it.
+                        // to take it. That is the sender's next attempt, which
+                        // the plan always has, and not merely the last one,
+                        // which is a lender whenever the sender ranked ahead.
                         passed.append(PoolPass(id: member, reason: .refused))
-                        index = attempts.count - 1
+                        index = attempts[(index + 1)...].firstIndex { $0.token == nil } ?? attempts.count - 1
                     }
                     var noted: [String: Any] = ["member": member, "status": status,
                                                 "reason": passed.last!.reason.rawValue]

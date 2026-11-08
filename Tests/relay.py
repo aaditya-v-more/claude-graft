@@ -543,6 +543,62 @@ response, payload, went = ask_thread("tok-H", "s42", threaded("continue", "m3"))
 check(response.status == 200 and [w["token"] for w in went] == ["tok-F", "tok-H"],
       "any other refusal of a continued thread still sends it home")
 
+# Whatever the lent accounts say, Claude Code hears its own account's answer.
+# Each sender here ranks ahead of what it borrows, so the last account in the
+# ranking is a lender, and finds itself full on what the Chat tab spent unseen.
+for sender, lender, refusal in [("J1", "K", 403), ("J2", "L", 401)]:
+    accounts["tok-" + sender] = {"5h": 0.1, "7d": 0.1, "7d-reset": now + 3600, "reject": True}
+    accounts["tok-" + lender] = {"5h": 0.1, "7d": 0.1, "7d-reset": now + 3 * 86400, "reject": False,
+                                 "refuse": refusal}
+    control({"configure": {"enabled": True, "members": [
+        dict(member(sender, "tok-" + sender, borrows=[lender]), limits=pushed(now + 3600, 110)),
+        dict(member(lender, "tok-" + lender), limits=pushed(now + 3 * 86400, 110))]}})
+    response, payload, went = ask(conn, "tok-" + sender, session="s6" + sender)
+    check(response.status == 429
+          and [w["token"] for w in went] == ["tok-" + sender, "tok-" + lender, "tok-" + sender],
+          "a sender asked first and found full, whose lender answers %d, is asked again and its own refusal delivered"
+          % refusal)
+
+# Three accounts ranked lender, sender, lender: what the first cannot serve
+# goes to the sender, not on to the other lender.
+accounts["tok-P"] = {"5h": 0.1, "7d": 0.1, "7d-reset": now + 1800, "reject": False, "refuse": 403}
+accounts["tok-Q"] = {"5h": 0.1, "7d": 0.1, "7d-reset": now + 86400, "reject": False}
+accounts["tok-R"] = {"5h": 0.1, "7d": 0.1, "7d-reset": now + 5 * 86400, "reject": False}
+control({"configure": {"enabled": True, "members": [
+    dict(member("P", "tok-P"), limits=pushed(now + 1800, 110)),
+    dict(member("Q", "tok-Q", borrows=["P", "R"]), limits=pushed(now + 86400, 110)),
+    dict(member("R", "tok-R"), limits=pushed(now + 5 * 86400, 110))]}})
+response, payload, went = ask(conn, "tok-Q", session="s62")
+check(response.status == 200 and [w["token"] for w in went] == ["tok-P", "tok-Q"],
+      "a request one lender cannot serve goes home, even with another lender ranked after the sender")
+
+# A held conversation follows its account across names: Claude X's login
+# lapses, and the same account signed in here as Y lends in its place.
+accounts["tok-S"] = {"5h": 0.1, "7d": 0.1, "7d-reset": now + 1800, "reject": False}
+accounts["tok-X"] = {"5h": 0.1, "7d": 0.1, "7d-reset": now + 900, "reject": False}
+accounts["tok-Y"] = {"5h": 0.1, "7d": 0.1, "7d-reset": now + 5 * 86400, "reject": False}
+accounts["tok-W"] = {"5h": 0.1, "7d": 0.1, "7d-reset": now + 600, "reject": False}
+control({"configure": {"enabled": True, "members": [
+    dict(member("S", "tok-S", borrows=["X", "Y"], account="acct-S"), limits=pushed(now + 86400, 115)),
+    dict(member("X", "tok-X", account="acct-X"), limits=pushed(now + 900, 115)),
+    dict(member("Y", "tok-Y", account="acct-X"), limits=pushed(now + 900, 115))]}})
+response, payload, went = ask(conn, "tok-S", session="s63", body=plain)
+check([w["token"] for w in went] == ["tok-X"], "a conversation starts on the account ranked first")
+response, payload, went = ask(conn, "tok-S", session="s64", body=plain)
+control({"configure": {"enabled": True, "members": [
+    dict(member("S", "tok-S", borrows=["X", "Y"], account="acct-S"), limits=pushed(now + 1800, 120)),
+    dict(member("X", "tok-X", lend=False, account="acct-X"), limits=pushed(now + 5 * 86400, 120)),
+    dict(member("Y", "tok-Y", account="acct-X"), limits=pushed(now + 5 * 86400, 120))]}})
+response, payload, went = ask(conn, "tok-S", session="s63", body=reasoned)
+check([w["token"] for w in went] == ["tok-Y"],
+      "its reasoning stays with the account that wrote it, under the name that account now lends by")
+control({"configure": {"enabled": True, "members": [
+    dict(member("S", "tok-S", borrows=["W"], account="acct-S"), limits=pushed(now + 1800, 125)),
+    dict(member("W", "tok-W", account="acct-W"), limits=pushed(now + 600, 125))]}})
+response, payload, went = ask(conn, "tok-S", session="s64", body=reasoned)
+check([w["token"] for w in went] == ["tok-S"],
+      "and once that account lends no more, goes home rather than wherever the ranking says")
+
 # Claude 2 borrowing Claude and the same account signed in here: the relay
 # counts the first, and a conversation moved to the second goes to the first.
 accounts["tok-E"] = {"5h": 0.1, "7d": 0.1, "7d-reset": now + 3600, "reject": False}

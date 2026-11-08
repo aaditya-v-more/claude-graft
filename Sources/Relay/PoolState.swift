@@ -141,17 +141,21 @@ actor PoolState {
             PoolPolicy.Account(id: member.id, limits: limits[member.account ?? member.id],
                                usable: member.id == own || canLend(member))
         }
+        // One account is one candidate whichever name it came under, so a
+        // name the relay did not count stands for the one it did: a choice
+        // made in the dropdown, and equally the name that last answered, once
+        // a Claude's own login lapsed and the same account signed in here took
+        // its place.
+        func counted(_ id: String) -> String? {
+            let account = configuration.members.first { $0.id == id }.map { $0.account ?? $0.id } ?? id
+            return candidates.first { ($0.account ?? $0.id) == account }?.id
+        }
         var prefer: [String] = []
+        var holder: String?
         if let session {
             let held = conversations[session]
-            // One account is one candidate whichever name it came under, so a
-            // choice of a name the relay did not count is a choice of the one
-            // it did.
-            if let chosen = configuration.assignments?[session] {
-                let account = configuration.members.first { $0.id == chosen }.map { $0.account ?? $0.id } ?? chosen
-                if let counted = candidates.first(where: { ($0.account ?? $0.id) == account }) {
-                    prefer.append(counted.id)
-                }
+            if let chosen = configuration.assignments?[session], let id = counted(chosen) {
+                prefer.append(id)
             }
             if let last = held?.servedBy,
                bound || now.timeIntervalSince(held!.lastAt) < held!.cacheLifetime {
@@ -160,14 +164,22 @@ actor PoolState {
                 // account has no room, and then stays wherever it went, which
                 // loses the reasoning once rather than on every move. A person
                 // moving it from the dropdown is that one move, made on purpose.
-                prefer.append(last)
+                holder = counted(last)
+                if let holder { prefer.append(holder) }
             }
         }
         // Nothing says where a conversation the relay has not seen wrote its
-        // reasoning — one from before the relay last started, or one with no
-        // session — and the sender's own account is where it began.
-        if bound, prefer.isEmpty { prefer.append(own) }
-        return PoolPolicy.order(own: own, accounts: accounts, prefer: prefer, now: now).map { id in
+        // reasoning — one from before the relay last started, one with no
+        // session, or one last answered by an account no longer lent — and
+        // the sender's own account is where it began.
+        if bound, holder == nil { prefer.append(own) }
+        var ids = PoolPolicy.order(own: own, accounts: accounts, prefer: prefer, now: now)
+        // The last word is always the sender's own account, asked again if it
+        // was asked already: whatever the lent accounts answered last — a
+        // refused login, a plan without the model, a limit with their own
+        // reset times — is about a login Claude Code never sent.
+        if ids.last != own { ids.append(own) }
+        return ids.map { id in
             id == own ? Attempt(member: own, token: nil)
                 : Attempt(member: id, token: candidates.first { $0.id == id }?.token)
         }
