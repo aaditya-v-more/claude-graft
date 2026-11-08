@@ -62,6 +62,12 @@ two minutes so a second search in a row does not walk it again. Nothing is
 asked as the query is typed, only on Return or the Search button, and changing
 a filter asks nothing.
 
+A session list that is refused or fails partway leaves the account's chats
+searched and its Code sessions unknown; it does not fail the search, and it
+does not sign the account out. A 403 from it is asked about at `/api/account`
+first, as every 403 outside the account page is (see
+[artifacts.md](artifacts.md)).
+
 ## Where a Code session ran
 
 A Remote Control session's transcript in `~/.claude/projects` carries a

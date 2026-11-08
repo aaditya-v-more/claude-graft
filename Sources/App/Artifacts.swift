@@ -263,6 +263,27 @@ enum ArtifactAPI {
         return (try? JSONSerialization.data(withJSONObject: ["read": read], options: [.sortedKeys])) ?? Data()
     }
 
+    /// A 401 is a sign-in claude.ai no longer takes, wherever it comes from.
+    /// A 403 is that only from the account page, which any signed-in account
+    /// may read. Anywhere else it is as likely a refusal of that one thing, an
+    /// account without Claude Code asking for its sessions or an organization
+    /// that keeps links private, and read as signed out it signed the account
+    /// out of all three panes.
+    static func meansSignedOut(_ status: Int, at path: String) -> Bool {
+        status == 401 || (status == 403 && isAccountPath(path))
+    }
+
+    /// A 403 from anywhere but the account page, which the account page is
+    /// then asked about once: signed out there is signed out, and otherwise
+    /// the 403 goes back to the caller as the refusal it was.
+    static func needsAccountCheck(_ status: Int, at path: String) -> Bool {
+        status == 403 && !isAccountPath(path)
+    }
+
+    private static func isAccountPath(_ path: String) -> Bool {
+        path == accountPath || path.hasPrefix(accountPath + "?")
+    }
+
     struct Identity: Equatable {
         var accountUuid: String
         var email: String

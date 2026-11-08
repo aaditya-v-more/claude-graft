@@ -105,7 +105,10 @@ final class ClaudeWebSession: NSObject, WKNavigationDelegate {
         guard let answer = result as? [String: Any],
               let status = (answer["status"] as? NSNumber)?.intValue,
               let text = answer["body"] as? String else { throw Failure.unreadable }
-        if status == 401 || status == 403 { throw Failure.signedOut }
+        if ArtifactAPI.meansSignedOut(status, at: path) { throw Failure.signedOut }
+        if ArtifactAPI.needsAccountCheck(status, at: path) {
+            _ = try await send("GET", ArtifactAPI.accountPath)
+        }
         return (status, Data(text.utf8))
     }
 
@@ -668,9 +671,13 @@ final class ArtifactCenter: ObservableObject {
                     } else {
                         refusal = refusal ?? "\(answer.status)"
                     }
-                } catch {
-                    status = message(for: error, account: artifact.account)
+                } catch ClaudeWebSession.Failure.signedOut {
+                    // Every address after this one would be turned away the
+                    // same way.
+                    status = message(for: ClaudeWebSession.Failure.signedOut, account: artifact.account)
                     return
+                } catch {
+                    refusal = refusal ?? "unanswered"
                 }
             }
             status = lowered == 0

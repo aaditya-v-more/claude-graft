@@ -156,6 +156,7 @@ any of these. The why is in [notes/updates-and-releases.md](notes/updates-and-re
 - **A second sign-in to a listed account keeps the new store;** the record moves to it and the old store goes (`ArtifactAccounts.signedIn`).
 - **A store is removed only once nothing holds it:** `retire` closes the session and waits for `released()`, a sign-in window lets go before acting, a failed removal is logged and retried, and stores not in a readable `artifact-accounts.json` go at launch.
 - **Every `/api/frame` request carries `X-Frame-CP: go`,** or the service answers 404 as though the artifact did not exist.
+- **Only a 401, or a 403 from `/api/account`, is signed out;** any other 403 asks `/api/account` once and otherwise goes back as a refusal (`ArtifactAPI.meansSignedOut`).
 - **Artifacts are asked for when the list is shown or refreshed, never on a timer.**
 - **Groups are Graft's,** in `artifact-groups.json`; each person is invited with the group's role for them, an address missing from `roles` is a `reader`, and only the owner is offered a change.
 - **An unreadable groups or accounts file is set aside, never saved over** (`ArtifactFiles.read`), and groups are read one by one (`readEach`).

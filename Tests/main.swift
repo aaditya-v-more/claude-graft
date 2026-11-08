@@ -6658,6 +6658,16 @@ do {
     check(ArtifactAPI.identity(from: Data(#"{"error":"unauthorized"}"#.utf8)) == nil,
           "an answer that names no account is no sign-in")
 
+    check(ArtifactAPI.meansSignedOut(401, at: ArtifactAPI.listPath(rel: "mine", org: org))
+            && ArtifactAPI.meansSignedOut(403, at: ArtifactAPI.accountPath)
+            && !ArtifactAPI.meansSignedOut(403, at: ArtifactAPI.permPath("aadd31ed", org: org))
+            && !ArtifactAPI.meansSignedOut(403, at: "/v1/code/sessions?limit=200"),
+          "a 401 anywhere is signed out, and a 403 is only from the account page")
+    check(ArtifactAPI.needsAccountCheck(403, at: ArtifactAPI.invitePath("aadd31ed", org: org))
+            && !ArtifactAPI.needsAccountCheck(403, at: ArtifactAPI.accountPath)
+            && !ArtifactAPI.needsAccountCheck(404, at: ArtifactAPI.invitePath("aadd31ed", org: org)),
+          "a 403 from anywhere else asks the account page once before it is taken for a sign-out")
+
     let first = ArtifactAccount(id: UUID(), email: "a@example.com", accountUuid: "acc-a", org: "org-a")
     let second = ArtifactAccount(id: UUID(), email: "b@example.com", accountUuid: "acc-b", org: "org-b")
     let fresh = UUID()
@@ -6922,6 +6932,11 @@ do {
           "an export is drawn where no sign-in is, and its files are read with no cookie")
     check(!export.contains("URLSession") && !export.contains("httpCookieStore"),
           "an export reads nothing a page of claude.ai did not hand it")
+    check(!center.contains("status == 401 || status == 403")
+            && center.contains("if ArtifactAPI.meansSignedOut(status, at: path) { throw Failure.signedOut }")
+            && center.range(of: #"catch ClaudeWebSession\.Failure\.signedOut \{[^}]*return\s*\} catch \{\s*refusal = refusal \?\? "unanswered""#,
+                            options: .regularExpression) != nil,
+          "a refused invitation is counted and the rest still go out; only a sign-out stops them")
     check(center.contains(#"response.headers.get("Content-Length")"#) && center.contains("if (size > limit)")
             && center.contains("download(url, limit: ArtifactAPI.maximumExportBytes - total)"),
           "an export file larger than what is left of the budget is refused in the page, before it is encoded there")
@@ -7152,6 +7167,9 @@ do {
     check(!center.isEmpty && !center.contains("Timer") && !center.contains("onReceive")
             && !views.contains("Timer") && !views.contains("onReceive"),
           "projects and searches are asked for when a person asks, never on a timer")
+    check(!center.contains("throw ClaudeWebSession.Failure.signedOut\n        } catch {\n            return (found, false)")
+            && center.contains("let code = await codeSessions(id, org: org, session: session)"),
+          "an account whose Code session list is refused still has its chats searched, and is not signed out for it")
     check(views.contains(".onSubmit { center.search(query) }") && !views.contains("onChange(of: query"),
           "a search goes out on Return or the button, never as the query is typed")
     check(!center.contains("URLSession") && !model.contains("URLSession"),

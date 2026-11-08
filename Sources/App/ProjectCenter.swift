@@ -238,7 +238,7 @@ final class ProjectCenter: ObservableObject {
                                                 body: ClaudeAPI.searchBody(query: query))
             guard answer.status == 200, let chats = ClaudeAPI.chats(from: answer.data, account: id)
             else { throw ClaudeWebSession.Failure.unreadable }
-            let code = try await codeSessions(id, org: org, session: session)
+            let code = await codeSessions(id, org: org, session: session)
             let hits = ClaudeAPI.codeHits(query, account: id, accountUuid: accounts.account(id)?.accountUuid,
                                           remote: code.sessions, complete: code.complete, local: local)
             return .success(chats + hits)
@@ -250,7 +250,7 @@ final class ProjectCenter: ObservableObject {
     /// An account with no Code sessions, or whose session list will not
     /// answer, still has its chats searched; only the chats' failure fails it.
     private func codeSessions(_ id: UUID, org: String,
-                              session: ClaudeWebSession) async throws -> (sessions: [RemoteCodeSession], complete: Bool) {
+                              session: ClaudeWebSession) async -> (sessions: [RemoteCodeSession], complete: Bool) {
         if let kept = codeLists[id], Date().timeIntervalSince(kept.read) < Self.codeListLifetime {
             return (kept.sessions, kept.complete)
         }
@@ -269,8 +269,6 @@ final class ProjectCenter: ObservableObject {
                 cursor = page.next
                 if cursor == nil { complete = true; break }
             }
-        } catch ClaudeWebSession.Failure.signedOut {
-            throw ClaudeWebSession.Failure.signedOut
         } catch {
             return (found, false)
         }

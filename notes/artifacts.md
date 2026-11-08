@@ -136,6 +136,20 @@ them by path, since the same page now asks the rest of claude.ai too. Without th
 reads exactly like an artifact that does not exist; that is how the first
 attempt from page script was misread.
 
+**Only a 401, or a 403 from `/api/account`, is signed out.** Every 403 used
+to be, before any caller saw the status, so a refusal of one thing signed the
+account out of all three panes: an account whose `/v1/code/sessions` answers
+403 (one without Claude Code, or in an organization that turned it off)
+failed every search with "Sign in to X again", and making a link public where
+the organization forbids it did the same, while the "refused the change"
+messages could never show a 403. Any signed-in account may read its own
+account page, so a 403 anywhere else asks that page once
+(`ArtifactAPI.needsAccountCheck`): signed out there is signed out, and
+otherwise the 403 goes back to the caller as the refusal it was. Which of
+these claude.ai actually answers with 403 was not checked. A group share
+counts a refused or unanswered address and goes on to the next; only a
+sign-out stops it.
+
 The artifact's UUID keys every request. The page address uses a shorter id of
 its own, so `open_url` is kept as the list gives it.
 
