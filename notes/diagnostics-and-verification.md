@@ -27,6 +27,12 @@ file and which half of `mayFileRecords` refused, every withdrawal and its
 grounds, a stash going out and coming back with its counts, a mirror pass that
 did nothing because a side would not read.
 
+No event names a chat by its title. `sweep.file` used to, on every record it
+filed, and the log is what the bug form asks people to paste; the session id
+already says which session it was, and the title is only the person's own
+words about their work. Folder paths stay, since where a session ran is part of
+the diagnosis, and the form says the log holds them.
+
 `ClaudeGraft/state-report.txt` is the other half, rewritten in full each pass:
 what is true now rather than what happened. It leads with the command line
 login, because that is the fact behind the question this app gets asked most.

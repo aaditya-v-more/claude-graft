@@ -77,5 +77,7 @@ body:
       label: diagnostics.log
       description: >
         `~/Library/Application Support/ClaudeGraft/diagnostics.log` — the last
-        few dozen lines around when it happened are usually enough.
+        few dozen lines around when it happened are usually enough. Like the
+        state report it names profiles, folder paths and session identifiers,
+        and holds no chat titles, messages or tokens.
       render: text

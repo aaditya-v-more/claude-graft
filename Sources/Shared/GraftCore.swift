@@ -1705,7 +1705,8 @@ enum Graft {
                     "session": facts.cliSessionId,
                     "owner": facts.ownerAccount,
                     "into": owner.lastPathComponent,
-                    "title": facts.title,
+                    // No title. The session id names it already, and the log
+                    // is what a bug report asks to have pasted in.
                     "cwd": facts.cwd,
                 ])
                 filed.append(facts)

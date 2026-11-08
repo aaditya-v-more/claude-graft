@@ -3120,7 +3120,11 @@ do {
     let transcript = makeTranscript(session: session, owner: account, org: org, title: "Filed before")
     let file = profile.appending(path: "claude-code-sessions/\(account)/\(org)/local_\(session).json")
 
+    try? fm.removeItem(at: Diagnostics.file)
     Graft.fileMissingSessionRecords(filingInto: [profile], now: Date())
+    let log = (try? String(contentsOf: Diagnostics.file, encoding: .utf8)) ?? ""
+    check(log.contains("\"sweep.file\"") && log.contains(session) && !log.contains("Filed before"),
+          "the log names a session it filed by its id, never by its title")
     if let authored = Graft.loadSessionRecordState().authored[session] {
         var older = Graft.sessionRecord(for: authored)
         older["chromePermissionMode"] = "skip_all_permission_checks"
