@@ -5805,6 +5805,15 @@ do {
         try? fm.removeItem(at: cache)
     }
 
+    // A failed pass puts the settings file back as it was read, not as the
+    // object it parsed to, and a pass that succeeds keeps its layout and mode.
+    let helperScript = SidebarStorage.script
+    check(helperScript.contains("atomicWrite(item.prefsPath, item.prefsText, item.prefsMode)")
+            && !helperScript.contains("atomicJSON(item.prefsPath, item.prefs)"),
+          "a desktop settings file rolled back is written back byte for byte")
+    check(helperScript.contains("atomicWrite(item.prefsPath, preferencesText(item.prefsText, item.nextPrefs), item.prefsMode)"),
+          "and one written forward keeps its indent and permissions")
+
     let previousSupport = Graft.applicationSupportOverride
     let isolated = root.appending(path: "sidebar-support")
     Graft.applicationSupportOverride = isolated

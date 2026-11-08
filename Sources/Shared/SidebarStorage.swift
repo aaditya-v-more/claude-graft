@@ -185,12 +185,26 @@ async function storageOperation(action, raw) {
     } finally { db.close(); }
 }
 
-function atomicJSON(file, data) {
+// The mode given to writeFileSync passes through the umask, so a file that
+// was wider than the umask allows would come back narrower without the chmod.
+function atomicWrite(file, text, mode = 0o600) {
     const temporary = file + '.graft-' + crypto.randomUUID();
     try {
-        fs.writeFileSync(temporary, JSON.stringify(data), {mode: 0o600, flag: 'wx'});
+        fs.writeFileSync(temporary, text, {mode, flag: 'wx'});
+        fs.chmodSync(temporary, mode);
         fs.renameSync(temporary, file);
     } finally { try { fs.unlinkSync(temporary); } catch {} }
+}
+function atomicJSON(file, data) { atomicWrite(file, JSON.stringify(data)); }
+
+// claude_desktop_config.json is a file people open and edit by hand. Rewritten
+// as one compact line it was correct and unreadable, so the layout it had is
+// kept: its indent, or none if it had none, and its final newline.
+function preferencesText(original, data) {
+    if (original === null) return JSON.stringify(data, null, 2);
+    const indent = /\n([ \t]+)\S/.exec(original)?.[1] ?? '';
+    const text = indent ? JSON.stringify(data, null, indent) : JSON.stringify(data);
+    return original.endsWith('\n') ? text + '\n' : text;
 }
 
 async function run() {
@@ -244,15 +258,17 @@ async function run() {
             const {origin, raw} = candidates[0];
             await window.loadURL(origin + '/');
             const prefsPath = path.join(profile.path, 'claude_desktop_config.json');
-            let prefsText = null;
+            let prefsText = null, prefsMode = 0o600;
             if (fs.existsSync(prefsPath)) {
-                requireShape(fs.lstatSync(prefsPath).isFile());
+                const stat = fs.lstatSync(prefsPath);
+                requireShape(stat.isFile());
+                prefsMode = stat.mode & 0o777;
                 prefsText = fs.readFileSync(prefsPath, 'utf8');
             }
             const prefs = prefsText === null ? {} : parse(prefsText);
             const state = snapshot(raw);
             state.fingerprint = digest({raw, prefsText, origin});
-            const entry = {profile, window, ses, evaluate, raw, prefs, prefsText, prefsPath, state, origin};
+            const entry = {profile, window, ses, evaluate, raw, prefs, prefsText, prefsMode, prefsPath, state, origin};
             opened.push(entry);
             if (request.action === 'write') {
                 requireShape(profile.change.expected === state.fingerprint);
@@ -272,13 +288,16 @@ async function run() {
                     throw Error('changed-during-sync');
                 try {
                     await item.evaluate('write', item.next);
-                    atomicJSON(item.prefsPath, item.nextPrefs);
+                    atomicWrite(item.prefsPath, preferencesText(item.prefsText, item.nextPrefs), item.prefsMode);
                     await item.ses.flushStorageData();
                     const readBack = await item.evaluate('read', null);
                     requireShape(JSON.stringify(readBack) === JSON.stringify(item.next));
                 } catch (error) {
                     await item.evaluate('write', item.raw);
-                    if (item.prefsText !== null) atomicJSON(item.prefsPath, item.prefs);
+                    // The text as it was read, not the object it parsed to:
+                    // a rollback that reformats, reorders or drops a duplicate
+                    // key is a rollback to something the person never wrote.
+                    if (item.prefsText !== null) atomicWrite(item.prefsPath, item.prefsText, item.prefsMode);
                     else if (fs.existsSync(item.prefsPath)) fs.unlinkSync(item.prefsPath);
                     throw error;
                 }
@@ -295,6 +314,6 @@ async function run() {
     }
 }
 if (process.versions.electron) run().catch(() => require('electron').app.exit(1));
-else module.exports = {replaceShared, decode, snapshot, patch, patchPreferences};
+else module.exports = {replaceShared, decode, snapshot, patch, patchPreferences, preferencesText, atomicWrite};
 """#
 }

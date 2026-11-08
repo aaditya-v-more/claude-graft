@@ -120,4 +120,25 @@ check('a second application of the same change preserves the chosen pins and ord
     const a = plain(api.snapshot(changed)), b = plain(api.snapshot(result));
     assert.deepEqual([a.pins,a.order,a.sort], [b.pins,b.order,b.sort]);
 });
+check('desktop settings written back keep the indent and final newline they had', () => {
+    const data = {preferences: {a: 1}};
+    assert.equal(api.preferencesText('{\n    "x": 1\n}\n', data), JSON.stringify(data, null, 4) + '\n');
+    assert.equal(api.preferencesText('{\n\t"x": 1\n}', data), JSON.stringify(data, null, '\t'));
+    assert.equal(api.preferencesText('{"x":1}', data), JSON.stringify(data));
+});
+check('a settings file written for the first time is indented by two spaces', () => {
+    assert.equal(api.preferencesText(null, {a: 1}), '{\n  "a": 1\n}');
+});
+check('a settings file written back keeps its permissions', () => {
+    const os = require('node:os'), path = require('node:path');
+    const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'graft-prefs-'));
+    try {
+        const file = path.join(folder, 'claude_desktop_config.json');
+        fs.writeFileSync(file, '{}'); fs.chmodSync(file, 0o664);
+        api.atomicWrite(file, '{ "kept": true }', fs.statSync(file).mode & 0o777);
+        assert.equal(fs.statSync(file).mode & 0o777, 0o664);
+        assert.equal(fs.readFileSync(file, 'utf8'), '{ "kept": true }');
+        assert.deepEqual(fs.readdirSync(folder), ['claude_desktop_config.json']);
+    } finally { fs.rmSync(folder, {recursive: true, force: true}); }
+});
 console.log(`${checks}/${checks} sidebar storage checks passed`);

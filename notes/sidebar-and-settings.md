@@ -99,3 +99,15 @@ every local preference. A legacy link migrates from the saved original; without
 one, it imports only MCP definitions, never another profile's permission grants.
 An unreadable settings file or backup blocks the copy. The source is never
 written, and the backup remains until the ordinary ungraft cleanup.
+
+**The sidebar helper leaves the settings file as a person would find it.** A
+sync writes two fallback preferences into `claude_desktop_config.json`, and
+it used to write the whole file back as one compact line with mode 0600, on the
+way forward and on a rollback alike. The values were right and the file was
+not: a file people open and edit by hand turned unreadable, a mode widened on
+purpose was narrowed, and a rollback put back the object the text parsed to
+rather than the text, which is not the same file once a key repeats or the
+layout mattered to somebody. A rollback now writes `prefsText` back byte for
+byte; a forward write keeps the indent the file had (two spaces for a file
+written for the first time), its final newline and its mode, chmodded past the
+umask.
