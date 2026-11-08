@@ -105,6 +105,23 @@ both written down — and the name is fixed by the session, so a later pass
 can only ever find a record where an earlier one left it, and a delete in a
 sidebar writes a marker naming it the same way.
 
+**A filed record never grants more than its transcript says.** Every record
+the sweep wrote up to 2.0.0 carried `chromePermissionMode:
+skip_all_permission_checks`, whatever the person had chosen, and a transcript
+naming no permission mode was filed as `auto`. Neither value came out of a
+transcript and no note gave a reason for either. The browser setting is a
+choice Claude makes per session — on this machine three records carry
+`follow_a_plan` and the twelve Claude rewrote carry no such key at all — so a
+recovered session continued in Claude got the most permissive setting there
+is, which nobody picked. The key is left out now, which is how Claude's own
+rewrites leave it and lets the person's setting hold, and a transcript with no
+mode files as `default`. A record still holding the bytes the older shape gave
+it is still this app's, so `olderSessionRecordData` recognises it and the next
+pass rewrites it whether or not its transcript moved; waiting for the session
+to move again would have left the setting there for good. The transcript cache
+is stamped with `transcriptReadingVersion` for the same reason, since an entry
+read the old way goes on saying `auto` for as long as its file sits still.
+
 Four things hold the sweep in. A transcript written moments ago waits out a
 quiet window first, a minute of it — but only while a Claude signed into the
 owner's account is actually running, because that is the only thing the wait

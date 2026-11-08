@@ -109,6 +109,7 @@ any of these. The why is in [notes/updates-and-releases.md](notes/updates-and-re
 - **A profile writes no record into a folder that resolves outside itself.** That, not the account, is why grafted profiles lose sessions and archives.
 - **Ownership is `ownerAccountUuid` on the `bridge-session` line,** set by the machine's command line login and never read back.
 - **The sweep writes the record** and keeps it current until Claude rewrites it in its own shape.
+- **A filed record never grants more than its transcript says:** no `chromePermissionMode`, `permissionMode` falls back to `default`, and a record in the older shape is rewritten (`olderSessionRecordData`).
 - **A record you cannot see is neither deleted nor unfiled.** A store must have been read (`StoreContents.stores`) and missing twice (`vanished`) before a withdrawal; `isStashedAway` checks every folder up to the store.
 - **A record remembered where nothing exists any more is a pair to drop.**
 - **A conversation carried on or asked again is not a second one** — `superseded`, `resumedCopies`. **A fork is**, and only its record says so: keep `forks` in `session-records.json`.

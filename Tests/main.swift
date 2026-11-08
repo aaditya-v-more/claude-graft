@@ -2999,7 +2999,26 @@ do {
         check(record["cliSessionId"] as? String == "11111111-1111-4111-8111-111111111111"
               && record["isArchived"] as? Bool == false && record["titleSource"] as? String == "auto",
               "the rest of the record says what Claude's own records say about a session")
+        check(record["chromePermissionMode"] == nil,
+              "and it says nothing about browser permission checks, so the person's own setting holds")
+        check(record["permissionMode"] as? String == "auto",
+              "while the permission mode is the one the transcript names")
     }
+
+    // Nothing in this one names a permission mode, and a record is what a
+    // session continued in Claude starts from.
+    let unnamed = "12121212-1212-4121-8121-121212121212"
+    let silent = Graft.claudeProjects.appending(path: "-Users-test-work/\(unnamed).jsonl")
+    try! ["{\"type\":\"bridge-session\",\"sessionId\":\"\(unnamed)\",\"bridgeSessionId\":\"cse_01Silent\","
+          + "\"ownerAccountUuid\":\"\(ownerAccount)\",\"ownerOrganizationUuid\":\"\(ownerOrg)\"}",
+          "{\"promptId\":\"p-1\",\"cwd\":\"/Users/Shared/work\",\"type\":\"user\","
+          + "\"message\":{\"role\":\"user\",\"content\":\"hello\"},\"uuid\":\"u-1\","
+          + "\"timestamp\":\"2026-08-29T17:00:00.000Z\"}"]
+        .joined(separator: "\n").write(to: silent, atomically: true, encoding: .utf8)
+    let silentFacts = Graft.sessionFacts(inTranscriptAt: silent, cliSessionId: unnamed)
+    check(silentFacts?.permissionMode == "default",
+          "a transcript that names no permission mode is filed with the one that grants least")
+    try? fm.removeItem(at: silent)
 }
 
 do {
@@ -3083,6 +3102,42 @@ do {
           "a record behind its transcript, still holding what this app wrote, is brought up")
     check(Graft.sessionUpdateDecision(authored: early, facts: later, diskMatchesAuthored: false) == .takenOver,
           "once something else has rewritten the record, this app never touches it again")
+    check(Graft.sessionUpdateDecision(authored: early, facts: early, diskMatchesAuthored: false,
+                                      diskInOlderShape: true) == .refresh,
+          "a record still in the shape an earlier version filed is rewritten even with nothing new to say")
+    check(Graft.sessionUpdateDecision(authored: nil, facts: early, diskMatchesAuthored: false,
+                                      diskInOlderShape: true) == .leave,
+          "though only one this app remembers filing")
+}
+
+do {
+    // Every record filed before said to skip every browser permission check.
+    // One still in that shape is this app's, and the next pass takes it out.
+    let account = "2e2e2e2e-2e2e-4e2e-8e2e-2e2e2e2e2e2e"
+    let org = "2f2f2f2f-2f2f-4f2f-8f2f-2f2f2f2f2f2f"
+    let session = "2a2a2a2a-2a2a-4a2a-8a2a-2a2a2a2a2a2a"
+    let profile = makeProfile("Claude-Older-Shape", account: account, org: org)
+    let transcript = makeTranscript(session: session, owner: account, org: org, title: "Filed before")
+    let file = profile.appending(path: "claude-code-sessions/\(account)/\(org)/local_\(session).json")
+
+    Graft.fileMissingSessionRecords(filingInto: [profile], now: Date())
+    if let authored = Graft.loadSessionRecordState().authored[session] {
+        var older = Graft.sessionRecord(for: authored)
+        older["chromePermissionMode"] = "skip_all_permission_checks"
+        try! JSONSerialization.data(withJSONObject: older, options: [.sortedKeys]).write(to: file)
+    }
+    check((try? String(contentsOf: file, encoding: .utf8))?.contains("skip_all_permission_checks") == true,
+          "a record filed by an earlier version said to skip every browser permission check")
+    Graft.fileMissingSessionRecords(filingInto: [profile], now: Date())
+    let record = (try? Data(contentsOf: file))
+        .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+    check(record?["title"] as? String == "Filed before" && record?["chromePermissionMode"] == nil,
+          "and the next pass rewrites it without that")
+    check(Graft.loadSessionRecordState().authored[session] != nil,
+          "keeping it this app's to bring up to date")
+
+    try? fm.removeItem(at: profile)
+    try? fm.removeItem(at: transcript)
 }
 
 do {

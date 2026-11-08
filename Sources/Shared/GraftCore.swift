@@ -597,7 +597,10 @@ enum Graft {
         // A session that got no answer back leaves no line carrying these,
         // so they hold the last values the transcript ever mentioned rather
         // than an honest read; the record still needs something in them.
-        var model = "claude-sonnet-5", effort = "medium", permissionMode = "auto", cwd = ""
+        // The permission mode is the one a session continued in Claude starts
+        // from, so a transcript that names none falls back to the mode that
+        // grants least rather than to one nobody chose.
+        var model = "claude-sonnet-5", effort = "medium", permissionMode = "default", cwd = ""
         var promptIds: Set<String> = []
         var trace = ConversationTrace()
         var branches: [String] = []
@@ -745,7 +748,11 @@ enum Graft {
             // here. Nothing the transcript holds can recover that, and an
             // empty list is what a session sees when none is configured.
             "remoteMcpServersConfig": [String](),
-            "chromePermissionMode": "skip_all_permission_checks",
+            // No `chromePermissionMode`. It is a choice made per session and
+            // nothing in a transcript says what it was; a record without one
+            // takes the person's own setting, which is how Claude itself
+            // rewrites most of them. Every record filed before this said to
+            // skip every browser permission check.
             "completedTurns": facts.prompts,
             "lastSpawnRootDetected": false,
             "bridgeSessionIds": facts.bridgeIds.map {
@@ -788,7 +795,13 @@ enum Graft {
         /// Optional so a cache written before traces were kept still loads;
         /// an entry without one is read again, once, rather than trusted.
         var trace: ConversationTrace?
+        /// Which reading of a transcript made this entry. A transcript that
+        /// names no permission mode was once read as `auto`, and an entry
+        /// from then would go on saying so for as long as the file sat still.
+        var reading: Int?
     }
+
+    static let transcriptReadingVersion = 2
 
     /// Parsed transcripts, kept on disk rather than only in memory.
     ///
@@ -1302,10 +1315,18 @@ enum Graft {
     /// within seconds of the session being opened in the owner's window —
     /// and flattening one of those back into a parsed version would throw
     /// away everything a transcript cannot recover.
+    ///
+    /// A record still in the shape an earlier version filed is this app's as
+    /// surely as one in today's, and is rewritten whether or not its transcript
+    /// moved: that shape skipped every browser permission check, and leaving it
+    /// until the session happened to move again would leave it there for good.
     static func sessionUpdateDecision(authored: SessionFacts?,
                                       facts: SessionFacts,
-                                      diskMatchesAuthored: Bool) -> SessionUpdate {
-        guard let authored, authored != facts else { return .leave }
+                                      diskMatchesAuthored: Bool,
+                                      diskInOlderShape: Bool = false) -> SessionUpdate {
+        guard let authored else { return .leave }
+        if diskInOlderShape { return .refresh }
+        guard authored != facts else { return .leave }
         return diskMatchesAuthored ? .refresh : .takenOver
     }
 
@@ -1622,11 +1643,11 @@ enum Graft {
                 // pass filed here is this app's to keep current, and the
                 // transcript moving on past it is the moment to do so.
                 if let owner, let authored = state.authored[facts.cliSessionId] {
+                    let shape = recordOnDisk(matches: authored, at: recordFile(for: facts, in: owner))
                     switch sessionUpdateDecision(authored: authored,
                                                  facts: facts,
-                                                 diskMatchesAuthored:
-                                                    recordOnDisk(matches: authored,
-                                                                 at: recordFile(for: facts, in: owner))) {
+                                                 diskMatchesAuthored: shape.current,
+                                                 diskInOlderShape: shape.older) {
                     case .leave:
                         break
                     case .takenOver:
@@ -1729,7 +1750,7 @@ enum Graft {
         transcriptCacheLock.lock()
         loadTranscriptCache()
         if let cached = transcriptCache[url.path], cached.modified == stamp, cached.size == size,
-           let trace = cached.trace {
+           cached.reading == transcriptReadingVersion, let trace = cached.trace {
             transcriptCacheLock.unlock()
             return (cached.facts, trace)
         }
@@ -1738,7 +1759,8 @@ enum Graft {
         let reading = readTranscript(at: url, cliSessionId: cliSessionId)
         transcriptCacheLock.lock()
         transcriptCache[url.path] = CachedTranscript(modified: stamp, size: size,
-                                                     facts: reading.facts, trace: reading.trace)
+                                                     facts: reading.facts, trace: reading.trace,
+                                                     reading: transcriptReadingVersion)
         transcriptCacheDirty = true
         transcriptCacheLock.unlock()
         return reading
@@ -1764,14 +1786,24 @@ enum Graft {
             .appending(path: "local_\(facts.cliSessionId).json")
     }
 
-    /// Whether the record on disk is still the one this app wrote. Claude
-    /// writes its own shape over a record it takes an interest in, so this
-    /// is the line between keeping a record current and flattening one.
-    private static func recordOnDisk(matches facts: SessionFacts, at file: URL) -> Bool {
-        guard let onDisk = try? Data(contentsOf: file),
-              let authored = sessionRecordData(for: facts)
-        else { return false }
-        return onDisk == authored
+    /// The bytes versions up to 2.0.0 filed for the same facts, which said to
+    /// skip every browser permission check. Kept only so a record still in
+    /// that shape is known to be this app's, and rewritten without it.
+    private static func olderSessionRecordData(for facts: SessionFacts) -> Data? {
+        var record = sessionRecord(for: facts)
+        record["chromePermissionMode"] = "skip_all_permission_checks"
+        return try? JSONSerialization.data(withJSONObject: record, options: [.sortedKeys])
+    }
+
+    /// Whether the record on disk is still the one this app wrote, today or
+    /// in the shape an earlier version wrote it. Claude writes its own shape
+    /// over a record it takes an interest in, so this is the line between
+    /// keeping a record current and flattening one.
+    private static func recordOnDisk(matches facts: SessionFacts,
+                                     at file: URL) -> (current: Bool, older: Bool) {
+        guard let onDisk = try? Data(contentsOf: file) else { return (false, false) }
+        return (onDisk == sessionRecordData(for: facts),
+                onDisk == olderSessionRecordData(for: facts))
     }
 
     /// Puts one record where the session's owner will list it.
