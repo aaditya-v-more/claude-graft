@@ -4113,6 +4113,132 @@ do {
           "so going back is still exact rather than a guess at which record belonged to whom")
 }
 
+/// The records in one organization folder, by name.
+func records(in folder: URL) -> [String] {
+    ((try? fm.contentsOfDirectory(atPath: folder.path)) ?? [])
+        .filter { $0.hasPrefix("local_") }
+        .sorted()
+}
+
+/// Make one organization the one a profile is working in, the way a new chat
+/// there does: the newest folder under the account, in both stores.
+func workIn(_ org: String, of profile: URL, account: String) {
+    for store in Graft.chatStores {
+        let accountDir = profile.appending(path: store).appending(path: account)
+        for name in (try? fm.contentsOfDirectory(atPath: accountDir.path)) ?? [] where !name.hasPrefix(".") {
+            try? fm.setAttributes([.modificationDate: Date().addingTimeInterval(name == org ? 0 : -600)],
+                                  ofItemAtPath: accountDir.appending(path: name).path)
+        }
+    }
+}
+
+do {
+    // The lender's account belongs to two organizations, and the person starts
+    // working in the other one. The borrower's folder stays where it is while
+    // what it borrows from moves, and reading that as a first pass stashed the
+    // first organization's chats as the borrower's own and copied them into
+    // the second — and back again the other way, until both held the union.
+    try? fm.removeItem(at: Graft.mirrorStateFile)
+    let lender = makeProfile("Claude-Two-Orgs", account: "TWOORGS", org: "ORG-ONE",
+                             chats: ["one-a", "one-b"])
+    _ = makeProfile("Claude-Two-Orgs", account: "TWOORGS", org: "ORG-TWO", chats: ["two-a"])
+    let borrower = makeProfile("Claude-Two-Orgs-B", account: "TOBORROW", org: "TOBORG", chats: ["b-own"])
+    let config = GraftConfig(profileDir: borrower.path, sourceDir: lender.path)
+    let account = lender.appending(path: "claude-code-sessions/TWOORGS")
+    let one = account.appending(path: "ORG-ONE"), two = account.appending(path: "ORG-TWO")
+    let mine = borrower.appending(path: "claude-code-sessions/TOBORROW/TOBORG")
+    let stash = mine.deletingLastPathComponent().appending(path: ".TOBORG\(Graft.stashSuffix)")
+
+    workIn("ORG-ONE", of: lender, account: "TWOORGS")
+    Graft.apply(config)
+    check(records(in: mine) == ["local_b-own.json", "local_one-a.json", "local_one-b.json"],
+          "a borrower starts out with the organization its lender is working in")
+
+    try! "{}".write(to: two.appending(path: "local_two-b.json"), atomically: true, encoding: .utf8)
+    workIn("ORG-TWO", of: lender, account: "TWOORGS")
+    Graft.apply(config)
+    check(records(in: two) == ["local_b-own.json", "local_two-a.json", "local_two-b.json"],
+          "the organization the lender moved to holds only its own chats and the borrower's")
+    check(records(in: mine) == ["local_b-own.json", "local_two-a.json", "local_two-b.json"],
+          "and the borrower follows it there, leaving the first organization's chats behind")
+    check(records(in: stash) == ["local_b-own.json"],
+          "while its stash goes on naming what it brought and none of what it borrowed")
+
+    try! "{}".write(to: one.appending(path: "local_one-c.json"), atomically: true, encoding: .utf8)
+    workIn("ORG-ONE", of: lender, account: "TWOORGS")
+    Graft.apply(config)
+    check(records(in: one) == ["local_b-own.json", "local_one-a.json", "local_one-b.json", "local_one-c.json"],
+          "going back to the first organization brings none of the second's chats with it")
+    check(records(in: two) == ["local_b-own.json", "local_two-a.json", "local_two-b.json"],
+          "and leaves the second as it was")
+    check(records(in: stash) == ["local_b-own.json"], "with the stash still naming only the borrower's own")
+
+    Graft.apply(GraftConfig(profileDir: borrower.path, sourceDir: nil))
+    check(chatsVisible(to: borrower) == ["local_b-own.json"],
+          "so going back to its own chats keeps none of the lender's, whichever organization they came from")
+}
+
+do {
+    // The lender's profile signs into a second account, which starts a folder
+    // of its own. The first account's chats were copied into it, beside its own
+    // and the borrower's.
+    try? fm.removeItem(at: Graft.mirrorStateFile)
+    let lender = makeProfile("Claude-Signs-In", account: "FIRSTACC", org: "FIRSTORG", chats: ["first"])
+    let borrower = makeProfile("Claude-Signs-In-B", account: "SIBORROW", org: "SIBORG", chats: ["b-own"])
+    let config = GraftConfig(profileDir: borrower.path, sourceDir: lender.path)
+    let first = lender.appending(path: "claude-code-sessions/FIRSTACC/FIRSTORG")
+    let second = lender.appending(path: "claude-code-sessions/SECONDACC/SECONDORG")
+    let mine = borrower.appending(path: "claude-code-sessions/SIBORROW/SIBORG")
+    let stash = mine.deletingLastPathComponent().appending(path: ".SIBORG\(Graft.stashSuffix)")
+
+    Graft.apply(config)
+    try! "{}".write(to: mine.appending(path: "local_during.json"), atomically: true, encoding: .utf8)
+
+    _ = makeProfile("Claude-Signs-In", account: "SECONDACC", org: "SECONDORG", chats: ["second"])
+    Graft.apply(config)
+    check(records(in: second) == ["local_b-own.json", "local_second.json"],
+          "a lender signed into a second account holds only that account's chats and the borrower's")
+    check(records(in: mine) == ["local_b-own.json", "local_second.json"],
+          "and the borrower now reads that account's chats instead of the first one's")
+    check(records(in: stash) == ["local_b-own.json"],
+          "without its stash taking the first account's chats for its own")
+    check(records(in: first) == ["local_b-own.json", "local_during.json", "local_first.json"],
+          "a chat started while it borrowed the first account is handed back to it, the way going back would")
+}
+
+do {
+    // The same, starting from two profiles on one account: the pair moves from
+    // the branch that stashes the whole store to the one that stashes an
+    // organization, and a second stash appeared beside the first, holding the
+    // lender's chats.
+    try? fm.removeItem(at: Graft.mirrorStateFile)
+    let lender = makeProfile("Claude-Turns", account: "TURNACC", org: "TURNORG", chats: ["first"])
+    let borrower = makeProfile("Claude-Turns-B", account: "TURNACC", org: "TURNORG", chats: ["b-own"])
+    let config = GraftConfig(profileDir: borrower.path, sourceDir: lender.path)
+    let second = lender.appending(path: "claude-code-sessions/TURN2ACC/TURN2ORG")
+    let mine = borrower.appending(path: "claude-code-sessions/TURNACC/TURNORG")
+    let storeStash = borrower.appending(path: ".claude-code-sessions\(Graft.stashSuffix)/TURNACC/TURNORG")
+
+    Graft.apply(config)
+    check(records(in: storeStash) == ["local_b-own.json"],
+          "two profiles on one account put the borrower's store away whole")
+
+    _ = makeProfile("Claude-Turns", account: "TURN2ACC", org: "TURN2ORG", chats: ["second"])
+    Graft.apply(config)
+    check(records(in: second) == ["local_b-own.json", "local_second.json"],
+          "a lender moving to another account takes none of the first account's chats with it")
+    check(records(in: mine) == ["local_b-own.json", "local_second.json"],
+          "and the borrower reads the new account's chats and its own")
+    check(!Graft.exists(Graft.stashURL(for: mine)),
+          "with no second stash put down beside the store's")
+    check(records(in: storeStash) == ["local_b-own.json"],
+          "and the store's stash still naming only what the borrower brought")
+
+    Graft.apply(GraftConfig(profileDir: borrower.path, sourceDir: nil))
+    check(chatsVisible(to: borrower) == ["local_b-own.json"],
+          "so going back still gives it exactly its own chats")
+}
+
 do {
     // The pass that must never happen: `apply` runs on every launch, so a
     // second one that put the borrowed chats away as though they were the

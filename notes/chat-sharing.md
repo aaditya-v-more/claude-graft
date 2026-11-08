@@ -241,6 +241,34 @@ through a symlinked parent and `isSymlink` answers no. Both shapes are the rule
 the rest of this app is built on, which is whether the folder resolves inside
 the profile at all.
 
+**A source that moved is a re-pair, not a first pass.** A borrower on another
+account is paired with whichever of the lender's organization folders is
+newest, so the source half moves whenever the lender signs into a second
+account or simply starts a chat in its other organization. The borrower's
+folder stays exactly where it was, and the pass after the move used to read the
+dropped pair as a first one. `dropBorrowedCopies` could take out only what the
+*new* source held, which was none of it; `stash` folded the old stash back in
+and put the lot away, so the stash named the first organization's chats as the
+borrower's own; seeding copied them into the second, and the lender's other
+organization held the first one's history. Going back and forth left both
+holding the union, and going back to its own chats kept four of the lender's
+chats in the borrower for good, since nothing knew any more that they had been
+borrowed. Reproduced three ways in a sandbox: an organization change, a lender
+signing into a second account, and two profiles on one account turning into two
+on different accounts, where a second, organization-level stash appeared beside
+the store's.
+
+So `firstPass` is asked of the borrowing folder before any pair is dropped, and
+a pair borrowed by the same folder from somewhere else is settled by `repair`
+first: the handover `unmirrorChatStores` does, one last pass and then out with
+every copy the old source holds byte for byte that the stash does not name.
+The new pairing then starts from what the borrower really has. That includes
+handing back a chat the borrower started while it borrowed the old source, for
+the same reason going back does — after the handover nothing tells it from a
+borrowed one — and it stays in the folder it was started against. An old source
+that is no longer there gets nothing handed back, and its copies are kept,
+being the only ones left.
+
 **Chats an account switch left behind are copied, never moved.** Signing out of
 one account and into another inside a single Claude leaves the first one's
 history exactly where it was written — a store is keyed `<account>/<org>` and an

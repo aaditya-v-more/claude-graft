@@ -2578,12 +2578,76 @@ enum Graft {
         let theirs = src.appending(path: sourceAccountDir).appending(path: sourceOrg)
         try? fm.createDirectory(at: mine.deletingLastPathComponent(),
                                 withIntermediateDirectories: true)
-        forgetStalePairs(under: dst, keeping: [(mine: mine, theirs: theirs)])
+
+        // Asked before anything is dropped. The source half is the one that
+        // moves when the lender signs into another account or starts working
+        // in another organization, and a folder that was borrowing yesterday
+        // is not new today because what it borrows from moved: read as a first
+        // pass, the stash folded the old source's records in as this profile's
+        // own and the seeding copied them into the new one.
+        let earlier = mirrorPairs(borrowedBy: mine).filter { $0 != pairKey(mine, theirs) }
         let firstPass = mirrorPairs(borrowedBy: mine).isEmpty
+        for key in earlier {
+            guard let old = pairFolders(key)?.other else { continue }
+            repair(mine, from: old)
+        }
+        forgetStalePairs(under: dst, keeping: [(mine: mine, theirs: theirs)])
         if firstPass { dropBorrowedCopies(from: mine, sharing: theirs, store: dst) }
         openForMirror(mine, firstPass: firstPass)
         if firstPass { seedOwnChats(into: mine, store: dst) }
         mirrorChatFolders(mine, theirs)
+    }
+
+    /// Take what a folder borrowed from one source back out before it starts
+    /// borrowing from another, the way going back to its own chats would.
+    ///
+    /// Left in, the old source's records are carried into the new one as
+    /// though this profile had brought them, so a lender that changed
+    /// organization found the other organization's chats in it, and changing
+    /// back put the union in both. A source that is not there any more has
+    /// nothing to be handed back to, and its copies are all that is left of
+    /// those chats, so they stay.
+    private static func repair(_ mine: URL, from old: URL) {
+        guard isDirectory(old) else {
+            Diagnostics.note("mirror.repair.kept", [
+                "folder": mine.path, "was": old.path,
+                "because": "the folder it borrowed from is gone, so its copies are kept",
+            ])
+            return
+        }
+        let returned = handBack(mine, to: old)
+        Diagnostics.note("mirror.repair", ["folder": mine.path, "was": old.path, "returned": returned])
+    }
+
+    /// One last pass, then out with every copy the other side holds byte for
+    /// byte that the stash does not name. Returns how many went.
+    ///
+    /// The last pass carries what the profile did while it was borrowing — a
+    /// chat started, one archived, one deleted — over to the other side first,
+    /// so what goes is only ever bytes the other side already has. What the
+    /// stash names is the profile's own and stays: since the merge it has been
+    /// on both sides too, and the byte test alone would hand this profile's
+    /// own history to the one it borrowed from and keep nothing back.
+    private static func handBack(_ mine: URL, to theirs: URL) -> Int {
+        mirrorChatFolders(mine, theirs)
+        let store = mine.deletingLastPathComponent().deletingLastPathComponent()
+        let own = stashedCounterpart(of: mine, store: store)
+        var removed = 0
+        for name in (try? fm.contentsOfDirectory(atPath: mine.path)) ?? [] where isMirrored(name) {
+            // Kept rather than removed and fetched back out of the stash, so
+            // that a chat of its own the profile archived while the graft was
+            // up stays archived. Restoring the stashed copy over it would put
+            // the conversation back in the sidebar unarchived, which is the
+            // one symptom this app gets reported for most.
+            if let own, exists(own.appending(path: name)) { continue }
+            guard let here = try? Data(contentsOf: mine.appending(path: name)),
+                  let there = try? Data(contentsOf: theirs.appending(path: name)),
+                  here == there,
+                  (try? fm.removeItem(at: mine.appending(path: name))) != nil
+            else { continue }
+            removed += 1
+        }
+        return removed
     }
 
     /// Permission opt-ins live beside MCP definitions. Linking that file lets
@@ -2769,34 +2833,7 @@ enum Graft {
 
         for key in keys {
             guard let pair = pairFolders(key) else { continue }
-            let (mine, theirs) = (pair.one, pair.other)
-
-            mirrorChatFolders(pair.one, pair.other)
-
-            // Which of the merged records this profile brought to the graft,
-            // asked of the stash because that is the only thing that still
-            // knows. Since the merge these have been on both sides, so the
-            // handover above leaves them byte for byte identical and the test
-            // below would take every one of them out of the profile that
-            // owns them — the chats would be left in the profile they were
-            // only ever lent to.
-            let store = mine.deletingLastPathComponent().deletingLastPathComponent()
-            let own = stashedCounterpart(of: mine, store: store)
-
-            for name in (try? fm.contentsOfDirectory(atPath: mine.path)) ?? [] where isMirrored(name) {
-                // Kept rather than removed and fetched back out of the stash,
-                // so that a chat of its own the profile archived while the
-                // graft was up stays archived. Restoring the stashed copy over
-                // it would put the conversation back in the sidebar unarchived,
-                // which is the one symptom this app gets reported for most.
-                if let own, exists(own.appending(path: name)) { continue }
-                guard let here = try? Data(contentsOf: mine.appending(path: name)),
-                      let there = try? Data(contentsOf: theirs.appending(path: name)),
-                      here == there
-                else { continue }
-                try? fm.removeItem(at: mine.appending(path: name))
-                removed += 1
-            }
+            removed += handBack(pair.one, to: pair.other)
         }
         // Only the pairs this pass settled. `forgetMirrors` drops every pair
         // with a half under the profile, and the ones it lends are somebody
