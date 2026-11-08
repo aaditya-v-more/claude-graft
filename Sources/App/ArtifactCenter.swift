@@ -460,24 +460,13 @@ final class ArtifactCenter: ObservableObject {
 
     private func signedIn(_ id: UUID, _ identity: ArtifactAPI.Identity) {
         signIn = nil
-        // The same account signed in twice keeps its first store, and the
-        // second goes, so nothing is listed twice under two names.
-        if let existing = accounts.first(where: { $0.accountUuid == identity.accountUuid && $0.id != id }) {
-            retire(id)
-            sessions[existing.id]?.reset()
-            status = L10n.format("%@ was already signed in", identity.email)
-            Task { await load(existing.id, again: true) }
-            lastSignIn = SignIn(account: existing.id, at: Date())
-            return
-        }
-        let account = ArtifactAccount(id: id, email: identity.email, accountUuid: identity.accountUuid,
-                                      org: identity.org)
-        if let index = accounts.firstIndex(where: { $0.id == id }) {
-            accounts[index] = account
-        } else {
-            accounts.append(account)
-        }
+        let wasAnother = account(id).map { $0.accountUuid != identity.accountUuid } ?? false
+        let change = ArtifactAccounts.signedIn(accounts, store: id, as: identity)
+        accounts = change.accounts
         saveAccounts()
+        for earlier in change.retired { retire(earlier) }
+        if wasAnother { lists[id] = nil }
+        if !change.retired.isEmpty { status = L10n.format("Signed in to %@ again", identity.email) }
         sessions[id]?.reset()
         Task { await load(id, again: true) }
         lastSignIn = SignIn(account: id, at: Date())

@@ -391,7 +391,7 @@
 "Select a group" = "Выберите группу";
 "Signing in…" = "Вход…";
 "Sign In to claude.ai" = "Вход в claude.ai";
-"%@ was already signed in" = "Вход в %@ уже был выполнен";
+"Signed in to %@ again" = "Снова выполнен вход в %@";
 "claude.ai refused the change (%ld)" = "claude.ai отклонил изменение (%ld)";
 "Anyone with the link can view “%@”" = "«%@» может открыть любой, у кого есть ссылка";
 "“%@” is private again" = "«%@» снова закрыт";

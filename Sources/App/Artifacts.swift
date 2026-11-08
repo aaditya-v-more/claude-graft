@@ -13,6 +13,33 @@ struct ArtifactAccount: Codable, Equatable, Identifiable {
     var org: String?
 }
 
+/// What a finished sign-in does to the list of accounts.
+enum ArtifactAccounts {
+    /// The store just signed into is the one that works. A second sign-in to
+    /// an account already listed is made because the first one stopped
+    /// working, and a sign-in cannot be moved between stores without reading
+    /// it out of one, which is never done. So the record moves to the new
+    /// store, keeping its place in the list, and the stores it was under
+    /// before come back in `retired` to be removed. A record that was under
+    /// this store as some other account goes too: the sign-in it had is the
+    /// one this replaced.
+    static func signedIn(_ accounts: [ArtifactAccount], store id: UUID,
+                         as identity: ArtifactAPI.Identity) -> (accounts: [ArtifactAccount], retired: [UUID]) {
+        let record = ArtifactAccount(id: id, email: identity.email, accountUuid: identity.accountUuid,
+                                     org: identity.org)
+        let retired = accounts.filter { $0.accountUuid == identity.accountUuid && $0.id != id }.map(\.id)
+        let replaced = Set(retired + [id])
+        var list = accounts.filter { !replaced.contains($0.id) }
+        if let place = accounts.firstIndex(where: { retired.contains($0.id) })
+            ?? accounts.firstIndex(where: { $0.id == id }) {
+            list.insert(record, at: accounts[..<place].filter { !replaced.contains($0.id) }.count)
+        } else {
+            list.append(record)
+        }
+        return (list, retired)
+    }
+}
+
 /// What an invited person may do with an artifact, by the names claude.ai's
 /// invitations use.
 enum ArtifactRole: String, Codable, CaseIterable, Identifiable {

@@ -69,8 +69,21 @@ shares the store, with nothing listing it and nothing to remove it. So:
   file was read: one set aside, or never written, may name the accounts those
   stores belong to.
 
-The same account signed in twice keeps its first store; the second is removed
-at once, so one account is never listed under two names.
+The same account signed in twice keeps its newest store, and its record moves
+there, keeping its place in the list; the store it was under before is
+removed, so one account is never listed under two names. Keeping the first
+store, as this once did, was the wrong half. A second sign-in to a listed
+account is made because the first stopped working: Projects and Search say
+"Sign in to A again" with Add Account… the button in view, and on macOS 13,
+where no store is kept, that is every account after every restart. Add Account
+signed in under a new id, found A already listed, removed the new store and
+reloaded A from its old, empty one, so A stayed signed out while the status
+line said it was already signed in, however often it was tried. A sign-in
+cannot be moved from one store to another without reading it, which the rules
+forbid, so the record is what moves. Sign In Again… on A finished as some
+other account B is the same move: B's record goes to A's store, B's old store
+is removed, and A's record goes with the sign-in it had. `ArtifactAccounts.signedIn`
+decides all of this, and the suite holds it.
 
 ## The requests
 

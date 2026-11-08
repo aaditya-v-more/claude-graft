@@ -391,7 +391,7 @@
 "Select a group" = "Select a group";
 "Signing in…" = "Signing in…";
 "Sign In to claude.ai" = "Sign In to claude.ai";
-"%@ was already signed in" = "%@ was already signed in";
+"Signed in to %@ again" = "Signed in to %@ again";
 "claude.ai refused the change (%ld)" = "claude.ai refused the change (%ld)";
 "Anyone with the link can view “%@”" = "Anyone with the link can view “%@”";
 "“%@” is private again" = "“%@” is private again";

@@ -6658,6 +6658,32 @@ do {
     check(ArtifactAPI.identity(from: Data(#"{"error":"unauthorized"}"#.utf8)) == nil,
           "an answer that names no account is no sign-in")
 
+    let first = ArtifactAccount(id: UUID(), email: "a@example.com", accountUuid: "acc-a", org: "org-a")
+    let second = ArtifactAccount(id: UUID(), email: "b@example.com", accountUuid: "acc-b", org: "org-b")
+    let fresh = UUID()
+    let again = ArtifactAccounts.signedIn([first, second], store: fresh,
+                                          as: ArtifactAPI.Identity(accountUuid: "acc-a", email: "a@example.com",
+                                                                   org: "org-a"))
+    check(again.accounts.map(\.id) == [fresh, second.id] && again.accounts.first?.accountUuid == "acc-a"
+            && again.retired == [first.id],
+          "signing in again to a listed account keeps the new store, in the account's place, and lets the dead one go")
+    let added = ArtifactAccounts.signedIn([first], store: fresh,
+                                          as: ArtifactAPI.Identity(accountUuid: "acc-b", email: "b@example.com",
+                                                                   org: "org-b"))
+    check(added.accounts.map(\.id) == [first.id, fresh] && added.retired.isEmpty,
+          "a sign-in to an account not yet listed adds it and lets nothing go")
+    let crossed = ArtifactAccounts.signedIn([first, second], store: first.id,
+                                            as: ArtifactAPI.Identity(accountUuid: "acc-b", email: "b@example.com",
+                                                                     org: "org-b"))
+    check(crossed.accounts.map(\.id) == [first.id] && crossed.accounts.first?.accountUuid == "acc-b"
+            && crossed.retired == [second.id],
+          "signing in again to one account as another listed one leaves that one listed once, on the store now holding it")
+    let same = ArtifactAccounts.signedIn([first, second], store: second.id,
+                                         as: ArtifactAPI.Identity(accountUuid: "acc-b", email: "b@example.com",
+                                                                  org: "org-b2"))
+    check(same.accounts.map(\.id) == [first.id, second.id] && same.accounts.last?.org == "org-b2" && same.retired.isEmpty,
+          "signing in again to an account as itself keeps its store and its place")
+
     let mine = UUID(), other = UUID()
     let listing = Data(#"""
         {"artifacts":[
@@ -7138,8 +7164,10 @@ do {
             && !views.contains("ArtifactSignInWindow") && !center.contains("ArtifactSignInWindow")
             && views.contains("accounts.signInNewAccount()"),
           "one sign-in serves every pane: an account added or signed out in one is added or gone in all")
-    check(source("ArtifactCenter.swift").components(separatedBy: "lastSignIn = SignIn(").count == 3,
-          "a sign-in is announced whether it adds an account or finds one already there")
+    check(source("ArtifactCenter.swift").components(separatedBy: "lastSignIn = SignIn(").count == 2
+            && source("ArtifactCenter.swift").contains("ArtifactAccounts.signedIn(accounts, store: id, as: identity)")
+            && source("ArtifactCenter.swift").contains("for earlier in change.retired { retire(earlier) }"),
+          "a sign-in is announced under the store it was made in, whether it adds an account or finds one already there")
 }
 
 print("\n\(checks - failures)/\(checks) checks passed")
