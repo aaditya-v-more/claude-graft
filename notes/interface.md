@@ -336,3 +336,18 @@ answering that Claude's newest conversation is drawn full size and the rest
 small and faint, so which allowance is being spent reads off the bar. The
 dropdown leads with that same conversation and the same icon beside its
 account; the other conversations wait behind "Other conversations · n".
+
+## The Help menu
+
+SwiftUI fills the Help menu with one item that says help isn't available,
+which reads as an app nobody looks after, so `GraftHelpCommands` replaces it.
+It leads to the site, the release list, a new issue, an email, the
+developer's LinkedIn profile, the source and the tip jar. The menu is only on
+screen while the window is, since the app is an accessory the rest of the
+time; the dropdown keeps its own Support item for that reason.
+
+The email opens already addressed, with a subject naming the Graft version
+and a body ending in the Graft and macOS versions. The first reply to a
+problem report is otherwise always a question asking for exactly those. The
+address and the LinkedIn handle are spelled out in `Links`, not derived from
+the GitHub or Ko-fi names, and the suite reads them back.

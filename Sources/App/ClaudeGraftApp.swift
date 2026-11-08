@@ -32,6 +32,7 @@ struct ClaudeGraftApp: App {
             CommandGroup(replacing: .newItem) {}
             // View › Show/Hide Sidebar, with the shortcut every Mac sidebar has.
             SidebarCommands()
+            GraftHelpCommands()
         }
 
         Settings {

@@ -1540,6 +1540,26 @@ do {
     check(readme.contains("https://ko-fi.com/\(kofi)"),
           "and the one in the README")
 
+    // The Help menu is the one place someone stuck inside the app looks for a
+    // person, so every way to reach one has to be there and has to be right.
+    check(links.contains("static let email = \"aadityavmore@gmail.com\""),
+          "the Help menu writes to the developer's own address")
+    check(links.contains("https://www.linkedin.com/in/aadityavmore/"),
+          "and links to the developer's LinkedIn profile")
+    let mail = Links.mail(version: "2.0.0", system: "Version 26.1")
+    let mailParts = URLComponents(url: mail, resolvingAgainstBaseURL: false)
+    check(mail.scheme == "mailto" && mailParts?.path == "aadityavmore@gmail.com",
+          "an email from Help goes to that address")
+    check(mailParts?.queryItems?.first { $0.name == "subject" }?.value == "Claude Graft 2.0.0"
+            && mailParts?.queryItems?.first { $0.name == "body" }?.value?.contains("macOS Version 26.1") == true,
+          "and already says which Graft and which macOS it comes from")
+    for item in ["Claude Graft Help", "Report a Problem…", "Email the Developer…",
+                 "Aaditya More on LinkedIn", "View Source on GitHub", "Support Claude Graft…"] {
+        check(links.contains("L10n.text(\"\(item)\")"), "the Help menu offers \(item)")
+    }
+    check(read("Sources/App/ClaudeGraftApp.swift").contains("GraftHelpCommands()"),
+          "and replaces SwiftUI's help-isn't-available item")
+
     // A sponsor page nobody can pay into is worse than no link at all: it reads
     // as an oversight rather than a decision, and it takes a press to find out
     // that the money has nowhere to go.

@@ -37,6 +37,7 @@ swiftc -swift-version 5 \
     "$ROOT/Sources/App/AccountSignIn.swift" \
     "$ROOT/Sources/App/Artifacts.swift" \
     "$ROOT/Sources/App/Projects.swift" \
+    "$ROOT/Sources/App/Links.swift" \
     "$ROOT/Tests/main.swift" \
     -o "$BUILD/tests"
 
