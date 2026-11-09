@@ -147,6 +147,18 @@ click's menu, which the recorder could not open. Old chats named by their
 titles, the watch that wakes on Claude's write and the red ring came after
 that run.
 
+A second run on 9 November, with the second candidate, saw them. Older chats
+were named by their titles alone with nothing lit, and switches reached the bar
+1.06 to 1.42 seconds after Claude's focus, against Claude's own write at 1.0.
+The account answering was ringed, and the ring moved to Claude 2's icon when
+the right click's menu, which opens below the bar, moved a chat there and back.
+The name came back at its width after Show in Menu Bar was turned off and on,
+and archived and deleted chats left the bar and the dropdown. Each new chat was
+named within a tenth of a second of Claude's first record of it, which already
+carried its title, so the "New chat" the first run looked for does not exist.
+The keychain was asked once, after the swap. Still not seen: the text giving
+way for room, and a focus the mirror copied, since Claude 2 stayed closed.
+
 Unproven: **Start Session** has never successfully opened a window. It POSTs one
 Haiku message with `max_tokens: 4` and Claude Code's system prompt, which these
 tokens are minted for. If that turns out to be wrong the API's own error message

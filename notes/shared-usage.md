@@ -308,8 +308,8 @@ forward leaves it where it was, so opening the dropdown keeps the Claude the
 person was just using at the top.
 
 **The conversation on screen runs across the menu bar** for as long as it is
-there: its title, or "New chat" until it has one, and the account answering it,
-and a right click on the item moves it with the same choices as its row. Until
+there: its title and the account answering it, and a right click on the item
+moves it with the same choices as its row. Until
 2.0.1 it was only a conversation that had just begun, for its first two
 minutes, and a person who switched chats saw the bar go on naming one no longer
 in front, or "New session" for a test chat begun minutes earlier.
@@ -321,8 +321,9 @@ store focused last. One the relay has not carried — an old chat opened to read
 which has sent nothing since sharing began — is named by its record's title
 alone, with nothing lit and no account beside it, since none has answered it.
 The first 2.0.1 candidate named nothing there, and on a machine whose chats
-mostly began before 2.0 the text went whenever one of them was opened. The bar
-never names the conversation before, the one thing certain not to be on screen.
+mostly began before 2.0 the text went whenever one of them was opened. Keeping
+the conversation before instead would have named the one thing certain not to
+be on screen.
 One the relay did carry is left to its row, which an archived or deleted one
 has already left; named from its record, it would be back on the bar. A Claude
 whose records say nothing of focus falls back on the
@@ -335,6 +336,15 @@ restarted part way through sees every conversation for the first time. Each
 change of conversation is logged as `menu.chat`, with the first eight
 characters of its session, whether an account was chosen for it and whether
 the relay carried it, so a run can be checked against what was on screen.
+
+A new chat is the one wait the bar cannot shorten. Claude's first record of it
+lands about three seconds after its first message and already carries its
+title, so there is no "New chat" stage to show, and until it lands the bar goes
+on naming the chat before. The relay sees that first message at once, but a
+conversation beginning is not always the one on screen: a scheduled task, or a
+session another one started, begins the same way, and only the records say
+which conversation the window shows. The second live run timed it: each new
+chat's name was on the bar within a tenth of a second of Claude's first record.
 
 **A focus belongs to the store it turned up in first.** Claudes that share
 chats each keep a mirrored folder, and the mirror copies a changed record
