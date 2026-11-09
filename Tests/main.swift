@@ -2593,6 +2593,13 @@ do {
           "reading the updater log cannot block an update forever")
     check(!Graft.isClaudeInstallerProcess("/bin/zsh -c '" + shipIt + " com.anthropic.claudefordesktop.ShipIt'"),
           "a command mentioning the installer is not the installer itself")
+    let cachedShipIt = Graft.fm.homeDirectoryForCurrentUser
+        .appending(path: "Library/Caches/com.anthropic.claudefordesktop.ShipIt/ShipIt").path
+    let isInstaller = Graft.installerProcessCheck()
+    check(isInstaller(cachedShipIt) && isInstaller(cachedShipIt + " com.anthropic.claudefordesktop.ShipIt")
+            && isInstaller(shipIt + " com.anthropic.claudefordesktop.ShipIt")
+            && !isInstaller("/bin/zsh -c '" + shipIt + "'") && !isInstaller(cachedShipIt + "_stderr.log"),
+          "a listing's installer check, its paths worked out once, finds ShipIt from Claude or its cache and nothing that names it")
 
     let now = Date(timeIntervalSince1970: 2_000_000_000)
     let one = ClaudeUpdateFlow.Instance(pid: 101, launched: now.addingTimeInterval(-100))
@@ -6743,6 +6750,20 @@ do {
     check(mirrorPool.lookUpRecords([], profiles: pair, now: now).focused["main"]?.title == "Prime \"numbers\" — checked",
           "one on screen whose record has no title yet takes it from the transcript")
 
+    let stampFile = root.appending(path: "stamped.json"), stampLink = root.appending(path: "stamped-link.json")
+    try! Data("{}".utf8).write(to: stampFile)
+    try! fm.setAttributes([.modificationDate: Date(timeIntervalSince1970: 1_700_000_000.25)], ofItemAtPath: stampFile.path)
+    try? fm.removeItem(at: stampLink)
+    try! fm.createSymbolicLink(at: stampLink, withDestinationURL: stampFile)
+    let agrees = [stampFile, stampLink].allSatisfy { url in
+        guard let read = Graft.modificationDate(atPath: url.path),
+              let listed = (try? fm.attributesOfItem(atPath: url.path))?[.modificationDate] as? Date else { return false }
+        return abs(read.timeIntervalSince(listed)) < 0.000_001
+    }
+    check(agrees && Graft.modificationDate(atPath: stampLink.path) != Graft.modificationDate(atPath: stampFile.path)
+            && Graft.modificationDate(atPath: root.appending(path: "never-stamped.json").path) == nil,
+          "a record's date read with one lstat says what FileManager says, a link's own date and not its file's")
+
     // FSEvents leaves out the process that wrote, so the write comes from another.
     let watchedProfile = root.appending(path: "watched")
     let watchedOrg = watchedProfile.appending(path: "claude-code-sessions/\(ownerAccount)/\(ownerOrg)")
@@ -6831,6 +6852,40 @@ do {
     check(bar.contains("item?.menu = menu\n        button.performClick(nil)\n        item?.menu = nil")
             && !bar.contains("menu.popUp(positioning:"),
           "the right-click menu opens under the item, where macOS puts menu-bar menus")
+
+    let moving = NewChatTicker.Picture(long, font: font)
+    func drawn(_ picture: NewChatTicker.Picture) -> Data {
+        let size = picture.image.size
+        let pixels = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(size.width * 2),
+                                      pixelsHigh: Int(size.height * 2), bitsPerSample: 8,
+                                      samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+                                      colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
+        pixels.size = size
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: pixels)
+        picture.image.draw(in: NSRect(origin: .zero, size: size))
+        NSGraphicsContext.restoreGraphicsState()
+        return Data(bytes: pixels.bitmapData!, count: pixels.bytesPerRow * pixels.pixelsHigh)
+    }
+    let atStart = drawn(moving)
+    moving.offset = 40
+    let along = drawn(moving)
+    moving.offset = moving.cycle ?? 0
+    let roundAgain = drawn(moving)
+    moving.offset = 0
+    check(atStart.contains { $0 != 0 } && along != atStart && roundAgain == atStart && drawn(moving) == atStart,
+          "the bar's text moves within the one picture it is given, and a whole pass ends where it began")
+    let tick = bar.components(separatedBy: "private func advanceTicker()").last?
+        .components(separatedBy: "\n    }").first ?? ""
+    check(tick.contains("picture.offset = tickerOffset") && tick.contains("button.setNeedsDisplay(")
+            && !tick.contains("applyTitle()") && !tick.contains("attributedTitle"),
+          "a tick moves the text and has the item drawn again, never handing it a new title to measure")
+    check(bar.contains("guard tickerPicture?.cycle != nil else {") && !bar.contains("if chat == nil {\n            ticker?.invalidate()"),
+          "text short enough to stand still keeps no timer running")
+    let walk = controllerSource.components(separatedBy: "func lookUpRecords(").last?
+        .components(separatedBy: "/// Read again only when the transcript has grown").first ?? ""
+    check(walk.contains("Graft.modificationDate(atPath: path)") && !walk.contains("attributesOfItem"),
+          "the walk that runs every two seconds dates each record with one lstat")
     let blue = Shortcut.IconPreset.next(besides: [.original])
     check(blue == .blue && Shortcut.IconPreset.next(besides: [.original, .blue, .violet]) == .green,
           "a new Claude takes the first colour nothing has, never Claude's own")

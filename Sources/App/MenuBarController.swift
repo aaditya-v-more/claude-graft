@@ -29,6 +29,7 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
     private var tickerOffset: CGFloat = 0
     private var tickerHeld = 0
     private var ticker: Timer?
+    private var tickerPicture: NewChatTicker.Picture?
 
     private let store: ShortcutStore
     private let settings: AppSettings
@@ -131,6 +132,7 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
         tickerRefused = nil
         tickerOffset = 0
         tickerHeld = 0
+        tickerPicture = nil
         popover.performClose(nil)
         if let item { NSStatusBar.system.removeStatusItem(item) }
         item = nil
@@ -201,10 +203,15 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
     private func applyTitle() {
         guard let button = item?.button else { return }
         let font = button.font ?? NSFont.menuBarFont(ofSize: 0)
-        let picture = tickerText.map { NewChatTicker.image($0, offset: tickerOffset, font: font) }
+        let picture = tickerText.map { text in
+            tickerPicture.flatMap { $0.text == text && $0.font == font ? $0 : nil }
+                ?? NewChatTicker.Picture(text, font: font)
+        }
+        picture?.offset = tickerOffset
+        tickerPicture = picture
         if parts != nil || picture != nil {
             button.attributedTitle = FrontTitle.make(icon: parts?.icon, tag: parts?.tag,
-                                                     figure: parts?.figure, font: font, ticker: picture,
+                                                     figure: parts?.figure, font: font, ticker: picture?.image,
                                                      afterImage: button.image != nil)
         } else {
             button.title = ""
@@ -212,6 +219,24 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
         let chat = newChat.map { NewChatTicker.spoken(title: $0.title, account: answering($0)) }
         button.setAccessibilityTitle([spokenTitle, chat].compactMap { $0 }.filter { !$0.isEmpty }
             .joined(separator: ". "))
+        keepTickerMoving()
+    }
+
+    /// Only text too long for the bar moves, so only then is there anything to
+    /// draw again. Left running for text that stands still, the timer woke the
+    /// main thread twelve times a second to measure the text and do nothing.
+    private func keepTickerMoving() {
+        guard tickerPicture?.cycle != nil else {
+            ticker?.invalidate()
+            ticker = nil
+            return
+        }
+        guard ticker == nil else { return }
+        let timer = Timer(timeInterval: NewChatTicker.tick, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.advanceTicker() }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        ticker = timer
     }
 
     // MARK: - The conversation on screen
@@ -249,16 +274,6 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
         newChat = chat
         tickerWords = words
         tickerText = text
-        if chat == nil {
-            ticker?.invalidate()
-            ticker = nil
-        } else if ticker == nil {
-            let timer = Timer(timeInterval: NewChatTicker.tick, repeats: true) { [weak self] _ in
-                MainActor.assumeIsolated { self?.advanceTicker() }
-            }
-            RunLoop.main.add(timer, forMode: .common)
-            ticker = timer
-        }
         applyTitle()
         if wasShowing, let id = chat?.id { keepReachable(id) }
     }
@@ -283,9 +298,7 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
     }
 
     private func advanceTicker() {
-        guard let text = tickerText, let button = item?.button,
-              let cycle = NewChatTicker.cycle(text, font: button.font ?? NSFont.menuBarFont(ofSize: 0))
-        else { return }
+        guard let picture = tickerPicture, let cycle = picture.cycle, let button = item?.button else { return }
         if tickerOffset == 0, tickerHeld < NewChatTicker.pause {
             tickerHeld += 1
             return
@@ -293,7 +306,14 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
         tickerHeld = 0
         tickerOffset += NewChatTicker.step
         if tickerOffset >= cycle { tickerOffset = 0 }
-        applyTitle()
+        picture.offset = tickerOffset
+        // The text is the title's last run, so only the end of the button
+        // changes: the icons and the figure before it are left as drawn.
+        let span = button.userInterfaceLayoutDirection == .leftToRight
+            ? min(button.bounds.width, picture.image.size.width + NewChatTicker.redrawSlack)
+            : button.bounds.width
+        button.setNeedsDisplay(NSRect(x: button.bounds.maxX - span, y: 0,
+                                      width: span, height: button.bounds.height))
     }
 
     /// The same choices as the conversation's row in the dropdown, reached

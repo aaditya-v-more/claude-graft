@@ -490,6 +490,27 @@ ends, and the two-second look stays for the relay's news, which no file
 carries. The timer, not a look, decides which stores are watched, because the
 watch itself wakes a look and must not be torn down from inside its own call.
 
+**What following the screen costs.** Since 2.0 the text runs whenever a
+conversation is on screen, so whatever a tick costs is paid all day. Each tick
+used to hand the item a new title: the text measured again, a new picture, the
+title rebuilt, and then AppKit measuring the item, giving the bar its new
+length and rebuilding the spoken title, twelve and a half times a second. With
+the look's walk beside it, that held 2.0.1 at about 9% of a core on the
+development machine on 9 November, with nothing else asked of it. The item now
+keeps one `NewChatTicker.Picture`, an `NSImage` whose handler reads the offset
+as it draws and which keeps no drawn copy (`cacheMode` `.never`), so a tick
+changes the offset and has the button draw its end again. The item's length,
+title and spoken title stay as they were, and the picture is made again only
+when the text or the font changes. What is drawn again is the picture's width
+and `redrawSlack`, the margin the status button keeps after its title, which
+AppKit does not publish; right to left, it is the whole button. Text short
+enough to stand still keeps no timer, where before one woke the main thread
+twelve times a second to measure the text and return. The walk dates each
+record with one `lstat` on a string path (`Graft.modificationDate(atPath:)`),
+since `attributesOfItem` builds a dictionary of every attribute: over the 699
+records here it took 20 ms a look against 2.5, and the walk was close to a
+third of the samples in a profile of the running app. Neither follows a link.
+
 **A conversation put away leaves the bar and the dropdown.** Archived means
 every record its own Claude keeps for it says `isArchived`. A copy in a Claude
 that shares the chats is not asked: the mirror carries a change across only on

@@ -3418,12 +3418,34 @@ enum Graft {
     }
 
     static func isClaudeInstallerProcess(_ command: String) -> Bool {
+        installerProcessCheck()(command)
+    }
+
+    /// The installer test with its two paths worked out once, for a whole
+    /// process listing. Finding Claude's app looks at the disk, and asked again
+    /// for each of the seven hundred lines a listing here has, every five
+    /// seconds, it cost more than everything else the listing is read for.
+    static func installerProcessCheck() -> (String) -> Bool {
         // A terminal following ShipIt's log has the same name in its arguments.
         // Only the executable's location is evidence of an installer running.
         let framework = claudeApp.appending(path: "Contents/Frameworks/Squirrel.framework").path + "/"
-        if command.hasPrefix(framework), command.contains("/ShipIt ") || command.hasSuffix("/ShipIt") { return true }
         let cached = fm.homeDirectoryForCurrentUser.appending(path: "Library/Caches/com.anthropic.claudefordesktop.ShipIt/ShipIt").path
-        return command == cached || command.hasPrefix(cached + " ")
+        let cachedWithArguments = cached + " "
+        return { command in
+            if command.hasPrefix(framework), command.contains("/ShipIt ") || command.hasSuffix("/ShipIt") { return true }
+            return command == cached || command.hasPrefix(cachedWithArguments)
+        }
+    }
+
+    /// A file's modification date from one `lstat`, which like
+    /// `attributesOfItem` does not follow a link. That call reads a dozen
+    /// attributes to hand back this one, and over every record of every Claude
+    /// every two seconds it cost eight times as much.
+    static func modificationDate(atPath path: String) -> Date? {
+        var info = stat()
+        guard lstat(path, &info) == 0 else { return nil }
+        return Date(timeIntervalSince1970: TimeInterval(info.st_mtimespec.tv_sec)
+                        + TimeInterval(info.st_mtimespec.tv_nsec) / 1_000_000_000)
     }
 
     /// The main binary of Claude itself, on no profile in particular.

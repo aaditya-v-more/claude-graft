@@ -238,7 +238,8 @@ final class UpdateRecoveryMonitor: ObservableObject {
                                   }.map { ($0.profile.path, $0.name) }, uniquingKeysWith: { first, _ in first }),
                                   defaultPIDs: defaults)
         }
-        let installing = processes.contains { Graft.isClaudeInstallerProcess($0.command) }
+        let isInstaller = Graft.installerProcessCheck()
+        let installing = processes.contains { isInstaller($0.command) }
             || !Graft.fm.isExecutableFile(atPath: Graft.claudeApp.appending(path: "Contents/MacOS/Claude").path)
         return (samples, installing)
     }

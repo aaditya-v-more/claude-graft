@@ -223,6 +223,13 @@ usage polling. A blocked usage call must not delay noticing an exit. A complete
 process snapshot is read every five seconds; an unsuccessful process read is
 discarded rather than interpreted as every profile having quit.
 
+Every line of a snapshot is asked whether it is Claude's installer, and that
+test used to find Claude's app on disk and the home folder again for each line:
+5.5 ms a snapshot for the seven hundred lines on the development machine, more
+than the listing was read for. `Graft.installerProcessCheck()` works both paths
+out once and hands back the test, and this monitor's snapshot and
+`ClaudeDesktopUpdater`'s both take it.
+
 Recovery requires a profile seen running, a new marker timestamp from that run,
 and an exit after the timestamp. The marker expires after five minutes, matching
 Claude's own reader. Graft gives Claude fifteen seconds to relaunch itself and

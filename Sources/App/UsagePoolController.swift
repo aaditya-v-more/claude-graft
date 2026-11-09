@@ -861,16 +861,19 @@ final class UsagePoolController: ObservableObject {
                 for org in list(accountDir) where !org.hasPrefix(".") && !org.hasSuffix(Graft.stashSuffix) {
                     let orgDir = accountDir.appending(path: org)
                     guard Graft.isDirectory(orgDir) else { continue }
+                    // A path and one lstat for each record, since this runs
+                    // over every record of every Claude every two seconds:
+                    // seven hundred on the development machine.
+                    let orgPath = orgDir.path
                     for name in list(orgDir) {
                         if name.hasPrefix("deleted_") { markers.insert(String(name.dropFirst(8))); continue }
                         guard name.hasPrefix("local_"), name.hasSuffix(".json") else { continue }
-                        let url = orgDir.appending(path: name)
-                        walked.insert(url.path)
-                        let stamp = (try? fm.attributesOfItem(atPath: url.path))?[.modificationDate] as? Date
-                            ?? .distantPast
-                        var entry = recordCache[url.path]
+                        let path = orgPath + "/" + name
+                        walked.insert(path)
+                        let stamp = Graft.modificationDate(atPath: path) ?? .distantPast
+                        var entry = recordCache[path]
                         if entry?.stamp != stamp {
-                            let record = (try? Data(contentsOf: url))
+                            let record = (try? Data(contentsOf: URL(fileURLWithPath: path)))
                                 .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
                             let focused = (record?["lastFocusedAt"] as? NSNumber)
                                 .map { Date(timeIntervalSince1970: $0.doubleValue / 1000) }
@@ -878,7 +881,7 @@ final class UsagePoolController: ObservableObject {
                                      Filed(title: (record?["title"] as? String).flatMap { $0.isEmpty ? nil : $0 },
                                            archived: record?["isArchived"] as? Bool ?? false,
                                            focusedAt: focused))
-                            recordCache[url.path] = entry
+                            recordCache[path] = entry
                         }
                         guard let entry, let session = entry.session else { continue }
                         if entry.filed.focusedAt ?? .distantPast

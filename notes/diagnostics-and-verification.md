@@ -55,6 +55,15 @@ process still alive; with `showInMenuBar` off the same quit ends it, so the app
 cannot become unquittable. Quit in the dropdown takes the second of those two
 paths.
 
+That idle figure is from before 2.0. On 9 November the installed 2.0.1 sat at
+about 9% of a core and 123 MB, with 18 MB more in `graft-relay`, while a
+conversation was on the bar and nothing else was asked of it; a profile put
+most of that in redrawing the bar's text and in the look's walk over every
+record. Both are cheaper now, as [shared-usage.md](shared-usage.md) says, and
+the suite proves the picture moves and that a tick asks only for a redraw. Not
+yet seen on a real bar: that macOS 27 shows the text moving when a redraw is
+all it is asked for, and what Graft spends once it does.
+
 The session-record sweep has run for real on this machine: forty-six sessions
 that had closed without records — every test conversation plus months of
 history back to the migration — were filed into Claude-3's store in one pass,

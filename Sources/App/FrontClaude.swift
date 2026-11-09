@@ -356,6 +356,9 @@ enum NewChatTicker {
     static let tick: TimeInterval = 0.08
     /// Ticks held at the start of each pass, so the beginning can be read.
     static let pause = 18
+    /// How much wider than the text a tick draws again: the status button's
+    /// margin after its title, which AppKit does not publish, with room to spare.
+    static let redrawSlack: CGFloat = 24
 
     static func text(title: String?, account: String?) -> String {
         let name = title ?? L10n.text("New chat")
@@ -374,30 +377,65 @@ enum NewChatTicker {
 
     /// The length of one pass, or nil for text short enough to stand still.
     static func cycle(_ text: String, font: NSFont) -> CGFloat? {
-        let length = ceil((text as NSString).size(withAttributes: attributes(font)).width)
-        return length > width ? length + gap : nil
+        Picture(text, font: font).cycle
     }
 
     /// `offset` is how far the text has moved left, in points.
     static func image(_ text: String, offset: CGFloat, font: NSFont) -> NSImage {
-        let attributes = attributes(font)
-        let size = (text as NSString).size(withAttributes: attributes)
-        let scrolls = cycle(text, font: font) != nil
-        let shown = scrolls ? width : ceil(size.width)
-        let height = ceil(size.height)
-        // Drawn when shown rather than now, so the label colour is the one the
-        // bar's appearance gives it at that moment.
-        let image = NSImage(size: NSSize(width: shown, height: height), flipped: false) { rect in
-            NSBezierPath(rect: rect).addClip()
-            let x = scrolls ? -offset : 0
-            (text as NSString).draw(at: NSPoint(x: x, y: 0), withAttributes: attributes)
-            if scrolls {
-                (text as NSString).draw(at: NSPoint(x: x + ceil(size.width) + gap, y: 0),
-                                        withAttributes: attributes)
-            }
-            return true
+        let picture = Picture(text, font: font)
+        picture.offset = offset
+        return picture.image
+    }
+
+    /// The text as the status item holds it while it moves. The item keeps one
+    /// picture and is only asked to draw again, because a new title on every
+    /// tick had AppKit measure the item and hand the bar its length twelve
+    /// times a second, which was most of what Graft spent with nothing to do.
+    final class Picture {
+        let text: String
+        let font: NSFont
+        /// The length of one pass, or nil for text short enough to stand still.
+        let cycle: CGFloat?
+        let image: NSImage
+        private let moved: Moved
+
+        /// How far the text has moved left, in points, read whenever it is drawn.
+        var offset: CGFloat {
+            get { moved.points }
+            set { moved.points = newValue }
         }
-        image.accessibilityDescription = text
-        return image
+
+        init(_ text: String, font: NSFont) {
+            self.text = text
+            self.font = font
+            let attributes = NewChatTicker.attributes(font)
+            let size = (text as NSString).size(withAttributes: attributes)
+            let length = ceil(size.width)
+            let cycle = length > NewChatTicker.width ? length + NewChatTicker.gap : nil
+            self.cycle = cycle
+            let moved = Moved()
+            self.moved = moved
+            // Drawn when shown rather than now, so the label colour is the one the
+            // bar's appearance gives it at that moment.
+            let image = NSImage(size: NSSize(width: cycle == nil ? length : NewChatTicker.width,
+                                             height: ceil(size.height)), flipped: false) { rect in
+                NSBezierPath(rect: rect).addClip()
+                let x = cycle == nil ? 0 : -moved.points
+                (text as NSString).draw(at: NSPoint(x: x, y: 0), withAttributes: attributes)
+                if cycle != nil {
+                    (text as NSString).draw(at: NSPoint(x: x + length + NewChatTicker.gap, y: 0),
+                                            withAttributes: attributes)
+                }
+                return true
+            }
+            // A picture NSImage kept from its last drawing would stand still.
+            image.cacheMode = .never
+            image.accessibilityDescription = text
+            self.image = image
+        }
+
+        private final class Moved {
+            var points: CGFloat = 0
+        }
     }
 }

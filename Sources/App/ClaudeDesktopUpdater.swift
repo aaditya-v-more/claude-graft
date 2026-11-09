@@ -437,9 +437,10 @@ final class ClaudeDesktopUpdater: ObservableObject {
             instances.insert(instance)
             if Graft.carriesDataDir(process.command, profile) { helper = instance }
         }
+        let isInstaller = Graft.installerProcessCheck()
         return ClaudeUpdateFlow.Sample(instances: instances, helper: helper,
                                        installed: ClaudeUpdateFeed.installedVersion(), staged: stagedVersion(),
-                                       installerRunning: processes.contains { Graft.isClaudeInstallerProcess($0.command) })
+                                       installerRunning: processes.contains { isInstaller($0.command) })
     }
 
     private static func stagedVersion() -> String? {

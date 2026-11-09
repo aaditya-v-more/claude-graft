@@ -150,6 +150,8 @@ any of these. The why is in [notes/updates-and-releases.md](notes/updates-and-re
 - **Some requests never move:** a body referring to a file, container or MCP server by value (`accountBoundMarks`, never the bare key, which a tool schema can carry), or one that is encoded.
 - **The dropdown's front Claude is `FrontmostClaude`'s,** and its watch on the relay ends in `popoverDidClose`, never in the view.
 - **The conversation on screen runs across the bar** while it is there, drawn at a fixed width (`NewChatTicker`): the one Claude's own records focused last (`lastFocusedAt`, owned by the store it was first seen in, since the mirror copies it), by its title alone if the relay never carried it, and only where no record says, the one typed into last (`promptedAt`, a turn on a thread). `StoreWatch` wakes a look when a store changes. The text gives way when it would push the item out of the bar (`keepReachable`).
+- **A tick moves the text and never retitles the item:** one `NewChatTicker.Picture` per text, its offset changed and the button's end drawn again; text that fits keeps no timer.
+- **The two-second walk dates each record with one `lstat`** (`Graft.modificationDate`), never `attributesOfItem`.
 - **A conversation archived or deleted leaves the bar and the dropdown** (`lookUpRecords`): its own Claude's records decide, a record is gone only after missing twice, and deleting the one on screen keeps its focus.
 
 ### Artifacts — [notes/artifacts.md](notes/artifacts.md)
