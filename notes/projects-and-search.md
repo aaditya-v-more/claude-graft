@@ -100,6 +100,15 @@ reads only one of them, so a session of the other was called gone while it was
 still on claude.ai. A session begun here after the list was read is not in it
 yet, so it was called gone too until the list was walked again.
 
+The first live search, on 9 November, called two transcripts gone that were
+the earlier halves of a conversation still open. Claude gives a conversation a
+new command line session as it goes, and each one registered a session of its
+own on claude.ai; this one had begun under another account's login, so its
+first two halves were owned by the account searched, and its live half by the
+other one. The record names those halves in `priorCliSessionIds`, the same list
+the sweep calls `superseded`, and a transcript it names (`carriedOn`) is now
+never called gone: the conversation it belongs to is not.
+
 The transcripts are read out of the sweep's `transcript-cache.json` wherever its
 entry still matches the file's date and size. A transcript the sweep has not
 reached is parsed with the sweep's own `sessionFacts`, and **the cache is never

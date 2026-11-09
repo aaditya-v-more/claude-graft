@@ -172,8 +172,16 @@ one kept lending until then; the "Lending paused" notice that a refusal leaves
 was therefore not seen. Switches reached the bar in 1.05 to 1.17 seconds, the
 right click's menu, Show in Menu Bar, archiving and deleting all held, and
 nothing a person had set changed. Artifacts, Projects and Search Chats each
-crashed Graft on opening, which [artifacts.md](artifacts.md) explains; the
-fix has not yet been seen running.
+crashed Graft on opening, which [artifacts.md](artifacts.md) explains.
+
+The fix was then seen running. All three panes opened twice and again after a
+relaunch with no crash, and the launch sweep removed the eight stores no
+account owned, one `artifacts.store stray` line each, with no removal failing.
+One account was then signed in with an emailed code: its six artifacts, its
+project and a search all loaded, and after Graft was quit and reopened it was
+still signed in, its one store kept. That search called two transcripts gone
+that were halves of a conversation still open, which
+[projects-and-search.md](projects-and-search.md) explains.
 
 Unproven: **Start Session** has never successfully opened a window. It POSTs one
 Haiku message with `max_tokens: 4` and Claude Code's system prompt, which these

@@ -84,6 +84,10 @@ struct LocalCodeSession: Equatable {
     var transcript: URL
     var lastActive: Date
     var folderIsHere: Bool
+    /// A record names it among the sessions its conversation grew out of. The
+    /// conversation goes on under a later session, often under another
+    /// account's list, so this half not being listed says nothing about it.
+    var carriedOn = false
 }
 
 /// The requests claude.ai's Projects page and its search box make, read off
@@ -232,8 +236,8 @@ enum ClaudeAPI {
     /// A session is only called gone when the account's whole list was read:
     /// one past the last page read is simply not known. So is one owned under
     /// another organization than the list was read for, which that list never
-    /// holds, and one whose transcript moved on after the list was read, which
-    /// may have begun since.
+    /// holds, one whose transcript moved on after the list was read, which
+    /// may have begun since, and an earlier half of a conversation still going.
     static func codeHits(_ query: String, account: UUID, accountUuid: String?, organization: String?,
                          remote: [RemoteCodeSession], complete: Bool, listedAt: Date?,
                          local: [LocalCodeSession]) -> [SearchHit] {
@@ -258,7 +262,7 @@ enum ClaudeAPI {
         guard complete, let accountUuid, let organization, let listedAt else { return hits }
         let listed = Set(remote.map(\.id))
         for session in local where session.owner == accountUuid && session.organization == organization
-            && session.lastActive < listedAt
+            && session.lastActive < listedAt && !session.carriedOn
             && !session.bridgeIds.contains(where: listed.contains) {
             guard let matches = codeMatch(query, title: session.title, also: [session.folder]) else { continue }
             hits.append(SearchHit(id: "local:" + session.transcript.path, account: account, kind: .code,
@@ -445,6 +449,7 @@ enum LocalCodeSessions {
         let cached = (try? Data(contentsOf: Graft.transcriptCacheFile))
             .flatMap { try? JSONDecoder().decode([String: Graft.CachedTranscript].self, from: $0) } ?? [:]
         var sessions: [LocalCodeSession] = []
+        let carriedOn = Graft.sessionStoreContents().superseded
         let root = Graft.claudeProjects
         let folders = (try? fm.contentsOfDirectory(atPath: root.path)) ?? []
         for folder in folders {
@@ -467,7 +472,8 @@ enum LocalCodeSessions {
                     organization: facts.ownerOrganization, title: facts.title,
                     folder: facts.cwd, transcript: url,
                     lastActive: Date(timeIntervalSince1970: facts.lastActivityAt / 1000),
-                    folderIsHere: Graft.sessionFolderIsHere(facts.cwd)))
+                    folderIsHere: Graft.sessionFolderIsHere(facts.cwd),
+                    carriedOn: carriedOn.contains(String(name.dropLast(6)))))
             }
         }
         return sessions

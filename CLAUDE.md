@@ -177,6 +177,7 @@ any of these. The why is in [notes/updates-and-releases.md](notes/updates-and-re
 - **A Code session is placed by `bridgeSessionId`,** the same `cse_…` the server lists, and its folder by `sessionFolderIsHere`.
 - **Gone from claude.ai is claimed only after the account's whole session list was read.** A deleted chat cannot be found and is never claimed.
 - **Gone is claimed against the list it was read with:** the transcript's `ownerOrganizationUuid` must be that list's organization and its last line older than the list; the local read is never older than the list it stands beside (`localReadServes`).
+- **An earlier half of a conversation still going is never gone** — a transcript a record names in `priorCliSessionIds` is `carriedOn`.
 - **The sweep's transcript cache is read, never written,** from a search.
 
 ### Interface — [notes/interface.md](notes/interface.md)

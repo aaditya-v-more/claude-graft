@@ -7354,6 +7354,13 @@ do {
     check(gone.count == 1 && gone.first?.title == "Graft notes, deleted" && gone.first?.openURL == nil
             && gone.first?.transcript?.path == "/tmp/d.jsonl",
           "a transcript of this account's that claude.ai no longer lists is found, and opens in Finder")
+    var continued = local[2]
+    continued.carriedOn = true
+    let carriedOn = ClaudeAPI.codeHits("graft", account: mine, accountUuid: "acct-mine", organization: "org-chat",
+                                       remote: remote, complete: true, listedAt: listedAt,
+                                       local: [local[0], local[1], continued, local[3]])
+    check(!carriedOn.contains { $0.place == .goneFromClaude },
+          "an earlier half of a conversation that goes on is not called gone from claude.ai")
     let partial = ClaudeAPI.codeHits("graft", account: mine, accountUuid: "acct-mine", organization: "org-chat",
                                      remote: remote, complete: false, listedAt: listedAt, local: local)
     check(!partial.contains { $0.place == .goneFromClaude },
