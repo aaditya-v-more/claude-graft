@@ -421,6 +421,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "graft-chats"
+version = "2.0.1"
+dependencies = [
+ "base64",
+ "graft-core",
+ "serde",
+ "serde_json",
+ "time",
+ "uuid",
+]
+
+[[package]]
 name = "graft-core"
 version = "2.0.1"
 dependencies = [
