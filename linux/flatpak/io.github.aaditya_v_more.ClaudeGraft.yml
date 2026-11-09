@@ -22,7 +22,10 @@ finish-args:
   - --share=network
   - --share=ipc
   - --socket=wayland
-  - --socket=fallback-x11
+  # The X server even under Wayland, not as a fallback: Claude runs on
+  # XWayland, and which Claude is in front is read from the X server's
+  # active window. Without it the tray can only guess from the records.
+  - --socket=x11
   - --device=dri
 build-options:
   append-path: /usr/lib/sdk/rust-stable/bin
