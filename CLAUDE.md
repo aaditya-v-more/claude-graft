@@ -70,6 +70,14 @@ cannot compile the app's SwiftUI; put
 `SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk` in front of
 any of these. The why is in [notes/updates-and-releases.md](notes/updates-and-releases.md).
 
+The Linux build lives in `linux/` and is built and tested inside the GNOME SDK,
+never on the host:
+
+    linux/test.sh                  every crate's suite, inside the SDK
+    linux/sdk.sh cargo ...         any cargo command inside the SDK
+    linux/test-sidebar.sh          sidebar sync against throwaway profiles
+    linux/build.sh [--install]     the Flatpak, bundled into dist/linux
+
 ## Rules
 
 ### Opening a profile — [notes/opening-profiles.md](notes/opening-profiles.md)
@@ -220,3 +228,13 @@ any of these. The why is in [notes/updates-and-releases.md](notes/updates-and-re
 Each pass appends to `ClaudeGraft/diagnostics.log` and rewrites
 `ClaudeGraft/state-report.txt`; read those before guessing. The note also says
 what has been seen working on a real machine and what is still unproven.
+
+### Linux - [notes/linux.md](notes/linux.md)
+
+- **Every rule above holds on Linux;** a Mac mechanism with no Linux meaning is written down as such in its note's `## Linux` section, never quietly dropped.
+- **Host paths come from `$HOME`, never `$XDG_CONFIG_HOME` or `$XDG_DATA_HOME`,** which a Flatpak points into the sandbox. Everything goes through `graft_core::paths`.
+- **Every process listing, every start of Claude and every look at `/usr` goes through `graft_core::host`,** which wraps it in `flatpak-spawn --host` inside the sandbox.
+- **Claude is started through its package's launcher script, never its binary,** and a grafted one with its own `--class` after the launcher's.
+- **A shortcut is a `.desktop` file known by its `X-Claude-Graft-Config` key,** never by its name.
+- **Claude's safe-storage password is read from the host's Secret Service, never the secret portal,** and only as `Prompting` allows.
+- **The suite never reaches the host:** `testing::Sandbox` for paths, `host::set_run_directly` or `GRAFT_RUN_DIRECTLY=1` for processes, stand-ins for Claude, the keyring and the service.
