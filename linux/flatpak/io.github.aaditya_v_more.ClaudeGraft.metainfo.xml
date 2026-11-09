@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.aaditya_v_more.ClaudeGraft</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+  <name>Claude Graft</name>
+  <summary>Run every Claude account side by side and share their usage</summary>
+  <description>
+    <p>
+      Claude Graft runs every Claude account you have side by side, each signed
+      in on its own profile, and lets them share their usage. It lives in the
+      tray.
+    </p>
+    <p>
+      It manages a Claude Desktop installed on the host, so it needs access to
+      the host's files and processes.
+    </p>
+  </description>
+  <launchable type="desktop-id">io.github.aaditya_v_more.ClaudeGraft.desktop</launchable>
+  <url type="homepage">https://github.com/aaditya-v-more/claude-graft</url>
+  <content_rating type="oars-1.1"/>
+  <releases>
+    <release version="2.0.1" date="2026-11-09"/>
+  </releases>
+</component>

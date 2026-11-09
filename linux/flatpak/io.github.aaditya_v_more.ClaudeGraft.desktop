@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Claude Graft
+Comment=Run every Claude account side by side and share their usage
+Exec=graft
+Icon=io.github.aaditya_v_more.ClaudeGraft
+Terminal=false
+Categories=Utility;
+Keywords=Claude;Profiles;Accounts;Usage;
+StartupNotify=true
+SingleMainWindow=true

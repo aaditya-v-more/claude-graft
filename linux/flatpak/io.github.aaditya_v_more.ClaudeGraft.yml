@@ -1,0 +1,58 @@
+app-id: io.github.aaditya_v_more.ClaudeGraft
+runtime: org.gnome.Platform
+runtime-version: '51'
+sdk: org.gnome.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.rust-stable
+command: graft
+finish-args:
+  # Graft manages another app that is installed on the host: it reads and
+  # writes Claude's profiles in ~/.config, writes launchers into
+  # ~/.local/share/applications, and looks at chat folders wherever a session
+  # was started. Nothing narrower than the host's files covers that.
+  - --filesystem=host
+  # Claude is a host process. Starting it and listing it both go through
+  # flatpak-spawn --host, which is what this name allows.
+  - --talk-name=org.freedesktop.Flatpak
+  # Claude's login is sealed with a password in the desktop's keyring, not in
+  # a keyring the secret portal would give Graft of its own.
+  - --talk-name=org.freedesktop.secrets
+  # The tray item.
+  - --talk-name=org.kde.StatusNotifierWatcher
+  - --share=network
+  - --share=ipc
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --device=dri
+build-options:
+  append-path: /usr/lib/sdk/rust-stable/bin
+  env:
+    CARGO_HOME: /run/build/claude-graft/cargo
+  # A local build fetches its crates as it goes. A build for a store that
+  # forbids network access during the build would generate cargo sources with
+  # flatpak-cargo-generator instead.
+  build-args:
+    - --share=network
+modules:
+  - name: claude-graft
+    buildsystem: simple
+    build-commands:
+      - cargo build --release --locked --manifest-path linux/Cargo.toml -p graft-app -p graft-launch -p graft-relay
+      - install -Dm755 linux/target/release/graft /app/bin/graft
+      - install -Dm755 linux/target/release/graft-launch /app/bin/graft-launch
+      - install -Dm755 linux/target/release/graft-relay /app/bin/graft-relay
+      - install -Dm644 linux/flatpak/io.github.aaditya_v_more.ClaudeGraft.desktop /app/share/applications/io.github.aaditya_v_more.ClaudeGraft.desktop
+      - install -Dm644 linux/flatpak/io.github.aaditya_v_more.ClaudeGraft.metainfo.xml /app/share/metainfo/io.github.aaditya_v_more.ClaudeGraft.metainfo.xml
+      - install -Dm644 linux/flatpak/io.github.aaditya_v_more.ClaudeGraft.png /app/share/icons/hicolor/512x512/apps/io.github.aaditya_v_more.ClaudeGraft.png
+    sources:
+      - type: dir
+        path: ../..
+        skip:
+          - linux/target
+          - linux/.cargo-home
+          - linux/.flatpak-builder
+          - linux/flatpak-build
+          - linux/repo
+          - build.noindex
+          - dist
+          - .git
