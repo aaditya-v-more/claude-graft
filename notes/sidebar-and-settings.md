@@ -111,3 +111,105 @@ layout mattered to somebody. A rollback now writes `prefsText` back byte for
 byte; a forward write keeps the indent the file had (two spaces for a file
 written for the first time), its final newline and its mode, chmodded past the
 umask.
+
+## Linux
+
+**The helper is a copy of Claude's own Electron binary, run headless with a
+script of Graft's.** `graft-sidebar` reads and writes the pins the way the Mac
+helper does, through Chromium's own IndexedDB and local storage APIs in the
+same Chromium that wrote them, and never writes a LevelDB file itself. The
+Claude on the development machine (`claude-desktop-unofficial`
+2.9939.4-3.3.4, Electron 44.4.3) has these fuses, read from the fuse wire in
+`/usr/lib/claude-desktop-unofficial/claude-desktop`: run-as-Node off,
+`NODE_OPTIONS` off, the inspect arguments off, embedded asar integrity
+validation on, loading only from `app.asar` on, cookie encryption on. So the
+installed binary cannot be made to run a script of anybody else's, as Node or
+through a debugger, and it only ever loads the `app.asar` beside it. Electron
+finds that archive from the real path of its own executable
+(`/proc/self/exe`), so a link to the binary would load Claude's application;
+the binary itself has to be copied. Everything else the runtime reads beside
+it, the `.pak` files, ICU data, V8 snapshots, locales, `libffmpeg.so` and
+`chrome-sandbox`, is opened by path and is linked rather than copied. On this
+machine's composefs `/usr` a hard link is refused, so the copy is a real one,
+about 220 MB, under `~/.config/ClaudeGraft/sidebar-runtime/<key>/runtime`,
+named `sidebar-storage`. The cache keeps one key, as on a Mac, and carries a
+`CACHEDIR.TAG`, which is what Linux backup tools honour in place of a Mac's
+excluded-from-backup flag. The key is a digest of the launcher script (which
+carries the package version, since an image-based system stamps every file in
+`/usr` with time zero), the binary's size and time, the runtime's `version`
+file, the script and `helperFormat`; a copy is used only when its marker,
+written last, matches, its binary has the source's size and its archive is
+this script's.
+
+**Asar integrity has nothing to seal on Linux.** The fuse is on, but this
+Electron implements the check only on macOS and Windows: the binary holds no
+`AGbevlPCksUGKNL8TSn7wGmJEuJsXb2A` sentinel and no "Failed to get integrity"
+message, and a copy carrying Graft's archive starts and runs it. The archive
+still carries per-file SHA-256 integrity, which Electron does check as it reads
+each file. A future Electron that brings the check to Linux would make the
+helper exit at start, every pass would read as `storage-unavailable`, and
+Claude would still open; the fix would be the Linux form of `sealIntegrity`.
+
+**It runs where nothing can see it.** The helper is started on the host
+(through `graft_core::host`, since the Flatpak's `/usr` is not Claude's) as
+`timeout -k 3 25 env -i PATH=/usr/bin:/bin HOME=<scratch>/home sidebar-storage
+--ozone-platform=headless --disable-gpu --password-store=basic <request>`. The
+empty environment is the Linux form of filtering `ELECTRON_`, `NODE_` and
+`DYLD_` variables, and it also leaves out the display and the session bus, so
+the helper has no window to show and no keyring to reach: with cookie
+encryption fused on, a helper on the desktop's password store would ask the
+Secret Service for Chromium's key, and a locked keyring would put up a
+dialog. The headless platform crashes Electron when a `BrowserWindow` is
+created, so the script uses a `WebContentsView`, which needs no window. The
+Chromium sandbox stays on. Its process is not a Claude to
+`graft_core::claude` (the executable is not `claude-desktop`), and the Claude
+launcher's reapers leave it alone, since its path is outside
+`/usr/lib/claude-desktop*` and it carries no `--user-data-dir`.
+
+**What to write is decided by Graft, not by the helper's script.** On a Mac
+`decode`, `snapshot`, `patch`, `patchPreferences` and `preferencesText` live in
+the script and are tested with Node. On Linux they are Rust
+(`graft_sidebar::records`), so the suite drives every one of them with no
+JavaScript engine, and the script only reads the raw records of each profile
+and writes the ones it is handed. A write names the records it expects, the
+script reads them again and refuses with `changed-during-sync` if anything
+moved, then writes, flushes, reads back and compares; a profile that fails is
+put back as it was read, and the reply lists the profiles that were written.
+The settings file is Graft's to write, so it is written first, through
+`atomic_write_text` with the indent, final newline and mode it had, chmodded
+past the umask, and put back byte for byte, or removed if the pass created
+it, for every profile the databases did not take. A fingerprint over the raw
+records, the settings text and the origin is what the read hands out and the
+write is checked against, as on a Mac.
+
+**The launch lock is Graft's one launch lock.** The Mac `SidebarSync` had a
+lock file of its own; on Linux the pass runs inside
+`graft_core::lock::with_launch_lock`, which every launcher and the window
+already take from deciding a profile is closed to starting Claude on it.
+`synchronize_before_opening` refuses to run when that lock is free, which is
+the call made from outside it. The process list it checks is
+`graft_core::claude::running_profiles`, one `ps` on the host.
+
+**Measured here.** `linux/test-sidebar.sh` passed all 25 of its checks against
+three disposable profiles under `linux/target/sidebar-tests`: real Chromium
+databases seeded by a second copy of the runtime, merged pins agreeing after
+the storage engine is reopened, an unpin, reorder and sort change reaching
+the other profile, the last pins cleared, a profile with no pin record read
+as empty and written into, unrelated records and appearance kept, the settings
+file's own servers, permission choice, indent, newline and mode kept, one key
+in the cache, no scratch folder or helper process left, and nothing written to
+the real home folder. A pass that reads and writes took 1.8 seconds, two
+helper starts. Not yet seen: the pass inside the Flatpak, where the copy, the
+listing and the helper go out through `flatpak-spawn --host`; a pass over real
+profiles, which is a person's to run; and any packaging but the rpm. An
+AppImage's runtime sits in a mount that goes when it exits and its launcher
+names no `app_exec`, so there the pass stops at `unsupported-runtime` unless
+`GRAFT_CLAUDE_RUNTIME` names a binary that stays put.
+
+**Desktop settings.** `copy_desktop_servers` is in `graft_sidebar::settings`
+and behaves as on a Mac: missing MCP definitions are added to the profile's
+own real file, a legacy link becomes a real file from the stash or from the
+source's servers alone, and an unreadable file on either side stops it. The
+chat sharing calls it while grafting, and calls `graft_sidebar::forget_pairs`
+whenever it saves `mirrored-chats.json`, which this crate reads and never
+writes.

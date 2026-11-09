@@ -599,6 +599,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "graft-sidebar"
+version = "2.0.1"
+dependencies = [
+ "graft-core",
+ "hex",
+ "libc",
+ "serde",
+ "serde_json",
+ "sha2",
+ "uuid",
+]
+
+[[package]]
 name = "graft-usage"
 version = "2.0.1"
 dependencies = [
