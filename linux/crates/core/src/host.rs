@@ -28,8 +28,11 @@ pub fn set_run_directly(on: bool) {
 }
 
 /// Whether this process is running inside a Flatpak sandbox.
+///
+/// `GRAFT_RUN_DIRECTLY=1` does what `set_run_directly` does for a whole
+/// process, so the suite can run the built launcher the same way.
 pub fn in_flatpak() -> bool {
-    if DIRECT.load(Ordering::SeqCst) {
+    if DIRECT.load(Ordering::SeqCst) || std::env::var_os("GRAFT_RUN_DIRECTLY").is_some_and(|v| v == "1") {
         return false;
     }
     static ANSWER: OnceLock<bool> = OnceLock::new();

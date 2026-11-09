@@ -1,0 +1,19 @@
+[package]
+name = "graft-launch"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "graft_launch"
+path = "src/lib.rs"
+
+[[bin]]
+name = "graft-launch"
+path = "src/bin/graft-launch.rs"
+
+[dependencies]
+graft-core.workspace = true
+graft-profiles = { path = "../profiles" }
+graft-chats = { path = "../chats" }
+graft-sidebar = { path = "../sidebar" }

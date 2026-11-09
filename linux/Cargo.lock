@@ -587,6 +587,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "graft-launch"
+version = "2.0.1"
+dependencies = [
+ "graft-chats",
+ "graft-core",
+ "graft-profiles",
+ "graft-sidebar",
+]
+
+[[package]]
 name = "graft-profiles"
 version = "2.0.1"
 dependencies = [
