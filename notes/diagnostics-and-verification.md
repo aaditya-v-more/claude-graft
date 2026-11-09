@@ -182,6 +182,9 @@ project and a search all loaded, and after Graft was quit and reopened it was
 still signed in, its one store kept. That search called two transcripts gone
 that were halves of a conversation still open, which
 [projects-and-search.md](projects-and-search.md) explains.
+The run after the fix searched the same words: the same hits came back less
+those two halves, nothing was marked gone, the gone filter listed nothing, and
+the account and its store had come through the swap untouched.
 
 Unproven: **Start Session** has never successfully opened a window. It POSTs one
 Haiku message with `max_tokens: 4` and Claude Code's system prompt, which these
