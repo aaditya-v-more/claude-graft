@@ -17,3 +17,4 @@ graft-core.workspace = true
 graft-profiles = { path = "../profiles" }
 graft-chats = { path = "../chats" }
 graft-sidebar = { path = "../sidebar" }
+graft-pool = { path = "../pool" }

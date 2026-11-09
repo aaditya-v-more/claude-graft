@@ -44,9 +44,13 @@ impl LaunchSteps for Steps {
     }
 
     /// Under the launch lock with the profile found closed: the only time a
-    /// Claude's own storage may be written.
+    /// Claude's own storage may be written, and so the only time the
+    /// shared-usage lines may go into its Code settings or come out of them.
+    /// The relay is made sure of first, since a Claude that opens with the
+    /// lines and no relay behind them cannot reach the service at all.
     fn before_start(&self, profile: &Path) {
         graft_sidebar::synchronize_before_opening(profile);
+        graft_pool::environment::prepare_for_launch(profile);
     }
 }
 
