@@ -12,10 +12,26 @@ use std::ffi::OsStr;
 use std::io::Read;
 use std::path::Path;
 use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::OnceLock;
+
+static DIRECT: AtomicBool = AtomicBool::new(false);
+
+/// Treat this process as outside any Flatpak, so host commands run directly.
+///
+/// For the suite, which runs inside the SDK's own sandbox: there the host is
+/// out of reach, and running directly means `ps` sees only the sandbox, so a
+/// stand-in Claude a test starts is the only Claude it can find and a real
+/// one on this machine can be neither seen nor touched.
+pub fn set_run_directly(on: bool) {
+    DIRECT.store(on, Ordering::SeqCst);
+}
 
 /// Whether this process is running inside a Flatpak sandbox.
 pub fn in_flatpak() -> bool {
+    if DIRECT.load(Ordering::SeqCst) {
+        return false;
+    }
     static ANSWER: OnceLock<bool> = OnceLock::new();
     *ANSWER.get_or_init(|| Path::new("/.flatpak-info").exists())
 }
