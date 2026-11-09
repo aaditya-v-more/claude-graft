@@ -337,9 +337,9 @@ None of this has a Linux counterpart, and nothing of it is ported. Graft on
 Linux is a Flatpak, so its updates are Flatpak's: `flatpak update` installs
 the new version beside the running one, the next start runs it, and there is
 no feed, no signature of Graft's own, no floor and no note for the window to
-show. `VERSION` is still the one place the version is written; the Linux
-build reads it through the workspace version, and `graft --version` prints
-it.
+show. The Linux build's version is the workspace's, in `linux/Cargo.toml`,
+which is a second copy of `VERSION` and has to be changed with it; every
+shortcut entry is stamped with it, and `graft --version` prints it.
 
 Claude on Linux is a package somebody installed (a deb, an rpm, an AppImage
 or a Nix package of the Windows build), and its updates come from wherever
