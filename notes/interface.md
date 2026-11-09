@@ -386,3 +386,112 @@ and a body ending in the Graft and macOS versions. The first reply to a
 problem report is otherwise always a question asking for exactly those. The
 address and the LinkedIn handle are spelled out in `Links`, not derived from
 the GitHub or Ko-fi names, and the suite reads them back.
+
+## Linux
+
+The Linux window is GTK 4 and libadwaita, in `linux/crates/app`, and every
+rule above holds with these translations.
+
+**Quitting and the tray item.** Ctrl+Q stands for Cmd+Q and goes through
+`QuitPolicy::ends_the_app`, which on Linux has no update clause: Flatpak
+installs a new version beside the running one and never asks it to stop, so
+there is no relaunch to let through. The session ending needs no clause
+either. It ends Graft with a signal whose default is to stop, and nothing in
+Graft refuses it. Quit in the tray's window and in the item's menu is the one
+quit that is asked for.
+
+Reachability is `TrayPlacement::is_reachable`: the item registered, a
+`StatusNotifierWatcher` on the session bus, and `IsStatusNotifierHostRegistered`
+true. GNOME without the AppIndicator extension has a watcher-less bus; a
+panel whose tray applet was removed can leave a watcher with no host, which
+takes the item and shows it nowhere, exactly the item that exists without
+being clickable. The bus is asked on a thread of its own every five seconds
+(`reach::watch`) and the item's own `watcher_online` and `watcher_offline`
+say when its registration comes and goes, so the main loop only ever reads an
+answer.
+
+A Linux app has no Dock icon to keep, so `WindowPolicy::hides_window` decides
+between hiding the window and quitting. With the item reachable, closing the
+window hides it and records it put away; without, closing quits and leaves
+the window recorded as open, so the next start brings one up. A hidden start
+asks again `PLACEMENT_GRACE` later and shows the window when the item still
+cannot be reached. A banner inside the content column says so while the
+item is wanted and unreachable, since a window that quits on close is
+otherwise a surprise.
+
+**The split view.** The root is an `AdwNavigationSplitView`, with the
+sidebar's own `AdwToolbarView` and header and the content column's, so the
+sidebar runs the full height and the title belongs to the content alone; the
+notice is the first child of the content column. The header bars are inside
+the window's content, so `set_size_request(820, 560)` is the whole window's
+smallest size, where the Mac had to measure what the titlebar took. The pages
+are data: `window::Page` names each one, `window::rows` lists them for the
+sidebar and `window::page_widget` builds them, which is where Artifacts,
+Projects and Search Chats come in from `graft-web`, over one `ArtifactCenter`
+and one `ProjectCenter` made after GTK starts.
+
+**Naming controls.** `ui::identified` (the web crate's, reused) sets a widget
+name of `<surface>.<profile>.<control>` and an accessible label, on the
+control itself. A row with a button keeps the name on the words and lets the
+button name itself, as on the Mac. The suite counts, per file, that no file
+makes more controls than it names.
+
+**Nothing blocking on the main loop.** `ui::off_main` runs work on GIO's
+blocking pool and hands the answer back to the main loop through a local
+future, so the answer may touch widgets and the work may not. Every process
+listing, sweep, keyring read, install, delete, open and pool pass goes
+through it, and the suite fails on one that does not. Long-lived objects are
+in `shared::Shared`, one per process, and a view that shows one of them
+listens for its topic (`shared::listen`) and stops when the view is
+destroyed.
+
+**The tray's window.** A tray item cannot host a popover, so activating it
+opens a small undecorated window titled "Claude Graft Menu", which closes
+when it loses the focus. A libadwaita dialog is drawn inside its parent
+window, so the conflict question asked from it keeps it open, where the Mac
+had to use an `NSAlert` because a popover gives up key window to any sheet.
+Wayland lets nobody place a window, so it opens where the compositor puts it.
+The item also has a menu, with the conversation on screen and its accounts as
+a radio group and then Open, Refresh Usage and Quit: that is the Mac's right
+click, and it is the way in on a host that shows a menu on every click.
+
+**The Claude in front.** Claude here runs under XWayland
+(`--ozone-platform=x11`), so `front::watch_x11` follows `_NET_ACTIVE_WINDOW`
+on the root window, reads the window's `_NET_WM_PID` and `WM_CLASS`, and a
+process listing on the host matches the pid to a profile. Inside the Flatpak
+the pid is the host's, which is what `flatpak-spawn --host ps` lists, so the
+two agree. A Claude's class starts `ClaudeGraft.` for a grafted one and names
+Claude for Claude's own; Graft's own class, or Graft's window being active
+while the X server names nothing (a Graft drawn natively on Wayland is no X
+window), is the Mac's "Graft coming forward leaves it where it was". The
+lookup waits 150 ms first, because the X server reports focus moving to
+Graft's window before GTK marks it active. With no X server at all the front
+Claude is the running one whose own records were focused last, through the
+pool's `RecordWatch`, which is the only word a pure Wayland session gives.
+
+**What the item says.** A tray host draws an item's title and lays out the
+item itself, so the Mac's pictures (the name on the icon's colour, the
+lowered figure, the strip of lent accounts) are said in words: the title is
+`[name] figure [conversation]`, the tooltip's heading is what the Mac's
+spoken title says and its lines are the Mac's tooltip. The icon is the front
+Claude's own preset, drawn by `graft_profiles::icon`; the account answering
+the conversation on screen is the overlay icon, where the Mac lights it in a
+red ring. Graft's own mark comes back when no Claude is shown. A tick moves
+nothing: the text is handed over once per change, never on a timer, because
+every new title is a bus signal and a relayout in the host, the cost the
+Mac's ticker exists to avoid; and a host lays out its own items, so text can
+never push the item out of reach and `keepReachable` has nothing to do.
+
+**Colours.** A new Claude takes `IconPreset::next` over the pool's
+`colours_in_use`, which counts every shortcut and every lent account that is
+not also a Claude here, once, in `window::add_shortcut`.
+
+**A running Claude's icon.** On Linux a grafted Claude does show its own
+icon: the launcher passes `--class=ClaudeGraft.<id>`, the entry carries the
+same `StartupWMClass`, and the dock matches the window to the entry. The
+icon picker says so.
+
+Still unproven on a real desktop: the tray item on KDE and on GNOME with the
+AppIndicator extension, the X11 front-window watch under XWayland, the
+dropdown's focus-loss close on each compositor, and the window fitting 820 by
+560 with the fullest shortcut page. `linux/HANDOFF-app.md` has the steps.
