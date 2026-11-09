@@ -121,7 +121,7 @@ fn signing_in_again_to_a_listed_account_keeps_the_new_store_in_the_accounts_plac
 fn a_sign_in_to_an_account_not_yet_listed_adds_it_and_lets_nothing_go() {
     let first = account("a@example.com", "acc-a", "org-a");
     let fresh = Uuid::new_v4();
-    let (list, retired) = signed_in(&[first.clone()], fresh, &identity("acc-b", "b@example.com", "org-b"));
+    let (list, retired) = signed_in(std::slice::from_ref(&first), fresh, &identity("acc-b", "b@example.com", "org-b"));
     assert_eq!(list.iter().map(|a| a.id).collect::<Vec<_>>(), vec![first.id, fresh]);
     assert!(retired.is_empty());
 }
@@ -785,6 +785,7 @@ fn each_accounts_best_chat_comes_before_any_accounts_second_and_code_sessions_fo
 }
 
 #[test]
+#[allow(clippy::single_range_in_vec_init)]
 fn matches_are_counted_in_utf16_as_the_page_counts_them_and_one_past_the_end_is_dropped() {
     assert_eq!(highlighted("\u{1F642} raspberry", &[3..12, 40..50]), "\u{1F642} <b>raspberry</b>");
     assert_eq!(highlighted("a<b", &[0..1]), "<b>a</b>&lt;b", "the text around a match is never read as markup");

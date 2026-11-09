@@ -20,7 +20,7 @@ adw = { package = "libadwaita", version = "0.9", features = ["v1_7"] }
 webkit = { package = "webkit6", version = "0.6", features = ["v2_50"] }
 futures-channel = "0.3"
 zip = { version = "2", default-features = false, features = ["deflate"] }
-rand = "0.9"
+libc.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
