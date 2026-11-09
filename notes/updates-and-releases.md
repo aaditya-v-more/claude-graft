@@ -330,3 +330,23 @@ entitlements this app does not carry, and launchd refuses them for a
 non-sandboxed app. The signing key lives in the login keychain under
 `https://sparkle-project.org`; `vendor/bin/generate_keys -x` exports it if CI
 ever needs it.
+
+## Linux
+
+None of this has a Linux counterpart, and nothing of it is ported. Graft on
+Linux is a Flatpak, so its updates are Flatpak's: `flatpak update` installs
+the new version beside the running one, the next start runs it, and there is
+no feed, no signature of Graft's own, no floor and no note for the window to
+show. `VERSION` is still the one place the version is written; the Linux
+build reads it through the workspace version, and `graft --version` prints
+it.
+
+Claude on Linux is a package somebody installed (a deb, an rpm, an AppImage
+or a Nix package of the Windows build), and its updates come from wherever
+that package does. Graft never downloads or installs a Claude there, has no
+updater profile and holds no lock against one. What is left of
+`ClaudeUpdateStatus` is one line at the top of the tray's window and the foot
+of the sidebar, `updates::status_line`, which says which Claude Desktop is
+installed, as the launcher's `--version` reports it, read once off the main
+loop as Graft starts, or that none was found. Its button explains where the
+updates come from instead of offering one.

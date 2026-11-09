@@ -63,7 +63,7 @@ pub fn image(preset: IconPreset, size: i32) -> gtk::Image {
 /// RGBA, as an image holds it, to the ARGB in network order a tray takes.
 pub fn argb(rgba: &[u8]) -> Vec<u8> {
     let mut data = rgba.to_vec();
-    for pixel in data.as_chunks_mut::<4>().0 {
+    for pixel in data.chunks_exact_mut(4) {
         pixel.rotate_right(1);
     }
     data
