@@ -137,3 +137,34 @@ browser signed in to one account. The transcript reader was run read-only over
 the development Mac's own transcripts. Nothing has yet been run inside Graft
 against a real account; `handoff/projects-search/HANDOFF.md` is the plan for
 that, on a second Mac.
+
+## Linux
+
+`ProjectCenter` lives in `linux/crates/web/src/project_center.rs` and follows
+`ArtifactCenter` through its change feed (`Change::Accounts` and
+`Change::SignedIn`) rather than Combine, and keeps no sign-in of its own. Every
+request, cache and generation rule above holds unchanged, as do the two-minute
+lifetimes and `localReadServes`.
+
+Where a Code session ran is read from the same `~/.claude/projects`, but the
+reading of a transcript belongs to the chat mirror, which on Linux is the
+`graft-chats` crate. So the walk is in `local_sessions.rs` and the facts come
+in through the `Transcripts` trait the app fills from `graft-chats`: `cached`
+for the sweep's entry when it still matches the file's date and size, `parse`
+for the sweep's own reader on a transcript it has not reached, `folder_is_here`
+for `sessionFolderIsHere`, and `carried_on` for the sweep's `superseded`. Every
+method only reads, and the suite fails if the walk writes anything. The read
+runs on a GIO blocking thread; a search waits for one already under way.
+
+A session claude.ai no longer has opens in the file manager through
+`gtk::FileLauncher::open_containing_folder`, which goes through the portal
+inside the Flatpak, and everything else opens in the browser through
+`gtk::UriLauncher`. A search goes out when Enter is pressed in the field or the
+Search button is, never as the query is typed, and Enter while a search runs
+starts nothing; the suite reads the page's source to hold that. Match ranges
+are still counted in UTF-16 and drawn as Pango bold, with any range that would
+split a character dropped. The places read "this computer" and "another
+computer" where a Mac says Mac.
+
+Not yet seen on Linux: any search against claude.ai, and a read of this
+machine's transcripts through `graft-chats`.

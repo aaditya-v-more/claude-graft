@@ -172,6 +172,8 @@ pub fn page(data: &[u8], account: Uuid, org: &str) -> Option<Page> {
                 org: org.to_string(),
                 title: text("title").filter(|t| !t.is_empty()).unwrap_or_else(|| "Untitled".into()),
                 kind: text("kind").unwrap_or_else(|| "page".into()),
+                // The link is handed to the desktop to open, which opens
+                // whatever a scheme names; only a web address is kept.
                 open_url: text("open_url").filter(|u| u.starts_with("https://") || u.starts_with("http://")),
                 audience: text("audience").unwrap_or_else(|| "owner".into()),
                 rel: text("rel").unwrap_or_else(|| "mine".into()),

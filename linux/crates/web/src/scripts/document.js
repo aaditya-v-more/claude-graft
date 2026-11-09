@@ -69,7 +69,7 @@ function list(element, level, out) {
             else runs({childNodes: [child]}, {}, own);
         }
         const box = [...item.children].find((c) => tagOf(c) === "INPUT" && c.type === "checkbox");
-        if (box) own.unshift({text: box.checked ? "☒ " : "☐ "});
+        if (box) own.unshift({text: box.checked ? "\u2612 " : "\u2610 "});
         out.push({type: "item", ordered, level, runs: trimmed(own)});
         for (const child of nested) list(child, level + 1, out);
     }
