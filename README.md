@@ -48,6 +48,18 @@ macOS 13 and Claude Desktop; sharing usage needs macOS 15. It is ad-hoc signed,
 not notarised, so the first open needs **System Settings › Privacy & Security**
 (the cask does this for you).
 
+### Linux
+
+There is a Linux build as a Flatpak, for a Claude Desktop installed from one of
+the community packages of it (`claude-desktop` or `claude-desktop-unofficial` on
+the `PATH`). Build and install it from a checkout with `linux/build.sh
+--install`, then start **Claude Graft** from the app grid. It lives in the tray,
+which on GNOME needs the AppIndicator extension. Graft manages a Claude that is
+installed on the host, so the Flatpak is granted the host's files and may start
+host programs; it is sandboxed in name only. Before removing it, run
+`flatpak run --command=graft-launch io.github.aaditya_v_more.ClaudeGraft
+--stop-sharing` so each Claude's Code settings go back as they were.
+
 ## Shared usage
 
 When one account runs out, Claude Code carries on with another's allowance,

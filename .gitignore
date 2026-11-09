@@ -4,3 +4,8 @@ dist/
 *.xcuserstate
 vendor/
 .firecrawl/
+linux/target/
+linux/.cargo-home/
+linux/.flatpak-builder/
+linux/flatpak-build/
+linux/repo/

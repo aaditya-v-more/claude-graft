@@ -185,3 +185,72 @@ main profile is recognised by the absence of one. Profile paths are prefixes of
 each other, so every `pgrep` on `user-data-dir=` must be anchored with
 `([[:space:]]|$)` or one instance makes every shorter-named profile look like it
 is running.
+
+## Linux
+
+On Linux a shortcut is a `.desktop` file, `claude-graft-<id>.desktop` in
+`~/.local/share/applications`, written by `graft-profiles`. It is Graft's
+because it carries `X-Claude-Graft-Config`, the path of its `graft.json` in
+`~/.local/share/claude-graft/shortcuts/<id>/`, and for no other reason: an
+entry under that file name without the key is somebody else's, and install
+refuses to write over it, as a Mac install refuses an app Graft did not make.
+The entry names its icon by path, a PNG under
+`~/.local/share/icons/hicolor/256x256/apps/`, and runs `graft-launch <id>`
+(inside the Flatpak, `flatpak run --command=graft-launch <app id> <id>`, since
+the desktop that runs it is on the host). Its `StartupWMClass` is
+`ClaudeGraft.<id>`, which the launcher passes Claude as `--class`.
+
+The file is named by id rather than by the shortcut's name, so a rename is
+the `Name` key changing and nothing moves. What the Mac build does for a
+bundle renamed in Finder still has a counterpart: an entry renamed or copied
+by hand, or by a menu editor, is found by the profile its description opens,
+with the same exception for two shortcuts on one folder, and Update writes the
+entry back under its own file name and removes the other only once the new one
+is in place. Delete removes every entry naming the same description, since a
+copy left behind would go on opening a profile nothing lists.
+
+A Mac bundle carries a copy of the launcher; an entry does not, so what a
+shortcut runs is always the installed `graft-launch` and only the way the entry
+reaches it can go stale. `refresh_launcher` rewrites `Exec`, the window class
+and the `X-Claude-Graft-Version` stamp when the stamp differs, and nothing
+else, editing the file a key at a time so a `Name` still waiting for its
+rename and any key a menu editor added stay as they are. `refresh_config` is
+the same repair as on a Mac, found by profile and never moving one, and it
+writes only a `graft.json` inside Graft's own shortcuts folder: the path in an
+entry is text anybody can edit, and is not leave to write anywhere else.
+Nothing is signed, Launch Services has no counterpart, and the desktop notices
+a new or changed entry by watching the folder, so nothing like
+`update-desktop-database` is run.
+
+The icon is drawn from Claude's own, read on the host from
+`/usr/lib/<launcher name>/resources/icon.png` (or the package's hicolor icon),
+since the sandbox's `/usr` is the runtime's. A machine where none can be found
+gets the plain icon in `crates/profiles/assets/` instead of no shortcut. The
+hue rotation and saturation are the SVG colour matrices for `hue-rotate` and
+`saturate`, which turn Claude's orange the same way round for the same angle as
+Core Image's filters, and the badge is drawn with the Mac's proportions from
+glyphs kept in the code, since the desktop's icon theme has no briefcase.
+
+Opening is where the two systems differ most. This build of Claude takes
+Electron's single-instance lock, so a second start on an open profile hands its
+arguments to the first, which shows its window: `reveal` starts the launcher
+script again with the arguments the running Claude was given, and is refused
+when nothing is open there, since then it would start one rather than show
+one. The running check still comes first, as on a Mac. Open from the window
+runs the shortcut's launcher with the description its entry names, the way
+the desktop runs the entry, so the launcher's own check is never skipped; a
+missing entry is `MissingShortcut`, never Claude's own profile. The steps
+around a launch that belong to other areas (the sweep, the sidebar sync, the
+shared-usage lines) are handed in as `LaunchSteps` at the points the Mac build
+takes them, under the state lock and then the launch lock, never both at once.
+
+Claude's updates come from the package that installed it, so the update
+policy a Mac launch checks first, and the manual-update library an install
+synchronizes, have no Linux counterpart and are not ported.
+
+`tests/opening.rs` is `test-opening.sh` made safe to run anywhere: it points
+`GRAFT_CLAUDE_LAUNCHER` at a stand-in script that records its arguments,
+becomes a process `ps` takes for Claude's main binary, and hands over and exits
+when started a second time on a profile, as Claude does. Inside the SDK the
+suite runs host commands directly (`host::set_run_directly`), so `ps` lists
+only the suite's own sandbox and no real Claude can be seen or touched.

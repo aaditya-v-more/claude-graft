@@ -1,0 +1,36 @@
+[package]
+name = "graft-app"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "graft"
+path = "src/main.rs"
+
+[dependencies]
+graft-core.workspace = true
+graft-credentials.workspace = true
+graft-profiles = { path = "../profiles" }
+graft-chats = { path = "../chats" }
+graft-usage = { path = "../usage" }
+graft-sidebar = { path = "../sidebar" }
+graft-launch = { path = "../launch" }
+graft-web = { path = "../web" }
+graft-pool.workspace = true
+# The decoder the profiles crate already links, for Graft's own tray icon.
+image = { version = "0.25", default-features = false, features = ["png"] }
+serde.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+time.workspace = true
+libc.workspace = true
+# The same GTK the web pages are built with, so the workspace links one.
+gtk = { package = "gtk4", version = "0.11", features = ["v4_18"] }
+adw = { package = "libadwaita", version = "0.9", features = ["v1_7"] }
+ksni = { version = "0.3", default-features = false, features = ["blocking", "async-io"] }
+x11rb = { version = "0.13", default-features = false }
+zbus = { version = "5", default-features = false, features = ["blocking-api", "async-io"] }
+
+[dev-dependencies]
+tempfile.workspace = true

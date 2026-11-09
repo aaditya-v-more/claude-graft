@@ -344,3 +344,37 @@ never, both stop the dialog `open` puts up; the section in the shortcut's own
 view stays for as long as anything is missing, because it is the only place left
 to change your mind from and an offer outlives the moment it was first made. It
 goes when the count reaches zero, which is what having taken them means.
+
+## Linux
+
+The Linux build's port is `linux/crates/chats` (`graft-chats`), and every rule
+above holds there unchanged. The stores have the same layout under
+`~/.config/<profile>`, the stash is the same hidden `.<name>.graft-own`
+sibling, and `mirrored-chats.json` and `session-records.json` keep the Mac
+names and shapes, so a state folder carried between the two still reads. The
+digests in `mirrored-chats.json` are the same FNV-1a written the same way.
+
+Two things are said differently. "Resolves inside the profile" is asked with
+`graft_core::paths::normalize`, which follows every link that exists and takes
+the rest lexically, because that is what `resolvingSymlinksInPath` did and
+because Fedora's atomic editions make `/home` itself a link to `/var/home`: a
+pair written through one spelling and asked about through the other must still
+be one pair. And the settings files Graft rewrites (`claude_desktop_config.json`,
+the appearance keys in `config.json`) are written pretty-printed with sorted
+keys and the file's own mode kept, since Linux has no `JSONSerialization` to
+match and a copy of a profile's settings is still readable by its owner alone.
+
+Nothing moves while any Claude is up, and on Linux "any Claude" is
+`graft_core::claude::running_profiles_in` over one `ps` taken on the host
+through `flatpak-spawn`, so a Claude on a profile outside `~/.config` counts as
+well; the Mac asked only about the profiles it could list. The listing is read
+through `graft_chats::running::set_processes_override`, for the same reason the
+Mac read `runningClaudes` through an override, and one more: a Claude started
+with no `--user-data-dir` is the main profile wherever `~/.config` points, so
+inside the suite's sandbox the real Claude open on this machine would read as
+the sandbox's own Claude being open. The suite's default listing is empty.
+
+`saveMirrorState` told `SidebarSync` which pairs survive. The crate cannot
+depend on the sidebar crate, so the sidebar code registers that call with
+`graft_chats::mirror::set_on_pairs_saved` at start, and nothing is told until
+it does.

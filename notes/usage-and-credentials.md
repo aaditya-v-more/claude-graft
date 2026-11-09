@@ -194,3 +194,67 @@ went out allowed to ask and with no focus, so a Deny on a Mac with three
 Claudes was answered with three more dialogs. That refresh now asks nobody and
 only about the account the session was started on: the press already asked the
 keychain once, in starting the session.
+
+## Linux
+
+The Linux build reads usage in `linux/crates/usage` (`graft-usage`), on top of
+`graft-credentials`; how the token comes out of Claude's safe storage there, and
+what the keyring's unlock dialog stands for, is in [linux.md](linux.md) under
+Keychain. Everything above holds unchanged: the same endpoint and headers, the
+same three cache rungs, the same queueing, back-off, `Retry-After` and
+once-per-pass prompting, and the same refusal to read a missing five-hour
+window as zero. The rules are free functions in `monitor.rs` named after their
+Swift counterparts (`may_use_cache`, `arrival`, `retry_delay`, `may_attempt`,
+`prompting`, `came_from_service`, `failure_line`), so the suite drives them
+the way the Mac suite does.
+
+There is no `URLSession.shared` to stay away from, but the reason for staying
+away from it is kept by construction. A token-bearing request is made only
+through `api::Session`, a client its owner makes and drops (the monitor's
+thread holds one, each Start Session makes its own), and the suite fails if a
+client turns up in a `static`, if anything calls `ureq`'s own default client, or
+if a client is made outside `api.rs`. The client keeps nothing on disk. It is
+handed a path, never a URL, so the host cannot be anything but
+`api.anthropic.com`, and it follows no redirect: a `3xx` is answered as a
+refusal, and the suite checks that the place a redirect points at hears nothing.
+Under test the base moves onto a stand-in service on loopback, and a test that
+forgets its stand-in is sent to loopback's discard port, so no test reaches the
+network. A proxy set in the environment is used, as a Mac uses the system's,
+except one pointing at Graft's own relay on loopback port 47823: a Graft started
+from a terminal inside a Claude that has the relay's lines would otherwise send
+its own usage request through a relay whose authority it does not trust, and
+read the failure as Anthropic not answering.
+
+A token sealed `v10` needs no keyring at all, so the suite signs its sandboxed
+profiles in that way and the whole path, from `config.json` to the stand-in's
+answer, runs without the real keyring ever being asked. A `v11` profile is
+never made in a test, since reading one goes to the desktop's Secret Service.
+
+The monitor runs every pass on a thread of its own, which alone holds the live
+cache and the back-off; `invalidate` goes down the same channel as the passes,
+which is what the serial queue did on a Mac. A request that arrives mid-pass is
+folded into the one waiting (`merge_waiting`) and sent to the back of that
+channel when the pass ends, behind any `invalidate` that came in while it ran,
+and the monitor counts as busy in between, so nothing slips in ahead of it. The
+app subscribes for a callback that runs on whichever thread changed the state,
+and hops to the GTK main loop itself; nothing is announced unless something
+changed. `Refresh` has a constructor for each way the app asks, and
+`Refresh::after_session_started` is the one rule from the Start Session buttons
+that lives in this crate rather than in the views.
+
+`start_session` is the one function a Start Session button calls, with
+`interactive` true. This crate's suite checks that nothing inside it calls
+`start_session`, and that `Prompting::Yes` is named only where a press turns
+into it; the app's suite owns the other half, the count of buttons. A claim on
+the account is held for the length of the call and let go when it returns, and
+it is made only when the account was free: built eagerly and dropped on the
+refused path, it let go of the press that held it, and deadlocked on the lock
+it was taken under.
+
+The usage status file is `~/.config/ClaudeGraft/usage-status.json`, with
+`keyringLocked` where a Mac writes `keychainLocked`. The rows' wording joins
+its parts with a semicolon rather than a middle dot, and says "this computer"
+and "the keyring" where a Mac says "this Mac" and "the keychain". Times are
+local, from `localtime_r` and `strftime`, so they follow the desktop's time zone
+and month names. The strings are English for now; the Linux build has no
+translation layer yet.

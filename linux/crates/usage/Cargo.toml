@@ -1,0 +1,17 @@
+[package]
+name = "graft-usage"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+graft-core.workspace = true
+graft-credentials = { path = "../credentials" }
+serde_json.workspace = true
+uuid.workspace = true
+time.workspace = true
+libc.workspace = true
+ureq = { version = "3", default-features = false, features = ["rustls"] }
+
+[dev-dependencies]
+base64.workspace = true

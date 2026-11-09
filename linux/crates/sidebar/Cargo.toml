@@ -1,0 +1,19 @@
+[package]
+name = "graft-sidebar"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+graft-core.workspace = true
+graft-chats = { path = "../chats" }
+serde.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+libc.workspace = true
+sha2.workspace = true
+hex.workspace = true
+
+[[example]]
+name = "sidebar-integration"
+path = "examples/sidebar_integration.rs"

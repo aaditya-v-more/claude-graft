@@ -586,3 +586,113 @@ be renamed and a conversation retitled while a script is still asking for it.
 
 What has run against real accounts, and what is still only a plan, is in
 [diagnostics-and-verification.md](diagnostics-and-verification.md).
+
+## Linux
+
+The Linux build splits this area in two crates. `graft-pool` is what the
+window, the launcher and the relay share: the model the relay is told, the
+ranking, what a request is read for, the journal and the swap a launcher
+makes, the window's reading and sealing of a Claude's Code environment, the
+controller that keeps lending in `usage-sharing.json` and the accounts signed
+in from the pane, the walk over the records that names the conversation on
+screen, and the sign-in itself. `graft-relay` is the relay, a binary and a
+library its tests drive. Every rule above holds unchanged; what follows is
+what each Mac mechanism became, and why.
+
+The relay is tokio and rustls. A `CONNECT` for `api.anthropic.com:443` is
+answered and the TLS inside it is taken apart on the same connection, with no
+second listener on loopback: the Mac relay hands the tunnel's bytes to an
+inner listener only because a Network.framework listener cannot take over a
+connection it accepted as plain TCP. A client may send its TLS greeting
+straight after the `CONNECT` without waiting for the answer, so whatever was
+read past the head is handed to the TLS listener in front of the rest. The
+upstream connection trusts `webpki-roots`, the Mozilla list Node ships with
+too, so the relay trusts for the service what Claude Code would. The control
+socket is the same line of JSON each way, `0600`, and the caller's user id is
+asked of the socket itself (`SO_PEERCRED`, through tokio's `peer_cred`) where
+the Mac asks `getpeereid`. Times on the wire are seconds since 1970, not the
+2001 reference Swift's encoder uses; both ends are Rust, so nothing reads the
+other shape.
+
+The authority is made with `rcgen` and never written down. It is ECDSA P-256,
+ten years, with a critical name constraint permitting `api.anthropic.com`
+alone, and its key lives in the relay's memory for as long as signing the one
+leaf takes. The leaf is 800 days, renewed within sixty days of its end, and
+only by the relay holding `relay.lock`, as on the Mac; its key sits in
+`pool/relay-identity.pem`, readable by this user alone, where the Mac keeps a
+PKCS#12 file it imports into memory. No `openssl` binary is involved, which
+matters because the Flatpak runtime is not the host and the Mac's
+`/usr/bin/openssl` has no counterpart there. Sharing therefore has no system
+floor on Linux, where the Mac needs macOS 15 for the in-memory import.
+
+Sealing follows Chromium's Linux safe storage, which the credentials crate
+reads: a profile seals with `v11` under a key from the desktop's keyring, or
+with `v10` under a key everybody knows where the desktop has none. A
+`code_environment::Sealer` is chosen per profile by its own token cache, so
+one machine can hold Claudes of both kinds; a `v10` value opens without the
+keyring whatever the profile uses now, and a `v11` one only with the key. An
+account signed in from the pane is sealed with the keyring's key where there
+is one and the fixed key where there is none. "Shut" on Linux is a locked
+keyring that this pass may not unlock; the dropdown's words for it are
+"Lending is paused until the keyring is unlocked", and the button that
+unlocks it is still the one thing allowed to put the desktop's dialog up. A
+pass with the keyring locked still settles every `v10` profile, and reads a
+`v11` one as unreadable, which keeps its journal entry as it was; the
+configuration it would send is never sent, as on the Mac.
+
+The relay is started with `--config-home` and `--home` where the Mac passes
+`--support`, for the same reason: a Graft pointed elsewhere for a test starts
+a relay that keeps its socket where that Graft will look. Outside a Flatpak it
+is the binary in a session of its own (`setsid`), with a bare environment.
+Inside one that would not outlive anything: every process in the sandbox dies
+when the sandbox's first process exits, and Graft's sandbox ends when Graft
+quits or a launcher hands over. So inside the Flatpak the relay is started
+through the Flatpak portal, `flatpak-spawn` without `--host` and without
+`--watch-bus`, which starts a sandbox of its own for this same app with its
+permissions and, without `--watch-bus`, does not tie its life to the caller's.
+Its `PATH` names `/app/bin` and `/usr/bin` so the relay finds `flatpak-spawn`
+for its own `ps` on the host.
+
+Graft going is seen the same way where it can be. Outside a Flatpak the relay
+looks for its own file, by the path it started from, as on the Mac. Inside
+one that file never goes while the relay runs: Flatpak keeps a removed
+deployment's files in place for as long as anything runs from them. So a
+relay run from `/app` asks the host whether
+`~/.local/share/flatpak/app/<id>/current/active` or
+`/var/lib/flatpak/app/<id>/current/active` is still there, and only a clear
+no counts as gone, since a host that could not be asked says nothing about
+the app. A relay run from anywhere else inside a sandbox, a development build
+in the SDK included, watches its file. The relay also reads the journal as it
+starts, not only at its first look, so a removal that lands in its first
+minute still finds the journal the folder took with it. `graft-launch
+--stop-sharing` is `environment::take_out_lines(None, claude::is_running)`;
+what Flatpak's uninstall runs instead of a cask's step is the launcher's
+business and is not settled here.
+
+The window watches the record stores for the tray as the Mac's `StoreWatch`
+does with FSEvents, but inotify has no counterpart to
+`kFSEventStreamCreateFlagIgnoreSelf`: a watch here also wakes on the sweep's
+and the mirror's own writes. A look woken that way finds nothing changed and
+costs one walk of `lstat`s, so it is left at that rather than filtered. inotify
+is not recursive either, so the window watches each organization folder under
+each store `Controller::watched_stores` names. Nothing tells Graft that a
+Claude quit the way `NSWorkspace` does; the window has to notice a Claude it
+saw running is gone, through its own process checks, and run a pass then,
+since that is the moment Claude's own profile can have its lines settled.
+
+The tests mirror the Mac's. The suite drives the policy, the environment, the
+swap and every refusal over sealed files in a `Sandbox`; the relay's own
+tests run the binary against a stand-in for the service on loopback, through
+`--upstream-loopback-port`, which reaches plain TCP on loopback and nowhere
+else. The removal check counts a stand-in for an open Claude by a second
+test-only flag, `--local-processes`, which lists this process's own `/proc`:
+the tests run inside the GNOME SDK, whose sandbox cannot reach the host's
+`ps`. A debug build of the relay takes about two seconds to start, most of it
+digesting its own unoptimised binary, which is why the removal test waits for
+its socket before counting looks.
+
+Still unproven on Linux: that a relay started through the portal outlives
+Graft's sandbox and a launcher's, and that Claude Code on the host reaches it
+on loopback from there; the deployment paths the Flatpak removal check asks
+about; and everything that needs a real Claude, a real keyring or a real
+account, which goes in a `dist/` plan run from outside a managed Claude.

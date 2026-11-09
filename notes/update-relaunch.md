@@ -367,3 +367,13 @@ No real release installation was forced. Existing profile, provider, login,
 policy, and shortcut checksums were unchanged, and manual mode remained enabled
 for all three profiles. The prior bundles are backed up under
 `/private/tmp/claude-graft-before-update-controls.noindex`.
+
+## Linux
+
+Nothing here applies on Linux. Flatpak never stops a running Graft to update
+it, so there is no relaunch to tell from a quit, no `stealth-relaunch`
+marker, no `UpdateRecovery` and no notice. A Claude is never updated by
+Graft, so no Claude is ever closed for one. The one thing the relaunch rule
+protected, a start that comes back the way the last one was left, is
+`Settings::main_window_open`, written when the window is put away and when it
+is shown, and never while Graft is on its way out (`Shared::terminating`).
