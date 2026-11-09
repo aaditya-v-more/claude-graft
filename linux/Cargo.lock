@@ -450,6 +450,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "graft-sidebar"
+version = "2.0.1"
+dependencies = [
+ "graft-core",
+ "hex",
+ "libc",
+ "serde",
+ "serde_json",
+ "sha2",
+ "uuid",
+]
+
+[[package]]
 name = "hashbrown"
 version = "0.17.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

@@ -631,7 +631,7 @@ mod tests {
         let _sandbox = Sandbox::new();
         let profile = paths::config_home().join("Somebody");
         assert_eq!(status_message(&profile), None, "a profile never synced says nothing");
-        record_status(SyncStatus::Waiting, &[profile.clone()]);
+        record_status(SyncStatus::Waiting, std::slice::from_ref(&profile));
         assert_eq!(status_message(&profile),
             Some("Quit the linked Claude apps, then open a shortcut to sync the sidebar."));
     }
