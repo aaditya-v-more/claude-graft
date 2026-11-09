@@ -73,9 +73,9 @@ pub fn reveal(profile: &Path) -> bool {
 fn graft_class_of(command: &str) -> Option<String> {
     command
         .split(' ')
+        .rev()
         .filter_map(|a| a.strip_prefix("--class="))
-        .filter(|c| c.starts_with("ClaudeGraft."))
-        .last()
+        .find(|c| c.starts_with("ClaudeGraft."))
         .map(str::to_string)
 }
 

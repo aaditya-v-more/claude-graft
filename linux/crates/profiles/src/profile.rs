@@ -125,6 +125,6 @@ mod tests {
         let doomed = make_profile("Claude-Doom", Some("DOWN"));
         let forget = Forget(Default::default());
         delete_profile(&doomed, &forget).unwrap();
-        assert_eq!(forget.0.borrow().as_slice(), &[doomed.clone()], "deleting the profile takes its pairs with it");
+        assert_eq!(forget.0.borrow().as_slice(), std::slice::from_ref(&doomed), "deleting the profile takes its pairs with it");
     }
 }

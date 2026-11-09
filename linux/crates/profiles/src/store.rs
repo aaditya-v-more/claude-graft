@@ -326,7 +326,7 @@ mod tests {
         let mut store = ShortcutStore::default();
         store.set_shortcuts(vec![shortcut.clone()]);
         store.delete(shortcut.id, false, &sharing);
-        assert_eq!(sharing.forgotten.borrow().as_slice(), &[bye.clone()], "deleting the shortcut stops the two folders being squared up");
+        assert_eq!(sharing.forgotten.borrow().as_slice(), std::slice::from_ref(&bye), "deleting the shortcut stops the two folders being squared up");
         assert!(bye.exists(), "and the folder, with whatever it holds, is left where it is");
         assert!(installer::installed_entry(&shortcut, &[]).is_none(), "while its entry is gone");
     }

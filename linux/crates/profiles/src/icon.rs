@@ -204,7 +204,7 @@ fn overlay(base: image::RgbaImage, svg: &str) -> Result<image::RgbaImage, IconEr
     let (w, h) = base.dimensions();
     let size = resvg::tiny_skia::IntSize::from_wh(w, h).ok_or(IconError::Failed)?;
     let mut data = base.into_raw();
-    for px in data.chunks_exact_mut(4) {
+    for px in data.as_chunks_mut::<4>().0 {
         let a = px[3] as u32;
         for c in &mut px[..3] {
             *c = ((*c as u32 * a + 127) / 255) as u8;
@@ -217,10 +217,10 @@ fn overlay(base: image::RgbaImage, svg: &str) -> Result<image::RgbaImage, IconEr
 
 fn demultiplied(pixmap: &resvg::tiny_skia::Pixmap) -> image::RgbaImage {
     let mut data = pixmap.data().to_vec();
-    for px in data.chunks_exact_mut(4) {
+    for px in data.as_chunks_mut::<4>().0 {
         let a = px[3] as u32;
         for c in &mut px[..3] {
-            *c = if a == 0 { 0 } else { ((*c as u32 * 255 + a / 2) / a).min(255) as u8 };
+            *c = (*c as u32 * 255 + a / 2).checked_div(a).unwrap_or(0).min(255) as u8;
         }
     }
     image::RgbaImage::from_raw(pixmap.width(), pixmap.height(), data).unwrap_or_default()
