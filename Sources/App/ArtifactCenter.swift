@@ -57,11 +57,45 @@ final class ClaudeWebSession: NSObject, WKNavigationDelegate {
         guard #available(macOS 14, *) else { return }
         for attempt in 1...3 {
             do {
-                try await WKWebsiteDataStore.remove(forIdentifier: account)
+                try await removeStore(account)
                 return
             } catch {
                 Diagnostics.note("artifacts.store removal failed", ["attempt": attempt, "error": "\(error)"])
                 try? await Task.sleep(nanoseconds: UInt64(attempt) * 2_000_000_000)
+            }
+        }
+    }
+
+    /// On macOS 27 listing or removing stores crashes the process until some
+    /// store in it has done work: the reply is handed to a run loop WebKit has
+    /// not set up yet. Launch lists the stores before any page exists, so
+    /// opening any pane that reaches claude.ai took Graft down every time. A
+    /// memory cache lookup on a store that keeps nothing sets it up, holds no
+    /// sign-in and loads no page. It held forty seconds later in a test, but it
+    /// costs nothing, so it is asked before every call rather than trusted.
+    @available(macOS 14, *)
+    private static func prepareStores() async {
+        await withCheckedContinuation { done in
+            WKWebsiteDataStore.nonPersistent().fetchDataRecords(ofTypes: [WKWebsiteDataTypeMemoryCache]) { _ in
+                done.resume()
+            }
+        }
+    }
+
+    @available(macOS 14, *)
+    static func storeIdentifiers() async -> [UUID] {
+        await prepareStores()
+        return await withCheckedContinuation { done in
+            WKWebsiteDataStore.fetchAllDataStoreIdentifiers { done.resume(returning: $0) }
+        }
+    }
+
+    @available(macOS 14, *)
+    private static func removeStore(_ account: UUID) async throws {
+        await prepareStores()
+        try await withCheckedThrowingContinuation { (done: CheckedContinuation<Void, Error>) in
+            WKWebsiteDataStore.remove(forIdentifier: account) { error in
+                if let error { done.resume(throwing: error) } else { done.resume() }
             }
         }
     }
@@ -387,7 +421,7 @@ final class ArtifactCenter: ObservableObject {
     /// either. Asked once, before this launch has made a page on any of them.
     @available(macOS 14, *)
     private func removeStrayStores() async {
-        for id in await WKWebsiteDataStore.allDataStoreIdentifiers {
+        for id in await ClaudeWebSession.storeIdentifiers() {
             // A sign-in started since launch is writing into its store.
             guard account(id) == nil, sessions[id] == nil, signIn?.account != id else { continue }
             Diagnostics.note("artifacts.store stray", ["store": String(id.uuidString.prefix(8))])

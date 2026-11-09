@@ -165,6 +165,16 @@ carried its title, so the "New chat" the first run looked for does not exist.
 The keychain was asked once, after the swap. Still not seen: the text giving
 way for room, and a focus the mirror copied, since Claude 2 stayed closed.
 
+A third run that evening took the merged 2.0.1 through all of it at once. The
+keychain was asked once, at launch, by the usage pass that may ask once while it
+is shut, and the new relay took over as soon as it was allowed, with the old
+one kept lending until then; the "Lending paused" notice that a refusal leaves
+was therefore not seen. Switches reached the bar in 1.05 to 1.17 seconds, the
+right click's menu, Show in Menu Bar, archiving and deleting all held, and
+nothing a person had set changed. Artifacts, Projects and Search Chats each
+crashed Graft on opening, which [artifacts.md](artifacts.md) explains; the
+fix has not yet been seen running.
+
 Unproven: **Start Session** has never successfully opened a window. It POSTs one
 Haiku message with `max_tokens: 4` and Claude Code's system prompt, which these
 tokens are minted for. If that turns out to be wrong the API's own error message

@@ -404,6 +404,14 @@ exists, from the title line in the transcript. Listed are conversations from a
 Claude with something to borrow, active in the last half hour and not put away,
 the Claude in front first and five at most.
 
+That list lives in the relay's memory and nowhere else, so a relay replaced by
+an update starts it empty. The live run on 9 November saw the conversation on
+screen go from ringed to named alone the moment the new relay took over; its
+next message through the new one brings the ring back. The choices made from
+the dropdown are not lost with it, since Graft keeps them in
+`usage-sharing.json` and configures the new relay with them. Handing the list
+over was weighed and left: it is lost once per update, for one message.
+
 **Which Claude is in front is `FrontmostClaude`'s answer,** the one the status
 item draws. Matching a Claude to its profile costs a `ps`, and the list used to
 run its own on every activation beside the one the status item was already

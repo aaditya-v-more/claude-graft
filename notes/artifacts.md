@@ -69,6 +69,20 @@ shares the store, with nothing listing it and nothing to remove it. So:
   file was read: one set aside, or never written, may name the accounts those
   stores belong to.
 
+That launch sweep crashed Graft the first time it ran for real, on macOS 27.0.1:
+opening Artifacts, Projects or Search Chats, whichever came first, brought
+`ArtifactCenter` up, and its first look at the stores took the process down in
+`WebsiteDataStore::fetchAllDataStoreIdentifiers` four times out of four. The
+suite never saw it, since nothing there makes a real store. A throwaway program
+pinned it down: listing or removing stores crashes in a process where no store
+has done any work yet, from the main thread or not, through the `async` form or
+the completion one, while the same calls after any store had answered a records
+lookup went through every time, forty seconds later and after that store was
+gone. So `prepareStores` asks a non-persistent store for its memory cache
+records before every listing and every removal. That store loads no page,
+holds no sign-in and is never shown claude.ai, and the suite fails if a store
+is listed or removed anywhere else or without it.
+
 The same account signed in twice keeps its newest store, and its record moves
 there, keeping its place in the list; the store it was under before is
 removed, so one account is never listed under two names. Keeping the first

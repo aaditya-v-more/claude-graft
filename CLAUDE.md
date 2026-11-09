@@ -157,6 +157,7 @@ any of these. The why is in [notes/updates-and-releases.md](notes/updates-and-re
 - **An artifact sign-in stays in its web store.** One `WKWebsiteDataStore` per account, loaded only with claude.ai; requests go out from a claude.ai page by `callAsyncJavaScript`, never from `URLSession`, and nothing reads `httpCookieStore`. Signing out removes the store. Claude profiles' cookies are never decrypted.
 - **A second sign-in to a listed account keeps the new store;** the record moves to it and the old store goes (`ArtifactAccounts.signedIn`).
 - **A store is removed only once nothing holds it:** `retire` closes the session and waits for `released()`, a sign-in window lets go before acting, a failed removal is logged and retried, and stores not in a readable `artifact-accounts.json` go at launch.
+- **WebKit is made ready before a store is listed or removed** (`prepareStores`): on macOS 27 either call crashes a process in which no store has done any work.
 - **Every `/api/frame` request carries `X-Frame-CP: go`,** or the service answers 404 as though the artifact did not exist.
 - **Only a 401, or a 403 from `/api/account`, is signed out;** any other 403 asks `/api/account` once and otherwise goes back as a refusal (`ArtifactAPI.meansSignedOut`).
 - **Artifacts are asked for when the list is shown or refreshed, never on a timer.**

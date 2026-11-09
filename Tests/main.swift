@@ -1411,6 +1411,18 @@ do {
     }
     check(sourceFiles.count > 10 && usingShared.isEmpty,
           "nothing in the app sends a request through the shared session and its cache")
+    // On macOS 27 listing or removing WebKit stores crashes a process in which
+    // no store has done any work yet, and launch lists them before any page
+    // exists: every pane that reaches claude.ai took Graft down on opening.
+    let storeCalls = sourceFiles.map { url -> (String, String) in
+        (url.lastPathComponent, (try? String(contentsOf: url, encoding: .utf8)) ?? "")
+    }.filter { $0.1.contains("WKWebsiteDataStore.fetchAllDataStoreIdentifiers")
+        || $0.1.contains("WKWebsiteDataStore.remove(forIdentifier")
+        || $0.1.contains("WKWebsiteDataStore.allDataStoreIdentifiers") }
+    check(storeCalls.map(\.0) == ["ArtifactCenter.swift"]
+            && storeCalls.allSatisfy { $0.1.components(separatedBy: "await prepareStores()").count == 3 }
+            && !storeCalls.contains { $0.1.contains("await WKWebsiteDataStore.") },
+          "WebKit is made ready before a store is listed or removed, in the one place that does either")
     let launch = (try? String(contentsOf: repoRoot.appending(path: "Sources/App/ClaudeGraftApp.swift"),
                               encoding: .utf8)) ?? ""
     check(launch.contains("URLCache.shared.removeAllCachedResponses()"),
@@ -7053,7 +7065,7 @@ do {
             && center.contains(#"Diagnostics.note("artifacts.store removal failed""#),
           "a store that will not be removed is written down and tried again, never dropped in silence")
     check(center.contains("if accountsWereRead, #available(macOS 14, *)")
-            && center.contains("await WKWebsiteDataStore.allDataStoreIdentifiers"),
+            && center.contains("await ClaudeWebSession.storeIdentifiers()"),
           "stores no listed account is under are removed at launch, and only against an accounts file that was read")
     check(center.contains("mayWriteAccounts = Self.setAside(ArtifactFiles.accounts)")
             && center.contains("mayWriteGroups = Self.setAside(ArtifactFiles.groups)")
