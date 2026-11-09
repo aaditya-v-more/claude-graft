@@ -30,6 +30,10 @@ clones the tap into `dist/`, rewrites the cask against the checksum of the disk
 image that run actually built, commits it, and names the push beside the other
 two. Nothing here pushes, as before; what changed is that no number is carried
 across by hand and the printed instructions are no longer half a publish.
+Every run deletes that clone and takes a fresh one, so a change to the rest of
+the cask — 2.0.1's uninstall step, which takes the sharing lines out of each
+closed Claude — is committed on top after the run and pushed with it, or the
+next run quietly drops it.
 
 **A release carries both architectures.** `build.sh` compiles one slice per
 architecture and `lipo`s them; a plain `./build.sh` stays single-slice because a
