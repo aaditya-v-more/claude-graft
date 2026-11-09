@@ -406,3 +406,46 @@ One field is not read the way the rest are. An answer is written
 first `type` on the line belongs to the message nested inside it and the line's
 own comes last — taking the first, which is right for every other field, quietly
 put every recovered session back at the default model and effort.
+
+## Linux
+
+The sweep is ported as `graft_chats::file_missing_session_records`, with
+`square_up` doing the mirror, the sweep and the state report under one hold of
+the state lock, as `squareUp` does. Transcripts are read from
+`~/.claude/projects` on the host, which the Flatpak sees through
+`--filesystem=host`, and the transcript cache, `session-records.json` and the
+record shape are the Mac's. Records are written with sorted keys and no
+formatting, and their times as whole numbers of milliseconds, the way Claude
+writes them; the bytes are what a later pass compares to tell a record still
+Graft's from one Claude has rewritten, so they have to come out the same for
+the same facts on every pass. No Linux build ever filed a record in the older
+shape that skipped browser permission checks, but a profile carried over from
+a Mac may hold some, so `olderSessionRecordData` is ported too.
+
+A session from another machine is told apart the way the Mac told one apart,
+by asking about the home folder or the drive and never the folder itself, with
+Linux's own places added. Homes are `/home/<name>`, or `/var/home/<name>` on
+Fedora's atomic editions, where `/home` is a link to it. Drives are
+`/run/media/<name>/<drive>` where udisks mounts them on most desktops,
+`/media/<name>/<drive>` on Debian and Ubuntu (on this machine `/media` is a
+link to `/run/media`), and `/mnt/<drive>` for one mounted by hand. A transcript
+carried over from a Mac still names `/Users/<name>` or `/Volumes/<drive>`, which
+a Linux machine never has, so it reads as from somewhere else, which is the
+case the rule was written for. Anywhere else is asked by its first component,
+as on the Mac. The path is taken lexically and the place is asked with a
+`stat` that follows links, so `/home/x` on a machine where `/home` is a link
+still answers for the folder it leads to.
+
+Inside the Flatpak that question is asked of the sandbox's view of the disk.
+`--filesystem=host` gives the sandbox the host's homes, `/run/media`, `/media`
+and `/mnt`, so the answer is the host's for every place named above. `/usr` and
+`/etc` are the runtime's own there, but nobody's session runs in either and
+both exist on every machine.
+
+The quiet window waits only while a Claude on the owner's account is running,
+and "running" is one `ps` per pass on the host, read through the same override
+the chat adoption uses, so the suite never depends on whether a real Claude is
+open while it runs. The window's own pass, `SessionRecords::sweep`, runs on a
+worker thread and refuses to start a second pass while one is in flight, as
+the Mac's `inFlight` did; the GTK window calls it at start and when the tray
+window opens, and nothing calls it on a timer.
