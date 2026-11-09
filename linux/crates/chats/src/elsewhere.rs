@@ -143,7 +143,7 @@ fn record_files(profile: &Path, account: &str) -> Vec<(String, PathBuf)> {
 /// a shortlist, and only what will be shown is read.
 fn newest_chats(files: &[PathBuf], limit: usize) -> Vec<ElsewhereChat> {
     let mut by_time: Vec<(PathBuf, SystemTime)> = files.iter().map(|f| (f.clone(), fsx::modified(f))).collect();
-    by_time.sort_by(|a, b| b.1.cmp(&a.1));
+    by_time.sort_by_key(|entry| std::cmp::Reverse(entry.1));
     let mut chats: Vec<ElsewhereChat> = by_time
         .into_iter()
         .take(limit * 4)
@@ -164,7 +164,7 @@ fn newest_chats(files: &[PathBuf], limit: usize) -> Vec<ElsewhereChat> {
             Some(ElsewhereChat { title, last_active: active })
         })
         .collect();
-    chats.sort_by(|a, b| b.last_active.cmp(&a.last_active));
+    chats.sort_by_key(|chat| std::cmp::Reverse(chat.last_active));
     chats.truncate(limit);
     chats
 }

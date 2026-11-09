@@ -11,6 +11,7 @@ use std::path::{Path, PathBuf};
 
 mod chats_elsewhere;
 mod grafting;
+mod linux_places;
 mod mirroring;
 mod records_filing;
 mod records_reading;

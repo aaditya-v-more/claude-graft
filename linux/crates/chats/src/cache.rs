@@ -153,7 +153,9 @@ pub struct RecordSessions {
 /// Parsed records, keyed by file and re-read only when the file changes. A
 /// sweep of several stores walks hundreds of these every time, and each one is
 /// small; reading them all is what the budget is for, not the parsing.
-static RECORDS: Mutex<Option<HashMap<String, (SystemTime, u64, RecordSessions)>>> = Mutex::new(None);
+type RecordCache = HashMap<String, (SystemTime, u64, RecordSessions)>;
+
+static RECORDS: Mutex<Option<RecordCache>> = Mutex::new(None);
 
 pub fn sessions_of_record(path: &Path) -> RecordSessions {
     let meta = std::fs::metadata(path).ok();
