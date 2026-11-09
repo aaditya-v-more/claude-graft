@@ -1,0 +1,26 @@
+[package]
+name = "graft-web"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+graft-core.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+time.workspace = true
+sha2.workspace = true
+base64.workspace = true
+# The SDK is GTK 4.24, libadwaita 1.10 and WebKitGTK 2.54; nothing here needs
+# newer than these features name, which keeps the build working on a runtime a
+# step or two older.
+gtk = { package = "gtk4", version = "0.11", features = ["v4_18"] }
+adw = { package = "libadwaita", version = "0.9", features = ["v1_7"] }
+webkit = { package = "webkit6", version = "0.6", features = ["v2_50"] }
+futures-channel = "0.3"
+zip = { version = "2", default-features = false, features = ["deflate"] }
+libc.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

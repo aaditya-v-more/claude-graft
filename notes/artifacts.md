@@ -298,3 +298,85 @@ reads the editor from outside to hold that.
 Not yet seen against claude.ai: commenter and editor invitations, a role
 lowered for an artifact that does not take it, renaming, duplicating,
 deleting, and the exports of a real artifact.
+
+## Linux
+
+The Linux build keeps all of this in `linux/crates/web` (`graft-web`). The
+rules are the same; what carries them is WebKitGTK 6 and GTK 4.
+
+Each account's store is a `webkit6::NetworkSession` of its own, made once per
+account for the life of the process and shared by the hidden page and the
+sign-in window, with its data in
+`~/.config/ClaudeGraft/artifact-stores/<ID>/data` and its cache beside it in
+`cache`. The folder is named by the account's id in the upper-case form a Mac
+writes, so `artifact-accounts.json` reads the same on both. The session is told
+not to keep HTTP sign-in passwords (`set_persistent_credential_storage_enabled(false)`),
+since WebKitGTK would otherwise file them in the desktop's keyring, which is a
+credential leaving the store it belongs to. Nothing asks the session's cookie
+manager anything, and the suite fails if any file in the crate names it.
+
+Requests go out exactly as on a Mac, from a page of claude.ai's
+`/api/account`, through `WebView::call_async_javascript_function` with the same
+`fetch` bodies. They run in an isolated script world of Graft's, the
+counterpart of `.defaultClient`, so nothing the page's own script did to
+`fetch` stands in the way. Arguments go in as strings in a GVariant
+dictionary and the headers as a JSON string the script parses, since how a
+nested dictionary reaches page script is not something to lean on. The
+`X-Frame-*` headers are still added by path, in `session.rs` alone.
+
+Removing a store has a different shape here. WebKitGTK has no call that
+removes a store by name, so `session::forget` first asks the store's own
+`WebsiteDataManager` to clear everything it holds, which takes the sign-in
+out through WebKit even if a file is still open, then drops the session and
+removes its folder, writing `artifacts.store removal failed` and trying twice
+more if the folder will not go. The launch sweep lists the folders under
+`artifact-stores` rather than asking WebKit, and counts only folders named as
+a store is named, so it needs nothing like `prepareStores`: the macOS 27 crash
+that call works around has no Linux counterpart. It still runs only against an
+accounts file that was read.
+
+There is no macOS 13 case: every Linux store is kept.
+
+The user agent is WebKitGTK's own form of a Safari's, written out in
+`session::USER_AGENT` so a change in WebKit's default cannot change what
+claude.ai is told.
+
+The sign-in window is an `adw::Window` with the emailed-code hint above the
+page. It watches the view's `uri` property, which is what the Mac's `url`
+observation becomes, and asks again on every finished load. A provider's popup
+comes through the view's `create` signal as a view made `related_view` to the
+opener, which shares its network session, in a window of its own; its `close`
+signal asks the main page again. A sign-in hands its identity on from an idle
+callback only after the window and its views are destroyed.
+
+Exports are drawn differently. Rather than a file address and read access to
+the folder, the export's folder is served to its page under a scheme of
+Graft's, `graft-export://<token>/`, registered on the default web context: the
+web process is handed only those files and reads nothing from the disk, a
+path that climbs out or a token no export is drawing is not found, and the
+page's navigation is allowed only inside its own token and `about:`. The view
+uses `NetworkSession::new_ephemeral()`. Markdown uses the Mac's script
+unchanged. PDF is WebKit's own printing to a file on Letter paper, so it comes
+out as Letter pages rather than one tall page. Word has no system writer to
+hand the drawn page to on Linux, so a script walks the drawn page into blocks
+(headings, paragraphs with bold, italic, struck, code and linked runs, lists,
+quotes, code blocks, rules and tables) and `docx.rs` writes a small `.docx`
+from them; pictures are kept as their descriptions. A page of several files is
+zipped in Graft itself, off the main thread, rather than with `ditto`. The save
+dialog is `gtk::FileDialog`, which goes through the portal inside the Flatpak,
+and the file is written through GIO so a portal-granted path works.
+
+The pages are GTK widgets the main window embeds (`ui::artifacts_page`,
+`ui::projects_page`, `ui::search_page`). Every control gets a widget name of
+`<surface>.<what>` and an accessible label by hand through `ui::identified`;
+the suite fails if a page makes more buttons, entries, drop-downs or checks
+than it names. The account's dot is a box beside its menu button, as on a Mac.
+`examples/preview.rs` draws the three pages at 820 by 560 from sample rows with
+no claude.ai behind them.
+
+Not yet seen on Linux: any of it against claude.ai. Whether a WebKitGTK view
+that is never put in a window loads and answers script the way a hidden
+`WKWebView` does, both ways of signing in, the popup, the clear-then-remove of
+a store, the export scheme, PDF printing to a file inside the Flatpak and the
+`.docx` opening in Word and LibreOffice all wait for a person to sign in and
+try them.
