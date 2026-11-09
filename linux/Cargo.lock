@@ -602,6 +602,7 @@ dependencies = [
 name = "graft-sidebar"
 version = "2.0.1"
 dependencies = [
+ "graft-chats",
  "graft-core",
  "hex",
  "libc",

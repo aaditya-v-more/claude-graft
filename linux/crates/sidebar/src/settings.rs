@@ -5,13 +5,13 @@
 //! relinking it on every launch discards changes Claude saved by renaming over
 //! the link. So it is never shared: the servers a profile lacks are copied
 //! into its own real file, and nothing else crosses.
+//!
+//! The copy itself is the chat sharing's, which runs it on every graft. One
+//! implementation, so the rule cannot drift between the two places that use it.
 
-use graft_core::{diagnostics, files, paths};
-use serde_json::{Map, Value};
-use std::fs;
-use std::io::Write;
-use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
+
+pub use graft_chats::copy_desktop_servers;
 
 pub const NAME: &str = "claude_desktop_config.json";
 
@@ -22,108 +22,13 @@ pub fn stash_path(file: &Path) -> PathBuf {
     file.with_file_name(format!(".{name}.graft-own"))
 }
 
-fn profile_name(profile: &Path) -> Value {
-    profile.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default().into()
-}
-
-/// A settings file as an object: an empty one when there is no file, `None`
-/// when there is one and it cannot be read.
-fn read(file: &Path) -> Option<Map<String, Value>> {
-    if !files::exists(file) {
-        return Some(Map::new());
-    }
-    match files::read_json(file) {
-        files::JsonRead::Value(Value::Object(map)) => Some(map),
-        _ => None,
-    }
-}
-
-fn sorted(value: &Value) -> Value {
-    match value {
-        Value::Object(map) => {
-            let mut keys: Vec<&String> = map.keys().collect();
-            keys.sort();
-            Value::Object(keys.into_iter().map(|k| (k.clone(), sorted(&map[k]))).collect())
-        }
-        Value::Array(items) => Value::Array(items.iter().map(sorted).collect()),
-        other => other.clone(),
-    }
-}
-
-/// Add the MCP servers `source` defines and `profile` lacks to the
-/// profile's own settings, keeping its own definitions and every other
-/// preference. A legacy link to the source's file becomes a real file again:
-/// from the profile's stashed original when there is one, and otherwise
-/// holding only the source's server definitions, never its permission grants.
-/// The source is never written.
-pub fn copy_desktop_servers(source: &Path, profile: &Path) {
-    if paths::same_path(source, profile) {
-        return;
-    }
-    let destination = profile.join(NAME);
-    let backup = stash_path(&destination);
-    let linked = files::is_symlink(&destination);
-    let local = if linked { &backup } else { &destination };
-
-    // A backup caught mid-write is not permission to discard it. Keep the
-    // old link as well until both settings files can be read safely.
-    let own = read(local);
-    let borrowed = read(&source.join(NAME));
-    let servers_fit = |m: &Map<String, Value>| matches!(m.get("mcpServers"), None | Some(Value::Object(_)));
-    let (Some(mut own), Some(borrowed)) = (own, borrowed) else {
-        diagnostics::note("settings.unread", &[("profile", profile_name(profile))]);
-        return;
-    };
-    if !servers_fit(&own) || !servers_fit(&borrowed) {
-        diagnostics::note("settings.unread", &[("profile", profile_name(profile))]);
-        return;
-    }
-    let mut servers = own.get("mcpServers").and_then(Value::as_object).cloned().unwrap_or_default();
-    let mut added = false;
-    if let Some(theirs) = borrowed.get("mcpServers").and_then(Value::as_object) {
-        for (name, definition) in theirs {
-            if !servers.contains_key(name) {
-                servers.insert(name.clone(), definition.clone());
-                added = true;
-            }
-        }
-    }
-    if !linked && !added {
-        return;
-    }
-    if added {
-        own.insert("mcpServers".into(), Value::Object(servers));
-    }
-
-    // Renaming a complete sibling over the link replaces the link itself; a
-    // direct write through it would change the source's permissions.
-    let staged = profile.join(format!(".graft-settings-{}.tmp", uuid::Uuid::new_v4()));
-    let result = (|| -> std::io::Result<()> {
-        let data = serde_json::to_vec_pretty(&sorted(&Value::Object(own)))?;
-        let mut handle = fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(&staged)?;
-        handle.write_all(&data)?;
-        handle.sync_all()?;
-        fs::set_permissions(&staged, fs::Permissions::from_mode(0o600))?;
-        fs::rename(&staged, &destination)
-    })();
-    let _ = fs::remove_file(&staged);
-    match result {
-        Ok(()) => diagnostics::note(
-            "settings.local",
-            &[("profile", profile_name(profile)), ("replacedLink", linked.into())],
-        ),
-        Err(e) => diagnostics::note(
-            "settings.failed",
-            &[("profile", profile_name(profile)), ("error", e.to_string().into())],
-        ),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use graft_core::testing::Sandbox;
-    use serde_json::json;
+    use graft_core::files;
+    use serde_json::{json, Value};
+    use std::fs;
     use std::os::unix::fs::MetadataExt;
 
     fn write_settings(value: &Value, file: &Path) {

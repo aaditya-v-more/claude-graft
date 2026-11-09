@@ -6,6 +6,7 @@ license.workspace = true
 
 [dependencies]
 graft-core.workspace = true
+graft-chats = { path = "../chats" }
 serde.workspace = true
 serde_json.workspace = true
 uuid.workspace = true
