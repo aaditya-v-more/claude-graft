@@ -33,8 +33,10 @@ fi
 
 # Whoever signs, signs everything: a framework left carrying the ad-hoc
 # signature inside an app signed with a Developer ID is a mixed bundle, which
-# notarisation rejects. release.sh sets these; a plain build gets ad-hoc.
-IDENTITY="${GRAFT_SIGNING_IDENTITY:--}"
+# notarisation rejects. release.sh sets these. A plain build is for this Mac
+# alone and takes its Apple Development certificate when there is one, so the
+# keychain that let one build in lets the next one in too.
+IDENTITY="${GRAFT_SIGNING_IDENTITY:-$("$ROOT/Tools/signing-identity.sh")}"
 SIGN_FLAGS="${GRAFT_SIGN_FLAGS:-}"
 
 "$ROOT/Tools/fetch-sparkle.sh"

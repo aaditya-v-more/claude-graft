@@ -201,6 +201,7 @@ any of these. The why is in [notes/updates-and-releases.md](notes/updates-and-re
 
 - **The version is written down once,** in `VERSION`; `Resources/Info.plist` keeps `0.0.0`. `release.sh` refuses an existing tag and rewrites the Homebrew cask.
 - **A release carries both architectures. The build directory is `build.noindex`** so Spotlight skips it.
+- **A local build is signed with the Mac's Apple Development certificate, a release never is** — `Tools/signing-identity.sh` for `build.sh` alone; `release.sh` always passes its own identity.
 - **An update restart is not permission to undo a quit** — `UpdateRecovery` needs a fresh `stealth-relaunch` marker.
 - **Checking for a Claude release never closes a Claude;** installing one asks first and never force quits.
 - **A resumed update takes the lock before it reads anything,** and decides on the first snapshot that reads (`ClaudeUpdateResume`); a stopping updater is asked again every ten seconds and shown after a minute (`ClaudeUpdateStop`).

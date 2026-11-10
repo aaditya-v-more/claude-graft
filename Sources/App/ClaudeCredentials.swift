@@ -17,7 +17,9 @@ import Security
 /// The `Claude Safe Storage` item is guarded by an ACL naming the exact builds
 /// allowed to decrypt it, and each name is a code hash rather than a developer.
 /// An ad-hoc signature gives every build its own hash, so every new version
-/// arrives as a stranger and has to be let in again.
+/// arrives as a stranger and has to be let in again. A local build signed with
+/// an Apple Development certificate is trusted by that certificate instead, so
+/// one "Always Allow" covers every later one (`Tools/signing-identity.sh`).
 ///
 /// `Prompting` says who may raise that dialog. Every path reads silently first
 /// and escalates only when that read comes back shut, so a build already on the

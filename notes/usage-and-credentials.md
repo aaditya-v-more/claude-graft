@@ -62,7 +62,17 @@ That item's decrypt ACL names each trusted build by code hash, so an ad-hoc
 signature earns a fresh entry every time the app is rebuilt — nine entries for
 the same `build.noindex/Claude Graft.app` path were counted on the development machine,
 alongside ten `cdhash:` entries in the item's partition list. A Developer ID
-would be one `teamid:` entry that survives every version. Both a suppressed read
+would be one `teamid:` entry that survives every version. Ad-hoc, the dialog
+comes back at every build and every update, and at every launch for as long as
+it is answered with the one-time Allow, which adds nothing to the list.
+
+Releases stay as `release.sh` signs them. A local build is signed with the
+Mac's Apple Development certificate when there is one
+(`Tools/signing-identity.sh`, team `H4RJ5YGKZA` on the Mac Mini), whose
+designated requirement names the certificate rather than the code, so "Always
+Allow" once should let every later development build in; that is still to be
+seen across a rebuild on a real machine. The installed release goes on asking
+as before. Both a suppressed read
 and a declined dialog answer `errSecAuthFailed`, so the two are told apart by
 which call was made, never by the status.
 

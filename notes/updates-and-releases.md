@@ -325,7 +325,13 @@ EdDSA signature alone — the header comment on `validateUpdateForHost` says it
 does on every compile. Elsewhere it says outright that "if no Apple Code Signing
 certificate is available, adhoc signing can be used at minimum". `SUFileManager`
 strips `com.apple.quarantine` from what it installs, so only the first install
-meets Gatekeeper. The XPC services are removed from the embedded copy: they need
+meets Gatekeeper.
+
+A plain `./build.sh` is not a release and is signed with the Mac's Apple
+Development certificate when there is one, so the keychain stops asking at every
+rebuild ([usage-and-credentials.md](usage-and-credentials.md)). `release.sh`
+always passes its own identity, a Developer ID or ad-hoc, so that certificate
+never reaches a download. The XPC services are removed from the embedded copy: they need
 entitlements this app does not carry, and launchd refuses them for a
 non-sandboxed app. The signing key lives in the login keychain under
 `https://sparkle-project.org`; `vendor/bin/generate_keys -x` exports it if CI
