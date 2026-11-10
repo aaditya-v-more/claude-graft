@@ -168,6 +168,63 @@ name gone from both sides is dropped too: the loop only visits what one of them
 holds, so such an entry sat there for good, growing the file and standing ready
 to read that name coming back on one side alone as a deletion to carry across.
 
+**Two sides that both moved were nearly always an archive and a glance.**
+Claude writes a chat's whole record back from memory every time it shows the
+chat, and archiving sets `isArchived` without touching `lastActivityAt` — both
+read out of Claude Desktop 4.23118.1, and both visible in the records of a
+machine with three profiles borrowing from one. So between two passes, an
+archive on one side and nothing more than a look at the same chat on the other
+was enough for both sides to have moved, and the pass kept one whole record:
+the one with the later `lastActivityAt`, which the archive had not changed, and
+on a tie the borrower's. Its `isArchived: false` went back over the archive on
+both sides. A newer file time picks no better: copies made by a pass move it
+too, and a glance made later still carries the old flag.
+
+So every record has its fields written down beside its baseline — each
+top-level key with a digest of its value, as both sides held it — and two sides
+that both moved are merged field by field. A field one side changed and the
+other did not takes the change, whichever side made it: an archive survives a
+glance, and so does an unarchive, which no rule about archived records winning
+could keep. Only a field both sides changed to different values is a contest; a
+time takes the later of the two, anything else the side written last. The
+fields live in `ClaudeGraft/mirror-fields/`, one file a pair, rather than in
+`mirrored-chats.json`: a history of a couple of thousand chats carries a couple
+of megabytes of them, and the state file is read and written by every pass over
+every pair. An entry belongs to the baseline digest it was taken from, so one
+left by a pass that kept no fields — a shortcut still on an older launcher — is
+not trusted, and that record is settled the old way until the two sides next
+agree.
+
+**Nothing already there is rewritten under a running Claude.** A Claude reads
+its records once, as it loads its sessions, and never again for a chat it
+already holds: nothing watches the folder, and loading again skips every chat
+already in memory. A record changed underneath it is never seen, and its next
+save writes over it with what that Claude still had. The pass after read that
+as somebody unarchiving the chat on purpose, which on disk it cannot be told
+apart from, and carried it to the source — an archive undone with no tie
+anywhere. So a pass leaves an existing record alone in a profile whose Claude
+is up, writes that side down as behind together with what it held, reads that
+side's later writes against what it held rather than against a baseline it
+never received, and gives it the change once it has quit. A chat the folder
+does not hold yet is still copied, there being no copy in memory to write back
+over it; a deletion waits, since a Claude still holding the chat would write it
+straight back. Graft's sweep runs a few seconds after any Claude quits, so the
+catching up is on disk before that profile next opens, from a shortcut or from
+the Dock. What none of this can do is change a sidebar already on screen: that
+Claude shows what it read when it started until it starts again.
+
+**A readable record beats one that is not.** Claude skips a record it cannot
+read, so an empty or torn file carried over a whole one took the chat out of
+both sidebars. Whether the empty file arrives as a change of its own or in a
+conflict, the readable copy is kept and handed back to the side that lost it.
+
+**A pass goes round until nothing moves.** Pairs that share a source pass a
+change along one pair at a time, in the order of their keys. A chat archived in
+the borrower whose pair comes last reached the source in the first round and the
+borrowers listed before it only in the next, so a launcher that ran one round
+opened its Claude a change behind. `mirrorKnownPairs` goes round again until a
+round moves nothing; a change never needs more rounds than there are pairs.
+
 **One pass at a time, across processes.** `mirrored-chats.json` and
 `session-records.json` are each read, worked on and written back, by Graft's
 sweep and by every launcher, and those are separate processes. An atomic write

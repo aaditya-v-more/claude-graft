@@ -1908,6 +1908,7 @@ enum Graft {
                                 withIntermediateDirectories: true)
         if (try? data.write(to: mirrorStateFile, options: .atomic)) != nil {
             SidebarSync.forgetPairs(except: Set(state.pairs.keys))
+            forgetRecordBaselines(except: Set(state.pairs.keys))
         }
     }
 
@@ -2106,9 +2107,24 @@ enum Graft {
     @discardableResult
     static func mirrorKnownPairs() -> Int {
         var moved = 0
-        for key in loadMirrorState().pairs.keys.sorted() {
-            guard let pair = pairFolders(key) else { continue }
-            moved += mirrorChatFolders(pair.one, pair.other)
+        let keys = loadMirrorState().pairs.keys.sorted()
+        // Asked once for the whole pass: it is a pgrep per profile, and the
+        // answer does not change between one pair and the next.
+        let running = keys.isEmpty ? [] : runningClaudes()
+        // Pairs that share a folder pass a change along one pair at a time. A
+        // chat archived in the borrower whose pair comes last reaches the
+        // source on this round and the borrowers listed before it only on the
+        // next, so a launcher that stopped after one round opened its profile
+        // a change behind. Round again until a round moves nothing; a change
+        // never needs more rounds than there are pairs, and one more proves it.
+        for _ in 0...keys.count {
+            var round = 0
+            for key in keys {
+                guard let pair = pairFolders(key) else { continue }
+                round += mirrorChatFolders(pair.one, pair.other, running: running)
+            }
+            moved += round
+            if round == 0 { break }
         }
         return moved
     }
@@ -2131,6 +2147,188 @@ enum Graft {
         return modified(url).timeIntervalSince1970 * 1000
     }
 
+    // MARK: Field baselines
+
+    /// Which half of a pair, in the order its key was written: the borrowing
+    /// folder is `one`, the folder it borrows from is `other`.
+    enum MirrorSide: String {
+        case one, other
+        var opposite: MirrorSide { self == .one ? .other : .one }
+    }
+
+    /// What a pass knows about one record beyond its whole-file digest.
+    ///
+    /// A whole-file digest can only say that both sides moved. It cannot say
+    /// that one side archived the chat while the other only focused it, so the
+    /// pass used to keep one whole record and drop the other — and a focus,
+    /// which Claude writes every time a chat is shown, carried the old
+    /// `isArchived` straight back over an archive. Keeping a digest of every
+    /// top-level field as it stood at the baseline lets the pass keep what
+    /// each side changed instead.
+    struct RecordBaseline: Equatable {
+        /// The whole-file digest this was taken from. An entry whose digest is
+        /// not the pair's baseline any more was left by a pass that did not
+        /// keep fields — a shortcut still running an older launcher — and is
+        /// not trusted.
+        var digest: String
+        /// Each top-level field, by a digest of its value. Nil for a file that
+        /// is not a JSON object, such as a marker.
+        var fields: [String: String]?
+        /// A side the pass could not write because its Claude was running.
+        var lag: Lag?
+    }
+
+    /// A side that is behind. A running Claude read its records when it started
+    /// and writes each one back from memory whenever it saves it, so a record
+    /// put under it is never read and is soon written over with what it had.
+    /// Read as an edit, that stale write is indistinguishable from someone
+    /// unarchiving the chat on purpose. So the pass does not write there; it
+    /// remembers what that side held, and the side's later writes are read
+    /// against that rather than against the baseline it never received.
+    struct Lag: Equatable {
+        var side: MirrorSide
+        /// What that side held when the pass last read it.
+        var digest: String
+        var fields: [String: String]?
+    }
+
+    /// Kept beside the state file rather than in it. Field digests for a
+    /// thousand-chat history run to a couple of megabytes a pair, and the
+    /// state file is read and written by every pass over every pair; this one
+    /// is read by its own pair's pass and written only when something moved.
+    static var mirrorFieldsFolder: URL { applicationSupport.appending(path: "ClaudeGraft/mirror-fields") }
+
+    static func mirrorFieldsFile(for key: String) -> URL {
+        mirrorFieldsFolder.appending(path: digest(Data(key.utf8)) + ".json")
+    }
+
+    static func loadRecordBaselines(for key: String) -> [String: RecordBaseline] {
+        guard let data = try? Data(contentsOf: mirrorFieldsFile(for: key)),
+              let top = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              top["version"] as? Int == 1, top["pair"] as? String == key,
+              let entries = top["records"] as? [String: [String: Any]]
+        else { return [:] }
+        var result: [String: RecordBaseline] = [:]
+        for (name, entry) in entries {
+            guard let digest = entry["d"] as? String else { continue }
+            var lag: Lag?
+            if let held = entry["lag"] as? [String: Any],
+               let side = (held["side"] as? String).flatMap(MirrorSide.init(rawValue:)),
+               let heldDigest = held["d"] as? String {
+                lag = Lag(side: side, digest: heldDigest, fields: held["f"] as? [String: String])
+            }
+            result[name] = RecordBaseline(digest: digest, fields: entry["f"] as? [String: String], lag: lag)
+        }
+        return result
+    }
+
+    static func saveRecordBaselines(_ records: [String: RecordBaseline], for key: String) {
+        let file = mirrorFieldsFile(for: key)
+        guard !records.isEmpty else { try? fm.removeItem(at: file); return }
+        var entries: [String: Any] = [:]
+        for (name, record) in records {
+            var entry: [String: Any] = ["d": record.digest]
+            if let fields = record.fields { entry["f"] = fields }
+            if let lag = record.lag {
+                var held: [String: Any] = ["side": lag.side.rawValue, "d": lag.digest]
+                if let fields = lag.fields { held["f"] = fields }
+                entry["lag"] = held
+            }
+            entries[name] = entry
+        }
+        guard let data = try? JSONSerialization.data(
+            withJSONObject: ["version": 1, "pair": key, "records": entries], options: [.sortedKeys])
+        else { return }
+        try? fm.createDirectory(at: mirrorFieldsFolder, withIntermediateDirectories: true)
+        try? data.write(to: file, options: .atomic)
+    }
+
+    /// A pair that is no longer mirrored has no use for its fields, and a pair
+    /// mirrored again later must not inherit a stale lag.
+    static func forgetRecordBaselines(except keys: Set<String>) {
+        let wanted = Set(keys.map { mirrorFieldsFile(for: $0).lastPathComponent })
+        for file in (try? fm.contentsOfDirectory(atPath: mirrorFieldsFolder.path)) ?? []
+        where file.hasSuffix(".json") && !wanted.contains(file) {
+            try? fm.removeItem(at: mirrorFieldsFolder.appending(path: file))
+        }
+    }
+
+    static func recordObject(_ data: Data) -> [String: Any]? {
+        (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+    }
+
+    static func fieldDigest(_ value: Any) -> String {
+        guard let data = try? JSONSerialization.data(withJSONObject: value,
+                                                     options: [.sortedKeys, .fragmentsAllowed])
+        else { return "unencodable" }
+        return digest(data)
+    }
+
+    static func fieldDigests(of record: [String: Any]) -> [String: String] {
+        record.mapValues(fieldDigest)
+    }
+
+    static func sameRecord(_ a: [String: Any], _ b: [String: Any]) -> Bool {
+        let encode = { (r: [String: Any]) in try? JSONSerialization.data(withJSONObject: r, options: [.sortedKeys]) }
+        guard let x = encode(a), let y = encode(b) else { return false }
+        return x == y
+    }
+
+    struct FieldMerge {
+        var record: [String: Any]
+        /// Fields both sides changed, to different values.
+        var contested: [String]
+    }
+
+    /// One record out of two that both moved, field by field.
+    ///
+    /// Each side is read against what it held last: the baseline, or for a side
+    /// that is behind, what the pass last read there. A field one side changed
+    /// and the other did not takes the change, whichever side made it — so an
+    /// archive survives a focus written on the other side, and so does an
+    /// unarchive, which no rule about archived records winning could keep. A
+    /// field neither side changed but that differs is one the side that is
+    /// behind never received, and takes the other side's value. Only a field
+    /// both sides changed to different values is a real contest: a time takes
+    /// the later of the two, anything else the side written more recently.
+    static func mergeRecordFields(one: [String: Any], other: [String: Any],
+                                  baseOne: [String: String], baseOther: [String: String],
+                                  behind: MirrorSide?, prefer: MirrorSide) -> FieldMerge {
+        var merged: [String: Any] = [:]
+        var contested: [String] = []
+        let upToDate = behind?.opposite ?? prefer
+        for key in Set(one.keys).union(other.keys).union(baseOne.keys).union(baseOther.keys).sorted() {
+            let a = one[key], b = other[key]
+            let da = a.map(fieldDigest), db = b.map(fieldDigest)
+            let movedOne = da != baseOne[key], movedOther = db != baseOther[key]
+            let pick: Any?
+            if da == db {
+                pick = a
+            } else if movedOne != movedOther {
+                pick = movedOne ? a : b
+            } else if !movedOne {
+                pick = upToDate == .one ? a : b
+            } else {
+                contested.append(key)
+                if key.hasSuffix("At"), let x = a as? NSNumber, let y = b as? NSNumber,
+                   CFGetTypeID(x) != CFBooleanGetTypeID(), CFGetTypeID(y) != CFBooleanGetTypeID() {
+                    pick = x.doubleValue >= y.doubleValue ? a : b
+                } else {
+                    pick = prefer == .one ? a : b
+                }
+            }
+            if let pick { merged[key] = pick }
+        }
+        return FieldMerge(record: merged, contested: contested)
+    }
+
+    /// Whether the Claude that reads this folder is up. A chat folder sits at
+    /// `<profile>/<store>/<account>/<org>`.
+    static func isInRunningProfile(_ folder: URL, _ running: [URL]) -> Bool {
+        let profile = folder.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        return running.contains { samePath($0, profile) }
+    }
+
     /// Bring two organization folders into line, and remember what they agreed
     /// on so the next pass can read an absence.
     ///
@@ -2140,7 +2338,7 @@ enum Graft {
     /// would look deleted. So a walk that fails on either side does nothing at
     /// all rather than half a sync.
     @discardableResult
-    static func mirrorChatFolders(_ one: URL, _ other: URL) -> Int {
+    static func mirrorChatFolders(_ one: URL, _ other: URL, running: [URL]? = nil) -> Int {
         guard !samePath(one, other) else { return 0 }
         enterStateLock()
         defer { leaveStateLock() }
@@ -2164,6 +2362,8 @@ enum Graft {
         var state = loadMirrorState()
         let key = pairKey(one, other)
         var baseline = state.pairs[key] ?? [:]
+        let recordsAsLoaded = loadRecordBaselines(for: key)
+        var records = recordsAsLoaded
         var moved = 0
 
         // A side holding none of the names the baseline describes, while the
@@ -2180,7 +2380,26 @@ enum Graft {
             let described = Set(baseline.keys)
             let hereHasNone = Set(oneNames.filter(isMirrored)).isDisjoint(with: described)
             let thereHasNone = Set(otherNames.filter(isMirrored)).isDisjoint(with: described)
-            if hereHasNone != thereHasNone { baseline = [:] }
+            if hereHasNone != thereHasNone { baseline = [:]; records = [:] }
+        }
+
+        // A Claude reads its records once, as it starts, and from then on
+        // writes each one back from memory whenever it saves it — showing a
+        // chat is enough. A record changed underneath a running one is never
+        // seen, and is soon written over with what that Claude still had, which
+        // the next pass read as somebody undoing the change on purpose and
+        // carried to the other side as well. Claude Desktop 4.23118.1 watches
+        // nothing in this folder, and loading again skips every chat it already
+        // holds. So nothing already there is rewritten or removed under a
+        // running Claude: that side is marked behind and given the change once
+        // it has quit. A name its folder does not hold yet is still written,
+        // since no Claude has that chat in memory to write back.
+        let runningNow = running ?? runningClaudes()
+        let isUp: [MirrorSide: Bool] = [.one: isInRunningProfile(one, runningNow),
+                                        .other: isInRunningProfile(other, runningNow)]
+        func folder(_ side: MirrorSide) -> URL { side == .one ? one : other }
+        func heldUp(_ side: MirrorSide, _ name: String) -> Bool {
+            isUp[side] == true && exists(folder(side).appending(path: name))
         }
 
         func read(_ folder: URL, _ name: String) -> (data: Data, digest: String)? {
@@ -2199,22 +2418,151 @@ enum Graft {
             (try? fm.removeItem(at: folder.appending(path: name))) != nil
         }
 
+        typealias Copy = (data: Data, digest: String)
+
+        /// Both sides hold `copy` now.
+        func settle(_ name: String, _ copy: Copy, known: RecordBaseline?) {
+            baseline[name] = copy.digest
+            if let known, known.digest == copy.digest, known.lag == nil, known.fields != nil {
+                records[name] = known
+            } else {
+                records[name] = RecordBaseline(digest: copy.digest,
+                                               fields: recordObject(copy.data).map(fieldDigests(of:)),
+                                               lag: nil)
+            }
+        }
+
+        /// `truth` is what the pass settled on, and `side`, holding `held`,
+        /// could not be given it.
+        func fallBehind(_ name: String, side: MirrorSide, holding held: Copy, truth: Copy) {
+            baseline[name] = truth.digest
+            records[name] = RecordBaseline(
+                digest: truth.digest,
+                fields: recordObject(truth.data).map(fieldDigests(of:)),
+                lag: Lag(side: side, digest: held.digest,
+                         fields: recordObject(held.data).map(fieldDigests(of:))))
+        }
+
+        /// Give `side` what the pass settled on, unless its Claude is up.
+        func deliver(_ copy: Copy, to side: MirrorSide, _ name: String, holding current: Copy?) -> Bool {
+            if current?.digest == copy.digest { return true }
+            guard !heldUp(side, name), put(copy.data, folder(side), name) else { return false }
+            moved += 1
+            return true
+        }
+
+        /// Both sides moved since each was last read: keep what each changed.
+        func merge(_ name: String, _ here: Copy, _ there: Copy,
+                   baseOne: [String: String]?, baseOther: [String: String]?, behind: MirrorSide?) {
+            let oneRecord = recordObject(here.data), otherRecord = recordObject(there.data)
+            let settled: Copy
+            if let oneRecord, let otherRecord, let baseOne, let baseOther {
+                // Only for a field both sides changed: the side written last.
+                let prefer: MirrorSide = modified(one.appending(path: name))
+                    >= modified(other.appending(path: name)) ? .one : .other
+                let result = mergeRecordFields(one: oneRecord, other: otherRecord,
+                                               baseOne: baseOne, baseOther: baseOther,
+                                               behind: behind, prefer: prefer)
+                if !result.contested.isEmpty {
+                    Diagnostics.note("mirror.contested", ["record": name, "fields": result.contested])
+                }
+                if sameRecord(result.record, oneRecord) {
+                    settled = here
+                } else if sameRecord(result.record, otherRecord) {
+                    settled = there
+                } else {
+                    guard let data = try? JSONSerialization.data(withJSONObject: result.record,
+                                                                 options: [.sortedKeys, .withoutEscapingSlashes])
+                    else { return }
+                    settled = (data, digest(data))
+                }
+            } else if isRecordName(name), (oneRecord == nil) != (otherRecord == nil) {
+                // A record that reads beats one that does not. An empty or torn
+                // file copied over a whole one takes the chat out of both
+                // sidebars, since Claude skips a record it cannot read.
+                settled = oneRecord != nil ? here : there
+            } else {
+                // Nothing to read fields against: a marker, or a baseline left
+                // by a pass that kept none. What the records say about
+                // themselves, as before.
+                settled = recordMoment(at: one.appending(path: name))
+                    >= recordMoment(at: other.appending(path: name)) ? here : there
+            }
+            let oneHasIt = deliver(settled, to: .one, name, holding: here)
+            let otherHasIt = deliver(settled, to: .other, name, holding: there)
+            switch (oneHasIt, otherHasIt) {
+            case (true, true): settle(name, settled, known: nil)
+            case (true, false): fallBehind(name, side: .other, holding: there, truth: settled)
+            case (false, true): fallBehind(name, side: .one, holding: here, truth: settled)
+            // Neither side can take it yet, so nothing has been decided: both
+            // go on being read against what they held before.
+            case (false, false): break
+            }
+        }
+
         let names = Set(oneNames.filter(isMirrored)).union(otherNames.filter(isMirrored))
         for name in names.sorted() {
             let here = read(one, name), there = read(other, name)
+            // Fields taken from this baseline and no other.
+            let known = records[name].flatMap { $0.digest == baseline[name] ? $0 : nil }
+            if known == nil { records.removeValue(forKey: name) }
+
+            if let lag = known?.lag {
+                switch (here, there) {
+                case let (.some(here), .some(there)):
+                    let baseOneDigest = lag.side == .one ? lag.digest : baseline[name]
+                    let baseOtherDigest = lag.side == .other ? lag.digest : baseline[name]
+                    if here.digest == there.digest {
+                        settle(name, here, known: nil)
+                    } else if here.digest == baseOneDigest && there.digest == baseOtherDigest {
+                        // Nobody moved. The side that is behind has only to be
+                        // given what the other holds, once its Claude is down.
+                        let truth = lag.side == .one ? there : here
+                        let current = lag.side == .one ? here : there
+                        if deliver(truth, to: lag.side, name, holding: current) {
+                            settle(name, truth, known: nil)
+                        }
+                    } else {
+                        merge(name, here, there,
+                              baseOne: lag.side == .one ? lag.fields : known?.fields,
+                              baseOther: lag.side == .other ? lag.fields : known?.fields,
+                              behind: lag.side)
+                    }
+                    continue
+                case (nil, nil):
+                    continue
+                default:
+                    // Gone from one side while the other was behind. If what is
+                    // left is the side that was behind, unchanged since it was
+                    // read, the deletion is the only change and it carries.
+                    // Otherwise the ordinary rules decide, where a chat put back
+                    // is the cheaper mistake.
+                    let leftSide: MirrorSide = here != nil ? .one : .other
+                    let left = (here ?? there)!
+                    if leftSide == lag.side && left.digest == lag.digest {
+                        if !heldUp(leftSide, name), drop(folder(leftSide), name) {
+                            baseline.removeValue(forKey: name)
+                            records.removeValue(forKey: name)
+                            moved += 1
+                        }
+                        continue
+                    }
+                    records[name]?.lag = nil
+                }
+            }
+
             var action = mirrorDecision(one: here?.digest, other: there?.digest,
                                         baseline: baseline[name])
-            // Both sides moved. What the records say about themselves is the
-            // only thing left to go on, and a record that still exists beats
-            // one that was deleted — a chat put back is a nuisance, a chat
-            // taken away for good is not.
+            // Both sides moved. A record that still exists beats one that was
+            // deleted — a chat put back is a nuisance, a chat taken away for
+            // good is not — and two that both exist are merged field by field.
             if action == .conflict {
                 switch (here, there) {
                 case (nil, .some): action = .copyToOne
                 case (.some, nil): action = .copyToOther
-                case (.some, .some):
-                    action = recordMoment(at: one.appending(path: name))
-                        >= recordMoment(at: other.appending(path: name)) ? .copyToOther : .copyToOne
+                case let (.some(here), .some(there)):
+                    merge(name, here, there, baseOne: known?.fields, baseOther: known?.fields, behind: nil)
+                    continue
                 case (nil, nil): action = .nothing
                 }
             }
@@ -2224,16 +2572,35 @@ enum Graft {
                 // Where a name held identically by both sides first earns a
                 // baseline. `mirrorDecision` answers this only when the two
                 // digests are equal, so either side names it.
-                if let digest = here?.digest { baseline[name] = digest }
+                if let here { settle(name, here, known: known) }
             case .copyToOther, .copyToOne:
-                let source = action == .copyToOther ? here : there
-                let destination = action == .copyToOther ? other : one
-                guard let source, put(source.data, destination, name) else { break }
-                baseline[name] = source.digest
+                let to: MirrorSide = action == .copyToOther ? .other : .one
+                guard let source = to == .other ? here : there else { break }
+                let current = to == .other ? there : here
+                // A record nobody can read is not a change to carry: copied, it
+                // would take a readable chat out of both sidebars. The readable
+                // copy goes back the other way instead.
+                if isRecordName(name), let current,
+                   recordObject(source.data) == nil, recordObject(current.data) != nil {
+                    if deliver(current, to: to.opposite, name, holding: source) {
+                        settle(name, current, known: nil)
+                    }
+                    break
+                }
+                if heldUp(to, name), let current {
+                    fallBehind(name, side: to, holding: current, truth: source)
+                    break
+                }
+                guard put(source.data, folder(to), name) else { break }
+                settle(name, source, known: nil)
                 moved += 1
             case .removeFromOne, .removeFromOther:
-                guard drop(action == .removeFromOne ? one : other, name) else { break }
+                // Not under a running Claude, which would write it straight
+                // back from memory the next time it saved that chat.
+                let side: MirrorSide = action == .removeFromOne ? .one : .other
+                guard !heldUp(side, name), drop(folder(side), name) else { break }
                 baseline.removeValue(forKey: name)
+                records.removeValue(forKey: name)
                 moved += 1
             case .conflict:
                 break
@@ -2245,8 +2612,25 @@ enum Graft {
         // file, and standing ready to read the name coming back on one side
         // alone as a deletion to carry across.
         state.pairs[key] = baseline.filter { names.contains($0.key) }
+        records = records.filter { names.contains($0.key) && baseline[$0.key] == $0.value.digest }
         saveMirrorState(state)
+        if records != recordsAsLoaded {
+            saveRecordBaselines(records, for: key)
+            let behind = records.values.compactMap(\.lag)
+            let before = recordsAsLoaded.values.compactMap(\.lag)
+            if behind.count != before.count {
+                Diagnostics.note("mirror.behind", [
+                    "one": behind.filter { $0.side == .one }.count,
+                    "other": behind.filter { $0.side == .other }.count,
+                    "because": "a Claude reading that side was running; it gets the change once it quits",
+                ])
+            }
+        }
         return moved
+    }
+
+    static func isRecordName(_ name: String) -> Bool {
+        name.hasPrefix("local_") && name.hasSuffix(".json")
     }
 
     // MARK: - Plan usage

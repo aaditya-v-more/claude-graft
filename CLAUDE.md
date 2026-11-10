@@ -96,6 +96,9 @@ any of these. The why is in [notes/updates-and-releases.md](notes/updates-and-re
 - **Going back is a handover, not a delete.** A copy goes only when the other side holds the same bytes at that moment.
 - **A folder that lost everything at once was moved, not cleared.** Forget the baseline; `forgetStalePairs` drops dead pairs.
 - **The baseline says what the filesystem did, never what a pass meant to do.**
+- **Two sides that both moved are merged field by field,** each read against what it held last (`mergeRecordFields`, fields in `ClaudeGraft/mirror-fields/`), so an archive or an unarchive survives the other side merely showing the chat. Only a field both changed is contested.
+- **Nothing already there is rewritten or removed under a running Claude.** It never reads it and writes its own copy back; that side is marked behind (`Lag`) and caught up once it quits. A chat it has never seen is still copied in.
+- **A readable record beats one that is not,** and a pass goes round its pairs until a round moves nothing.
 - **One pass at a time, across processes:** `Graft.withStateLock` holds `ClaudeGraft/state.lock` over every read-modify-write of `mirrored-chats.json` and `session-records.json`, and is let go before `launch` takes the launch lock.
 - **Nothing goes to the stash before the source has been read.**
 - **A stash beside a folder blocks withdrawal as well as filing** (`mayFileRecords`, both directions).
@@ -118,7 +121,7 @@ any of these. The why is in [notes/updates-and-releases.md](notes/updates-and-re
 - **A conversation carried on or asked again is not a second one** — `superseded`, `resumedCopies`. **A fork is**, and only its record says so: keep `forks` in `session-records.json`.
 - **A Claude this app did not make is read, never written to** — `recordFilingProfiles`.
 - **A session from another Mac is not a missing one:** `sessionFolderIsHere` asks whether its home folder or drive exists here, never the folder itself.
-- **The sweep runs on no timer:** at a launcher's open, at Graft's start and when the dropdown opens. A cold pass must stay cheap enough to stand in front of a window opening.
+- **The sweep runs on no timer:** at a launcher's open, at Graft's start, when the dropdown opens and a few seconds after any Claude quits. A cold pass must stay cheap enough to stand in front of a window opening.
 
 ### Usage and credentials — [notes/usage-and-credentials.md](notes/usage-and-credentials.md)
 
