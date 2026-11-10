@@ -96,8 +96,7 @@ any of these. The why is in [notes/updates-and-releases.md](notes/updates-and-re
 - **Going back is a handover, not a delete.** A copy goes only when the other side holds the same bytes at that moment.
 - **A folder that lost everything at once was moved, not cleared.** Forget the baseline; `forgetStalePairs` drops dead pairs.
 - **The baseline says what the filesystem did, never what a pass meant to do.**
-- **Two sides that both moved are merged field by field,** each read against what it held last (`mergeRecordFields`, fields in `ClaudeGraft/mirror-fields/`), so an archive or an unarchive survives the other side merely showing the chat. Only a field both changed is contested.
-- **Nothing already there is rewritten or removed under a running Claude.** It never reads it and writes its own copy back; that side is marked behind (`Lag`) and caught up once it quits. A chat it has never seen is still copied in.
+- **Two sides that both moved are merged field by field** against the fields at the baseline (`mergeRecordFields`, kept in `ClaudeGraft/mirror-fields/`), so an archive or an unarchive survives the other side merely showing the chat. A field both changed is settled as the whole record used to be, and so is a record whose `lastActivityAt` went back; `isArchived` counts as decided where `resumedAt` moved.
 - **A readable record beats one that is not,** and a pass goes round its pairs until a round moves nothing.
 - **One pass at a time, across processes:** `Graft.withStateLock` holds `ClaudeGraft/state.lock` over every read-modify-write of `mirrored-chats.json` and `session-records.json`, and is let go before `launch` takes the launch lock.
 - **Nothing goes to the stash before the source has been read.**

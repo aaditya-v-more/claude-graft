@@ -18,8 +18,8 @@ import Foundation
 /// opening one — and that happens in the launcher, in a process this app
 /// never sees. What is left here are the two times somebody is looking at
 /// Graft itself — when it starts, and when the dropdown opens — and the
-/// moment a Claude quits, which is when the changes the mirror held back
-/// from it can land.
+/// moment a Claude quits, when what it wrote can reach the profiles sharing
+/// its chats before any of them opens.
 final class SessionRecords: ObservableObject {
     /// Titles filed by the last pass, for a line in the dropdown. Empty the
     /// rest of the time: the session list is the history, and the line is
@@ -30,12 +30,12 @@ final class SessionRecords: ObservableObject {
     private var askedAgain = false
     private var quitObserver: NSObjectProtocol?
 
-    /// A Claude quitting is the moment the changes held back from it can land.
-    /// A running Claude never reads its records again and writes them back
-    /// from memory, so the mirror leaves its folder alone until it has quit,
-    /// and this is the pass that catches it up before anything opens it
-    /// again — including Claude opened straight from the Dock, which asks
-    /// Graft nothing on the way in.
+    /// A Claude that has just quit has written everything it is going to, and
+    /// a profile sharing its chats may be opened next straight from the Dock,
+    /// which asks Graft nothing on the way in. A Claude reads its records once,
+    /// as it starts, so the pass has to land before that: without one here, an
+    /// archive made in one profile waited for somebody to open the dropdown or
+    /// a shortcut before any other profile could see it.
     func watchForClaudeQuitting(_ store: ShortcutStore) {
         guard quitObserver == nil else { return }
         quitObserver = NSWorkspace.shared.notificationCenter.addObserver(
@@ -43,8 +43,7 @@ final class SessionRecords: ObservableObject {
         ) { [weak self] note in
             guard let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
                   app.bundleURL.map({ Graft.samePath($0, Graft.claudeApp) }) == true else { return }
-            // Its helper processes follow it out a moment later, and a profile
-            // with any of them left still reads as running.
+            // A moment's grace for the last of its writes to land.
             DispatchQueue.main.asyncAfter(deadline: .now() + 3) { self?.sweep(store) }
         }
     }

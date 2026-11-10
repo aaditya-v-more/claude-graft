@@ -383,7 +383,7 @@ profile that is already open too, which is the one case nothing else covers:
 with no timer, that press is not going to start anything, and without a pass
 on it, going looking for a chat that had not arrived yet was the surest way to
 leave it not arriving. Graft itself runs one when it starts and one when the
-dropdown opens, which is where the line about what was recovered is shown, and one a few seconds after any Claude quits, since that is when the changes the mirror held back from it can land ([chat-sharing.md](chat-sharing.md)). The thirty-second timer this replaced filed records
+dropdown opens, which is where the line about what was recovered is shown, and one a few seconds after any Claude quits, so a profile opened next, even from the Dock, already has what that Claude wrote ([chat-sharing.md](chat-sharing.md)). The thirty-second timer this replaced filed records
 that nobody would read for hours, and the one thing it was really buying —
 being current when a profile opened — is bought better by the profile's own
 launch.

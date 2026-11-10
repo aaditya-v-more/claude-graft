@@ -4255,6 +4255,40 @@ do {
             && chatRecord(srcOrg, name)["lastFocusedAt"] as? Int == 5000,
           "a time both sides changed takes the later of the two")
 
+    editChatRecord(ownOrg, name) { $0["title"] = "the borrower's" }
+    editChatRecord(srcOrg, name) { $0["title"] = "the source's" }
+    Graft.mirrorChatFolders(ownOrg, srcOrg)
+    check(chatRecord(srcOrg, name)["title"] as? String == "the borrower's",
+          "anything else both sides changed is settled as the whole record used to be: on a tie, the borrower's")
+    editChatRecord(ownOrg, name) { $0["title"] = "the borrower's again" }
+    editChatRecord(srcOrg, name) { $0["title"] = "the source's again"; $0["lastActivityAt"] = 9000 }
+    Graft.mirrorChatFolders(ownOrg, srcOrg)
+    check(chatRecord(ownOrg, name)["title"] as? String == "the source's again",
+          "and otherwise the side whose record says it moved last")
+
+    // A Claude still showing a chat as archived after a pass wrote the
+    // unarchive underneath it, unarchiving it there, writes the same false the
+    // pass did; what moved is resumedAt, which Claude sets when it unarchives.
+    editChatRecord(srcOrg, name) { $0["isArchived"] = false; $0["resumedAt"] = 200 }
+    Graft.mirrorChatFolders(ownOrg, srcOrg)
+    editChatRecord(ownOrg, name) { $0["isArchived"] = false; $0["resumedAt"] = 300 }
+    editChatRecord(srcOrg, name) { $0["isArchived"] = true }
+    Graft.mirrorChatFolders(ownOrg, srcOrg)
+    check(chatRecord(srcOrg, name)["isArchived"] as? Bool == false,
+          "an unarchive counts on the side that made it even when the flag comes back as it already was")
+
+    // Claude only moves lastActivityAt forward, so a side that comes back with
+    // an earlier one is a running Claude writing back a copy from before the
+    // other side's last turn reached it.
+    editChatRecord(srcOrg, name) { $0["isArchived"] = true; $0["lastActivityAt"] = 20000 }
+    Graft.mirrorChatFolders(ownOrg, srcOrg)
+    editChatRecord(ownOrg, name) { $0["isArchived"] = false; $0["lastActivityAt"] = 9000; $0["lastFocusedAt"] = 30000 }
+    editChatRecord(srcOrg, name) { $0["lastFocusedAt"] = 25000 }
+    Graft.mirrorChatFolders(ownOrg, srcOrg)
+    check(chatRecord(ownOrg, name)["isArchived"] as? Bool == true
+            && chatRecord(srcOrg, name)["isArchived"] as? Bool == true,
+          "a record that comes back with older activity than both sides agreed on is settled whole, and the later one keeps its archive")
+
     // Claude skips a record it cannot read, so an empty file carried over a
     // whole one takes the chat out of both sidebars.
     try! Data().write(to: ownOrg.appending(path: name))
@@ -4279,59 +4313,6 @@ do {
     Graft.saveMirrorState(state)
     check(Graft.loadRecordBaselines(for: key).isEmpty,
           "and a pair that stops being mirrored takes its fields with it")
-}
-
-do {
-    // A Claude reads its records once, as it starts, and writes each one back
-    // from memory whenever it saves it; showing a chat is enough. A record
-    // rewritten underneath a running one is never seen, and is soon written
-    // over with what that Claude still had — which the next pass read as
-    // somebody unarchiving the chat on purpose, and carried to the source.
-    try? fm.removeItem(at: Graft.mirrorStateFile)
-    defer { Graft.runningClaudesOverride = { [] } }
-    let source = makeProfile("Claude-Running-Src", account: "RSRC", org: "RSRCORG")
-    let borrower = makeProfile("Claude-Running", account: "ROWN", org: "ROWNORG")
-    let srcOrg = source.appending(path: "claude-code-sessions/RSRC/RSRCORG")
-    let ownOrg = borrower.appending(path: "claude-code-sessions/ROWN/ROWNORG")
-    let name = "local_running.json"
-    let shared: [String: Any] = ["isArchived": false, "lastActivityAt": 1000, "lastFocusedAt": 1000]
-    writeChatRecord(shared, ownOrg, name)
-    writeChatRecord(shared, srcOrg, name)
-    Graft.mirrorChatFolders(ownOrg, srcOrg)
-
-    Graft.runningClaudesOverride = { [borrower] }
-    editChatRecord(srcOrg, name) { $0["isArchived"] = true }
-    Graft.mirrorKnownPairs()
-    check(chatRecord(ownOrg, name)["isArchived"] as? Bool == false,
-          "a record is not rewritten under a Claude that is running, which would never read it")
-    var held = shared
-    held["lastFocusedAt"] = 2000
-    writeChatRecord(held, ownOrg, name)
-    Graft.mirrorKnownPairs()
-    check(chatRecord(srcOrg, name)["isArchived"] as? Bool == true,
-          "and the copy it writes back from memory while it runs is not read as an unarchive")
-
-    Graft.runningClaudesOverride = { [] }
-    Graft.mirrorKnownPairs()
-    check(chatRecord(ownOrg, name)["isArchived"] as? Bool == true
-            && chatRecord(ownOrg, name)["lastFocusedAt"] as? Int == 2000,
-          "once it has quit it is given the archive, and keeps what it did while it ran")
-    check(chatRecord(srcOrg, name)["lastFocusedAt"] as? Int == 2000,
-          "and the source has that as well")
-
-    Graft.runningClaudesOverride = { [borrower] }
-    writeChatRecord(shared, srcOrg, "local_new.json")
-    Graft.mirrorKnownPairs()
-    check(Graft.exists(ownOrg.appending(path: "local_new.json")),
-          "a chat the running Claude has never seen is copied in all the same, having no copy there to write back")
-    try! fm.removeItem(at: srcOrg.appending(path: "local_new.json"))
-    Graft.mirrorKnownPairs()
-    check(Graft.exists(ownOrg.appending(path: "local_new.json")),
-          "while a deletion waits for it to quit, or it would put the chat back the next time it saved it")
-    Graft.runningClaudesOverride = { [] }
-    Graft.mirrorKnownPairs()
-    check(!Graft.exists(ownOrg.appending(path: "local_new.json")),
-          "and is carried once it has")
 }
 
 do {
