@@ -70,9 +70,12 @@ Releases stay as `release.sh` signs them. A local build is signed with the
 Mac's Apple Development certificate when there is one
 (`Tools/signing-identity.sh`, team `H4RJ5YGKZA` on the Mac Mini), whose
 designated requirement names the certificate rather than the code, so "Always
-Allow" once should let every later development build in; that is still to be
-seen across a rebuild on a real machine. The installed release goes on asking
-as before. Both a suppressed read
+Allow" once lets every later development build in. Seen on the Mac Mini on 11
+November 2026: the first build signed this way asked once and was let in with
+Always Allow, and a later build with a different code hash opened, read the key
+and lent without a dialog. A rebuild of unchanged sources for one architecture
+came out with the same hash, so it proves nothing either way; the universal
+build is what changed it. The installed release goes on asking as before. Both a suppressed read
 and a declined dialog answer `errSecAuthFailed`, so the two are told apart by
 which call was made, never by the status.
 
