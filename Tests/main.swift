@@ -1642,6 +1642,30 @@ do {
     check(site.contains("github.com/\(owner)/claude-graft"),
           "and so does the site")
 
+    // Two and a half months after the site went up Google had indexed none of
+    // it: no sitemap, nothing naming one, and Search Console listing the home
+    // page as discovered and never fetched. A page left out of the sitemap is a
+    // page nobody told Google about.
+    let home = "https://graft.aadityamore.com/"
+    let robots = read("docs/robots.txt")
+    let sitemap = read("docs/sitemap.xml")
+    check(robots.contains("Sitemap: \(home)sitemap.xml"),
+          "the site tells crawlers where its sitemap is")
+    check(robots.contains("Disallow: /release-notes/"),
+          "and keeps the update dialog's fragments out of search results")
+    check(site.contains("<link rel=\"canonical\" href=\"\(home)\">") && sitemap.contains("<loc>\(home)</loc>"),
+          "the home page names its own address, and the sitemap lists it")
+    let pages = ((try? FileManager.default.contentsOfDirectory(
+        atPath: repo.appending(path: "docs").path(percentEncoded: false))) ?? [])
+        .filter { $0.hasSuffix(".html") }
+    check(!pages.isEmpty && pages.allSatisfy { page in
+              sitemap.contains("<loc>\(home)\(page == "index.html" ? "" : page)</loc>") },
+          "every page at the top of the site is in the sitemap")
+    check(site.contains("\"@type\": \"SoftwareApplication\"") && site.contains("\"name\": \"Claude Graft\""),
+          "the home page tells search engines what the app is called")
+    check(readme.contains("href=\"\(home)\""),
+          "the README sends people to the site's own address, not the one that redirects")
+
     // The tip jar is a second account under a second spelling. GitHub Sponsors
     // cannot pay into an Indian account, so the money goes through Ko-fi, whose
     // handle carries no hyphens — neither name can be built out of the other,

@@ -221,6 +221,13 @@ any of these. The why is in [notes/updates-and-releases.md](notes/updates-and-re
 - **The helper rolls that file back byte for byte** and writes it forward in its own indent and mode (`preferencesText`, `atomicWrite`).
 - **Project order is per account, and Claude displays it from the desktop preferences.** `epitaxyPrefs["code-projects-order.<account>"]` is what the sidebar shows; the `LSS-persisted.code-projects-order.<account>` copy carries the time. `synchronizeProjectOrder` writes the newer order into both, preferences first and through the helper, translating `preset::` ids, before an open and, for every group, when the last Claude quits; after a quit, Claude's own profile, which the Dock opens without waiting for the lock, gets the preferences alone.
 
+### Website and search — [notes/website-and-search.md](notes/website-and-search.md)
+
+- **Nothing tells Google a site exists but you.** `docs/robots.txt` names `docs/sitemap.xml`, and every page at the top of `docs/` is in it; the suite fails otherwise.
+- **The site's address is `graft.aadityamore.com`,** in the canonical, the structured data, the README and the repository's homepage. The github.io address only redirects, and only the feed keeps it.
+- **A new page or address goes to Search Console the day it ships:** the sitemap submitted in the `aadityamore.com` Domain property, the page sent through URL Inspection, and the submission recorded in the note and in the portfolio's `docs/seo.md`.
+- **`release-notes/` stays out of the index;** they are fragments of the update dialog, not pages.
+
 ### Diagnostics and verification — [notes/diagnostics-and-verification.md](notes/diagnostics-and-verification.md)
 
 Each pass appends to `ClaudeGraft/diagnostics.log` and rewrites
