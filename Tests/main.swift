@@ -7745,6 +7745,64 @@ do {
           "a sign-in is announced under the store it was made in, whether it adds an account or finds one already there")
 }
 
+section("Scratch conversations keep their local sidebar classification")
+do {
+    let previous = Graft.applicationSupportOverride
+    let isolated = root.appending(path: "scratch-origin-support")
+    Graft.applicationSupportOverride = isolated
+    defer { Graft.applicationSupportOverride = previous }
+    let source = isolated.appending(path: "Claude")
+    let borrower = isolated.appending(path: "Claude-Second")
+    let one = borrower.appending(path: "claude-code-sessions/OWNACC/OWNORG")
+    let other = source.appending(path: "claude-code-sessions/SRCACC/SRCORG")
+    try! fm.createDirectory(at: one, withIntermediateDirectories: true)
+    try! fm.createDirectory(at: other, withIntermediateDirectories: true)
+    let cwd = source.appending(path: "scratch-workspaces/SRCACC/SRCORG/scratch-2026-10-03-abcdef")
+    try! fm.createDirectory(at: cwd, withIntermediateDirectories: true)
+    try! Data("working files".utf8).write(to: cwd.appending(path: "work.txt"))
+    let record: [String: Any] = ["sessionId": "local_scratch", "cliSessionId": "original-transcript",
+        "cwd": cwd.path, "originCwd": cwd.path, "title": "Unfiled chat", "lastActivityAt": 100,
+        "isArchived": false]
+    let name = "local_scratch.json"
+    try! JSONSerialization.data(withJSONObject: record).write(to: other.appending(path: name))
+    try! Data("{}".utf8).write(to: other.appending(path: "local_keep.json"))
+    Graft.mirrorChatFolders(one, other)
+    func read(_ folder: URL) -> [String: Any] {
+        try! JSONSerialization.jsonObject(with: Data(contentsOf: folder.appending(path: name))) as! [String: Any]
+    }
+    let alias = borrower.appending(path: "scratch-workspaces/SRCACC/SRCORG/scratch-2026-10-03-abcdef")
+    check(read(one)["originCwd"] as? String == alias.path,
+          "an imported unfiled chat is recognized under the receiving profile's scratch root")
+    check(read(one)["cwd"] as? String == cwd.path && read(one)["cliSessionId"] as? String == "original-transcript",
+          "the working directory and transcript identifier remain unchanged for resuming")
+    check(Graft.isSymlink(alias) && Graft.samePath(alias, cwd)
+          && (try? String(contentsOf: alias.appending(path: "work.txt"))) == "working files",
+          "the local origin points at the original working files without moving them")
+    check(Graft.mirrorChatFolders(one, other) == 0 && read(other)["originCwd"] as? String == cwd.path,
+          "a second synchronization preserves both profiles' classification without treating it as an edit")
+    var changed = read(one)
+    changed["title"] = "Renamed on second account"
+    changed["isArchived"] = true
+    changed["lastActivityAt"] = 200
+    try! JSONSerialization.data(withJSONObject: changed).write(to: one.appending(path: name))
+    Graft.mirrorChatFolders(one, other)
+    check(read(other)["title"] as? String == "Renamed on second account"
+          && read(other)["isArchived"] as? Bool == true && read(other)["originCwd"] as? String == cwd.path,
+          "renames and archive changes propagate while the source keeps its own scratch origin")
+    check(Graft.mirrorChatFolders(one, other) == 0 && read(one)["originCwd"] as? String == alias.path,
+          "subsequent launches retain the corrected no-folder classification")
+    try! fm.removeItem(at: one.appending(path: name))
+    Graft.mirrorChatFolders(one, other)
+    check(!Graft.exists(other.appending(path: name)),
+          "local scratch origins do not prevent an individual deletion from synchronizing")
+    let project: [String: Any] = ["sessionId": "local_project", "cwd": "/a/project", "originCwd": "/a/project"]
+    let projectData = try! JSONSerialization.data(withJSONObject: project)
+    try! projectData.write(to: other.appending(path: "local_project.json"))
+    Graft.mirrorChatFolders(one, other)
+    check((try! Data(contentsOf: one.appending(path: "local_project.json"))) == projectData,
+          "ordinary project records remain byte-for-byte unchanged")
+}
+
 print("\n\(checks - failures)/\(checks) checks passed")
 if failures > 0 {
     print("\(failures) FAILED")

@@ -414,3 +414,25 @@ never, both stop the dialog `open` puts up; the section in the shortcut's own
 view stays for as long as anything is missing, because it is the only place left
 to change your mind from and an offer outlives the moment it was first made. It
 goes when the count reaches zero, which is what having taken them means.
+
+## Unfiled chats across profiles
+
+Claude files a chat under "This computer" only when the chat's `originCwd` lies
+inside the `scratch-workspaces` folder of the profile that is open. The test is
+lexical: three path components under that profile's own folder, nothing more.
+A record copied byte for byte from another profile therefore names the other
+profile's folder, and the sidebar shows it as a project called
+`scratch-2026-…` instead. Fixing the record on one side only moved the problem,
+because the next pass copied the fix across and broke the other side, and two
+profiles took turns doing that to each other.
+
+So the mirror gives each profile its own alias. When a scratch record lands in a
+profile, its `originCwd` is rewritten to the same three components under that
+profile's `scratch-workspaces`, with a symbolic link there to the real working
+folder when nothing exists at that path. `cwd` is never touched, so resuming
+still finds the transcript where the command line wrote it. When the two sides
+are compared, `originCwd` is set back to `cwd` before hashing, so the local
+alias is not an edit and nothing is copied for it. Records that are not scratch
+records, and any whose `cwd` and `originCwd` disagree about which scratch folder
+they mean, are left exactly as they are.
+

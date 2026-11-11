@@ -2139,6 +2139,62 @@ enum Graft {
         name.hasPrefix("local_") && name.hasSuffix(".json")
     }
 
+    /// Claude identifies an unfiled chat by an origin under its own profile.
+    /// Its actual cwd must stay shared so resuming still finds the transcript.
+    private static func scratchRecord(_ data: Data) -> (record: [String: Any], cwd: URL, suffix: String)? {
+        guard let record = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              record["sessionId"] is String,
+              record["sshConfig"] == nil, record["wslConfig"] == nil,
+              let cwd = record["cwd"] as? String,
+              let origin = record["originCwd"] as? String else { return nil }
+        func suffix(_ path: String) -> String? {
+            let prefix = applicationSupport.standardizedFileURL.path + "/"
+            guard path.hasPrefix(prefix) else { return nil }
+            let parts = String(path.dropFirst(prefix.count)).split(separator: "/").map(String.init)
+            guard parts.count == 5, parts[1] == "scratch-workspaces",
+                  parts.allSatisfy({ $0 != "." && $0 != ".." }),
+                  parts[4].range(of: #"^scratch-\d{4}-\d{2}-\d{2}-[0-9a-f]{6}$"#,
+                                 options: .regularExpression) != nil else { return nil }
+            return parts.dropFirst(2).joined(separator: "/")
+        }
+        guard let relative = suffix(cwd), suffix(origin) == relative else { return nil }
+        return (record, URL(fileURLWithPath: cwd), relative)
+    }
+
+    /// A local origin alias is not an edit to a shared conversation.
+    private static func mirrorData(_ data: Data) -> Data {
+        guard var scratch = scratchRecord(data) else { return data }
+        scratch.record["originCwd"] = scratch.cwd.path
+        return (try? JSONSerialization.data(withJSONObject: scratch.record, options: [.sortedKeys])) ?? data
+    }
+
+    private static func localScratchOrigin(_ data: Data, in folder: URL) -> Data {
+        guard var scratch = scratchRecord(data) else { return data }
+        let store = folder.deletingLastPathComponent().deletingLastPathComponent()
+        guard store.lastPathComponent == "claude-code-sessions" else { return data }
+        let profile = store.deletingLastPathComponent()
+        guard samePath(profile.deletingLastPathComponent(), applicationSupport) else { return data }
+        let local = profile.appending(path: "scratch-workspaces").appending(path: scratch.suffix)
+        guard scratch.record["originCwd"] as? String != local.path else { return data }
+        do {
+            if !samePath(local, scratch.cwd) {
+                guard isDirectory(scratch.cwd) else { return data }
+                if exists(local) {
+                    guard samePath(local, scratch.cwd) else { return data }
+                } else {
+                    try fm.createDirectory(at: local.deletingLastPathComponent(), withIntermediateDirectories: true)
+                    try fm.createSymbolicLink(at: local, withDestinationURL: scratch.cwd)
+                }
+            }
+            scratch.record["originCwd"] = local.path
+            return try JSONSerialization.data(withJSONObject: scratch.record, options: [.sortedKeys])
+        } catch {
+            Diagnostics.note("scratch.origin-failed", ["profile": profile.lastPathComponent,
+                                                       "reason": error.localizedDescription])
+            return data
+        }
+    }
+
     /// When a record says it last moved, for settling a name both sides have
     /// rewritten since the last pass. The file's own timestamp is the fallback,
     /// since a marker has no inside to read.
@@ -2371,10 +2427,10 @@ enum Graft {
 
         func read(_ folder: URL, _ name: String) -> (data: Data, digest: String)? {
             guard let data = try? Data(contentsOf: folder.appending(path: name)) else { return nil }
-            return (data, digest(data))
+            return (data, digest(mirrorData(data)))
         }
         func put(_ data: Data, _ folder: URL, _ name: String) -> Bool {
-            (try? data.write(to: folder.appending(path: name), options: .atomic)) != nil
+            (try? localScratchOrigin(data, in: folder).write(to: folder.appending(path: name), options: .atomic)) != nil
         }
         /// A removal that did not happen must not be written down as one. The
         /// baseline was dropped whether or not the file went, so a removal the
@@ -2393,7 +2449,7 @@ enum Graft {
             if let known, known.digest == copy.digest, known.fields != nil {
                 records[name] = known
             } else {
-                let record = recordObject(copy.data)
+                let record = recordObject(mirrorData(copy.data))
                 records[name] = RecordBaseline(digest: copy.digest,
                                                fields: record.map(fieldDigests(of:)),
                                                activity: (record?["lastActivityAt"] as? NSNumber)?.doubleValue)
@@ -2402,7 +2458,10 @@ enum Graft {
 
         /// Both sides moved since they last agreed: keep what each changed.
         func merge(_ name: String, _ here: Copy, _ there: Copy, base known: RecordBaseline?) {
-            let oneRecord = recordObject(here.data), otherRecord = recordObject(there.data)
+            // Read as `read` hashes them, a scratch chat's origin set back to
+            // its cwd: each side's own alias is not a change to merge, and
+            // `put` gives the side it lands in its alias again.
+            let oneRecord = recordObject(mirrorData(here.data)), otherRecord = recordObject(mirrorData(there.data))
             // A side whose activity went back past the baseline was written by a
             // Claude that loaded the chat before the other side's last turn
             // reached it — a running one, writing back what it still had. Every
@@ -2432,7 +2491,7 @@ enum Graft {
                     guard let data = try? JSONSerialization.data(withJSONObject: result.record,
                                                                  options: [.sortedKeys, .withoutEscapingSlashes])
                     else { return }
-                    settled = (data, digest(data))
+                    settled = (data, digest(mirrorData(data)))
                 }
             } else if isRecordName(name), (oneRecord == nil) != (otherRecord == nil) {
                 // A record that reads beats one that does not. An empty or torn
@@ -2485,6 +2544,11 @@ enum Graft {
                 // baseline. `mirrorDecision` answers this only when the two
                 // digests are equal, so either side names it.
                 if let here { settle(name, here, known: known) }
+                for (folder, record) in [(one, here), (other, there)] {
+                    guard let record else { continue }
+                    let localized = localScratchOrigin(record.data, in: folder)
+                    if localized != record.data { _ = put(localized, folder, name) }
+                }
             case .copyToOther, .copyToOne:
                 let toOther = action == .copyToOther
                 guard let source = toOther ? here : there else { break }
