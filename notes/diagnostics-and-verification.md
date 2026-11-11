@@ -83,6 +83,15 @@ memory read 150 MB moving and about 116 MB otherwise; no leak was looked for or
 seen. The one fault was still text standing a pixel above the same text moving,
 which [shared-usage.md](shared-usage.md) explains.
 
+A fourth run, with the strip laid where a marked drawing of the button shows the
+blank, compared frames captured at the display's own scale rather than cut down
+from recordings. In 2.0.1 and in the development build alike, moving text in
+its hold, still text, moving text chosen again and moving text after another
+Claude came forward all began on rows 10–18, 90 pixels into the item, with the
+figure on rows 10–19. The first step after the hold moved left only. Movement,
+clicks and the Claude in front behaved as in the third run, and moving text took
+1.35% of a core against 1.33% still.
+
 The session-record sweep has run for real on this machine: forty-six sessions
 that had closed without records — every test conversation plus months of
 history back to the migration — were filed into Claude-3's store in one pass,

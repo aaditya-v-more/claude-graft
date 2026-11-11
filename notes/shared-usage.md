@@ -536,9 +536,10 @@ run loop later, so the drawing uses the geometry the title was drawn in. A
 title, size and scale it has already placed for is not drawn again, and a title
 no longer ending in that blank hides the strip. Captured from the bar, the
 strip and the old picture differed by at most 19 of 255 in any channel, all on
-the text's edges, which is the blending of a separate layer. Only 1x has been
-measured. At 2x the drawing is in the button's own pixels, so the same reading
-holds, unchecked.
+the text's edges, which is the blending of a separate layer. The fourth run on the Mac Mini
+saw still and moving text begin on the same row and column as 2.0.1's. Only 1x
+has been measured. At 2x the drawing is in the button's own pixels, so the same
+reading holds, unchecked.
 
 The walk dates each
 record with one `lstat` on a string path (`Graft.modificationDate(atPath:)`),
