@@ -186,9 +186,13 @@ that both moved are merged field by field. A field one side changed and the
 other did not takes the change, whichever side made it: an archive survives a
 glance, and so does an unarchive, which no rule about archived records winning
 could keep. Only a field both sides changed to different values is a contest.
-A time takes the later of the two; anything else is settled the way the whole
-record used to be, by the later `lastActivityAt` and on a tie the borrower's, so
-nothing two sides disagree about comes out differently from before. The fields
+A time takes the later of the two. An archive state takes the unarchived one:
+a chat archived on one side and brought back on the other stays in both
+sidebars, since an archive lost costs a click to make again and a chat somebody
+was still using gone from view costs the chat, and before this the two settled
+on whichever side had a borrower's tie, which kept the archive in one order and
+the unarchive in the other. Anything else is settled the way the whole record
+used to be, by the later `lastActivityAt` and on a tie the borrower's. The fields
 live in `ClaudeGraft/mirror-fields/`, one file a pair, rather than in
 `mirrored-chats.json`: a history of a couple of thousand chats carries a couple
 of megabytes of them, and the state file is read and written by every pass over
@@ -230,7 +234,9 @@ again skips every chat in memory — and every save writes the whole record from
 memory. So a record a pass writes under a running Claude is never seen by it,
 and the next time that Claude shows the chat it writes its old `isArchived`
 back; the pass after reads that as somebody unarchiving the chat on purpose and
-carries it to every profile. Holding the write back until that Claude has quit
+carries it to every profile. That is the side this errs on by choice: a Claude
+showing the chat is somebody using it, and the cost is an archive to make again,
+never a conversation out of sight. Holding the write back until that Claude has quit
 stops it, but a write held back from a source is held back from every other
 borrower of that source too, and a pass that reads one pair at a time then
 merges each borrower against a source that is out of date. Doing it properly

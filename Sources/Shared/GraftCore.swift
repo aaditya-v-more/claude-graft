@@ -2322,11 +2322,10 @@ enum Graft {
     /// whichever side made it: an archive survives a glance on the other side,
     /// and so does an unarchive, which no rule about archived records winning
     /// could keep. Only a field both sides changed to different values is a
-    /// contest. A time takes the later of the two; anything else is settled
-    /// the way the whole record used to be, so `prefer` is the side whose
-    /// record says it moved last and on a tie the borrower. Nothing that two
-    /// sides disagree about comes out differently from before — only what one
-    /// side changed and the other left alone, which used to be thrown away.
+    /// contest. A time takes the later of the two, and an archive state the
+    /// unarchived one; anything else is settled the way the whole record used
+    /// to be, so `prefer` is the side whose record says it moved last and on a
+    /// tie the borrower.
     ///
     /// `isArchived` alone is also read through what goes with it. Claude sets
     /// `resumedAt` when it unarchives a chat and when it brings a stopped one
@@ -2359,7 +2358,12 @@ enum Graft {
                 pick = a
             } else {
                 contested.append(key)
-                if key.hasSuffix("At"), let x = a as? NSNumber, let y = b as? NSNumber,
+                if key == "isArchived" {
+                    // Archived on one side and brought back on the other: the
+                    // chat stays out. An archive lost costs a click; a chat
+                    // somebody was still using gone from view costs the chat.
+                    pick = (a as? Bool) == true ? b : a
+                } else if key.hasSuffix("At"), let x = a as? NSNumber, let y = b as? NSNumber,
                    CFGetTypeID(x) != CFBooleanGetTypeID(), CFGetTypeID(y) != CFBooleanGetTypeID() {
                     pick = x.doubleValue >= y.doubleValue ? a : b
                 } else {

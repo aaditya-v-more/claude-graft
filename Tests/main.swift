@@ -4276,6 +4276,12 @@ do {
     Graft.mirrorChatFolders(ownOrg, srcOrg)
     check(chatRecord(srcOrg, name)["isArchived"] as? Bool == false,
           "an unarchive counts on the side that made it even when the flag comes back as it already was")
+    editChatRecord(ownOrg, name) { $0["isArchived"] = true }
+    editChatRecord(srcOrg, name) { $0["isArchived"] = false; $0["resumedAt"] = 400 }
+    Graft.mirrorChatFolders(ownOrg, srcOrg)
+    check(chatRecord(ownOrg, name)["isArchived"] as? Bool == false
+            && chatRecord(srcOrg, name)["isArchived"] as? Bool == false,
+          "and it outlasts an archive made against it on the other side, whichever side each was made on")
 
     // Claude only moves lastActivityAt forward, so a side that comes back with
     // an earlier one is a running Claude writing back a copy from before the
