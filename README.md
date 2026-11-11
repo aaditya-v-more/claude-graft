@@ -20,7 +20,7 @@
 </p>
 
 <p>
-  <a href="https://aaditya-v-more.github.io/claude-graft/"><b>Website</b></a>
+  <a href="https://graft.aadityamore.com/"><b>Website</b></a>
   &nbsp;·&nbsp;
   <a href="#install"><b>Install</b></a>
   &nbsp;·&nbsp;
