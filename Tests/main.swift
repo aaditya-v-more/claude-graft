@@ -7937,6 +7937,10 @@ do {
                       SidebarSync.ProjectInput(path: "/B", order: value(["preset::b-other", "/a", "/only-b", "/b"], 10), presets: presetsB)]
     check(order(SidebarSync.planProjectOrders(ownEntries)["/B"]) == ["/b", "/a", "preset::b-other", "/only-b"],
           "entries only the receiving account lists are kept after the copied order")
+    let huge = [SidebarSync.ProjectInput(path: "/A", order: #"{"value":["/a"],"tabId":"","timestamp":1e19}"#, presets: nil),
+                SidebarSync.ProjectInput(path: "/B", order: value(["/b"], 5), presets: nil)]
+    check(order(SidebarSync.planProjectOrders(huge)["/B"]) == ["/a", "/b"],
+          "a stored time too large for a whole number is copied as it is rather than stopping the pass")
     let displayed = SidebarSync.effectiveProjectOrder(value(["/stored"], 700), desktop: ["/shown", "/also"])
     check(order(displayed) == ["/shown", "/also"] && time(displayed) == 700,
           "the order Claude displays from its preferences file replaces the stored copy, keeping its time")

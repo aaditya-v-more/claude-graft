@@ -604,8 +604,9 @@ extension SidebarSync {
             return Parsed(path: input.path, order: order?["value"] as? [String],
                           time: (order?["timestamp"] as? NSNumber)?.doubleValue ?? 0, presets: presets ?? [])
         }
+        // A time JSON cannot carry back out is a store nobody should copy from.
         guard let newest = parsed.filter({ $0.order != nil }).max(by: { $0.time < $1.time }),
-              let order = newest.order else { return [:] }
+              newest.time.isFinite, let order = newest.order else { return [:] }
         var plan: [String: String] = [:]
         for item in parsed where item.path != newest.path {
             if item.order != nil && item.time >= newest.time { continue }
@@ -616,7 +617,9 @@ extension SidebarSync {
             let carried = Set(wanted)
             wanted += (item.order ?? []).filter { !carried.contains($0) }
             if item.order == wanted && item.time == newest.time { continue }
-            let time: Any = newest.time.rounded() == newest.time ? NSNumber(value: Int64(newest.time)) : NSNumber(value: newest.time)
+            // A whole time past what an integer holds stays a double rather
+            // than trapping in the conversion.
+            let time = Int64(exactly: newest.time).map { NSNumber(value: $0) } ?? NSNumber(value: newest.time)
             let value: [String: Any] = ["value": wanted, "tabId": "graft", "timestamp": time]
             guard let data = try? JSONSerialization.data(withJSONObject: value, options: [.sortedKeys]) else { continue }
             plan[item.path] = String(decoding: data, as: UTF8.self)
