@@ -215,7 +215,7 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
             if strip.superview !== button { button.addSubview(strip) }
             picture.drawn = { [weak self, weak picture] in
                 guard let picture, picture === self?.tickerPicture, let button = self?.item?.button else { return }
-                picture.strip?.place(over: picture.image, in: button)
+                picture.place(in: button)
             }
         }
         if parts != nil || picture != nil {

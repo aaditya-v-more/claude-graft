@@ -60,7 +60,7 @@ about 9% of a core and 123 MB, with 18 MB more in `graft-relay`, while a
 conversation was on the bar and nothing else was asked of it; a profile put
 most of that in redrawing the bar's text and in the look's walk over every
 record. Both are cheaper now, as [shared-usage.md](shared-usage.md) says, and
-the suite proves the picture moves and that a tick asks only for a redraw.
+the suite proves that nothing in Graft wakes while the text moves.
 
 Seen on the Mac Mini on 11 November, macOS 27.0.1, against the installed 2.0.1
 under the same conditions and over two minutes each: the text moves on a
@@ -73,6 +73,15 @@ only from 4.8 points to 3.7, so most of what a tick costs is the redraw itself.
 The WindowServer fell with it, from 15.1% to between 5.4% and 10.7%. Graft's
 memory while moving read 126 MB and then 67 MB in the two samples, against 83
 MB installed, which says the figure moves more than the change does.
+
+A third run there the same day put the text on a layer that Core Animation
+steps, with nothing redrawn. Moving text took 1.51% and 1.40% of a core against
+1.34% still and 1.31% with none, so a moving title now costs about a tenth of a
+point. The WindowServer took 4.68% and 3.91% while it moved. The text moved at
+the same speed, hold and gap, came round whole, and left nothing behind. Graft's
+memory read 150 MB moving and about 116 MB otherwise; no leak was looked for or
+seen. The one fault was still text standing a pixel above the same text moving,
+which [shared-usage.md](shared-usage.md) explains.
 
 The session-record sweep has run for real on this machine: forty-six sessions
 that had closed without records — every test conversation plus months of

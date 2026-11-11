@@ -7056,17 +7056,42 @@ do {
     let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 24), styleMask: .borderless,
                           backing: .buffered, defer: true)
     let button = NSButton(frame: NSRect(x: 0, y: 0, width: 360, height: 22))
+    button.isBordered = false
     window.contentView?.addSubview(button)
-    button.attributedTitle = FrontTitle.make(icon: nil, tag: nil, figure: nil, font: font, ticker: moving.image)
-    moving.strip.map(button.addSubview)
-    MainActor.assumeIsolated { moving.strip?.place(over: moving.image, in: button) }
-    let laid = moving.strip?.frame ?? .zero
+    // An icon makes the line taller than the text, which is the shape the
+    // strip once stood a pixel low in.
+    let icon = NSImage(size: NSSize(width: 18, height: 18), flipped: false) { rect in
+        NSColor.systemOrange.setFill()
+        rect.fill()
+        return true
+    }
+    let solid = NSImage(size: moving.image.size, flipped: false) { rect in
+        NSColor(srgbRed: 0, green: 1, blue: 0, alpha: 1).setFill()
+        rect.fill()
+        return true
+    }
+    button.attributedTitle = FrontTitle.make(icon: icon, tag: nil, figure: nil, font: font, ticker: solid)
+    let truth = button.bitmapImageRepForCachingDisplay(in: button.bounds)!
+    button.cacheDisplay(in: button.bounds, to: truth)
     let scale = window.backingScaleFactor
-    check(moving.strip?.isHidden == false && laid.size == moving.image.size && button.bounds.contains(laid)
-            && (laid.minX * scale).rounded() == laid.minX * scale && (laid.minY * scale).rounded() == laid.minY * scale,
-          "the moving text lies over the blank, on whole pixels as AppKit would have drawn it")
+    let solidCorner = (0..<truth.pixelsHigh).lazy.compactMap { row -> NSPoint? in
+        let filled = (0..<truth.pixelsWide).filter { column in
+            truth.colorAt(x: column, y: row)?.usingColorSpace(.sRGB).map {
+                $0.greenComponent > 0.7 && $0.redComponent < 0.3 && $0.blueComponent < 0.3 } ?? false
+        }
+        return filled.count >= Int(moving.image.size.width * scale) - 2
+            ? NSPoint(x: CGFloat(filled[0]) / scale, y: CGFloat(row) / scale) : nil
+    }.first
+    button.attributedTitle = FrontTitle.make(icon: icon, tag: nil, figure: nil, font: font, ticker: moving.image)
+    moving.strip.map(button.addSubview)
+    MainActor.assumeIsolated { moving.place(in: button) }
+    let laid = moving.strip?.frame ?? .zero
+    let laidTop = button.isFlipped ? laid.minY : button.bounds.height - laid.maxY
+    check(moving.strip?.isHidden == false && laid.size == moving.image.size && solidCorner != nil
+            && laid.minX == solidCorner?.x && laidTop == solidCorner?.y,
+          "the moving text lies exactly where AppKit draws a picture of its size, in a title an icon makes taller")
     button.attributedTitle = FrontTitle.make(icon: nil, tag: nil, figure: nil, font: font, ticker: still.image)
-    MainActor.assumeIsolated { moving.strip?.place(over: moving.image, in: button) }
+    MainActor.assumeIsolated { moving.place(in: button) }
     check(moving.strip?.isHidden == true, "moving text whose blank has left the title is not shown")
 
     check(!bar.contains("Timer(") && !bar.contains("setNeedsDisplay") && !bar.contains("advanceTicker"),

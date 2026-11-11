@@ -430,12 +430,17 @@ enum NewChatTicker {
             strip = cycle.map { Strip(text, attributes: attributes, length: length, height: height,
                                       pass: NewChatTicker.pass(cycle: $0), started: begun) }
             var told: (() -> Void)?
+            let marking = Marking()
+            self.marking = marking
             // Drawn when shown rather than now, so the label colour is the one the
             // bar's appearance gives it at that moment.
             let image = NSImage(size: NSSize(width: cycle == nil ? length : NewChatTicker.width, height: height),
-                                flipped: false) { _ in
+                                flipped: false) { rect in
                 if cycle == nil {
                     (text as NSString).draw(at: .zero, withAttributes: attributes)
+                } else if marking.on {
+                    NewChatTicker.mark.setFill()
+                    rect.fill()
                 } else {
                     // A frame changed in the middle of the button's own drawing
                     // is one AppKit may draw again, so the strip moves after it.
@@ -443,10 +448,96 @@ enum NewChatTicker {
                 }
                 return true
             }
+            // Kept from caching so the blank can be drawn marked when it is
+            // looked for, and still text with it, so the text that stands and
+            // the blank the strip is laid by are drawn the same way. Either is
+            // drawn only when the button is.
+            image.cacheMode = .never
             image.accessibilityDescription = text
             self.image = image
             told = { [weak self] in self?.drawn?() }
         }
+
+        private final class Marking { var on = false }
+        private let marking: Marking
+        /// What the strip was last placed for, so a button drawn again
+        /// unchanged is not looked over again.
+        private var placedFor: (title: NSAttributedString, size: NSSize, scale: CGFloat)?
+
+        /// Lays the strip over the blank the title holds for it, or hides it
+        /// when the title no longer ends with that blank.
+        ///
+        /// AppKit publishes where a title's runs are drawn no more than it
+        /// publishes its margins, and working it out from the layout was a
+        /// pixel out whenever the icons made the line taller than the text:
+        /// still text then stood a pixel above the same text moving. So the
+        /// button is drawn once away from the screen with the blank filled in
+        /// a colour, and the strip goes where the colour came out.
+        func place(in button: NSButton) {
+            guard let strip else { return }
+            let title = button.attributedTitle
+            guard title.length > 0, let window = button.window,
+                  let attachment = title.attribute(.attachment, at: title.length - 1,
+                                                   effectiveRange: nil) as? NSTextAttachment,
+                  attachment.image === image
+            else {
+                placedFor = nil
+                strip.isHidden = true
+                return
+            }
+            let scale = window.backingScaleFactor
+            if let placedFor, placedFor.title.isEqual(to: title), placedFor.size == button.bounds.size,
+               placedFor.scale == scale, !strip.isHidden {
+                return
+            }
+            let size = attachment.bounds.size
+            let height = button.bounds.height
+            // Not found only if AppKit stopped drawing the picture where it is
+            // asked to; the end of the title, centred, keeps the text readable.
+            let (left, top) = markedCorner(in: button, width: size.width, scale: scale)
+                ?? (((button.cell as? NSButtonCell)?.titleRect(forBounds: button.bounds).maxX ?? 0) - size.width,
+                    ((height - size.height) / 2).rounded())
+            let frame = NSRect(x: left, y: button.isFlipped ? top : height - top - size.height,
+                               width: size.width, height: size.height)
+            if strip.frame != frame { strip.frame = frame }
+            strip.isHidden = false
+            placedFor = (title, button.bounds.size, scale)
+        }
+
+        /// The blank's top left corner, measured from the button's top left:
+        /// the first row the marked blank fills across its whole width. Nothing
+        /// else in a title is as wide, and the strip is a layer of its own,
+        /// which drawing the button into a picture leaves out.
+        private func markedCorner(in button: NSButton, width: CGFloat, scale: CGFloat) -> (CGFloat, CGFloat)? {
+            guard let rep = button.bitmapImageRepForCachingDisplay(in: button.bounds) else { return nil }
+            marking.on = true
+            button.cacheDisplay(in: button.bounds, to: rep)
+            marking.on = false
+            let wide = Int((width * scale).rounded()) - 2
+            for row in 0..<rep.pixelsHigh {
+                let marked = (0..<rep.pixelsWide).filter { NewChatTicker.isMark(rep, $0, row) }
+                if let first = marked.first, marked.count >= wide {
+                    return (CGFloat(first) / scale, CGFloat(row) / scale)
+                }
+            }
+            return nil
+        }
+    }
+
+    /// A pink icon may come near it, but no icon comes near the blank's width,
+    /// and the blank is found by both.
+    fileprivate static let mark = NSColor(srgbRed: 1, green: 0, blue: 1, alpha: 1)
+
+    fileprivate static func isMark(_ rep: NSBitmapImageRep, _ column: Int, _ row: Int) -> Bool {
+        if rep.bitsPerSample == 8, rep.samplesPerPixel == 4, !rep.isPlanar, let data = rep.bitmapData {
+            let at = data + row * rep.bytesPerRow + column * 4
+            let alphaFirst = rep.bitmapFormat.contains(.alphaFirst)
+            let (red, green, blue, alpha) = alphaFirst ? (at[1], at[2], at[3], at[0]) : (at[0], at[1], at[2], at[3])
+            return alpha > 200 && red > 180 && green < 100 && blue > 180
+        }
+        guard let colour = rep.colorAt(x: column, y: row)?.usingColorSpace(.sRGB) else { return false }
+        return colour.alphaComponent > 0.8 && colour.redComponent > 0.7 && colour.greenComponent < 0.4
+            && colour.blueComponent > 0.7
     }
 
     /// Clips the moving text to the blank it covers. Clicks go through to the
@@ -518,48 +609,6 @@ enum NewChatTicker {
             move.beginTime = words.convertTime(started, from: nil)
             move.fillMode = .both
             words.add(move, forKey: "pass")
-        }
-
-        /// Lays the strip over the blank the title holds for it, or hides it
-        /// when the title no longer ends with that blank.
-        ///
-        /// AppKit publishes where a title's runs are drawn no more than it
-        /// publishes its margins, so the blank is found the way the button's
-        /// cell lays the title out: centred in its title rect, the attachment
-        /// at its baseline. AppKit then draws the picture on the next whole
-        /// pixel to the right of and below that, read off five titles of
-        /// different widths; laid there, the strip matched the old drawing to
-        /// within 19 of 255 in any channel, the blending of a separate layer.
-        func place(over image: NSImage, in button: NSButton) {
-            let title = button.attributedTitle
-            guard title.length > 0, let window = button.window, let cell = button.cell as? NSButtonCell,
-                  let attachment = title.attribute(.attachment, at: title.length - 1,
-                                                   effectiveRange: nil) as? NSTextAttachment,
-                  attachment.image === image
-            else {
-                isHidden = true
-                return
-            }
-            let storage = NSTextStorage(attributedString: title)
-            let layout = NSLayoutManager()
-            let container = NSTextContainer(size: NSSize(width: 100_000, height: 100_000))
-            container.lineFragmentPadding = 0
-            layout.addTextContainer(container)
-            storage.addLayoutManager(layout)
-            let glyph = layout.glyphIndexForCharacter(at: title.length - 1)
-            let line = layout.lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil)
-            let baseline = line.maxY - layout.typesetter.baselineOffset(in: layout, glyphIndex: glyph)
-            let used = layout.usedRect(for: container)
-            let box = cell.titleRect(forBounds: button.bounds)
-            let boxTop = button.isFlipped ? box.minY : button.bounds.height - box.maxY
-            let scale = window.backingScaleFactor
-            func nextPixel(_ points: CGFloat) -> CGFloat { ceil(points * scale - 0.001) / scale }
-            let left = nextPixel(box.minX + (box.width - used.width) / 2 + layout.location(forGlyphAt: glyph).x)
-            let top = nextPixel(boxTop + (box.height - used.height) / 2 + baseline - attachment.bounds.maxY)
-            let frame = NSRect(x: left, y: button.isFlipped ? top : button.bounds.height - top - attachment.bounds.height,
-                               width: attachment.bounds.width, height: attachment.bounds.height)
-            if self.frame != frame { self.frame = frame }
-            isHidden = false
         }
     }
 

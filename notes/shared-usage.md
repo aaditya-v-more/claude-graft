@@ -515,16 +515,30 @@ picture rebuilt for the same conversation, new words for its account, carries
 on from where the pass was (`tickerStarted`); a new conversation starts its
 pass again. Text short enough to stand still is drawn into the title as before.
 
-Where to lay the strip is not published. `Strip.place` lays the title out as
-the button's cell does, centred in its title rect, finds the blank at its
-baseline, and moves to the next whole pixel right of and below that, which is
-where AppKit drew the old picture on five titles of different widths at 1x. The
-blank's own drawing handler calls it, a turn of the run loop later, so it uses
-the geometry the title was actually drawn in, and a title no longer ending in
-that blank hides the strip. Captured from the bar, the strip and the old
-picture differed by at most 19 of 255 in any channel, all on the text's edges,
-which is the blending of a separate layer. Only 1x was measured; at 2x the
-rounding is to half points by the same rule, unchecked.
+Where to lay the strip is not published, and working it out failed. Laying
+the title out as the button's cell does, centred in its title rect with the
+blank at its baseline and moved to the next whole pixel, matched the old
+picture on five titles of different widths, all without an icon. The third run
+on the Mac Mini, with the icons in front, found still text a pixel above the
+same text moving: the icons make the line taller than the text, the title rect
+then starts on a half point, and AppKit rounds that half point the other way.
+Fitting a rounding rule to nine title shapes still left one wrong, so the rule
+was dropped. `Picture.place` instead draws the button once into a picture,
+`cacheDisplay`, with the blank filled in magenta, and lays the strip where the
+first row the magenta fills across the whole width begins. Nothing else in a
+title is 150 points wide, and that drawing leaves out the strip, a layer of its
+own. Over the same nine shapes in the bar, each moving title then started on
+the row the still one did. The blank is kept out of the image cache
+(`cacheMode = .never`) so it can draw marked, and still text with it so the two
+are drawn the same way; the button draws either only when it draws itself,
+which is not on any tick. Its handler calls `place` a turn of the
+run loop later, so the drawing uses the geometry the title was drawn in. A
+title, size and scale it has already placed for is not drawn again, and a title
+no longer ending in that blank hides the strip. Captured from the bar, the
+strip and the old picture differed by at most 19 of 255 in any channel, all on
+the text's edges, which is the blending of a separate layer. Only 1x has been
+measured. At 2x the drawing is in the button's own pixels, so the same reading
+holds, unchecked.
 
 The walk dates each
 record with one `lstat` on a string path (`Graft.modificationDate(atPath:)`),
