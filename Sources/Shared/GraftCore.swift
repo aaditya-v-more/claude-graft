@@ -2849,7 +2849,9 @@ enum Graft {
             guard !exists(own.appending(path: name)),
                   let mine = try? Data(contentsOf: here),
                   let theirs = try? Data(contentsOf: source.appending(path: name)),
-                  mine == theirs,
+                  // An unfiled chat's copy names this profile's own folder as
+                  // its origin, so the bytes of a borrowed one never match.
+                  mirrorData(mine) == mirrorData(theirs),
                   (try? fm.removeItem(at: here)) != nil
             else { continue }
             dropped += 1
@@ -3114,7 +3116,7 @@ enum Graft {
             if let own, exists(own.appending(path: name)) { continue }
             guard let here = try? Data(contentsOf: mine.appending(path: name)),
                   let there = try? Data(contentsOf: theirs.appending(path: name)),
-                  here == there,
+                  mirrorData(here) == mirrorData(there),
                   (try? fm.removeItem(at: mine.appending(path: name))) != nil
             else { continue }
             removed += 1

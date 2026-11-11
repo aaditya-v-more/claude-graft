@@ -7802,6 +7802,30 @@ do {
           "a sign-in is announced under the store it was made in, whether it adds an account or finds one already there")
 }
 
+section("Going back hands an unfiled chat back too")
+do {
+    // A borrowed unfiled chat carries this profile's own origin, so its bytes
+    // never match the source's copy; what decides whether it was borrowed is
+    // the conversation, not the alias.
+    let main = makeProfile("Claude", account: "AAAA", org: "ORG-A", chats: ["shared"])
+    let work = makeProfile("Claude-Work", account: "BBBB", org: "ORG-B", chats: ["mine"])
+    let cwd = main.appending(path: "scratch-workspaces/AAAA/ORG-A/scratch-2026-10-03-abcdef")
+    try! fm.createDirectory(at: cwd, withIntermediateDirectories: true)
+    let record: [String: Any] = ["sessionId": "local_unfiled", "cliSessionId": "transcript",
+        "cwd": cwd.path, "originCwd": cwd.path, "title": "Unfiled", "lastActivityAt": 100]
+    try! JSONSerialization.data(withJSONObject: record)
+        .write(to: main.appending(path: "claude-code-sessions/AAAA/ORG-A/local_unfiled.json"))
+    Graft.graft(from: main, into: work)
+    check(chatsVisible(to: work).contains("local_unfiled.json"),
+          "a profile borrowing an unfiled chat is shown it")
+    Graft.ungraft(work)
+    check(chatsVisible(to: work) == ["local_mine.json"],
+          "and going back hands it back with the rest, though its copy names this profile's own folder")
+    check(Graft.exists(main.appending(path: "claude-code-sessions/AAAA/ORG-A/local_unfiled.json")),
+          "while the profile it came from keeps it")
+    for profile in [main, work] { try? fm.removeItem(at: profile) }
+}
+
 section("Scratch conversations keep their local sidebar classification")
 do {
     let previous = Graft.applicationSupportOverride
