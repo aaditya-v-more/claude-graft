@@ -250,7 +250,7 @@ async function runProjects(request) {
             && item.keys.every(key => key.startsWith('LSS-persisted.code-projects-order.')
                 || key.startsWith('persisted.ccd-session-presets.'))
             && (request.action === 'projects-read' ? item.values === undefined
-                : object(item.values) && Object.keys(item.values).length > 0
+                : object(item.values) && (Object.keys(item.values).length > 0 || item.prefs !== undefined)
                   && Object.entries(item.values).every(([key, value]) =>
                       key.startsWith('LSS-persisted.code-projects-order.') && item.keys.includes(key)
                       && typeof value === 'string')
@@ -273,6 +273,12 @@ async function runProjects(request) {
             const original = path.join(profile.path, 'Local Storage');
             if (!fs.statSync(original).isDirectory()) throw Error('not-initialized');
             if (writing && profile.prefs) writeProjectPreference(profile.path, profile.prefs);
+            // A profile that may be opening as this runs is given the
+            // preference alone; its database is not opened at all.
+            if (writing && Object.keys(profile.values).length === 0) {
+                results.push({path: profile.path, values: {}});
+                continue;
+            }
             if (writing) fs.symlinkSync(original, path.join(scratch, 'Local Storage'));
             else fs.cpSync(original, path.join(scratch, 'Local Storage'), {recursive: true,
                 filter: source => path.basename(source) !== 'LOCK'});

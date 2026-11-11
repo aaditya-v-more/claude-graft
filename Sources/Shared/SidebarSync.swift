@@ -645,15 +645,27 @@ extension SidebarSync {
     /// says nothing about which group it belonged to, and a group that leaves
     /// Claude's own profile out is as likely to have been reordered as one
     /// that takes it in.
+    ///
+    /// Run after a quit, with nothing being opened. A shortcut opened meanwhile
+    /// waits for the launch lock this runs under, but Claude's own app opened
+    /// from the Dock waits for nothing, and one starting while the helper holds
+    /// its Local Storage cannot open its own. So that profile is given only the
+    /// preferences entry, a file replaced whole that a starting Claude reads
+    /// either before or after, and its timed copy waits for a pass that runs
+    /// with the door shut.
     static func synchronizeEveryProjectOrder() {
         var done = Set<String>()
         for pair in candidates() where !done.contains(pair.borrower.path) {
             done.formUnion(linkedProfiles(of: pair.borrower).map(\.path))
-            synchronizeProjectOrder(beforeOpening: pair.borrower)
+            synchronizeProjectOrder(beforeOpening: pair.borrower,
+                                    sparing: { Graft.samePath($0, Graft.mainProfile) })
         }
     }
 
-    static func synchronizeProjectOrder(beforeOpening profile: URL) {
+    /// `sparing` names the profiles that could open while this runs, whose
+    /// Local Storage is left alone.
+    static func synchronizeProjectOrder(beforeOpening profile: URL,
+                                        sparing spared: (URL) -> Bool = { _ in false }) {
         guard !storageBlocked else { return }
         let profiles = linkedProfiles(of: profile)
         guard profiles.count > 1 else { return }
@@ -689,12 +701,20 @@ extension SidebarSync {
                 return
             }
             guard !anyRunning() else { throw Failure("profile-running") }
-            let targets = profiles.filter { plan[$0.path] != nil }
             var orders: [String: [String]] = [:]
-            for item in targets {
+            for item in profiles where plan[item.path] != nil {
                 let value = try JSONSerialization.jsonObject(with: Data(plan[item.path]!.utf8)) as? [String: Any]
                 guard let order = value?["value"] as? [String] else { throw Failure("verification-failed") }
                 orders[item.path] = order
+            }
+            // A spared profile already showing the order has nothing it may be given.
+            let targets = profiles.filter {
+                orders[$0.path] != nil
+                    && !(spared($0) && desktopProjectOrder($0, account: accounts[$0.path]!) == orders[$0.path])
+            }
+            guard !targets.isEmpty else {
+                Diagnostics.note("projects.sync", ["status": "unchanged"])
+                return
             }
             // The helper writes the preferences file, before the timed copy:
             // it is the file people edit by hand, and only `preferencesText`
@@ -704,10 +724,10 @@ extension SidebarSync {
             // carry the old order out under a new time.
             let written = try projectStorage(action: "projects-write", profiles: targets.map {
                 let account = accounts[$0.path]!, key = projectOrderPrefix + account
-                return ["path": $0.path, "keys": [key], "values": [key: plan[$0.path]!],
+                return ["path": $0.path, "keys": [key], "values": spared($0) ? [:] : [key: plan[$0.path]!],
                         "prefs": ["key": "code-projects-order." + account, "order": orders[$0.path]!]]
             })
-            for item in targets where written[item.path]?[projectOrderPrefix + accounts[item.path]!] != plan[item.path]
+            for item in targets where (!spared(item) && written[item.path]?[projectOrderPrefix + accounts[item.path]!] != plan[item.path])
                 || desktopProjectOrder(item, account: accounts[item.path]!) != orders[item.path] {
                 throw Failure("verification-failed")
             }

@@ -197,5 +197,31 @@ let after = try Data(contentsOf: a.appending(path: "Local Storage/leveldb/CURREN
 orders = try SidebarSync.projectStorage(action: "projects-read", profiles: [["path": a.path, "keys": [orderKeyA]]])
 check(after == before && decoded(orders[a.path]?[orderKeyA])["value"] as? [String] == ["/y", "/x", "/z"],
       "a pass with nothing to carry leaves both databases as they were")
+// Claude's own app opened from the Dock waits for no lock, so after a quit its
+// profile is given the preferences entry and its database is left shut.
+_ = try SidebarSync.projectStorage(action: "projects-write", profiles: [
+    ["path": b.path, "keys": [orderKeyB], "values": [orderKeyB: projectValue(["/z", "/y", "/x"], 1000)],
+     "prefs": ["key": "code-projects-order.account-b", "order": ["/z", "/y", "/x"]]]])
+func storageFiles(_ profile: URL) -> [String] {
+    let folder = profile.appending(path: "Local Storage/leveldb")
+    return ((try? Graft.fm.contentsOfDirectory(atPath: folder.path)) ?? []).sorted().map { name in
+        let attributes = try? Graft.fm.attributesOfItem(atPath: folder.appending(path: name).path)
+        return "\(name) \(attributes?[.size] ?? 0) \((attributes?[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0)"
+    }
+}
+let untouched = storageFiles(a)
+SidebarSync.withLaunchLock {
+    SidebarSync.synchronizeProjectOrder(beforeOpening: b, sparing: { Graft.samePath($0, a) })
+}
+orders = try SidebarSync.projectStorage(action: "projects-read", profiles: [["path": a.path, "keys": [orderKeyA]]])
+check(SidebarSync.desktopProjectOrder(a, account: "account-a") == ["/z", "/y", "/x"]
+      && storageFiles(a) == untouched
+      && decoded(orders[a.path]?[orderKeyA])["value"] as? [String] == ["/y", "/x", "/z"],
+      "a profile that could open without waiting is shown the new order without its database being opened")
+SidebarSync.withLaunchLock { SidebarSync.synchronizeProjectOrder(beforeOpening: a) }
+orders = try SidebarSync.projectStorage(action: "projects-read", profiles: [["path": a.path, "keys": [orderKeyA]]])
+check(decoded(orders[a.path]?[orderKeyA])["value"] as? [String] == ["/z", "/y", "/x"]
+      && (decoded(orders[a.path]?[orderKeyA])["timestamp"] as? NSNumber)?.intValue == 1000,
+      "and the next pass made with the door shut brings its stored copy level")
 print("\(checks)/\(checks) native sidebar checks passed")
 if ProcessInfo.processInfo.environment["GRAFT_KEEP_SIDEBAR_FIXTURES"] != nil { print(root.path) }

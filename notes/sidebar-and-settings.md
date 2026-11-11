@@ -142,6 +142,21 @@ Dock, which runs no launcher, and it goes over every group of profiles sharing a
 history: a quit says nothing about which group it belonged to, and a group that
 leaves Claude's own profile out is as likely to have been reordered.
 
+Both run under the launch lock, so a shortcut clicked while either is under way
+waits for it and opens on the order it left. Claude's own app opened from the
+Dock waits for nothing: it is not Graft's to hold, and one that starts while
+the helper has its Local Storage open cannot open its own. So the pass after a
+quit gives Claude's own profile the preferences entry alone, a file replaced
+whole that a starting Claude reads either before or after, which is all it
+displays from; the timed copy is left for a pass made before Graft opens
+something, with the door shut. Until then that profile shows the new order
+under its old time, which no pass carries anywhere.
+
+A saved environment that matches by neither name nor target falls back to its
+folder alone, so two environments on one folder that differ only in kind can
+stand in for each other. Claude matches them no better itself; it is left as a
+known limit.
+
 The preferences entry is written by the helper, with `preferencesText` and
 `atomicWrite`, like the pin pass's fallbacks. It was first written from Swift,
 and `JSONSerialization` gave the file Apple's indent, a key order of its own and

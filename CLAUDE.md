@@ -218,7 +218,7 @@ any of these. The why is in [notes/updates-and-releases.md](notes/updates-and-re
 - **The helper cache holds one key** — `pruneHelperCache` after every `prepareHelper`, excluded from backups — and a damaged copy is set aside for a fresh one, never a refusal.
 - **`claude_desktop_config.json` belongs to each profile;** `copyDesktopServers` adds only missing MCP definitions.
 - **The helper rolls that file back byte for byte** and writes it forward in its own indent and mode (`preferencesText`, `atomicWrite`).
-- **Project order is per account, and Claude displays it from the desktop preferences.** `epitaxyPrefs["code-projects-order.<account>"]` is what the sidebar shows; the `LSS-persisted.code-projects-order.<account>` copy carries the time. `synchronizeProjectOrder` writes the newer order into both, preferences first and through the helper, translating `preset::` ids, before an open and, for every group, when the last Claude quits.
+- **Project order is per account, and Claude displays it from the desktop preferences.** `epitaxyPrefs["code-projects-order.<account>"]` is what the sidebar shows; the `LSS-persisted.code-projects-order.<account>` copy carries the time. `synchronizeProjectOrder` writes the newer order into both, preferences first and through the helper, translating `preset::` ids, before an open and, for every group, when the last Claude quits; after a quit, Claude's own profile, which the Dock opens without waiting for the lock, gets the preferences alone.
 
 ### Diagnostics and verification — [notes/diagnostics-and-verification.md](notes/diagnostics-and-verification.md)
 
