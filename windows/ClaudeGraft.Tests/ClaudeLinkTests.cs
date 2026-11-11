@@ -3,6 +3,7 @@ using Xunit;
 
 namespace ClaudeGraft.Tests;
 
+[Collection("GlobalState")]
 public class ClaudeLinkTests
 {
     [Theory]
