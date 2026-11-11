@@ -15,6 +15,12 @@
 #else
   #define ProductId "{{B0C98D46-A272-4C54-8EDC-A31D441BAE9B}"
   #define OutputSuffix ""
+  #ifndef WebView2Bootstrapper
+    #error WebView2Bootstrapper is required for production setup
+  #endif
+  #ifndef WebView2Sha256
+    #error WebView2Sha256 is required for production setup
+  #endif
 #endif
 
 [Setup]
@@ -66,6 +72,9 @@ Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription:
 Name: "startup"; Description: "Open at Login"; GroupDescription: "Startup:"; Flags: unchecked
 
 [Files]
+#ifndef TestMode
+Source: "{#WebView2Bootstrapper}"; DestName: "MicrosoftEdgeWebview2Setup.exe"; Flags: dontcopy
+#endif
 Source: "{#PublishRoot}\*"; DestDir: "{app}"; Excludes: "*.pdb"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
@@ -79,6 +88,11 @@ Name: "{userstartup}\Claude Graft"; Filename: "{app}\ClaudeGraft.exe"; WorkingDi
 Filename: "{app}\ClaudeGraft.exe"; Parameters: "--show"; Description: "Open Claude Graft"; Flags: nowait postinstall skipifsilent
 Filename: "{app}\ClaudeGraft.exe"; Flags: nowait skipifnotsilent; Check: WasGraftUpdate
 
+#ifndef TestMode
+[UninstallRun]
+Filename: "{app}\launcher\GraftLaunch.exe"; Parameters: "--stop-sharing"; Flags: runhidden waituntilterminated; RunOnceId: "StopUsageSharing"
+#endif
+
 [Code]
 function WasGraftUpdate: Boolean;
 begin
@@ -86,6 +100,34 @@ begin
 end;
 
 #ifndef TestMode
+function ReadWebView2Version(RootKey: Integer; var Version: String): Boolean;
+begin
+  Result := RegQueryStringValue(RootKey, 'Software\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}', 'pv', Version);
+end;
+
+function WebView2IsElevated: Boolean;
+begin
+  Result := IsAdmin;
+end;
+
+function StageWebView2Bootstrapper: String;
+begin
+  ExtractTemporaryFile('MicrosoftEdgeWebview2Setup.exe');
+  Result := ExpandConstant('{tmp}\MicrosoftEdgeWebview2Setup.exe');
+end;
+
+function RunWebView2Bootstrapper(const Filename: String; var ExitCode: Integer): Boolean;
+begin
+  Result := ExecAsOriginalUser(Filename, '/silent /install', '', SW_HIDE, ewWaitUntilTerminated, ExitCode);
+end;
+
+#include "WebView2Runtime.iss"
+
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+begin
+  Result := EnsureWebView2Runtime;
+end;
+
 [Registry]
 ; Register a candidate only. Windows asks the user to select the default.
 Root: HKCU; Subkey: "Software\Classes\ClaudeGraft.Link"; ValueType: string; ValueName: ""; ValueData: "Claude Graft link"; Flags: uninsdeletekey

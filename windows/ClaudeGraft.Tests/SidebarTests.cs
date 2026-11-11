@@ -7,7 +7,7 @@ using Xunit;
 namespace ClaudeGraft.Tests;
 
 [Collection("GlobalState")]
-public sealed class SidebarTests
+public sealed partial class SidebarTests
 {
     [Fact(DisplayName = "an unpin survives the source's old copy and unrelated pins retain their positions")]
     public void PinAgreement()
@@ -119,6 +119,52 @@ public sealed class SidebarTests
                     Assert.Equal(id == "local_a", (bool)record["isStarred"]!);
                 }
             }
+
+            var orderA = SidebarSync.ProjectOrderPrefix + "account-a";
+            var orderB = SidebarSync.ProjectOrderPrefix + "account-b";
+            string Value(string[] order, int timestamp) => JsonSerializer.Serialize(new { value = order, timestamp, tabId = "test" });
+            string[] Stored(string profile, string key) => JsonNode.Parse(SidebarBrowser.Projects(runtime, "projects-read",
+                [new(profile, [key])])[profile][key]!)!["value"]!.Deserialize<string[]>()!;
+            SidebarBrowser.Projects(runtime, "projects-write", [
+                new(a, [orderA], new() { [orderA] = Value(["/x", "/y", "/z"], 500) }),
+                new(b, [orderB], new() { [orderB] = Value(["/z", "/x"], 100) })]);
+            SidebarSync.SynchronizeProjectOrder(b, () => runtime);
+            Assert.Equal(new[] { "/x", "/y", "/z" }, Stored(b, orderB));
+            Assert.Equal(new[] { "/x", "/y", "/z" }, SidebarSync.DesktopProjectOrder(b, "account-b"));
+            var aSettings = Path.Combine(a, "claude_desktop_config.json");
+            var aPrefs = JsonNode.Parse(File.ReadAllText(aSettings))!;
+            File.WriteAllText(aSettings, "{\n    \"zLast\": 1,\n    \"preferences\": " + aPrefs["preferences"]!.ToJsonString()
+                + ",\n    \"mcpServers\": {}\n}\n");
+            SidebarBrowser.Projects(runtime, "projects-write", [new(b, [orderB], new() { [orderB] = Value(["/y", "/x", "/z"], 900) },
+                new("code-projects-order.account-b", ["/y", "/x", "/z"]))]);
+            SidebarSync.SynchronizeProjectOrder(a, () => runtime);
+            Assert.Equal(new[] { "/y", "/x", "/z" }, Stored(a, orderA));
+            Assert.StartsWith("{\n    \"zLast\": 1,\n    \"preferences\": {", File.ReadAllText(aSettings));
+            Assert.EndsWith("}\n", File.ReadAllText(aSettings));
+            var exactPrefs = File.ReadAllBytes(aSettings);
+            var attributes = File.GetAttributes(aSettings);
+            var absentOrder = SidebarSync.ProjectOrderPrefix + "never-stored";
+            // Refuse the second preference replacement after the first target
+            // commits. Rollback restores the first settings file byte for byte.
+            using (var held = new FileStream(Path.Combine(b, "claude_desktop_config.json"), FileMode.Open, FileAccess.Read, FileShare.Read))
+                Assert.Throws<IOException>(() => SidebarBrowser.Projects(runtime, "projects-write", [
+                    new(a, [orderA, absentOrder], new() { [orderA] = Value(["/rollback"], 950), [absentOrder] = Value(["/new"], 950) }, new("code-projects-order.account-a", ["/rollback"])),
+                    new(b, [orderB], new() { [orderB] = Value(["/rollback"], 950) }, new("code-projects-order.account-b", ["/rollback"]))]));
+            Assert.Equal(exactPrefs, File.ReadAllBytes(aSettings));
+            Assert.Equal(attributes, File.GetAttributes(aSettings));
+            Assert.Null(SidebarBrowser.Projects(runtime, "projects-read", [new(a, [absentOrder])])[a][absentOrder]);
+            Assert.Equal(new[] { "/y", "/x", "/z" }, Stored(a, orderA));
+            SidebarBrowser.Projects(runtime, "projects-write", [new(b, [orderB], new() { [orderB] = Value(["/z", "/y", "/x"], 1000) },
+                new("code-projects-order.account-b", ["/z", "/y", "/x"]))]);
+            string[] StorageFiles() => Directory.GetFiles(Path.Combine(a, "Local Storage", "leveldb")).Order()
+                .Select(file => file + "|" + new FileInfo(file).Length + "|" + File.GetLastWriteTimeUtc(file).Ticks).ToArray();
+            var untouched = StorageFiles();
+            SidebarSync.SynchronizeProjectOrder(b, () => runtime, path => Fs.SamePath(path, a));
+            Assert.Equal(untouched, StorageFiles());
+            Assert.Equal(new[] { "/z", "/y", "/x" }, SidebarSync.DesktopProjectOrder(a, "account-a"));
+            Assert.Equal(new[] { "/y", "/x", "/z" }, Stored(a, orderA));
+            SidebarSync.SynchronizeProjectOrder(a, () => runtime);
+            Assert.Equal(new[] { "/z", "/y", "/x" }, Stored(a, orderA));
 
             void Edit(string path, SidebarSync.Snapshot snapshot, string[] order) =>
                 SidebarBrowser.ReadOrWrite(runtime, [path], new() {

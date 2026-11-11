@@ -3,6 +3,7 @@ param(
     [string]$Compiler,
     [switch]$SkipBuild,
     [switch]$TestMode,
+    [string]$WebView2Bootstrapper,
     [string]$PublishRoot,
     [ValidatePattern('^[0-9A-Fa-f]{40}$')][string]$PublisherThumbprint,
     [string]$SignTool,
@@ -60,7 +61,7 @@ if ($PublisherThumbprint) {
         $stage.FullName.TrimEnd('\') -eq [IO.Path]::GetFullPath($published).TrimEnd('\')) { throw 'Use a separate release staging directory.' }
     $published = $stage.FullName.TrimEnd('\')
 }
-foreach ($required in @('ClaudeGraft.exe','ClaudeGraft.pri','coreclr.dll','launcher/GraftLaunch.exe','launcher/coreclr.dll','vc-runtime.json')) {
+foreach ($required in @('ClaudeGraft.exe','ClaudeGraft.pri','coreclr.dll','launcher/GraftLaunch.exe','launcher/coreclr.dll','relay/GraftRelay.exe','relay/coreclr.dll','vc-runtime.json')) {
     if (-not (Test-Path -LiteralPath (Join-Path $published $required))) { throw "Missing published file: $required" }
 }
 if (-not $PublisherThumbprint) {
@@ -72,7 +73,7 @@ $runtime = Get-Content -LiteralPath (Join-Path $published 'vc-runtime.json') -Ra
 if ($runtime.architecture -ne $Architecture -or $runtime.files.name -notcontains 'msvcp140.dll' -or
     $runtime.files.name -notcontains 'vcruntime140.dll') { throw 'Rebuild the published Visual C++ runtime.' }
 foreach ($file in $runtime.files) {
-    foreach ($directory in $published, (Join-Path $published 'launcher')) {
+    foreach ($directory in $published, (Join-Path $published 'launcher'), (Join-Path $published 'relay')) {
         if ((Get-FileHash -LiteralPath (Join-Path $directory $file.name)).Hash -ne $file.sha256) {
             throw "Published Visual C++ runtime hash mismatch for $($file.name)."
         }
@@ -86,6 +87,13 @@ if ($PublisherThumbprint) {
 }
 $arguments = @('/Qp', "/DAppVersion=$version", "/DArchitecture=$Architecture",
     "/DPublishRoot=$published", "/DInstallerOutput=$destination")
+$webView2 = $null
+if (-not $TestMode) {
+    . (Join-Path $PSScriptRoot 'installer/WebView2Runtime.ps1')
+    $webView2 = Get-GraftWebView2Bootstrapper (Join-Path $PSScriptRoot 'dist/tools/WebView2') $WebView2Bootstrapper
+    $arguments += "/DWebView2Bootstrapper=$($webView2.path)"
+    $arguments += "/DWebView2Sha256=$($webView2.sha256)"
+}
 if ($PublisherThumbprint) {
     $arguments += '/DPublisherSigned=1'
     $arguments += Get-GraftInnoSignToolArgument $SignTool $PublisherThumbprint $TimestampUrl
@@ -116,6 +124,9 @@ $manifest = [ordered]@{
 }
 if ($PublisherThumbprint) {
     $manifest.authenticode = @{ verified = $true; signerThumbprint = $PublisherThumbprint.ToUpperInvariant() }
+}
+if ($webView2) {
+    $manifest.webView2Bootstrapper = @{ source = $webView2.source; sha256 = $webView2.sha256; signerThumbprint = $webView2.signerThumbprint }
 }
 $manifest | ConvertTo-Json -Depth 3 | Set-Content -LiteralPath "$installer.build.json" -Encoding UTF8
 Write-Output $installer

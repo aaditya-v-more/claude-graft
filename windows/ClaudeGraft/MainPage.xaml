@@ -68,6 +68,7 @@
    <TextBlock Text="{Binding SampleText}" Visibility="{Binding BarsVisibility}" FontSize="11" Foreground="{ThemeResource MacSecondaryBrush}"/>
    <TextBlock Text="No usage reported yet" Visibility="{Binding NoUsageVisibility}" FontSize="12" Margin="0,8" Foreground="{ThemeResource MacSecondaryBrush}"/>
    <TextBlock Text="{Binding Problem}" Visibility="{Binding ProblemVisibility}" TextWrapping="Wrap" FontSize="12"/>
+    <TextBlock Text="{Binding UsageNote}" Visibility="{Binding UsageNoteVisibility}" TextWrapping="Wrap" FontSize="11" Foreground="{ThemeResource MacSecondaryBrush}"/>
   </StackPanel></Border>
  </StackPanel>
 </StackPanel></ScrollViewer>

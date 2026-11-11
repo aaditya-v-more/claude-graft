@@ -38,7 +38,8 @@ function Assert-GraftSigningCertificate($Thumbprint) {
 
 function Sign-GraftPayload($Root, $Tool, $Thumbprint, $TimestampUrl) {
     $firstParty = @('ClaudeGraft.exe','ClaudeGraft.dll','ClaudeGraft.Core.dll',
-        'launcher\GraftLaunch.exe','launcher\GraftLaunch.dll','launcher\ClaudeGraft.Core.dll')
+        'launcher\GraftLaunch.exe','launcher\GraftLaunch.dll','launcher\ClaudeGraft.Core.dll',
+        'relay\GraftRelay.exe','relay\GraftRelay.dll','relay\ClaudeGraft.Core.dll')
     $unsigned = @()
     $problems = @()
     foreach ($name in $firstParty) {

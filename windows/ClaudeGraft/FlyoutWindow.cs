@@ -252,7 +252,7 @@ public sealed class FlyoutWindow : Window
         // now: a hidden window keeps the DPI of wherever it last showed, which is
         // what made the placement wander.
         var scale = _anchor.Scale;
-
+        _view.ConstrainHeight(_anchor.Work.IsEmpty ? 760 : _anchor.Work.Height / scale - 24);
         _view.Measure(new Windows.Foundation.Size(double.PositiveInfinity, double.PositiveInfinity));
         var size = new SizeInt32(
             (int)Math.Ceiling(_view.DesiredSize.Width * scale),

@@ -237,4 +237,75 @@ public sealed class OrchestratorTests : IDisposable
         Assert.True(Directory.Exists(
             Path.Combine(profile, ".claude-code-sessions.graft-own", Account, Org)));
     }
+
+    [Fact(DisplayName = "an authored record visible beside its stash keeps receiving transcript updates")]
+    public void VisibleRecordBesideStashIsRefreshed()
+    {
+        var profile = MakeProfile("Claude");
+        MakeTranscript("live", title: "First title");
+        Graft.FileMissingSessionRecords([profile], NothingRunning);
+        var org = Path.GetDirectoryName(RecordPath(profile, "live"))!;
+        Directory.CreateDirectory(Graft.StashPath(org));
+        MakeTranscript("live", title: "New title", last: "2026-08-29T18:00:00.000Z");
+        Graft.FileMissingSessionRecords([profile], NothingRunning);
+        var record = JsonNode.Parse(File.ReadAllText(RecordPath(profile, "live")))!;
+        Assert.Equal("New title", (string?)record["title"]);
+        Assert.Equal(1788026400000d, (double)record["lastActivityAt"]!);
+    }
+
+    [Fact(DisplayName = "old cached permission defaults refresh only records still authored by Graft")]
+    public void OldPermissionCacheIsReparsedWithoutOverwritingClaude()
+    {
+        var profile = MakeProfile("Claude");
+        foreach (var id in new[] { "ours", "theirs" })
+        {
+            MakeTranscript(id);
+            var transcript = Path.Combine(GraftPaths.ClaudeProjects, "proj", id + ".jsonl");
+            File.WriteAllText(transcript, File.ReadAllText(transcript).Replace(",\"permissionMode\":\"auto\"", ""));
+        }
+        Graft.FileMissingSessionRecords([profile], NothingRunning);
+        var statePath = Path.Combine(GraftPaths.OwnData, "session-records.json");
+        var state = SessionRecordState.Load(statePath);
+        foreach (var id in new[] { "ours", "theirs" })
+        {
+            state.Authored[id] = state.Authored[id] with { PermissionMode = "auto" };
+            File.WriteAllText(RecordPath(profile, id), SessionRecord.Serialize(SessionRecord.For(state.Authored[id])));
+        }
+        state.Save(statePath);
+        var ownedByClaude = JsonNode.Parse(File.ReadAllText(RecordPath(profile, "theirs")))!.AsObject();
+        ownedByClaude["isArchived"] = true;
+        ownedByClaude["remoteMcpServersConfig"] = new JsonArray("my-server");
+        File.WriteAllText(RecordPath(profile, "theirs"), ownedByClaude.ToJsonString());
+        var claudeBytes = File.ReadAllBytes(RecordPath(profile, "theirs"));
+        var cachePath = Path.Combine(GraftPaths.OwnData, "transcript-cache.json");
+        var cache = JsonNode.Parse(File.ReadAllText(cachePath))!.AsObject();
+        foreach (var entry in cache)
+        {
+            entry.Value!.AsObject().Remove("reading");
+            entry.Value["facts"]!["PermissionMode"] = "auto";
+        }
+        File.WriteAllText(cachePath, cache.ToJsonString());
+        Graft.ResetCachesForTests();
+        Graft.FileMissingSessionRecords([profile], NothingRunning);
+        Assert.Equal("default", (string?)JsonNode.Parse(File.ReadAllText(RecordPath(profile, "ours")))!["permissionMode"]);
+        Assert.Equal(claudeBytes, File.ReadAllBytes(RecordPath(profile, "theirs")));
+        Assert.DoesNotContain("theirs", SessionRecordState.Load(statePath).Authored.Keys);
+        var refreshedCache = JsonNode.Parse(File.ReadAllText(cachePath))!.AsObject();
+        Assert.All(refreshedCache, e => Assert.Equal(Graft.TranscriptReadingVersion, (int)e.Value!["reading"]!));
+    }
+
+    [Fact(DisplayName = "a persistent deletion marker logs one withdrawal and the next pass reports none")]
+    public void MarkerWithdrawalIsNotRepeatedNews()
+    {
+        var profile = MakeProfile("Claude");
+        MakeTranscript("deleted");
+        File.WriteAllText(Path.Combine(Path.GetDirectoryName(RecordPath(profile, "deleted"))!, "deleted_deleted"), "");
+        Graft.FileMissingSessionRecords([profile], NothingRunning);
+        Graft.FileMissingSessionRecords([profile], NothingRunning);
+        var events = File.ReadAllLines(Diagnostics.LogFile).Select(s => JsonNode.Parse(s)!).ToList();
+        Assert.Single(events, e => (string?)e["event"] == "sweep.withdraw");
+        var last = events.Last(e => (string?)e["event"] == "sweep.end");
+        Assert.Equal(0, (int)last["withdrawn"]!);
+        Assert.Equal(1, (int)last["withdrawnInAll"]!);
+    }
 }

@@ -5,6 +5,64 @@ namespace ClaudeGraft.Tests;
 
 public class UsageBudgetTests
 {
+    private static ClaudeCredentials.Token Login(string _) => new()
+    {
+        Value = "fixture-access-token", Expires = DateTimeOffset.UtcNow.AddHours(1), Scopes = [],
+    };
+
+    [Fact(DisplayName = "a local credential failure is explained and the next background refresh retries immediately")]
+    public async Task LocalFailureDoesNotStartServiceBackoff()
+    {
+        using var temp = new TempDir();
+        int calls = 0;
+        Task<UsageApi.Reading> Fetch(string _)
+        {
+            calls++;
+            return Task.FromResult(new UsageApi.Reading { FiveHour = 12, Week = 25 });
+        }
+        var failed = await UsageMonitor.ReadAsync(temp.Path, false,
+            _ => throw new ClaudeCredentials.CredentialException(ClaudeCredentials.Failure.ConfigUnreadable), Fetch);
+        Assert.Contains("settings", failed.Note);
+        Assert.False(failed.HasUsage);
+        Assert.Equal(0, calls);
+        var recovered = await UsageMonitor.ReadAsync(temp.Path, false, Login, Fetch);
+        Assert.True(recovered.IsLive);
+        Assert.Null(recovered.Note);
+        Assert.Equal(1, calls);
+    }
+
+    [Fact(DisplayName = "a failed refresh preserves the original sample time and explains the older reading")]
+    public async Task FailedRefreshDoesNotClaimAFreshReading()
+    {
+        using var temp = new TempDir();
+        var sampled = DateTimeOffset.UtcNow.AddMinutes(-10);
+        await UsageMonitor.ReadAsync(temp.Path, false, Login,
+            _ => Task.FromResult(new UsageApi.Reading { FiveHour = 12, Week = 25, Sampled = sampled }));
+        UsageMonitor.Invalidate(temp.Path);
+        var failed = await UsageMonitor.ReadAsync(temp.Path, true,
+            _ => throw new ClaudeCredentials.CredentialException(ClaudeCredentials.Failure.Expired),
+            _ => throw new InvalidOperationException("A local failure must not reach the service."));
+        Assert.Equal(sampled, failed.Usage!.Sampled);
+        Assert.Contains("expired", failed.Note);
+    }
+
+    [Fact(DisplayName = "the service retry delay holds later presses and preserves its failure reason")]
+    public async Task ActualRetryAfterBlocksASecondRequest()
+    {
+        using var temp = new TempDir();
+        int calls = 0;
+        Task<UsageApi.Reading> Fetch(string _)
+        {
+            calls++;
+            throw new UsageApi.Failure(429, TimeSpan.FromMinutes(1));
+        }
+        var first = await UsageMonitor.ReadAsync(temp.Path, true, Login, Fetch);
+        var second = await UsageMonitor.ReadAsync(temp.Path, true, Login, Fetch);
+        Assert.Equal(first.Note, second.Note);
+        Assert.NotNull(second.Note);
+        Assert.Equal(1, calls);
+    }
+
     [Fact(DisplayName = "a service Retry-After is the one wait even a press cannot skip")]
     public void RetryAfterHoldsEvenAPress()
     {

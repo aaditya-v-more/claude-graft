@@ -18,6 +18,7 @@ public sealed record UsageEntry
     public Usage? Usage { get; init; }
     public bool IsLive { get; init; }
     public string? Plan { get; init; }
+    public string? Note { get; init; }
     public bool HasUsage => Usage is not null;
     // Unknown usage leaves the explicit action available; a known plan without
     // a five-hour window has no session window for that action to open.
@@ -27,7 +28,7 @@ public sealed record UsageEntry
 public static class UsageMonitor
 {
     private static readonly object Lock = new();
-    private static readonly Dictionary<string, ProfileState> States = new();
+    private static readonly Dictionary<string, ProfileState> States = new(StringComparer.OrdinalIgnoreCase);
 
     private static readonly TimeSpan LiveTtl = TimeSpan.FromMinutes(5);
     private static readonly TimeSpan[] BackoffSteps =
@@ -47,6 +48,7 @@ public static class UsageMonitor
         public DateTimeOffset BackoffUntil;
         public int Failures;
         public DateTimeOffset RetryUntil; // a service Retry-After — honoured even for a press
+        public string? LastFailure;
     }
 
     /// A disk sample read as a figure that is current now. Claude records the
@@ -101,10 +103,14 @@ public static class UsageMonitor
     /// live figure, otherwise disk. <paramref name="interactive"/> is a figure
     /// someone pressed for — it skips the freshness cache and the backoff, but
     /// never a service Retry-After.
-    public static async Task<UsageEntry> ReadAsync(string profile, bool interactive = false)
+    public static Task<UsageEntry> ReadAsync(string profile, bool interactive = false) =>
+        ReadAsync(profile, interactive, p => ClaudeCredentials.GetToken(p), token => UsageApi.FetchAsync(token));
+
+    internal static async Task<UsageEntry> ReadAsync(string profile, bool interactive,
+        Func<string, ClaudeCredentials.Token?> tokenFor, Func<string, Task<UsageApi.Reading>> fetch)
     {
-        var reading = await LiveAsync(profile, interactive).ConfigureAwait(false);
-        return LatestEntry(reading, Graft.UsageOf(profile), DateTimeOffset.UtcNow);
+        var reading = await LiveAsync(Path.GetFullPath(profile), interactive, tokenFor, fetch).ConfigureAwait(false);
+        return LatestEntry(reading.Reading, Graft.UsageOf(profile), DateTimeOffset.UtcNow) with { Note = reading.Note };
     }
 
     internal static UsageEntry LatestEntry(UsageApi.Reading? reading, Usage? disk, DateTimeOffset now)
@@ -135,7 +141,7 @@ public static class UsageMonitor
     /// briefly refuses shows the last live figure rather than a stale disk one.
     public static void Invalidate(string profile)
     {
-        lock (Lock) State(profile).Invalidated = true;
+        lock (Lock) State(Path.GetFullPath(profile)).Invalidated = true;
     }
 
     private static ProfileState State(string profile)
@@ -145,33 +151,37 @@ public static class UsageMonitor
         return state;
     }
 
-    private static async Task<UsageApi.Reading?> LiveAsync(string profile, bool interactive)
+    private sealed record LiveOutcome(UsageApi.Reading? Reading, string? Note);
+
+    private static async Task<LiveOutcome> LiveAsync(string profile, bool interactive,
+        Func<string, ClaudeCredentials.Token?> tokenFor, Func<string, Task<UsageApi.Reading>> fetch)
     {
         var now = DateTimeOffset.UtcNow;
         lock (Lock)
         {
             var state = State(profile);
-            var fetch = ShouldFetch(
+            var shouldFetch = ShouldFetch(
                 interactive,
                 state.Invalidated,
                 justFetched: state.LastLive is not null && now - state.LiveAt < PressInterval,
                 haveFresh: state.LastLive is not null && now - state.LiveAt < LiveTtl,
                 inBackoff: now < state.BackoffUntil,
                 inRetry: now < state.RetryUntil);
-            if (!fetch) return state.LastLive;
+            if (!shouldFetch) return new(state.LastLive, state.LastFailure);
         }
 
         string token;
         try
         {
-            if (ClaudeCredentials.GetToken(profile) is not ClaudeCredentials.Token t) return Cached(profile);
+            if (tokenFor(profile) is not ClaudeCredentials.Token t)
+                return LocalFailure(profile, "No saved login was found for this profile.");
             token = t.Value;
         }
-        catch (ClaudeCredentials.CredentialException) { return Cached(profile); }
+        catch (ClaudeCredentials.CredentialException error) { return LocalFailure(profile, error.Message); }
 
         try
         {
-            var reading = await UsageApi.FetchAsync(token).ConfigureAwait(false);
+            var reading = await fetch(token).ConfigureAwait(false);
             lock (Lock)
             {
                 var state = State(profile);
@@ -181,8 +191,9 @@ public static class UsageMonitor
                 state.BackoffUntil = default;
                 state.RetryUntil = default;
                 state.Failures = 0;
+                state.LastFailure = null;
             }
-            return reading;
+            return new(reading, null);
         }
         catch (Exception e)
         {
@@ -190,25 +201,32 @@ public static class UsageMonitor
             lock (Lock)
             {
                 var state = State(profile);
+                state.LastFailure = "Anthropic's usage service did not answer. Showing the latest available reading.";
                 if (retryAfter is TimeSpan ra)
                     // The endpoint named its own wait; honour it exactly, for a
                     // press as much as for a background tick.
                     state.RetryUntil = DateTimeOffset.UtcNow + ra;
                 else
                 {
+                    state.RetryUntil = default;
                     state.Failures++;
                     state.BackoffUntil = DateTimeOffset.UtcNow
                         + BackoffSteps[Math.Min(state.Failures - 1, BackoffSteps.Length - 1)];
                 }
                 // A refused refetch leaves the figure marked stale, so the next
                 // read tries again rather than trusting a reading a press dropped.
-                return state.LastLive;
+                return new(state.LastLive, state.LastFailure);
             }
         }
     }
 
-    private static UsageApi.Reading? Cached(string profile)
+    private static LiveOutcome LocalFailure(string profile, string note)
     {
-        lock (Lock) return State(profile).LastLive;
+        lock (Lock)
+        {
+            var state = State(profile);
+            state.LastFailure = note;
+            return new(state.LastLive, note);
+        }
     }
 }

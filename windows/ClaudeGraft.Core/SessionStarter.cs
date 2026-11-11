@@ -40,9 +40,9 @@ public static class SessionStarter
                         + "then a session can be started from here.";
                 token = t.Value;
             }
-            catch (ClaudeCredentials.CredentialException)
+            catch (ClaudeCredentials.CredentialException error)
             {
-                return "That profile's login could not be read. Open it once so Claude can renew it.";
+                return error.Message;
             }
 
             using var request = new HttpRequestMessage(HttpMethod.Post, Endpoint);

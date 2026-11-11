@@ -212,8 +212,11 @@ function preferencesText(original, data) {
 // pin pass on purpose: a profile whose pin stores this helper cannot read must
 // still get its projects in the right order. Runs in the page, so it can use
 // nothing from this file.
-async function projectsOperation(keys, values) {
-    if (values !== null) for (const [key, value] of Object.entries(values)) localStorage.setItem(key, value);
+function projectsOperation(keys, values) {
+    if (values !== null) for (const [key, value] of Object.entries(values)) {
+        if (value === null) localStorage.removeItem(key);
+        else localStorage.setItem(key, value);
+    }
     return Object.fromEntries(keys.map(key => [key, localStorage.getItem(key)]));
 }
 
@@ -239,7 +242,9 @@ function writeProjectPreference(profilePath, prefs) {
     root.preferences ??= {};
     root.preferences.epitaxyPrefs ??= {};
     root.preferences.epitaxyPrefs[prefs.key] = prefs.order;
-    atomicWrite(file, preferencesText(text, root), mode);
+    const written = preferencesText(text, root);
+    atomicWrite(file, written, mode);
+    return {file, text, mode, written};
 }
 
 async function runProjects(request) {
@@ -265,21 +270,23 @@ async function runProjects(request) {
     const timeout = setTimeout(() => app.exit(2), 20000);
     await app.whenReady();
     app.dock?.hide();
-    const results = [], windows = [];
+    const results = [], windows = [], touched = [];
     try {
         for (const [index, profile] of request.profiles.entries()) {
             const scratch = path.join(request.scratch, 'profile-' + index);
             fs.mkdirSync(scratch, {recursive: true, mode: 0o700});
             const original = path.join(profile.path, 'Local Storage');
             if (!fs.statSync(original).isDirectory()) throw Error('not-initialized');
-            if (writing && profile.prefs) writeProjectPreference(profile.path, profile.prefs);
+            const item = {profile};
+            if (writing) touched.push(item);
+            if (writing && profile.prefs) item.prefs = writeProjectPreference(profile.path, profile.prefs);
             // A profile that may be opening as this runs is given the
             // preference alone; its database is not opened at all.
             if (writing && Object.keys(profile.values).length === 0) {
                 results.push({path: profile.path, values: {}});
                 continue;
             }
-            if (writing) fs.symlinkSync(original, path.join(scratch, 'Local Storage'));
+            if (writing) fs.symlinkSync(original, path.join(scratch, 'Local Storage'), process.platform === 'win32' ? 'junction' : 'dir');
             else fs.cpSync(original, path.join(scratch, 'Local Storage'), {recursive: true,
                 filter: source => path.basename(source) !== 'LOCK'});
             const ses = session.fromPath(scratch, {cache: false});
@@ -299,8 +306,10 @@ async function runProjects(request) {
                 await window.loadURL('https://claude.ai/');
                 const call = values => window.webContents.executeJavaScript('(' + projectsOperation.toString()
                     + ')(' + JSON.stringify(profile.keys) + ',' + JSON.stringify(values) + ')');
-                let values = await call(writing ? profile.values : null);
+                let values = await call(null);
                 if (writing) {
+                    item.call = call; item.ses = ses; item.raw = values;
+                    await call(profile.values);
                     await ses.flushStorageData();
                     values = await call(null);
                     for (const [key, value] of Object.entries(profile.values))
@@ -311,7 +320,33 @@ async function runProjects(request) {
         }
         atomicJSON(request.output, {ok: true, profiles: results});
     } catch (error) {
-        atomicJSON(request.output, {ok: false, error: String(error.message ?? error).slice(0, 300)});
+        let rollbackFailed = false;
+        // A later profile can refuse its settings replacement after earlier
+        // profiles committed. Restore those too, but only while each value is
+        // still ours: a stock Claude launch does not wait for Graft's lock.
+        for (const item of touched.reverse()) {
+            try {
+                if (item.call) {
+                    const current = await item.call(null), restore = {};
+                    for (const [key, value] of Object.entries(item.profile.values)) {
+                        if (current[key] === value) restore[key] = item.raw[key];
+                        else if (current[key] !== item.raw[key]) throw Error('rollback-conflict');
+                    }
+                    await item.call(restore);
+                    await item.ses.flushStorageData();
+                }
+                if (item.prefs) {
+                    const {file, text, mode, written} = item.prefs;
+                    const current = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : null;
+                    if (current === written) {
+                        if (text === null) fs.unlinkSync(file);
+                        else atomicWrite(file, text, mode);
+                    } else if (current !== text) throw Error('rollback-conflict');
+                }
+            } catch { rollbackFailed = true; }
+        }
+        atomicJSON(request.output, {ok: false, error: rollbackFailed ? 'rollback-incomplete'
+            : String(error.message ?? error).slice(0, 300)});
     } finally {
         for (const window of windows) window.destroy();
         clearTimeout(timeout);
@@ -427,6 +462,6 @@ async function run() {
     }
 }
 if (process.versions.electron) run().catch(() => require('electron').app.exit(1));
-else module.exports = {replaceShared, decode, snapshot, patch, patchPreferences, preferencesText, atomicWrite};
+else module.exports = {replaceShared, decode, snapshot, patch, patchPreferences, preferencesText, atomicWrite, projectsOperation};
 """#
 }

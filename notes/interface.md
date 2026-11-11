@@ -386,3 +386,16 @@ and a body ending in the Graft and macOS versions. The first reply to a
 problem report is otherwise always a question asking for exactly those. The
 address and the LinkedIn handle are spelled out in `Links`, not derived from
 the GitHub or Ko-fi names, and the suite reads them back.
+## Windows 2.0 window and tray
+
+The Windows manager uses one navigation sidebar for Shared usage, Artifacts,
+Projects, Search Chats and the individual Claudes. Code-only pages are created
+directly: `Frame.Navigate` cannot activate a page absent from WinUI's generated
+XAML metadata. Closing the manager releases account-pane subscriptions; its
+shared account browsers remain owned by the tray application.
+
+The tray's current Code conversation and profile rows share one scrolling area.
+Its height is measured against the target monitor's work area, leaving the
+bottom actions visible. A new conversation must not push a long list behind
+the taskbar at higher display scaling. Notification-area placement still avoids
+the expanded hidden-icons panel.

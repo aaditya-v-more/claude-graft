@@ -20,7 +20,7 @@ Set-Content -LiteralPath $externalData -Value 'Keep chat and profile data.'
 $setup = Start-Process -FilePath $Installer -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES',
     '/NORESTART','/NOICONS',('/DIR="' + $application + '"'),('/LOG="' + (Join-Path $fixture 'install.log') + '"')) -WindowStyle Hidden -PassThru -Wait
 if ($setup.ExitCode -ne 0) { throw "Test installation failed ($($setup.ExitCode)). See $fixture/install.log." }
-foreach ($required in @('ClaudeGraft.exe','ClaudeGraft.pri','coreclr.dll','launcher/GraftLaunch.exe','launcher/coreclr.dll','unins000.exe','vc-runtime.json')) {
+foreach ($required in @('ClaudeGraft.exe','ClaudeGraft.pri','coreclr.dll','launcher/GraftLaunch.exe','launcher/coreclr.dll','relay/GraftRelay.exe','relay/coreclr.dll','unins000.exe','vc-runtime.json')) {
     if (-not (Test-Path -LiteralPath (Join-Path $application $required))) { throw "Installed file missing: $required" }
 }
 $runtime = Get-Content -Raw -LiteralPath (Join-Path $application 'vc-runtime.json') | ConvertFrom-Json
@@ -28,7 +28,7 @@ if ($runtime.files.name -notcontains 'vcruntime140.dll' -or $runtime.files.name 
     throw 'The installed runtime manifest is incomplete.'
 }
 foreach ($file in $runtime.files) {
-    foreach ($directory in $application, (Join-Path $application 'launcher')) {
+    foreach ($directory in $application, (Join-Path $application 'launcher'), (Join-Path $application 'relay')) {
         if ((Get-FileHash -LiteralPath (Join-Path $directory $file.name)).Hash -ne $file.sha256) {
             throw "Installed Visual C++ runtime hash mismatch for $($file.name)."
         }

@@ -24,6 +24,9 @@ public sealed partial class MainPage : Page
     private bool _wideNavigation = true;
     private bool _widePaneOpen = true;
     private string _lastName = "";
+    private bool _shellNavigation;
+    private Guid? _shellSelection;
+    internal Guid? SelectedProfileId => _draft?.Id;
 
     public MainPage()
     {
@@ -32,7 +35,7 @@ public sealed partial class MainPage : Page
         Loaded += async (_, _) =>
         {
             _loaded = true;
-            Reload(); _timer.Start(); _ = LoadIcons();
+            Reload(_shellSelection); _timer.Start(); _ = LoadIcons();
             if (GraftPaths.ProfilesRootOverride is not null && Environment.GetCommandLineArgs().Contains("--review-settings"))
                 await OpenSettingsAsync();
         };
@@ -116,12 +119,22 @@ public sealed partial class MainPage : Page
     }
     private void Add_Click(object sender, RoutedEventArgs e)
     {
-        var shortcut = Shortcut.New(App.Store.UniqueName());
+        var shortcut = Shortcut.New(App.Store.UniqueName(), source: ShortcutSource.Own);
+        var colors = ShortcutIcons.Names.Where(n => n != "Original").ToArray();
+        shortcut.IconPreset = colors.FirstOrDefault(n => App.Store.Shortcuts.All(s => s.IconPreset != n))
+            ?? colors.OrderBy(n => App.Store.Shortcuts.Count(s => s.IconPreset == n)).First();
         var row = ShortcutRow.ForShortcut(shortcut);
         Shortcuts.Add(row);
         ShortcutList.SelectedItem = row;
     }
     public void AddShortcut() => Add_Click(this, new RoutedEventArgs());
+    public void UseShellNavigation(Guid? profile)
+    {
+        _shellNavigation = true;
+        _shellSelection = profile;
+        ProfileNavigation.IsPaneOpen = false;
+        if (_loaded) Reload(profile);
+    }
     public bool HasInlineSidebar => _wideNavigation && ProfileNavigation.IsPaneOpen;
     public void ToggleSidebar()
     {
@@ -130,6 +143,7 @@ public sealed partial class MainPage : Page
     }
     public void AdaptNavigation(double width)
     {
+        if (_shellNavigation) { ProfileNavigation.IsPaneOpen = false; return; }
         var wide = width >= 760;
         if (_wideNavigation == wide) return;
         _wideNavigation = wide;
@@ -313,6 +327,7 @@ public sealed partial class MainPage : Page
             Installer.Install(candidate);
             candidate.InstalledName = candidate.Name;
             App.Store.Update(candidate);
+            App.NotifyProfilesChanged();
             if (previous is not null && !previous.Name.Equals(candidate.Name, StringComparison.OrdinalIgnoreCase))
                 Installer.Uninstall(candidate, previous.Name);
             if (_loaded) Reload(candidate.Id);
@@ -338,6 +353,7 @@ public sealed partial class MainPage : Page
             Installer.Uninstall(shortcut);
             var deleteProfile = data.IsChecked == true;
             var problem = await Task.Run(() => App.Store.Delete(shortcut.Id, deleteProfile));
+            App.NotifyProfilesChanged();
             Reload();
             if (problem is not null) ShowProblem(problem);
         }

@@ -64,6 +64,8 @@ public sealed class ShortcutRow : INotifyPropertyChanged
         _usage = entry;
         _usageKnown = true;
         Notify(nameof(SampleText));
+        Notify(nameof(UsageNote));
+        Notify(nameof(UsageNoteVisibility));
         foreach (var name in new[]
         {
             nameof(FiveHour), nameof(Week), nameof(FiveHourText), nameof(WeekText),
@@ -109,6 +111,8 @@ public sealed class ShortcutRow : INotifyPropertyChanged
     public int Pulse { get; private set; }
 
     public int FiveHour => _usage?.Usage?.FiveHour ?? 0;
+    public string UsageNote => _usage?.Note ?? "";
+    public Visibility UsageNoteVisibility => string.IsNullOrEmpty(UsageNote) ? Visibility.Collapsed : Visibility.Visible;
     public string SampleText => _usage?.Usage is Usage usage
         ? $"{(_usage.IsLive ? "Last fetched" : "From Claude Desktop")} {usage.Sampled.ToLocalTime():g}"
         : "";

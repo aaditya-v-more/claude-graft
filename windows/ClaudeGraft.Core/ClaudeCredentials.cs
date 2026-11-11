@@ -28,6 +28,42 @@ public static class ClaudeCredentials
 
     private static readonly string[] CacheKeys = { "oauth:tokenCacheV2", "oauth:tokenCache" };
 
+    public sealed record PoolLogin(string[] Identify, Token? Lending);
+
+    /// All cached access tokens identify the sender; only a current inference token can be lent.
+    public static PoolLogin ReadPoolLogin(string profile)
+    {
+        var config = Graft.ReadableConfigJson(profile) ?? throw new CredentialException(Failure.ConfigUnreadable);
+        var encoded = CacheKeys.Select(k => config[k] is System.Text.Json.Nodes.JsonValue v && v.TryGetValue<string>(out var s) ? s : null).FirstOrDefault(v => v is not null);
+        if (encoded is null) return new([], null);
+        var key = SafeStorageKeyGuarded(profile) ?? throw new CredentialException(Failure.NoKey);
+        byte[]? plain;
+        try { plain = Decrypt(Convert.FromBase64String(encoded), key); }
+        catch (FormatException) { throw new CredentialException(Failure.NotSignedIn); }
+        finally { CryptographicOperations.ZeroMemory(key); }
+        if (plain is null) throw new CredentialException(Failure.NotSignedIn);
+        try
+        {
+            using var doc = JsonDocument.Parse(plain);
+            if (doc.RootElement.ValueKind != JsonValueKind.Object) throw new CredentialException(Failure.NotSignedIn);
+            var digests = doc.RootElement.EnumerateObject().Select(p => p.Value)
+                .Where(v => v.ValueKind == JsonValueKind.Object && v.TryGetProperty("token", out var t) && t.ValueKind == JsonValueKind.String)
+                .Select(v => UsagePool.Digest(v.GetProperty("token").GetString()!)).Distinct().ToArray();
+            return new(digests, BestToken(plain, [UsagePool.LendingScope]) ?? BestToken(plain, [InferenceScope]));
+        }
+        catch (JsonException) { throw new CredentialException(Failure.NotSignedIn); }
+        finally { CryptographicOperations.ZeroMemory(plain); }
+    }
+
+    public static byte[] Encrypt(byte[] plain, byte[] key)
+    {
+        var blob = new byte[3 + 12 + plain.Length + 16];
+        "v10"u8.CopyTo(blob); RandomNumberGenerator.Fill(blob.AsSpan(3, 12));
+        using var gcm = new AesGcm(key, 16);
+        gcm.Encrypt(blob.AsSpan(3, 12), plain, blob.AsSpan(15, plain.Length), blob.AsSpan(15 + plain.Length));
+        return blob;
+    }
+
     public sealed record Token
     {
         public required string Value { get; init; }
@@ -44,12 +80,18 @@ public static class ClaudeCredentials
             Scopes.Count == 0 || required.All(Scopes.Contains);
     }
 
-    public enum Failure { NoKey, NotSignedIn, Expired }
+    public enum Failure { NoKey, NotSignedIn, Expired, ConfigUnreadable }
 
     public sealed class CredentialException : Exception
     {
         public Failure Reason { get; }
-        public CredentialException(Failure reason) : base(reason.ToString()) => Reason = reason;
+        public CredentialException(Failure reason) : base(reason switch
+        {
+            Failure.ConfigUnreadable => "This profile's settings could not be read. The next refresh will try again.",
+            Failure.NoKey => "This profile's saved login could not be unlocked for this Windows user.",
+            Failure.Expired => "This profile's login has expired. Open it so Claude can renew it.",
+            _ => "This profile's saved login could not be read. Open it to check the sign-in.",
+        }) => Reason = reason;
     }
 
     // MARK: - The token
@@ -58,9 +100,10 @@ public static class ClaudeCredentials
     public static Token? GetToken(string profile, IReadOnlyList<string>? requiring = null)
     {
         var required = requiring ?? new[] { UsageScope };
-        var config = Graft.ConfigJson(profile);
+        var config = Graft.ReadableConfigJson(profile)
+            ?? throw new CredentialException(Failure.ConfigUnreadable);
         var encoded = CacheKeys
-            .Select(k => config[k]?.GetValue<string>())
+            .Select(k => config[k] is System.Text.Json.Nodes.JsonValue value && value.TryGetValue<string>(out var text) ? text : null)
             .FirstOrDefault(v => v is not null);
         if (encoded is null) return null;
 

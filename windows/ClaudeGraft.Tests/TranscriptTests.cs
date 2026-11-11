@@ -70,6 +70,8 @@ public class TranscriptTests
         var facts = TranscriptParser.SessionFacts(bytes, "sid")!;
         Assert.Equal("claude-sonnet-5", facts.Model);
         Assert.Equal("medium", facts.Effort);
+        Assert.Equal("default", facts.PermissionMode);
+        Assert.False(SessionRecord.For(facts).ContainsKey("chromePermissionMode"));
     }
 
     [Fact(DisplayName = "the newest custom title wins, and an unnamed session gets a placeholder")]

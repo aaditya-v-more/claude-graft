@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace ClaudeGraft.Core;
 
@@ -7,25 +8,54 @@ internal static class SidebarBrowser
 {
     internal static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
-    // Only this Claude build has been matched to the packaged Chromium. Using
+    // These Claude builds were matched to the packaged Chromium and storage schema. Using
     // a newer engine could upgrade storage that an older Claude still needs.
+    internal static bool CompatibleVersions(string? claude, string? electron) =>
+        claude is "4.16336.0" or "4.23118.1" && electron == "44.9.3";
+
     internal static string? CompatibleRuntime()
     {
         var installed = ClaudeInstallation.Discover();
-        if (installed is null || FileVersionInfo.GetVersionInfo(installed.Executable).ProductVersion != "4.16336.0")
+        if (installed is null || !CompatibleVersions(FileVersionInfo.GetVersionInfo(installed.Executable).ProductVersion, "44.9.3"))
             return null;
         foreach (var subdirectory in new[] { "sidebar-runtime", Path.Combine("launcher", "sidebar-runtime") })
         {
             var runtime = Path.Combine(AppContext.BaseDirectory, subdirectory);
             if (File.Exists(Path.Combine(runtime, "sidebar.cjs")) &&
                 File.Exists(Path.Combine(runtime, "electron.exe")) &&
-                File.ReadAllText(Path.Combine(runtime, "version")).Trim() == "44.9.3") return runtime;
+                CompatibleVersions(FileVersionInfo.GetVersionInfo(installed.Executable).ProductVersion,
+                    File.ReadAllText(Path.Combine(runtime, "version")).Trim())) return runtime;
         }
         return null;
     }
 
     internal static Dictionary<string, SidebarSync.Snapshot> ReadOrWrite(string runtime, string[] profiles,
         Dictionary<string, object>? changes = null)
+    {
+        var result = Run(runtime, changes is null ? "read" : "write", profiles,
+            profiles.Select(path => new { path, change = changes?.GetValueOrDefault(path) }).ToArray(),
+            ["Local Storage", "IndexedDB"]);
+        return result.EnumerateArray().ToDictionary(item => item.GetProperty("path").GetString()!,
+            item => item.Deserialize<SidebarSync.Snapshot>(Json)!, StringComparer.OrdinalIgnoreCase);
+    }
+
+    internal sealed record ProjectPreference(string Key, string[] Order);
+    internal sealed record ProjectRequest(string Path, string[] Keys,
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] Dictionary<string, string>? Values = null,
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] ProjectPreference? Prefs = null);
+
+    internal static Dictionary<string, Dictionary<string, string?>> Projects(string runtime, string action,
+        ProjectRequest[] profiles)
+    {
+        if (action is not ("projects-read" or "projects-write"))
+            throw new ArgumentException("Unknown project storage operation.", nameof(action));
+        var result = Run(runtime, action, profiles.Select(p => p.Path).ToArray(), profiles, ["Local Storage"]);
+        return result.EnumerateArray().ToDictionary(item => item.GetProperty("path").GetString()!,
+            item => item.GetProperty("values").Deserialize<Dictionary<string, string?>>(Json)!,
+            StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static JsonElement Run(string runtime, string action, string[] profiles, object requests, string[] stores)
     {
         var root = GraftPaths.OwnData;
         var scratch = Path.Combine(root, ".sidebar-" + Guid.NewGuid().ToString("N"));
@@ -38,18 +68,22 @@ internal static class SidebarBrowser
         Directory.CreateDirectory(runtimeData);
         try
         {
-            if (changes is not null) Directory.CreateDirectory(backups);
+            if (action == "write")
+            {
+                Directory.CreateDirectory(backups);
+                PruneBackups(backups, 19);
+            }
             foreach (var profile in profiles)
             {
-                foreach (var name in new[] { "Local Storage", "IndexedDB" })
+                Graft.ValidateProfilePath(profile, allowDefault: true);
+                foreach (var name in stores)
                     RequireLocalTree(Path.Combine(profile, name));
                 if (Junction.IsLink(Path.Combine(profile, "claude_desktop_config.json")))
                     throw new IOException("Linked desktop settings.");
             }
             File.WriteAllBytes(request, JsonSerializer.SerializeToUtf8Bytes(new
             {
-                action = changes is null ? "read" : "write",
-                profiles = profiles.Select(path => new { path, change = changes?.GetValueOrDefault(path) }),
+                action, profiles = requests,
                 scratch, output, backup = Path.Combine(backups, Guid.NewGuid().ToString("N") + ".json")
             }, Json));
             var start = new ProcessStartInfo(Path.Combine(runtime, "electron.exe"))
@@ -76,12 +110,11 @@ internal static class SidebarBrowser
             using var reply = JsonDocument.Parse(File.ReadAllBytes(output));
             var result = reply.RootElement;
             if (!result.GetProperty("ok").GetBoolean()) throw new IOException("Sidebar storage is unavailable.");
-            var snapshots = result.GetProperty("profiles").EnumerateArray().ToDictionary(
-                item => item.GetProperty("path").GetString()!,
-                item => item.Deserialize<SidebarSync.Snapshot>(Json)!, StringComparer.OrdinalIgnoreCase);
-            if (!snapshots.Keys.ToHashSet(StringComparer.OrdinalIgnoreCase).SetEquals(profiles))
+            var values = result.GetProperty("profiles");
+            var paths = values.EnumerateArray().Select(item => item.GetProperty("path").GetString()!).ToArray();
+            if (paths.Length != profiles.Length || !paths.ToHashSet(StringComparer.OrdinalIgnoreCase).SetEquals(profiles))
                 throw new IOException("Incomplete sidebar storage response.");
-            return snapshots;
+            return values.Clone();
         }
         finally
         {
@@ -94,9 +127,24 @@ internal static class SidebarBrowser
         }
     }
 
+    internal static void PruneBackups(string directory, int keep = 20)
+    {
+        if (!Directory.Exists(directory) || Junction.IsLink(directory)) return;
+        foreach (var file in new DirectoryInfo(directory).EnumerateFiles("*.json")
+            .Where(file => !file.Attributes.HasFlag(FileAttributes.ReparsePoint))
+            .OrderByDescending(file => file.LastWriteTimeUtc).ThenByDescending(file => file.Name, StringComparer.Ordinal)
+            .Skip(keep))
+        {
+            try { file.Delete(); }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+        }
+    }
+
     private static void RequireLocalTree(string directory)
     {
         if (Junction.IsLink(directory)) throw new IOException("Linked browser storage.");
+        if (!Directory.Exists(directory)) return;
         foreach (var item in Directory.EnumerateFileSystemEntries(directory))
         {
             var attributes = File.GetAttributes(item);

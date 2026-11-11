@@ -17,6 +17,10 @@ namespace ClaudeGraft;
 public partial class App : Application
 {
     public static ShortcutStore Store { get; private set; } = null!;
+    public static AccountCenter Accounts { get; private set; } = null!;
+    public static UsagePoolController UsagePool { get; private set; } = null!;
+    public static event EventHandler? ProfilesChanged;
+    internal static void NotifyProfilesChanged() => ProfilesChanged?.Invoke(null, EventArgs.Empty);
 
     /// The app's preferences, applied by every window as it is built and again
     /// whenever they change. Held here, saved on change, and announced so the
@@ -44,6 +48,8 @@ public partial class App : Application
     private MainWindow? _window;
     private ClaudeLinkWindow? _linkWindow;
     private FlyoutWindow? _flyout;
+    private ProfileLifecycle? _profiles;
+    internal static void SettleProfiles() => (Current as App)?._profiles?.SweepAsync();
 
     // The tray's click callbacks arrive on H.NotifyIcon's message-window
     // thread, not this one; anything touching a WinUI window has to hop back to
@@ -102,6 +108,13 @@ public partial class App : Application
         _instance = new Mutex(true, @"Local\ClaudeGraft.App." + instanceKey, out var firstInstance);
         _showEvent = new EventWaitHandle(false, EventResetMode.AutoReset, @"Local\ClaudeGraft.Show." + instanceKey);
         if (!firstInstance) { _showEvent.Set(); Exit(); return; }
+        Accounts = new AccountCenter();
+        UsagePool = new UsagePoolController(Store);
+        if (testIndex >= 0 && arguments.Contains("--check-web-accounts"))
+        {
+            _ = CheckWebAccountsAsync();
+            return;
+        }
         _showWait = ThreadPool.RegisterWaitForSingleObject(_showEvent, (_, _) => ShowManager(), null, Timeout.Infinite, false);
 
         // No ContextFlyout: the library renders that as a native popup owned by
@@ -122,7 +135,8 @@ public partial class App : Application
         // Both presses show the same account menu, as the macOS status item does.
         _tray.LeftClickCommand = new RelayCommand(ToggleFlyout);
         _tray.RightClickCommand = new RelayCommand(ToggleFlyout);
-        _tray.ForceCreate();
+        // A disposable manager test may run on a desktop without Explorer's notification area.
+        if (testIndex < 0) _tray.ForceCreate();
 
         // Built now, hidden, so the first left click shows it rather than paying
         // to construct a window and its backdrop before anything appears.
@@ -134,6 +148,9 @@ public partial class App : Application
         if (!Settings.StartHidden) ShowManager();
         if (testIndex < 0)
         {
+            UsagePool.Start();
+            _profiles = new ProfileLifecycle();
+            _profiles.Start();
             GraftUpdates = new GraftUpdateManager(Quit);
             GraftUpdates.Start();
         }
@@ -219,9 +236,18 @@ public partial class App : Application
 
     private void Quit() => OnUi(() =>
     {
+        _profiles?.Dispose();
+        UsagePool?.Dispose();
+        Accounts?.Dispose();
         _tray?.Dispose();
         Exit();
     });
+
+    private async Task CheckWebAccountsAsync()
+    {
+        try { await WebAccountChecks.RunAsync(); }
+        finally { Quit(); }
+    }
 
     /// Runs on the UI thread whether the caller is already there or on the
     /// tray's message-window thread.

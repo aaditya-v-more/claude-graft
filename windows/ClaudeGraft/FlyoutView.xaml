@@ -16,10 +16,19 @@
             BorderBrush="{ThemeResource MacFrameBrush}"
             BorderThickness="0.5" CornerRadius="12">
         <StackPanel>
+            <ScrollViewer x:Name="ProfilesScroll" MaxHeight="520" VerticalScrollBarVisibility="Auto"
+                          HorizontalScrollMode="Disabled">
+            <StackPanel>
+            <Border x:Name="PoolPanel" Visibility="Collapsed" Padding="20,14,20,4">
+                <StackPanel Spacing="6">
+                    <TextBlock Text="Current Code conversation" FontSize="11" />
+                    <TextBlock x:Name="PoolTitle" MaxLines="2" TextWrapping="Wrap" FontWeight="SemiBold" />
+                    <Button x:Name="PoolChoice" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" />
+                    <TextBlock x:Name="PoolProblem" FontSize="11" TextWrapping="Wrap" />
+                </StackPanel>
+            </Border>
             <!-- Profiles. Capped so a long list scrolls rather than growing the
                  flyout past the screen. -->
-            <ScrollViewer MaxHeight="520" VerticalScrollBarVisibility="Auto"
-                          HorizontalScrollMode="Disabled">
             <ItemsControl ItemsSource="{x:Bind Rows}" Padding="12,12,12,6">
                 <ItemsControl.ItemTemplate>
                     <DataTemplate x:DataType="local:ShortcutRow">
@@ -84,6 +93,8 @@
 
                             <!-- Why the last Start Session could not open a window,
                                  shown only when there is one to report. -->
+                            <TextBlock Text="{x:Bind UsageNote, Mode=OneWay}" Visibility="{x:Bind UsageNoteVisibility, Mode=OneWay}"
+                                       TextWrapping="Wrap" FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                             <TextBlock Text="{x:Bind Problem, Mode=OneWay}"
                                        Visibility="{x:Bind ProblemVisibility, Mode=OneWay}"
                                        TextWrapping="Wrap"
@@ -93,12 +104,13 @@
                     </DataTemplate>
                 </ItemsControl.ItemTemplate>
             </ItemsControl>
+            </StackPanel>
             </ScrollViewer>
 
             <!-- Actions -->
             <Border Height="1" Margin="12,4"
                     Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
-            <StackPanel Padding="12,6,12,10">
+            <StackPanel x:Name="ActionsPanel" Padding="12,6,12,10">
                 <Button x:Name="RefreshButton" Click="Refresh_Click" HorizontalAlignment="Stretch"
                         HorizontalContentAlignment="Left" Background="Transparent"
                         BorderThickness="0" Content="Refresh Usage" Padding="10,5" />

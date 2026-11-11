@@ -35,6 +35,9 @@ $files = foreach ($dll in $dlls) {
     }
     Copy-Item -LiteralPath $dll.FullName -Destination $PublishRoot -Force
     Copy-Item -LiteralPath $dll.FullName -Destination (Join-Path $PublishRoot 'launcher') -Force
+    if (Test-Path -LiteralPath (Join-Path $PublishRoot 'relay')) {
+        Copy-Item -LiteralPath $dll.FullName -Destination (Join-Path $PublishRoot 'relay') -Force
+    }
     [ordered]@{ name = $dll.Name; sha256 = (Get-FileHash -LiteralPath $dll.FullName -Algorithm SHA256).Hash }
 }
 [ordered]@{ architecture = $Architecture; version = $runtime.VersionInfo.FileVersion; files = @($files) } |

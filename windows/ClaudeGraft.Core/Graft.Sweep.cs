@@ -17,6 +17,8 @@ public enum SessionFiling
     /// Run from a terminal, or by a Claude without a bridge: never in a sidebar,
     /// so nothing is missing.
     NotADesktopSession,
+    /// A home or drive from another machine is not a local missing session.
+    FolderElsewhere,
 }
 
 /// <summary>What a pass does with a record that already exists on disk.</summary>
@@ -45,9 +47,11 @@ public static partial class Graft
         string? ownerProfile,
         bool ownerIsRunning,
         DateTime now,
-        TimeSpan quietWindow)
+        TimeSpan quietWindow,
+        bool folderIsHere = true)
     {
         if (facts is null) return SessionFiling.NotADesktopSession;
+        if (!folderIsHere) return SessionFiling.FolderElsewhere;
         if (recorded.Contains(facts.CliSessionId)) return SessionFiling.AlreadyRecorded;
         if (withdrawn.Contains(facts.CliSessionId)) return SessionFiling.Withdrawn;
 
@@ -71,6 +75,28 @@ public static partial class Graft
         if (ownerIsRunning && now - lastWrite < quietWindow) return SessionFiling.TooRecent;
         if (ownerProfile is null) return SessionFiling.NoOwnerProfile;
         return SessionFiling.File;
+    }
+
+    internal static bool SessionFolderIsHere(string cwd, Func<string, bool>? directoryExists = null)
+    {
+        directoryExists ??= Directory.Exists;
+        // Imported Mac/Linux homes are not paths a native Windows Claude can
+        // resume. A relative/unspecified legacy cwd remains inconclusive.
+        if (new[] { "/Users/", "/Volumes/", "/home/", "/mnt/" }.Any(cwd.StartsWith)) return false;
+        if (!Path.IsPathFullyQualified(cwd)) return true;
+        try
+        {
+            var full = Path.GetFullPath(cwd);
+            var root = Path.GetPathRoot(full)!;
+            var parts = full[root.Length..].Split(new[] { Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar },
+                StringSplitOptions.RemoveEmptyEntries);
+            // Ask about the home/drive, never the worktree: deleting a worktree
+            // does not turn its conversation into a session from another PC.
+            var anchor = parts.Length >= 2 && parts[0].Equals("Users", StringComparison.OrdinalIgnoreCase)
+                ? Path.Combine(root, parts[0], parts[1]) : root;
+            return directoryExists(anchor);
+        }
+        catch { return false; }
     }
 
     /// Whether a record this app filed gets rewritten as its transcript moves

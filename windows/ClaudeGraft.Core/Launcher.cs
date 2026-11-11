@@ -37,6 +37,7 @@ public static class Launcher
         var filing = new List<string> { config.ProfileDir, GraftPaths.DefaultProfile };
         if (config.SourceDir is not null) filing.Add(config.SourceDir);
         Graft.FileMissingSessionRecords(filing, ClaudeProcesses.IsRunning);
+        PoolEnvironment.PrepareForLaunch(config.ProfileDir);
         Process.Start(StartInfo(ClaudeExe()!, config.ProfileDir));
         // Hold the interprocess lock until Windows sees the new process; a
         // second shortcut press otherwise races the first launch.

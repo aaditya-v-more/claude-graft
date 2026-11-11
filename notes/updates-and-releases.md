@@ -336,3 +336,30 @@ entitlements this app does not carry, and launchd refuses them for a
 non-sandboxed app. The signing key lives in the login keychain under
 `https://sparkle-project.org`; `vendor/bin/generate_keys -x` exports it if CI
 ever needs it.
+
+## Windows WebView2 prerequisite
+
+The Windows account panes and rendered artifact exports use the Evergreen
+WebView2 Runtime. Edge's installed browser is not this runtime. Setup follows
+[Microsoft's distribution guidance](https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/distribution):
+it reads `pv` under the runtime client `{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}`
+in HKLM's 32-bit EdgeUpdate view and HKCU. A valid version greater than zero in
+either location is enough; a missing, empty, unreadable or zero value is not.
+
+`build-installer.ps1` bundles the official small Evergreen bootstrapper only
+after verifying an embedded, trusted Microsoft Corporation signature. Its
+SHA-256 and signing certificate thumbprint are recorded in `.build.json`.
+Before replacing app files, setup extracts that bootstrapper, compares its
+SHA-256 with the packaged value, runs `/silent /install`, and checks the runtime
+registration again. An unsuccessful process or a runtime still absent stops
+setup with retry and offline-installer guidance. A missing runtime under an
+elevated setup asks the user to restart setup normally: otherwise Microsoft's
+installer would change from per-user to per-machine installation. Microsoft's
+existing machine-wide updater may manage an installed runtime afterwards.
+
+TestMode leaves this dependency out entirely. `test-webview2-installer.ps1`
+exercises the real prerequisite decision code with fake registry reads and an
+inert bootstrapper, including corruption, elevation, launch failure and a
+successful exit without a registered runtime. It compiles both production and
+TestMode setup hooks without running them. A clean-machine runtime download
+and actual installation remain separate acceptance checks.

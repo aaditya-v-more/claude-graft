@@ -3,7 +3,7 @@ using System.Text.Json.Nodes;
 
 namespace ClaudeGraft.Core;
 
-public static class SidebarSync
+public static partial class SidebarSync
 {
     internal sealed record Snapshot(string[] Pins, string[] Order, string Sort, double OrderTime = 0,
         string? Scope = null, string? Fingerprint = null)
@@ -63,29 +63,54 @@ public static class SidebarSync
         try
         {
             using var stateLock = StateLock.Acquire();
-            var keys = Graft.LoadMirrorState().Pairs.Keys.ToHashSet();
-            var pairs = new List<Pair>();
-            foreach (var key in keys.Order(StringComparer.Ordinal))
+            SynchronizePins(profile, findRuntime);
+            SynchronizeProjectOrder(profile, findRuntime);
+        }
+        catch (Exception e) when (e is not OutOfMemoryException)
+        {
+            Status([profile], "retry", e.GetType().Name);
+        }
+    }
+
+    private static List<Pair> Candidates(IEnumerable<string> keys)
+    {
+        var pairs = new List<Pair>();
+        foreach (var key in keys.Order(StringComparer.Ordinal))
+        {
+            if (Graft.PairFolders(key) is not (string left, string right)) continue;
+            var a = ActiveStore(left);
+            var b = ActiveStore(right);
+            if (a is null || b is null || Paths.Equals(a.Profile, b.Profile)) continue;
+            var ids = SessionIds(left);
+            ids.IntersectWith(SessionIds(right));
+            if (ids.Count > 0) pairs.Add(new(key, a, b, ids));
+        }
+        return pairs;
+    }
+
+    private static HashSet<string> ConnectedProfiles(string profile, List<Pair> pairs)
+    {
+        var connected = new HashSet<string>(Paths) { profile };
+        int previous;
+        do
+        {
+            previous = connected.Count;
+            foreach (var pair in pairs.Where(p => connected.Contains(p.Left.Profile) || connected.Contains(p.Right.Profile)))
             {
-                if (Graft.PairFolders(key) is not (string left, string right)) continue;
-                var a = ActiveStore(left);
-                var b = ActiveStore(right);
-                if (a is null || b is null || Paths.Equals(a.Profile, b.Profile)) continue;
-                var ids = SessionIds(left);
-                ids.IntersectWith(SessionIds(right));
-                if (ids.Count > 0) pairs.Add(new(key, a, b, ids));
+                connected.Add(pair.Left.Profile);
+                connected.Add(pair.Right.Profile);
             }
-            var connected = new HashSet<string>(Paths) { profile };
-            int previous;
-            do
-            {
-                previous = connected.Count;
-                foreach (var pair in pairs.Where(p => connected.Contains(p.Left.Profile) || connected.Contains(p.Right.Profile)))
-                {
-                    connected.Add(pair.Left.Profile);
-                    connected.Add(pair.Right.Profile);
-                }
-            } while (connected.Count > previous);
+        } while (connected.Count > previous);
+        return connected;
+    }
+
+    private static void SynchronizePins(string profile, Func<string?> findRuntime)
+    {
+        try
+        {
+            var keys = Graft.LoadMirrorState().Pairs.Keys.ToHashSet();
+            var pairs = Candidates(keys);
+            var connected = ConnectedProfiles(profile, pairs);
             pairs.RemoveAll(p => !connected.Contains(p.Left.Profile));
             if (pairs.Count == 0) return;
             if (AnyRunning(connected)) { Status(connected, "waiting"); return; }

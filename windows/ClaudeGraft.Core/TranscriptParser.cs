@@ -43,7 +43,7 @@ public static class TranscriptParser
         // A session that got no answer back leaves no line carrying these, so
         // they hold the last values the transcript ever mentioned rather than an
         // honest read; the record still needs something in them.
-        string model = "claude-sonnet-5", effort = "medium", permissionMode = "auto", cwd = "";
+        string model = "claude-sonnet-5", effort = "medium", permissionMode = "default", cwd = "";
         var promptIds = new HashSet<string>();
         var branches = new List<string>();
         var trace = new ConversationTrace();

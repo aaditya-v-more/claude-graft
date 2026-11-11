@@ -41,7 +41,11 @@ public static partial class Graft
     private static string MirrorStateFile => Path.Combine(GraftPaths.OwnData, "mirrored-chats.json");
 
     public static MirrorState LoadMirrorState() => MirrorState.Load(MirrorStateFile);
-    public static void SaveMirrorState(MirrorState state) => state.Save(MirrorStateFile);
+    public static void SaveMirrorState(MirrorState state)
+    {
+        state.Save(MirrorStateFile);
+        ForgetRecordBaselines(state.Pairs.Keys);
+    }
 
     /// A byte no path can contain, so the two halves of a key always come back
     /// apart the way they went together.

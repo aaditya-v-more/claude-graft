@@ -40,21 +40,32 @@ profile environment override supported by the installed Claude build. Users
 can select Graft for Claude links in Windows Default apps. A browser sign-in
 opens a chooser of running profiles. Other links open the main Claude profile.
 
-The reference's card-list manager has been replaced with the project's sidebar
-and detail layout, its twelve icon choices, and the original Support and Source
-links. The Windows app content reproduces the macOS blue selection, grouped
+The reference's card-list manager has been replaced with Graft 2.0's sidebar
+and detail layout: Shared usage, Artifacts, Projects, Search Chats and individual
+Claudes. Help retains the original Support and Source links. Profile settings
+keep the twelve icon choices. The Windows app content reproduces the macOS blue selection, grouped
 forms, compact buttons, two-row icon picker, role badges, usage bars and
 light/dark palettes. Its title bar, window buttons, system menu, frame, Snap,
 movement and resizing are supplied by Windows. Closing the manager destroys
 that window; the tray can create a new one. The native title bar and the app
-follow the Windows app color mode by default. A native overlay pane replaces
-the inline sidebar at narrow widths, and the icon picker moves below its label
-to keep the form usable when snapped or resized. Shortcut icons carry separate
+follow the Windows app color mode by default. The sidebar remains visible at
+the minimum window size, where the icon picker moves below its label to keep
+the form usable when snapped or resized. Shortcut icons carry separate
 image sizes for Explorer and the desktop. Platform-specific omissions and live acceptance checks are listed in
 README.md so this branch can be reviewed honestly before merging.
 
+Shared usage uses a separate per-user relay and only reassigns eligible Code
+message requests; ordinary Chat remains with its own account. Artifacts,
+Projects and Search Chats use Graft-owned, isolated WebView2 account stores.
+Their claude.ai sign-in cookies remain in the browser, separate from Claude
+Desktop profiles and the access tokens borrowed for usage. Rendered artifact
+exports run in a separate browser with external network access blocked. Setup
+supplies Microsoft's Evergreen WebView2 bootstrapper when the runtime is absent.
+
 The Windows tests use disposable profiles. They cover routing, record recovery,
-usage, shared settings, and release verification. The native UI test creates
+usage, shared settings, browser account boundaries and release verification.
+The relay tests use a stand-in service, and artifact exports use local fixtures.
+The native UI test creates
 and renames real .lnk files, and the sidebar integration test opens real
 Chromium storage. See [the Windows instructions](README.md) for the build,
 installer checks, and the checks that need signed-in accounts.

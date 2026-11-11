@@ -15,7 +15,12 @@ public static partial class Graft
         [JsonPropertyName("size")] public long Size { get; set; }
         [JsonPropertyName("facts")] public SessionFacts? Facts { get; set; }
         [JsonPropertyName("trace")] public ConversationTrace? Trace { get; set; }
+        [JsonPropertyName("reading")] public int? Reading { get; set; }
     }
+
+    // A missing transcript permission mode used to be read as auto. Old cached
+    // facts must be parsed again even when their source file has not changed.
+    internal const int TranscriptReadingVersion = 2;
 
     private static readonly object TranscriptCacheLock = new();
     private static Dictionary<string, CachedTranscript> _transcriptCache = new();
@@ -85,6 +90,7 @@ public static partial class Graft
         {
             LoadTranscriptCache();
             if (_transcriptCache.TryGetValue(path, out var cached) && cached.Modified == stamp && cached.Size == size
+                && cached.Reading == TranscriptReadingVersion
                 && cached.Trace is { Prompts: not null, Work: not null } trace)
                 return (cached.Facts, trace);
         }
@@ -92,7 +98,8 @@ public static partial class Graft
         var reading = TranscriptParser.Read(path, cliSessionId);
         lock (TranscriptCacheLock)
         {
-            _transcriptCache[path] = new CachedTranscript { Modified = stamp, Size = size, Facts = reading.Facts, Trace = reading.Trace };
+            _transcriptCache[path] = new CachedTranscript { Modified = stamp, Size = size, Facts = reading.Facts,
+                Trace = reading.Trace, Reading = TranscriptReadingVersion };
             _transcriptCacheDirty = true;
         }
         return reading;
@@ -210,6 +217,7 @@ public static partial class Graft
 
         var recorded = new HashSet<string>(contents.Records.Keys);
         var withdrawn = new HashSet<string>(state.Withdrawn);
+        var withdrawnBefore = withdrawn.Count;
         var vanished = new HashSet<string>(state.Vanished);
         var missing = new HashSet<string>();
         var outOfSight = new HashSet<string>();
@@ -233,7 +241,7 @@ public static partial class Graft
             // those go on sight, since every record still on disk is learned
             // again below. Only a rooted path is a directory to reason about.
             if (!Path.IsPathRooted(store)) continue;
-            if (Answers(store).stashed) { outOfSight.Add(session); stashedStores.Add(store); continue; }
+            if (Answers(store).stashed && !recorded.Contains(session)) { outOfSight.Add(session); stashedStores.Add(store); continue; }
             if (!Answers(store).present)
             {
                 forgotten.Add(session); goneStores.Add(store);
@@ -332,7 +340,7 @@ public static partial class Graft
             // An open-and-close with nothing said never had a conversation to lose.
             if (facts.Prompts == 0) continue;
 
-            if (contents.Deleted.Contains(facts.CliSessionId))
+            if (contents.Deleted.Contains(facts.CliSessionId) && !withdrawn.Contains(facts.CliSessionId))
             {
                 withdrawn.Add(facts.CliSessionId);
                 state.Authored.Remove(facts.CliSessionId);
@@ -369,7 +377,7 @@ public static partial class Graft
             if (copies.Contains(facts.CliSessionId)) { copiesHeldBack++; continue; }
 
             if (DecideFiling(facts, recorded, withdrawn, guessableDeletions, lastWrite,
-                    owner, Running(owner), now, quietWindow) != SessionFiling.File) continue;
+                    owner, Running(owner), now, quietWindow, SessionFolderIsHere(facts.Cwd)) != SessionFiling.File) continue;
 
             var destination = Path.GetDirectoryName(file)!;
             if (!MayFileRecords(destination, contents.Stores))
@@ -408,7 +416,8 @@ public static partial class Graft
         Diagnostics.Note("sweep.end", new Dictionary<string, object?>
         {
             ["filed"] = filed.Count,
-            ["withdrawn"] = withdrawn.Count,
+            ["withdrawn"] = withdrawn.Count - withdrawnBefore,
+            ["withdrawnInAll"] = withdrawn.Count,
             ["missingThisPass"] = missing.Count,
             ["outOfSight"] = outOfSight.Count,
             ["forgotten"] = forgotten.Count,

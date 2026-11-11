@@ -12,7 +12,7 @@ try {
     [IO.File]::WriteAllText($fixture, $seed.Groups[1].Value)
     $env:GRAFT_SIDEBAR_TEST_RUNTIME = $runtimePath
     $env:GRAFT_SIDEBAR_TEST_SEED = $fixture
-    & dotnet test (Join-Path $PSScriptRoot 'ClaudeGraft.Tests') -c Release -p:RestoreLockedMode=true --filter 'FullyQualifiedName~SidebarTests' --nologo
+    & dotnet test (Join-Path $PSScriptRoot 'ClaudeGraft.Tests') -c Release -p:RestoreLockedMode=true --filter 'FullyQualifiedName~SidebarTests|FullyQualifiedName~SidebarProjectTests' --nologo -- RunConfiguration.TreatNoTestsAsError=true
     if ($LASTEXITCODE -ne 0) { throw 'Offline sidebar checks failed.' }
 } finally {
     $env:GRAFT_SIDEBAR_TEST_RUNTIME = $oldRuntime

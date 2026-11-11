@@ -8,6 +8,19 @@ namespace ClaudeGraft.Tests;
 
 public class CredentialCryptoTests
 {
+    [Fact(DisplayName = "a settings file caught mid-write is retried as unreadable instead of signed out")]
+    public void UnreadableConfigIsNotAMissingLogin()
+    {
+        using var temp = new TempDir();
+        Assert.Null(ClaudeCredentials.GetToken(temp.Path));
+        var file = Path.Combine(temp.Path, "config.json");
+        File.WriteAllText(file, "{");
+        var error = Assert.Throws<ClaudeCredentials.CredentialException>(() => ClaudeCredentials.GetToken(temp.Path));
+        Assert.Equal(ClaudeCredentials.Failure.ConfigUnreadable, error.Reason);
+        Assert.Equal("{", File.ReadAllText(file));
+        File.WriteAllText(file, "{}");
+        Assert.Null(ClaudeCredentials.GetToken(temp.Path));
+    }
     // Build a blob the way Chromium on Windows does: v10, a 12-byte nonce, the
     // ciphertext, and the 16-byte GCM tag.
     private static byte[] Encrypt(byte[] plaintext, byte[] key)

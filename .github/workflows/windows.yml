@@ -35,6 +35,12 @@ jobs:
       - name: Build setup
         shell: pwsh
         run: ./windows/build-installer.ps1 -Architecture ${{ matrix.architecture }} -SkipBuild
+      - name: Verify WebView2 prerequisite handling without installing a runtime
+        shell: pwsh
+        run: ./windows/test-webview2-installer.ps1 -Bootstrapper ./windows/dist/tools/WebView2/MicrosoftEdgeWebview2Setup.exe
+      - name: Verify the standalone usage relay on disposable profiles
+        shell: pwsh
+        run: ./windows/test-relay.ps1 -Executable ./windows/dist/ClaudeGraft-${{ matrix.architecture }}/relay/GraftRelay.exe
       - name: Sync pins and order in disposable Chromium profiles
         shell: pwsh
         run: ./windows/test-sidebar.ps1 -Runtime ./windows/dist/ClaudeGraft-${{ matrix.architecture }}/launcher/sidebar-runtime
@@ -49,6 +55,9 @@ jobs:
         run: |
           $installer = Get-Item windows/dist/*-setup.exe
           ./windows/test-hosted-registration.ps1 -Installer $installer.FullName
+      - name: Verify isolated browser accounts and offline exports
+        shell: pwsh
+        run: ./windows/test-web-accounts.ps1 -Executable ./windows/dist/ClaudeGraft-${{ matrix.architecture }}/ClaudeGraft.exe
       - name: Keep the Windows build for review
         uses: actions/upload-artifact@v4
         with:

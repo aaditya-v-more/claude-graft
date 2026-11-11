@@ -3,6 +3,11 @@ using ClaudeGraft.Platform;
 
 try
 {
+    if (args.Length == 1 && args[0] == "--stop-sharing")
+    {
+        await PoolControl.StopSharingAsync();
+        return 0;
+    }
     if (args.Length == 2 && args[0] == "--config")
         Launcher.Open(ShortcutManifest.Read(args[1]), DesktopInteraction.ConfirmSharing);
     else if (args.Length == 1)

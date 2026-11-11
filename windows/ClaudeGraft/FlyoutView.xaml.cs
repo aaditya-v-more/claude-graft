@@ -27,18 +27,63 @@ public sealed partial class FlyoutView : UserControl
     /// the window, so its own SizeChanged cannot see the overflow; this says so.
     public event Action? LayoutChanged;
 
-    public FlyoutView() => InitializeComponent();
+    public FlyoutView()
+    {
+        InitializeComponent();
+        Loaded += (_, _) => { App.UsagePool.Changed += RefreshPool; RefreshPool(); };
+        Unloaded += (_, _) => App.UsagePool.Changed -= RefreshPool;
+    }
+
+    private void RefreshPool()
+    {
+        var pool = App.UsagePool;
+        var conversation = pool.Conversations.FirstOrDefault();
+        PoolPanel.Visibility = conversation is null && pool.Problem is null ? Visibility.Collapsed : Visibility.Visible;
+        PoolTitle.Text = conversation?.Title ?? "Shared usage";
+        PoolProblem.Text = conversation?.Note ?? pool.Problem ?? "";
+        PoolProblem.Visibility = PoolProblem.Text.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
+        PoolChoice.Visibility = conversation is null ? Visibility.Collapsed : Visibility.Visible;
+        if (conversation is not null)
+        {
+            PoolChoice.Content = "Answering: " + pool.Name(conversation.Answering);
+            var menu = new MenuFlyout();
+            void Choice(string title, string? member)
+            {
+                var item = new ToggleMenuFlyoutItem { Text = title, IsChecked = conversation.Assigned == member };
+                item.Click += async (_, _) =>
+                {
+                    try { await pool.AssignAsync(conversation.Id, member); }
+                    catch { PoolProblem.Text = "The account choice could not be saved. Try again."; PoolProblem.Visibility = Visibility.Visible; }
+                };
+                menu.Items.Add(item);
+            }
+            Choice("Automatic", null);
+            foreach (var member in conversation.Choices) Choice(pool.Name(member), member);
+            PoolChoice.Flyout = menu;
+        }
+        LayoutChanged?.Invoke();
+    }
 
     /// Paints the flyout's own surface opaque, for the Solid backdrop where there
     /// is no material behind it, or leaves it transparent so a material shows
     /// through. The window's mica is what the transparent case reveals.
     public void SetOpaqueSurface(bool opaque) => RootBorder.Opacity = opaque ? 1 : 0.97;
 
+    internal void ConstrainHeight(double available)
+    {
+        ActionsPanel.Measure(new Windows.Foundation.Size(Width - 2, double.PositiveInfinity));
+        // Conversations share the scroll area so the bottom actions stay above the taskbar at high DPI.
+        ProfilesScroll.MaxHeight = Math.Max(32, Math.Min(520, available - ActionsPanel.DesiredSize.Height - 10));
+    }
+
     /// Rebuilds the list and refreshes usage. Called each time the flyout opens,
     /// so the figures are current the way pressing the Mac menu bar item makes
     /// them — interactive, since a person is looking.
     public void Reload()
     {
+        App.SettleProfiles();
+        RefreshPool();
+        _ = App.UsagePool.RefreshAsync();
         Rows.Clear();
         var rows = ProfileRows.Build();
         foreach (var row in rows)

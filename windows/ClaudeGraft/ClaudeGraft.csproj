@@ -36,5 +36,6 @@
   </ItemGroup>
   <Target Name="BundleLauncher" AfterTargets="Publish">
     <Exec Command="dotnet publish &quot;$(MSBuildThisFileDirectory)..\GraftLaunch\GraftLaunch.csproj&quot; -c $(Configuration) -r $(RuntimeIdentifier) --self-contained true -p:RestoreLockedMode=$(RestoreLockedMode) -o &quot;$(PublishDir)launcher&quot; --nologo -v q" />
+    <Exec Command="dotnet publish &quot;$(MSBuildThisFileDirectory)..\GraftRelay\GraftRelay.csproj&quot; -c $(Configuration) -r $(RuntimeIdentifier) --self-contained true -p:RestoreLockedMode=$(RestoreLockedMode) -o &quot;$(PublishDir)relay&quot; --nologo -v q" />
   </Target>
 </Project>

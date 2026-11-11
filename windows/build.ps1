@@ -19,7 +19,8 @@ try {
     & (Join-Path $PSScriptRoot 'copy-sidebar-runtime.ps1') -Architecture $Architecture -PublishRoot $output
     foreach ($required in @('ClaudeGraft.exe', 'ClaudeGraft.pri', 'Assets/AppIcon.ico',
                             'coreclr.dll', 'Microsoft.UI.Xaml.dll',
-                            'launcher/GraftLaunch.exe', 'launcher/coreclr.dll', 'launcher/sidebar-runtime/electron.exe')) {
+                            'launcher/GraftLaunch.exe', 'launcher/coreclr.dll', 'launcher/sidebar-runtime/electron.exe',
+                            'relay/GraftRelay.exe', 'relay/coreclr.dll')) {
         if (-not (Test-Path -LiteralPath (Join-Path $output $required))) { throw "Missing published file: $required" }
     }
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot '../LICENSE') -Destination $output

@@ -82,6 +82,8 @@ public static class ClaudeLinks
         using var stateLock = StateLock.Acquire();
         var exe = Launcher.ClaudeExe() ?? throw new IOException("Install Claude Desktop before opening a Claude link.");
         var running = selected is null ? [] : RunningTargets();
+        if (selected is null && !ClaudeProcesses.IsRunning(GraftPaths.DefaultProfile))
+            PoolEnvironment.PrepareForLaunch(GraftPaths.DefaultProfile);
         using var process = Process.Start(Dispatch(value, selected, running, exe));
     }
 }

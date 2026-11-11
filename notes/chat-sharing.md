@@ -462,3 +462,12 @@ alias is not an edit and nothing is copied for it. Records that are not scratch
 records, and any whose `cwd` and `originCwd` disagree about which scratch folder
 they mean, are left exactly as they are.
 
+Windows follows the same field-baseline and divergence rules. The optional
+field evidence lives in `ClaudeGraft/mirror-fields`; it is used only while its
+whole-record digest matches the pair's deletion baseline. A failed replacement
+does not advance that baseline. Scratch origins use a directory junction to the
+existing local working folder, so no Developer Mode is needed; an occupied alias,
+a redirected parent, and SSH or WSL records are left alone. The transcript's
+`cwd` and session identity do not change. Handing a borrowed chat back compares
+its conversation with the local origin normalized away.
+

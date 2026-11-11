@@ -79,7 +79,7 @@ public static partial class Graft
             {
                 var mine = File.ReadAllBytes(Path.Combine(folder, name));
                 var theirs = File.ReadAllBytes(Path.Combine(source, name));
-                if (!mine.AsSpan().SequenceEqual(theirs)) continue;
+                if (!MirrorData(mine).AsSpan().SequenceEqual(MirrorData(theirs))) continue;
                 File.Delete(Path.Combine(folder, name));
                 dropped++;
             }
@@ -233,8 +233,17 @@ public static partial class Graft
         var mine = Path.Combine(dst, ownAccountDir, ownOrg);
         var theirs = Path.Combine(src, sourceAccountDir, sourceOrg);
         Directory.CreateDirectory(Path.GetDirectoryName(mine)!);
-        ForgetStalePairs(dst, new List<(string, string)> { (mine, theirs) });
+        // Changing the lender's active account or organization is a handover,
+        // not a new graft: the existing stash still names this profile's work.
+        var earlier = MirrorPairsBorrowedBy(mine).Where(k => k != PairKey(mine, theirs)).ToList();
         var firstPass = MirrorPairsBorrowedBy(mine).Count == 0;
+        foreach (var key in earlier)
+        {
+            if (PairFolders(key) is not (_, string old)) continue;
+            if (!Fs.IsDirectory(old)) continue; // These copies may be all that remain.
+            HandBack(mine, old);
+        }
+        ForgetStalePairs(dst, new List<(string, string)> { (mine, theirs) });
         if (firstPass) DropBorrowedCopies(mine, theirs, dst);
         OpenForMirror(mine, firstPass);
         if (firstPass) SeedOwnChats(mine, dst);

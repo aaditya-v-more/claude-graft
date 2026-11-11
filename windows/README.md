@@ -1,20 +1,16 @@
 # Claude Graft for Windows
 
 Run Claude Desktop profiles side by side, each with its own login, and share
-Claude Code history between them. The window keeps the macOS app's organization: profiles
-in the sidebar, the shortcut and chat settings on the right, and Support and
-Source at the bottom. The app content keeps the macOS visual treatment:
-blue sidebar selection, rounded grouped rows, compact action buttons and a
-two-row grid of six icon presets per row. Windows supplies the standard title
-bar, close/minimize/maximize buttons, borders, system menu, resizing and Snap.
-There are no custom frame or caption hit-test handlers. The initial content
-area is 820 by 560, plus the native Windows frame. The app and title bar follow
-the Windows app color mode by default, including changes while Graft is open.
-Settings can also pin both to Light or Dark. The tray surface follows the same
-choice. At narrower widths, the profile list uses a Windows overlay pane and
-the icon picker moves below its label so the form remains usable when snapped
-or resized. The sidebar button opens the pane; selecting a profile dismisses it.
-Support still goes to
+Claude Code history and usage between them. The sidebar follows Graft 2.0:
+Shared usage, Artifacts, Projects, Search Chats, and the individual Claudes.
+Help keeps the documentation, source and support links together. Profile
+settings retain the twelve icon presets, shared-chat controls and usage bars.
+Windows supplies the standard title bar, window buttons, borders, system menu,
+resizing and Snap. The initial content area is 1000 by 680, with a minimum
+window size of 820 by 560 device-independent pixels. At the minimum width the
+icon picker moves below its label. The app, title bar and tray follow the Windows
+app color mode, including changes while Graft is open. Settings can pin them
+to Light or Dark. Support still goes to
 [the project's Ko-fi page](https://ko-fi.com/aadityavmore).
 
 This is the Windows development port. Windows 10 version 2004 or later is
@@ -34,6 +30,13 @@ optional. Opening Graft from the Start menu shows the manager immediately.
 Graft installs without administrator rights. The installer and portable ZIP
 include the .NET, Windows App SDK and Visual C++ runtimes. Each profile's
 standalone launcher also carries the runtime files it needs.
+The shared account panes and rendered artifact exports use Microsoft Edge
+WebView2. Setup reuses an installed Evergreen Runtime or installs it for your
+Windows account using Microsoft's signed bootstrapper. That first runtime
+installation needs an internet connection. On an offline computer, install
+Microsoft's [Evergreen Standalone Installer](https://developer.microsoft.com/microsoft-edge/webview2/)
+first. Portable ZIP users also need that runtime installed. Graft does not
+remove this shared Microsoft runtime when uninstalled.
 Development builds are unsigned. Windows Smart App Control can block their
 setup or the installed manager. If Windows blocks a development build, keep
 the protection enabled and use a publisher-signed release when available.
@@ -54,8 +57,8 @@ Then run this from the repository root:
 ./windows/build.ps1
 ```
 
-The script runs the isolated tests, publishes the app and its launcher with
-their runtimes, verifies the required files, and creates a ZIP and SHA-256
+The script runs the isolated tests, publishes the app, its launcher and the
+shared-usage relay with their runtimes, verifies the required files, and creates a ZIP and SHA-256
 checksum in windows/dist. Use -Architecture arm64 for Windows on ARM. It does
 not publish a release, install an application or change a system registration.
 
@@ -70,6 +73,11 @@ compiling setup. Pass -Compiler with
 the full path to ISCC.exe to select a compiler explicitly. If none is installed,
 the script prepares a signature-verified portable compiler under windows/dist.
 The installer and its checksum are written to windows/dist.
+The setup build also downloads the small Evergreen WebView2 bootstrapper from
+Microsoft, verifies its embedded Authenticode signature, and records its SHA-256
+and signer in the build manifest. To package without a network download, pass
+`-WebView2Bootstrapper C:\path\MicrosoftEdgeWebview2Setup.exe`; the same signature
+check applies. This bundles the downloader, not the full offline runtime.
 
 ### Publisher-signed setup
 
@@ -106,7 +114,8 @@ if ($LASTEXITCODE -ne 0) { throw 'Dependency signing failed.' }
 
 Set `$approvedUpstreamSha256` from the independently verified original.
 Repeat the same build command with `-SkipBuild` and that staging directory.
-The script signs the manager, launcher and both copies of the core assembly.
+The script signs the manager, launcher, shared-usage relay and their copies of
+the core assembly.
 Inno signs setup and its uninstaller. SignTool verifies the finished setup
 before the build writes its checksum and publisher record under `windows/dist/signed`.
 Repeat for ARM64 using the ARM64 publish folder. Test both signed setups on
@@ -129,6 +138,11 @@ For an isolated install/uninstall check, build with -TestMode and pass that
 setup-test.exe to ./windows/test-installer.ps1 -Installer. This variant creates
 no installed-app entry or shell shortcuts, verifies the installed app in a
 disposable directory, and checks that uninstall preserves unrelated files.
+TestMode neither downloads nor runs the WebView2 bootstrapper. Run
+`./windows/test-webview2-installer.ps1 -Compiler C:\path\ISCC.exe` to verify
+the runtime detection, integrity and failure handling against an inert fixture,
+and compile both installer architectures. An optional `-Bootstrapper` checks a
+downloaded Microsoft bootstrapper's signature without running it.
 
 Extract the entire ZIP to a folder you intend to keep, then open ClaudeGraft.exe.
 Click or right-click the notification-area icon to open the account list.
@@ -156,8 +170,8 @@ transcript directory. They never need a Claude login or contact the usage API.
 
 After publishing, run ./windows/test-ui.ps1 from the repository root for the
 native UI smoke test. It creates an isolated manager instance, checks the
-native window frame, matching title-bar and content themes, narrow/wide layout,
-system commands, close/reopen behavior, Support link and
+native window frame, matching title-bar and content themes, minimum/wide layout,
+the new panes without a login, system commands, close/reopen behavior, Help links and
 twelve-icon grid, then creates
 and renames a shortcut and verifies its saved icon and bundled runtime. Use
 -Theme Light -Preset Research to exercise the light appearance and a badged
@@ -166,10 +180,19 @@ while the app is running. The default is System; the checks read the Windows
 app mode without changing it. Screenshots and fixtures remain in windows/dist
 for inspection.
 
+Run ./windows/test-web-accounts.ps1 against the published executable to exercise
+real WebView2 stores with intercepted fixture responses. It verifies separate
+cookies, sign-out cleanup, permission checks, cancellation after account removal,
+and rendered Markdown, PDF and Word exports. All browser requests are intercepted;
+these checks do not sign into a live account. ./windows/test-relay.ps1 verifies
+the separately published relay's process, control and restart behavior. CI runs these
+native checks on both x64 and ARM64.
+
 ## Profiles and sign-in
 
-Choose New Shortcut, give it a name, select one of the twelve icon variations,
-and choose where its chats come from. The presets follow the Mac's order, hue
+Choose **New Claude**, give it a name, select one of the twelve icon variations,
+and choose where its chats come from. New profiles start with their own chats;
+sharing requires selecting another profile. The presets follow the Mac's order, hue
 angles, grayscale option and Work, Personal, Code and Research badges. Desktop
 icons include seven sizes from 16 through 256 pixels; cached icons from earlier
 renderers do not override the new colors. Create Shortcut writes a desktop shortcut.
@@ -210,6 +233,100 @@ keeps the last complete reading and its original timestamp, while consecutive
 weekly-only samples with no recent five-hour figure for that organization can
 establish that the plan has no five-hour limit.
 
+## Shared Usage
+
+The Shared Usage pane selects lending accounts separately for each Claude.
+An account can come from another saved Claude profile or an independent
+browser OAuth sign-in. The independent sign-in requests inference access and
+stores only its access token, sealed with Windows DPAPI for the current user.
+It never renews or replaces a Claude profile's login. Accounts representing
+the same account UUID count as one allowance.
+
+The standalone `relay/GraftRelay.exe` listens only on `127.0.0.1:47823`.
+Graft writes `HTTPS_PROXY` and `NODE_EXTRA_CA_CERTS` into a closed profile's
+encrypted Code environment. Existing custom proxy/certificate values are
+preserved and reported as a conflict. A journal records both sealed versions
+before changing the profile; launchers restore the original if the relay is
+unavailable. Enable **Open Graft at login** in the pane to keep the relay ready
+after restarting Windows, including when opening Main Claude directly.
+
+Only identified `POST /v1/messages` requests to `api.anthropic.com` can borrow
+another account's access token. Artifacts, settings, Remote Control, WebSocket
+traffic and other destinations retain the sender's traffic. Streamed replies
+and duplex requests stay streaming. Selection, prompt-cache affinity, bound
+reasoning, continued threads, rate-limit retries and sender fallback follow
+the macOS policy. Recent conversations can be assigned to a specific account
+from the pane or tray. A moved conversation's model request carries its
+contents to that lending account; the pane explains this before adding one.
+
+The relay's signing authority is constrained to the API hostname, and its
+private key is discarded after signing one leaf. The leaf identity is DPAPI
+protected; its temporary Windows user key is removed when the certificate is
+disposed. No user or machine certificate trust store is changed. The extra
+authority is passed only to Claude Code through its own environment.
+Configuration travels through a same-user named pipe, and relay status never
+contains access tokens or conversation contents.
+
+The relay runs from a private stable copy so closing or updating Graft does
+not interrupt active Code sessions. **Stop all sharing** first disables the
+saved assignments, restores closed profiles, and leaves the relay serving
+sender traffic until open profiles can be restored. Uninstall invokes the
+same cleanup. After removal, the relay also monitors the original manager
+path, restores closed profiles and exits when no profile needs it. It does
+not reopen Claude. A manually edited unreadable environment is preserved;
+resolve the reported conflict or unreadable file before removing its proxy.
+
+`dotnet test` covers the relay over disposable local sockets, real Schannel
+TLS with fixture-only trust, encrypted environments, account deduplication,
+fallback/retries, duplex chunking, WebSocket upgrade, PKCE/state validation,
+and DPAPI account storage. After publishing, run:
+
+```powershell
+./windows/test-relay.ps1 -Executable ./windows/dist/ClaudeGraft-x64/relay/GraftRelay.exe
+```
+
+This checks the actual native relay, its bundle digest, exclusive lease,
+same-user control, credential-free restart and clean exit in an isolated
+profile root. CI runs it on both native Windows architectures. Actual plan
+acceptance, browser OAuth and usage sharing against real accounts remain
+separate manual checks.
+
+## Artifacts
+
+The Artifacts page lists the artifacts from every account added to Graft's
+claude.ai sign-in. Use **Continue with email** and the code claude.ai sends;
+the same sign-in serves Projects and Search Chats. Filter the list locally by
+title or ownership, open or copy a link, and use each row's Actions menu to
+rename, duplicate or delete where the account has permission. Deleting asks
+first because claude.ai keeps no bin for artifacts.
+
+Sharing can make a link public, restore invited-only access while retaining
+invitees, or invite a saved group. Groups keep a role for each address; a role
+the artifact does not support is lowered, never raised. Sending a group invite
+asks first and emails each person through claude.ai. Export saves Markdown,
+PDF, Word or the page source locally; a source with multiple files is zipped.
+
+Each browser account has its own WebView2 store under Graft's data directory.
+Signing out removes the account from all three panes and clears that store.
+The account list contains account identity and organization metadata; Graft
+does not read browser cookies. Exports render downloaded files in a separate
+temporary browser with no account sign-in and no network connections.
+
+## Projects and Search Chats
+
+Projects lists the projects across the accounts added through **Add Account**.
+Filter by account or title and open a project to see its conversations. Search
+Chats searches titles across Chat and Code with account and kind filters and
+highlights matching text. Code results are cached briefly; Refresh asks again.
+An unavailable page keeps the results already read and shows that the list is
+incomplete. Missing remote results alone never label a local Code conversation
+as deleted; Graft checks its account, organization and transcript history.
+
+The same **Continue with email** sign-in serves all three panes. A permission
+refusal on one artifact or project does not remove a working account. A session
+that has expired shows **Sign in again** on its account button. Desktop profile
+sign-in remains the separate browser callback flow described above.
+
 ## Shared chats and settings
 
 Chat records are copied and reconciled in both directions. Merging histories
@@ -217,6 +334,14 @@ cannot be undone in the source: copies already made there stay there. Going
 back to its own chats restores the borrowing profile's original history while
 preserving changes to those records. Transcripts remain in the user's shared
 .claude/projects directory.
+
+When both profiles change a chat, Graft preserves independent field edits, so an
+archive survives the other profile merely showing the conversation. If both
+profiles receive different new replies, Graft waits until both are closed and
+keeps two chats, each titled with its profile's name. Unfiled chats keep a local
+scratch-folder alias in each profile while retaining the original working folder
+and transcript for resuming. Switching the lender's active account or organization
+hands the old borrowed copies back before sharing the new history.
 
 Directory settings use junctions that need neither administrator rights nor
 Developer Mode. Individual settings files use journaled copies, because Windows
@@ -251,8 +376,8 @@ choice for shared conversations. Each profile keeps its other sidebar entries
 and account settings. The shortcut's chat settings show whether synchronization
 finished or needs another launch.
 
-Sidebar synchronization is enabled for Claude Desktop 4.16336.0 on Windows.
-Its Chromium engine is 152.0.7977.167. Graft packages a checksum-verified,
+Sidebar synchronization is enabled for Claude Desktop 4.16336.0 and 4.23118.1
+on Windows. Both use Chromium 152.0.7977.167. Graft packages a checksum-verified,
 offline copy of Electron 44.9.3 to open the storage with the same engine.
 The compressed runtime is about 151 MiB on x64 and 149 MiB on ARM64. A different
 Claude version or an unfamiliar database format leaves the sidebar choices
@@ -264,7 +389,7 @@ databases in fresh processes and verifies that unrelated browser records survive
 The Swift app, macOS launcher and their tests stay in Sources, Tests and the
 existing shell scripts. The Windows package uses the same sidebar storage
 script as the Mac launcher. Windows-specific sources live under windows.
-The C# core is shared only by the Windows manager, launcher and tests. The root
+The C# core is shared only by the Windows manager, launcher, usage relay and tests. The root
 VERSION and MIT license are the common project metadata.
 
 Setup installs check GitHub for Graft updates at launch and hourly. Graft
