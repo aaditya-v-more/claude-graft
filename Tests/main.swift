@@ -8053,8 +8053,10 @@ do {
           && SidebarSync.effectiveProjectOrder(value(["/kept"], 1), desktop: nil) == value(["/kept"], 1),
           "a missing preferences entry or stored copy leaves the other as it is")
     let projectScript = SidebarStorage.script
-    check(projectScript.contains("atomicWrite(file, preferencesText(text, root), mode)")
-            && projectScript.contains("if (writing && profile.prefs) writeProjectPreference(profile.path, profile.prefs);"),
+    check(projectScript.contains("const written = preferencesText(text, root);")
+            && projectScript.contains("atomicWrite(file, written, mode);")
+            && projectScript.contains("return {file, text, mode, written};")
+            && projectScript.contains("if (writing && profile.prefs) item.prefs = writeProjectPreference(profile.path, profile.prefs);"),
           "the displayed order goes into the desktop settings file through the helper, keeping its layout and permissions")
     check(SidebarSync.translateProjectOrder(["preset::shared-id", "/x", "/x"], from: [], to: [["id": "shared-id"]]) == ["preset::shared-id", "/x"],
           "an environment both accounts share by identifier is kept and duplicates are dropped")
