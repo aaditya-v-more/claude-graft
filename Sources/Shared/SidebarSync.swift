@@ -308,6 +308,7 @@ enum SidebarSync {
         let output = scratch.appending(path: "result.json")
         let backups = root.appending(path: "sidebar-backups")
         try Graft.fm.createDirectory(at: backups, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        pruneBackups(backups)
         let entries: [[String: Any]] = profiles.map { profile in
             var entry: [String: Any] = ["path": profile.path]
             if let snapshot = changes?[profile.path], let ids = shared[profile.path] {
@@ -358,9 +359,13 @@ enum SidebarSync {
         let hash = SHA256.hash(data: infoData + Data(SidebarStorage.script.utf8) + Data(helperFormat.utf8))
             .map { String(format: "%02x", $0) }.joined()
         let cache = root.appending(path: "sidebar-runtime.noindex")
-        let destination = cache.appending(path: "\(hash.prefix(20))/Sidebar.app")
+        let key = String(hash.prefix(20))
+        let destination = cache.appending(path: "\(key)/Sidebar.app")
         if Graft.exists(destination.appending(path: "Contents/Resources/graft-sidebar.json")),
-           Graft.runTool("/usr/bin/codesign", ["--verify", "--strict", destination.path]) == 0 { return destination }
+           Graft.runTool("/usr/bin/codesign", ["--verify", "--strict", destination.path]) == 0 {
+            pruneHelperCache(cache, keeping: key)
+            return destination
+        }
         let staging = cache.appending(path: ".build-\(UUID().uuidString).noindex")
         defer { try? Graft.fm.removeItem(at: staging) }
         let app = staging.appending(path: "Sidebar.app")
@@ -394,10 +399,66 @@ enum SidebarSync {
             .write(to: entitlements)
         guard Graft.runTool("/usr/bin/codesign", ["--force", "--sign", "-", "--entitlements", entitlements.path, app.path]) == 0,
               Graft.runTool("/usr/bin/codesign", ["--verify", "--strict", app.path]) == 0 else { throw Failure("runtime-signing-failed") }
-        try Graft.fm.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
-        if Graft.exists(destination) { throw Failure("runtime-cache-damaged") }
-        try Graft.fm.moveItem(at: app, to: destination)
+        try installHelper(app, at: destination, cache: cache)
+        pruneHelperCache(cache, keeping: key)
         return destination
+    }
+
+    /// A copy already at the destination is one `prepareHelper` found wanting
+    /// — a folder left half written by a pass that was killed, or one that no
+    /// longer verifies — and refusing over it refused every sync on that
+    /// Claude until somebody found the folder and deleted it by hand. It is
+    /// moved aside rather than deleted in place, because a removal that fails
+    /// part way leaves a third state, and the moved copy goes with the prune.
+    static func installHelper(_ app: URL, at destination: URL, cache: URL) throws {
+        try Graft.fm.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
+        if Graft.exists(destination) {
+            let aside = cache.appending(path: ".damaged-\(UUID().uuidString).noindex")
+            try Graft.fm.moveItem(at: destination, to: aside)
+            Diagnostics.note("sidebar.helper-replaced", ["reason": "cached copy failed verification"])
+        }
+        try Graft.fm.moveItem(at: app, to: destination)
+    }
+
+    /// Kept for this machine's own Claude only. Every Claude update and every
+    /// change to the script makes a new key, and each copy is a clone of the
+    /// whole Electron runtime: free on the disk while the clone shares its
+    /// blocks, but every Claude update unshares them, and a backup copies each
+    /// one in full. Nothing ever removed them: this machine was keeping two,
+    /// made two days apart. Runs under the launch lock, so no other helper is
+    /// running out of a folder this removes; a staging folder is left for an
+    /// hour all the same, in case a caller without the lock is building in it.
+    static func pruneHelperCache(_ cache: URL, keeping key: String, now: Date = Date()) {
+        var excluded = cache
+        var values = URLResourceValues()
+        values.isExcludedFromBackup = true
+        try? excluded.setResourceValues(values)
+        let entries = (try? Graft.fm.contentsOfDirectory(at: cache, includingPropertiesForKeys: [.creationDateKey])) ?? []
+        for entry in entries {
+            let name = entry.lastPathComponent
+            let created = (try? entry.resourceValues(forKeys: [.creationDateKey]))?.creationDate ?? now
+            let isKey = name.count == 20 && name.allSatisfy { $0.isHexDigit && !$0.isUppercase }
+            let remove = (isKey && name != key)
+                || name.hasPrefix(".damaged-")
+                || (name.hasPrefix(".build-") && now.timeIntervalSince(created) > 3600)
+            if remove { try? Graft.fm.removeItem(at: entry) }
+        }
+    }
+
+    /// Every pass that writes leaves one, each holding whole sidebar records
+    /// for every profile in it, and nothing removed them. An interrupted pass
+    /// is recovered from the newest; twenty is room for several bad days.
+    static let keptBackups = 20
+
+    static func pruneBackups(_ backups: URL, keeping count: Int = keptBackups) {
+        let files = ((try? Graft.fm.contentsOfDirectory(at: backups, includingPropertiesForKeys: [.contentModificationDateKey])) ?? [])
+            .filter { $0.pathExtension == "json" }
+        guard files.count > count else { return }
+        func modified(_ url: URL) -> Date {
+            (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
+        }
+        let newestFirst = files.sorted { (modified($0), $0.lastPathComponent) > (modified($1), $1.lastPathComponent) }
+        for file in newestFirst.dropFirst(count) { try? Graft.fm.removeItem(at: file) }
     }
 
     /// Part of the cache key, so a helper built by an earlier version of this
@@ -468,5 +529,273 @@ enum SidebarSync {
         payload.append(Data(repeating: 0, count: (4 - payload.count % 4) % 4))
         let pickle = word(payload.count) + payload
         return (word(4) + word(pickle.count) + pickle + body, sha(header))
+    }
+}
+
+// MARK: - Project order
+
+/// Claude keeps the order of the sidebar's project headings per account, in
+/// one Local Storage entry, so two grafted accounts drift apart as soon as one
+/// of them is reordered. The newer order wins and is copied to the others.
+/// Folders and repositories are named the same in every profile; a saved
+/// environment (`preset::<id>`) is not, so it is matched by name and target,
+/// then by folder, and left out where the other account has no equivalent.
+extension SidebarSync {
+    static let projectOrderPrefix = "LSS-persisted.code-projects-order."
+    static let presetsPrefix = "persisted.ccd-session-presets."
+
+    struct ProjectInput {
+        var path: String
+        var order: String?
+        var presets: String?
+    }
+
+    static func translateProjectOrder(_ order: [String], from source: [[String: Any]],
+                                      to destination: [[String: Any]]) -> [String] {
+        func canonical(_ value: Any?) -> String {
+            guard let value, JSONSerialization.isValidJSONObject(value),
+                  let data = try? JSONSerialization.data(withJSONObject: value, options: [.sortedKeys])
+            else { return "" }
+            return String(decoding: data, as: UTF8.self)
+        }
+        var byNameAndTarget: [String: String] = [:], byFolder: [String: String] = [:]
+        var destinationIDs = Set<String>()
+        for preset in destination {
+            guard let id = preset["id"] as? String else { continue }
+            destinationIDs.insert(id)
+            let target = preset["target"] as? [String: Any]
+            let identity = (preset["name"] as? String ?? "") + "\u{0}" + canonical(target)
+            if byNameAndTarget[identity] == nil { byNameAndTarget[identity] = id }
+            if let folder = target?["cwd"] as? String, byFolder[folder] == nil { byFolder[folder] = id }
+        }
+        var sourceByID: [String: [String: Any]] = [:]
+        for preset in source { if let id = preset["id"] as? String { sourceByID[id] = preset } }
+        var seen = Set<String>(), result: [String] = []
+        for key in order {
+            var mapped: String? = key
+            if key.hasPrefix("preset::") {
+                let id = String(key.dropFirst("preset::".count))
+                mapped = nil
+                if let preset = sourceByID[id] {
+                    let target = preset["target"] as? [String: Any]
+                    let match = byNameAndTarget[(preset["name"] as? String ?? "") + "\u{0}" + canonical(target)]
+                        ?? (target?["cwd"] as? String).flatMap { byFolder[$0] }
+                    mapped = match.map { "preset::" + $0 }
+                } else if destinationIDs.contains(id) {
+                    mapped = key
+                }
+            }
+            if let mapped, seen.insert(mapped).inserted { result.append(mapped) }
+        }
+        return result
+    }
+
+    /// Which profiles get which stored value. Only a strictly newer order is
+    /// copied, and the copy keeps its time, so the next pass finds nothing to do
+    /// and two orders saved at the same moment never take turns overwriting.
+    static func planProjectOrders(_ inputs: [ProjectInput]) -> [String: String] {
+        struct Parsed { var path: String; var order: [String]?; var time: Double; var presets: [[String: Any]] }
+        func object(_ text: String?) -> [String: Any]? {
+            text.flatMap { try? JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: Any] }
+        }
+        let parsed = inputs.map { input -> Parsed in
+            let order = object(input.order)
+            let presets = (object(input.presets)?["state"] as? [String: Any])?["presets"] as? [[String: Any]]
+            return Parsed(path: input.path, order: order?["value"] as? [String],
+                          time: (order?["timestamp"] as? NSNumber)?.doubleValue ?? 0, presets: presets ?? [])
+        }
+        // A time JSON cannot carry back out is a store nobody should copy from.
+        guard let newest = parsed.filter({ $0.order != nil }).max(by: { $0.time < $1.time }),
+              newest.time.isFinite, let order = newest.order else { return [:] }
+        var plan: [String: String] = [:]
+        for item in parsed where item.path != newest.path {
+            if item.order != nil && item.time >= newest.time { continue }
+            var wanted = translateProjectOrder(order, from: newest.presets, to: item.presets)
+            // What only this account lists — an environment the other has no
+            // equivalent for, a project it has not seen yet — keeps its place
+            // in the list rather than being dropped by a copy.
+            let carried = Set(wanted)
+            wanted += (item.order ?? []).filter { !carried.contains($0) }
+            if item.order == wanted && item.time == newest.time { continue }
+            // A whole time past what an integer holds stays a double rather
+            // than trapping in the conversion.
+            let time = Int64(exactly: newest.time).map { NSNumber(value: $0) } ?? NSNumber(value: newest.time)
+            let value: [String: Any] = ["value": wanted, "tabId": "graft", "timestamp": time]
+            guard let data = try? JSONSerialization.data(withJSONObject: value, options: [.sortedKeys]) else { continue }
+            plan[item.path] = String(decoding: data, as: UTF8.self)
+        }
+        return plan
+    }
+
+    /// Every profile reachable from this one through a mirror pair.
+    static func linkedProfiles(of profile: URL) -> [URL] {
+        var pairs = candidates()
+        var connected: Set<String> = [profile.resolvingSymlinksInPath().path]
+        for _ in 0..<pairs.count {
+            for pair in pairs where connected.contains(pair.borrower.path) || connected.contains(pair.source.path) {
+                connected.formUnion([pair.borrower.path, pair.source.path])
+            }
+        }
+        pairs = pairs.filter { connected.contains($0.borrower.path) && connected.contains($0.source.path) }
+        guard !pairs.isEmpty else { return [] }
+        return connected.sorted().map { URL(fileURLWithPath: $0) }
+    }
+
+    /// Every group of profiles sharing a history, once each. A Claude quitting
+    /// says nothing about which group it belonged to, and a group that leaves
+    /// Claude's own profile out is as likely to have been reordered as one
+    /// that takes it in.
+    ///
+    /// Run after a quit, with nothing being opened. A shortcut opened meanwhile
+    /// waits for the launch lock this runs under, but Claude's own app opened
+    /// from the Dock waits for nothing, and one starting while the helper holds
+    /// its Local Storage cannot open its own. So that profile is given only the
+    /// preferences entry, a file replaced whole that a starting Claude reads
+    /// either before or after, and its timed copy waits for a pass that runs
+    /// with the door shut.
+    static func synchronizeEveryProjectOrder() {
+        var done = Set<String>()
+        for pair in candidates() where !done.contains(pair.borrower.path) {
+            done.formUnion(linkedProfiles(of: pair.borrower).map(\.path))
+            synchronizeProjectOrder(beforeOpening: pair.borrower,
+                                    sparing: { Graft.samePath($0, Graft.mainProfile) })
+        }
+    }
+
+    /// `sparing` names the profiles that could open while this runs, whose
+    /// Local Storage is left alone.
+    static func synchronizeProjectOrder(beforeOpening profile: URL,
+                                        sparing spared: (URL) -> Bool = { _ in false }) {
+        guard !storageBlocked else { return }
+        let profiles = linkedProfiles(of: profile)
+        guard profiles.count > 1 else { return }
+        func anyRunning() -> Bool {
+            let running = Graft.runningClaudes()
+            return profiles.contains { profile in running.contains { Graft.samePath($0, profile) } }
+        }
+        guard !anyRunning() else {
+            Diagnostics.note("projects.sync", ["status": "waiting"])
+            return
+        }
+        do {
+            var accounts: [String: String] = [:]
+            for item in profiles {
+                guard let account = Graft.account(of: item) else { throw Failure("account-not-ready") }
+                accounts[item.path] = account
+            }
+            let read = try projectStorage(action: "projects-read", profiles: profiles.map {
+                ["path": $0.path, "keys": [projectOrderPrefix + accounts[$0.path]!, presetsPrefix + accounts[$0.path]!]]
+            })
+            // What Claude shows comes from the desktop preferences file; the
+            // Local Storage entry carries the time. Where the two disagree, the
+            // preferences are what this account actually displays.
+            let plan = planProjectOrders(profiles.map {
+                let values = read[$0.path] ?? [:], account = accounts[$0.path]!
+                return ProjectInput(path: $0.path,
+                                    order: effectiveProjectOrder(values[projectOrderPrefix + account],
+                                                                 desktop: desktopProjectOrder($0, account: account)),
+                                    presets: values[presetsPrefix + account])
+            })
+            guard !plan.isEmpty else {
+                Diagnostics.note("projects.sync", ["status": "unchanged"])
+                return
+            }
+            guard !anyRunning() else { throw Failure("profile-running") }
+            var orders: [String: [String]] = [:]
+            for item in profiles where plan[item.path] != nil {
+                let value = try JSONSerialization.jsonObject(with: Data(plan[item.path]!.utf8)) as? [String: Any]
+                guard let order = value?["value"] as? [String] else { throw Failure("verification-failed") }
+                orders[item.path] = order
+            }
+            // A spared profile already showing the order has nothing it may be given.
+            let targets = profiles.filter {
+                orders[$0.path] != nil
+                    && !(spared($0) && desktopProjectOrder($0, account: accounts[$0.path]!) == orders[$0.path])
+            }
+            guard !targets.isEmpty else {
+                Diagnostics.note("projects.sync", ["status": "unchanged"])
+                return
+            }
+            // The helper writes the preferences file, before the timed copy:
+            // it is the file people edit by hand, and only `preferencesText`
+            // keeps its key order, indent and mode. A pass stopped between the
+            // two leaves the displayed order new and its time old, which the
+            // next pass copies nowhere, rather than the reverse, which would
+            // carry the old order out under a new time.
+            let written = try projectStorage(action: "projects-write", profiles: targets.map {
+                let account = accounts[$0.path]!, key = projectOrderPrefix + account
+                return ["path": $0.path, "keys": [key], "values": spared($0) ? [:] : [key: plan[$0.path]!],
+                        "prefs": ["key": "code-projects-order." + account, "order": orders[$0.path]!]]
+            })
+            for item in targets where (!spared(item) && written[item.path]?[projectOrderPrefix + accounts[item.path]!] != plan[item.path])
+                || desktopProjectOrder(item, account: accounts[item.path]!) != orders[item.path] {
+                throw Failure("verification-failed")
+            }
+            Diagnostics.note("projects.sync", ["status": "synced",
+                "profiles": targets.map(\.lastPathComponent).joined(separator: ", ")])
+        } catch {
+            Diagnostics.note("projects.sync-skipped", ["reason": error.localizedDescription])
+        }
+    }
+
+    /// The order Claude reads at startup, from `claude_desktop_config.json`.
+    static func desktopProjectOrder(_ profile: URL, account: String) -> [String]? {
+        let file = profile.appending(path: "claude_desktop_config.json")
+        guard !Graft.isSymlink(file), let data = try? Data(contentsOf: file),
+              let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return nil }
+        return ((root["preferences"] as? [String: Any])?["epitaxyPrefs"] as? [String: Any])?[
+            "code-projects-order." + account] as? [String]
+    }
+
+    /// The stored entry with its list replaced by the one Claude displays.
+    static func effectiveProjectOrder(_ stored: String?, desktop: [String]?) -> String? {
+        guard let desktop else { return stored }
+        var value = stored.flatMap { try? JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: Any] }
+            ?? ["tabId": "graft", "timestamp": 0]
+        value["value"] = desktop
+        return (try? JSONSerialization.data(withJSONObject: value, options: [.sortedKeys]))
+            .map { String(decoding: $0, as: UTF8.self) } ?? stored
+    }
+
+    static var projectStorageOverride: ((String, [[String: Any]]) throws -> [String: [String: String]])?
+
+    static func projectStorage(action: String, profiles: [[String: Any]]) throws -> [String: [String: String]] {
+        if let projectStorageOverride { return try projectStorageOverride(action, profiles) }
+        let helper = try prepareHelper()
+        let scratch = root.appending(path: ".projects-\(UUID().uuidString).noindex")
+        try Graft.fm.createDirectory(at: scratch, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        defer { try? Graft.fm.removeItem(at: scratch) }
+        let output = scratch.appending(path: "result.json")
+        let file = scratch.appending(path: "request.json")
+        try JSONSerialization.data(withJSONObject: ["action": action, "profiles": profiles,
+            "scratch": scratch.path, "output": output.path], options: [.sortedKeys]).write(to: file)
+        let task = Process()
+        task.executableURL = helper.appending(path: "Contents/MacOS/sidebar-storage")
+        task.arguments = [file.path]
+        task.standardOutput = FileHandle.nullDevice
+        task.standardError = FileHandle.nullDevice
+        task.environment = ProcessInfo.processInfo.environment.filter {
+            !$0.key.hasPrefix("ELECTRON_") && !$0.key.hasPrefix("NODE_") && !$0.key.hasPrefix("DYLD_")
+        }
+        let done = DispatchSemaphore(value: 0)
+        task.terminationHandler = { _ in done.signal() }
+        try task.run()
+        if done.wait(timeout: .now() + 25) == .timedOut {
+            task.terminate()
+            if done.wait(timeout: .now() + 3) == .timedOut { kill(task.processIdentifier, SIGKILL); done.wait() }
+            throw Failure("storage-timeout")
+        }
+        guard task.terminationStatus == 0,
+              let reply = try JSONSerialization.jsonObject(with: Data(contentsOf: output)) as? [String: Any]
+        else { throw Failure("storage-unavailable") }
+        guard reply["ok"] as? Bool == true, let list = reply["profiles"] as? [[String: Any]] else {
+            throw Failure(reply["error"] as? String ?? "storage-unavailable")
+        }
+        var result: [String: [String: String]] = [:]
+        for item in list {
+            guard let path = item["path"] as? String, let values = item["values"] as? [String: Any] else { continue }
+            result[path] = values.compactMapValues { $0 as? String }
+        }
+        return result
     }
 }

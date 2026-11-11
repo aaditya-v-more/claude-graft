@@ -20,7 +20,7 @@ struct ClaudeGraftApp: App {
                 .environmentObject(store)
                 .environmentObject(settings)
                 .environmentObject(usage)
-                .frame(minWidth: 720, minHeight: 460)
+                .modifier(SmallestWindow())
                 .onAppear {
                     // Not while starting hidden: the delegate is about to close
                     // this window, and showing a Dock icon would undo that.
@@ -30,6 +30,9 @@ struct ClaudeGraftApp: App {
         .defaultSize(width: 820, height: 560)
         .commands {
             CommandGroup(replacing: .newItem) {}
+            // View › Show/Hide Sidebar, with the shortcut every Mac sidebar has.
+            SidebarCommands()
+            GraftHelpCommands()
         }
 
         Settings {
@@ -53,6 +56,10 @@ enum Shared {
     static let updateRecovery = UpdateRecoveryMonitor()
     static let manualUpdates = ManualUpdateSettings()
     static let claudeUpdates = ClaudeDesktopUpdater()
+    static let usagePool = UsagePoolController()
+    static let accountSignIn = AccountSignIn(pool: usagePool)
+    @MainActor static let artifacts = ArtifactCenter()
+    @MainActor static let projects = ProjectCenter(accounts: artifacts)
 }
 
 struct SettingsView: View {
@@ -84,6 +91,10 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
+        // A grouped form scrolls, so it asks for no height of its own and a
+        // window sized from it opens as a titlebar; held to its rows, the
+        // window is exactly as tall as what is in it.
+        .fixedSize(horizontal: false, vertical: true)
         .frame(width: 420)
         .onAppear { settings.refreshLoginItem() }
         .environment(\.controlSurface, ControlSurface.settings)
@@ -113,6 +124,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // keychain dialog; the first poll stays quiet and the prompt waits for
         // the window or the dropdown.
         Shared.usage.mayPromptUnasked = !Shared.startHidden
+        // Up to 2.0.0 the usage request went through the shared session, whose
+        // cache kept the bearer token it carried on disk. Nothing borrowed goes
+        // through that cache now, so emptying it takes the last one with it.
+        DispatchQueue.global(qos: .utility).async { URLCache.shared.removeAllCachedResponses() }
         Shared.usage.start(watching: Shared.store)
         Shared.frontmost.onActivation = { profile in
             Shared.usage.claudeCameForward(profile, store: Shared.store)
@@ -121,12 +136,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Shared.manualUpdates.start(watching: Shared.store)
         Shared.updateRecovery.start(watching: Shared.store)
         Shared.claudeUpdates.start()
+        // Before anything that might wait on the network: a Claude connected to
+        // the pool after a restart has no Claude Code until the relay is back.
+        Shared.usagePool.start(store: Shared.store, usage: Shared.usage)
         Shared.updater.start(holding: Shared.settings)
         // No prompts, no windows: filing records is a thing the menu bar
         // does on its own whether anyone is looking or not. Once, here —
         // the pass that matters runs in a shortcut's launcher, on its way
         // to opening the Claude that will read what it files.
         Shared.sessionRecords.sweep(Shared.store)
+        Shared.sessionRecords.watchForClaudeQuitting(Shared.store)
         // A shortcut goes on behaving like the Graft that built it until its
         // launcher is replaced, and the update that replaced this app never
         // touched them. Off the main thread: this copies binaries and runs
@@ -145,6 +164,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                     openMainWindow: { [weak self] in self?.showMainWindow() })
         watchForWindowClose()
         watchForShutdown()
+        watchForClaudeQuitting()
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
@@ -191,6 +211,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // Everything after launch behaves normally.
             Shared.startHidden = false
         }
+        DispatchQueue.main.asyncAfter(deadline: .now() + WindowPolicy.placementGrace) { [weak self] in
+            guard let self,
+                  WindowPolicy.showsWindowAfterHiddenLaunch(menuBarShowing: self.menuBar?.isShowing == true,
+                                                            hasWindow: Self.hasVisibleWindow)
+            else { return }
+            Diagnostics.note("window.shown", ["reason": "status item out of reach after a hidden launch"])
+            self.showMainWindow()
+        }
+    }
+
+    private static var hasVisibleWindow: Bool {
+        NSApp.windows.contains { $0.isVisible && $0.canBecomeMain && !$0.isMiniaturized }
     }
 
     static let windowOpenKey = "mainWindowOpen"
@@ -209,6 +241,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         } else {
             // Nothing left to raise: a reopen makes SwiftUI build one again.
             NSWorkspace.shared.open(Bundle.main.bundleURL)
+        }
+    }
+
+    /// Claude opened from the Dock runs no launcher, so the moment the last
+    /// Claude closes is the only time left to carry a reordered sidebar to the
+    /// other accounts before one of them opens. The order is read from copies;
+    /// the real database is opened only to write, and only while no Claude runs.
+    private func watchForClaudeQuitting() {
+        NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didTerminateApplicationNotification,
+            object: nil, queue: .main) { note in
+            let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
+            guard app?.bundleIdentifier == "com.anthropic.claudefordesktop" else { return }
+            DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 2) {
+                SidebarSync.withLaunchLock {
+                    guard Graft.runningClaudes().isEmpty else { return }
+                    SidebarSync.synchronizeEveryProjectOrder()
+                }
+            }
         }
     }
 
@@ -244,15 +295,78 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    private func hideDockIconIfWindowless() {
+    @MainActor private func hideDockIconIfWindowless() {
         guard !Self.isTerminating else { return }
-        guard Shared.settings.showInMenuBar, hasShownWindow else { return }
-        let hasWindow = NSApp.windows.contains {
-            $0.isVisible && $0.canBecomeMain && !$0.isMiniaturized
+        // Out of reach, the window is left as though it were still open, so the
+        // next launch brings one up rather than starting hidden behind nothing.
+        guard WindowPolicy.hidesDockIcon(showInMenuBar: Shared.settings.showInMenuBar,
+                                         hasShownWindow: hasShownWindow,
+                                         hasWindow: Self.hasVisibleWindow,
+                                         menuBarShowing: menuBar?.isShowing == true)
+        else { return }
+        UserDefaults.standard.set(false, forKey: Self.windowOpenKey)
+        NSApp.setActivationPolicy(.accessory)
+    }
+}
+
+/// The window goes no smaller than the size every page is laid out for.
+///
+/// The limit SwiftUI takes from a view is the view's, and the root view does
+/// not span the window: the titlebar and toolbar sit outside it by an amount
+/// that is not this app's to know in advance. A plain 820 by 560 frame made the
+/// window taller than that by the toolbar, and the old 720 by 460 let it be
+/// dragged to 777 by 519 with the pages cut off. So the difference between the
+/// window and the root is measured, and the limit is the window size less it.
+struct SmallestWindow: ViewModifier {
+    static let size = CGSize(width: 820, height: 560)
+    @State private var chrome: CGSize?
+
+    func body(content: Content) -> some View {
+        content
+            // Until the window has been measured, a limit below the smallest
+            // size, so the first layout cannot push a saved 820 by 560 frame
+            // any larger.
+            .frame(minWidth: chrome.map { Self.size.width - $0.width } ?? 720,
+                   minHeight: chrome.map { Self.size.height - $0.height } ?? 460)
+            .background(WindowChrome { chrome = $0 })
+    }
+}
+
+private struct WindowChrome: NSViewRepresentable {
+    let measured: (CGSize) -> Void
+
+    func makeNSView(context: Context) -> Probe {
+        let probe = Probe()
+        probe.measured = measured
+        return probe
+    }
+
+    func updateNSView(_ probe: Probe, context: Context) {
+        probe.measured = measured
+    }
+
+    final class Probe: NSView {
+        var measured: ((CGSize) -> Void)?
+        private var last: CGSize?
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            report()
         }
-        if !hasWindow {
-            UserDefaults.standard.set(false, forKey: Self.windowOpenKey)
-            NSApp.setActivationPolicy(.accessory)
+
+        override func layout() {
+            super.layout()
+            report()
+        }
+
+        private func report() {
+            guard let window, bounds.width > 0, bounds.height > 0 else { return }
+            let chrome = CGSize(width: max(0, (window.frame.width - bounds.width).rounded()),
+                                height: max(0, (window.frame.height - bounds.height).rounded()))
+            guard chrome != last else { return }
+            last = chrome
+            // Not inside layout: the answer changes state that lays this out.
+            DispatchQueue.main.async { [measured] in measured?(chrome) }
         }
     }
 }

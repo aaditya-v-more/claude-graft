@@ -5,17 +5,21 @@ import Security
 /// Borrows the access token Claude Desktop already holds for a profile, so
 /// usage can be read for that account from Anthropic's own API.
 ///
-/// Read-only, and deliberately narrow:
+/// Deliberately narrow:
 ///
 /// * only the access token is decoded — never the refresh token, because
 ///   Anthropic rotates those and using one would sign Claude Desktop out;
-/// * nothing is ever written back to Claude's config, cookies or keychain;
+/// * nothing is ever written back to Claude's login, cookies or keychain. The
+///   key seals one thing: the two lines in a Claude's Code environment that
+///   sharing usage needs, written the way Claude writes that field itself;
 /// * the token goes to `api.anthropic.com` and nowhere else.
 ///
 /// The `Claude Safe Storage` item is guarded by an ACL naming the exact builds
 /// allowed to decrypt it, and each name is a code hash rather than a developer.
 /// An ad-hoc signature gives every build its own hash, so every new version
-/// arrives as a stranger and has to be let in again.
+/// arrives as a stranger and has to be let in again. A local build signed with
+/// an Apple Development certificate is trusted by that certificate instead, so
+/// one "Always Allow" covers every later one (`Tools/signing-identity.sh`).
 ///
 /// `Prompting` says who may raise that dialog. Every path reads silently first
 /// and escalates only when that read comes back shut, so a build already on the
@@ -43,6 +47,10 @@ enum ClaudeCredentials {
         case keychainDeclined
         case notSignedIn
         case expired
+        /// `config.json` is there and did not parse, which is Claude part way
+        /// through renaming a new one over it. Not the same as no login: the
+        /// next read finds the file whole.
+        case configUnreadable
 
         var errorDescription: String? {
             switch self {
@@ -60,6 +68,8 @@ enum ClaudeCredentials {
                 return L10n.text("No Claude Desktop login was found for this profile.")
             case .expired:
                 return L10n.text("That profile's login has expired. Open it once so Claude can renew it.")
+            case .configUnreadable:
+                return L10n.text("That profile's settings file could not be read just now. The next refresh tries again.")
             }
         }
     }
@@ -246,13 +256,60 @@ enum ClaudeCredentials {
         return output
     }
 
+    // MARK: - Sealed values
+
+    /// What Electron's safe storage makes of a string on macOS: `v10`, then
+    /// AES-128-CBC under the key above with the same IV every time. One
+    /// plaintext therefore always seals to one value, which is what lets a
+    /// launcher recognise a value Graft prepared without being able to read it.
+    static func seal(_ plain: Data, key: Data) -> String? {
+        let iv = Data(repeating: 0x20, count: kCCBlockSizeAES128)
+        var output = Data(count: plain.count + kCCBlockSizeAES128)
+        var written = 0
+        let capacity = output.count
+        let status = output.withUnsafeMutableBytes { out in
+            plain.withUnsafeBytes { input in
+                key.withUnsafeBytes { keyBytes in
+                    iv.withUnsafeBytes { ivBytes in
+                        CCCrypt(CCOperation(kCCEncrypt), CCAlgorithm(kCCAlgorithmAES),
+                                CCOptions(kCCOptionPKCS7Padding),
+                                keyBytes.baseAddress, key.count,
+                                ivBytes.baseAddress,
+                                input.baseAddress, plain.count,
+                                out.baseAddress, capacity, &written)
+                    }
+                }
+            }
+        }
+        guard status == kCCSuccess else { return nil }
+        output.count = written
+        return (Data("v10".utf8) + output).base64EncodedString()
+    }
+
+    static func unseal(_ sealed: String, key: Data) -> Data? {
+        Data(base64Encoded: sealed).flatMap { decrypt($0, key: key) }
+    }
+
     // MARK: - The token
 
     /// Nil when this profile has no login cached at all.
     static func token(for profile: URL,
                       prompting: Prompting,
                       requiring scopes: [String] = [usageScope]) throws -> Token? {
-        let config = Graft.configJSON(of: profile)
+        guard let all = try tokens(for: profile, prompting: prompting) else { return nil }
+        let best = all.filter { $0.isCurrent && $0.covers(scopes) }.max { $0.expires < $1.expires }
+        guard let best else { throw Failure.expired }
+        return best
+    }
+
+    /// Every entry the profile's cache holds, current or not. The usage pool
+    /// needs the lot: Claude hands Claude Code one of these, and which one is
+    /// Claude's business, so a request is recognised by any of them.
+    ///
+    /// A config caught mid-write throws rather than reading as no login: taken
+    /// for none, it left a lender with nothing to be recognised by for a pass.
+    static func tokens(for profile: URL, prompting: Prompting) throws -> [Token]? {
+        guard let config = Graft.readableConfigJSON(of: profile) else { throw Failure.configUnreadable }
         let encoded = cacheKeys.compactMap { config[$0] as? String }.first
         guard let encoded, let blob = Data(base64Encoded: encoded) else { return nil }
 
@@ -265,21 +322,16 @@ enum ClaudeCredentials {
 
         // The cache holds one entry per client, organization and scope set. The
         // key carries the scopes; the entry carries the token itself.
-        var best: Token?
-        for (composite, value) in cache {
+        return cache.compactMap { composite, value in
             guard let entry = value as? [String: Any],
                   let token = entry["token"] as? String,
                   let expires = entry["expiresAt"] as? Double
-            else { continue }
-            let candidate = Token(value: token,
-                                  expires: Date(timeIntervalSince1970: expires / 1000),
-                                  plan: entry["subscriptionType"] as? String,
-                                  scopes: Self.scopes(in: composite))
-            guard candidate.isCurrent, candidate.covers(scopes) else { continue }
-            if best == nil || candidate.expires > best!.expires { best = candidate }
+            else { return nil }
+            return Token(value: token,
+                         expires: Date(timeIntervalSince1970: expires / 1000),
+                         plan: entry["subscriptionType"] as? String,
+                         scopes: Self.scopes(in: composite))
         }
-        guard let best else { throw Failure.expired }
-        return best
     }
 
     /// Scopes are appended to the cache key after the api host.

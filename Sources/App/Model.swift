@@ -20,6 +20,23 @@ struct Shortcut: Codable, Identifiable, Hashable {
 
         var id: Self { self }
 
+        /// The order colours are handed out in. Claude's own icon is the main
+        /// profile's, so it is never handed out; plain colours go before the
+        /// badged ones, which repeat a colour and differ only by the badge.
+        static let handedOut: [IconPreset] = [.blue, .violet, .green, .red, .pink, .teal, .graphite,
+                                              .work, .personal, .code, .research]
+
+        /// The first colour nothing has yet. One Claude that looked like
+        /// another in the Dock and the menu bar was what made two of them
+        /// indistinguishable, so a colour is shared only when a person picks
+        /// it, or once every one is in use and the least used comes round.
+        static func next(besides taken: [IconPreset]) -> IconPreset {
+            let used = Set(taken)
+            if let free = handedOut.first(where: { !used.contains($0) }) { return free }
+            let count = { (preset: IconPreset) in taken.filter { $0 == preset }.count }
+            return handedOut.min { count($0) < count($1) } ?? .blue
+        }
+
         var title: String {
             switch self {
             case .original: return L10n.text("Original")
@@ -139,7 +156,13 @@ final class ShortcutStore: ObservableObject {
     private func save() {
         try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(),
                                                  withIntermediateDirectories: true)
-        guard let data = try? JSONEncoder().encode(shortcuts) else { return }
+        // Sorted, because the encoder's own key order changes from one run to
+        // the next: a Discard that put back exactly what was there still
+        // rewrote the file in a different order, and a check comparing it
+        // before and after could not tell that from a real change.
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = .sortedKeys
+        guard let data = try? encoder.encode(shortcuts) else { return }
         // Atomic, like every other state file here, and for a reason the others
         // do not have: this is the only one read by other processes. Every
         // launcher reads it to learn which profiles are this app's doing, and a
@@ -172,9 +195,15 @@ final class ShortcutStore: ObservableObject {
     @discardableResult
     func delete(_ id: UUID, deletingProfile: Bool = false) -> String? {
         guard let shortcut = shortcut(id) else { return nil }
-        Installer.uninstall(shortcut)
+        Installer.uninstall(shortcut, among: shortcuts)
 
-        let sharedWithAnother = shortcuts.contains { $0.id != id && $0.folder == shortcut.folder }
+        // As the disk compares them, which ignores case: `Claude-Work` and
+        // `claude-work` are one profile, and deleting either one's would take
+        // the other's.
+        let sharedWithAnother = shortcuts.contains {
+            $0.id != id && (Graft.isNamed($0.folder, shortcut.folder)
+                            || Graft.samePath($0.profileDir, shortcut.profileDir))
+        }
 
         var problem: String?
         if deletingProfile {
@@ -204,11 +233,13 @@ final class ShortcutStore: ObservableObject {
         return problem
     }
 
-    /// Never created, and holding no data: safe to drop without asking.
+    /// Never created, and holding no data: safe to drop without asking. The
+    /// bundle is looked for last, since finding none means reading every app
+    /// in Applications.
     func isDraft(_ shortcut: Shortcut) -> Bool {
         shortcut.installedName == nil
-            && Installer.installedBundle(for: shortcut) == nil
             && !FileManager.default.fileExists(atPath: shortcut.profileDir.path)
+            && Installer.installedBundle(for: shortcut, among: shortcuts) == nil
     }
 
     /// Where a shortcut actually reads its chats from, following one hop.

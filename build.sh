@@ -33,8 +33,10 @@ fi
 
 # Whoever signs, signs everything: a framework left carrying the ad-hoc
 # signature inside an app signed with a Developer ID is a mixed bundle, which
-# notarisation rejects. release.sh sets these; a plain build gets ad-hoc.
-IDENTITY="${GRAFT_SIGNING_IDENTITY:--}"
+# notarisation rejects. release.sh sets these. A plain build is for this Mac
+# alone and takes its Apple Development certificate when there is one, so the
+# keychain that let one build in lets the next one in too.
+IDENTITY="${GRAFT_SIGNING_IDENTITY:-$("$ROOT/Tools/signing-identity.sh")}"
 SIGN_FLAGS="${GRAFT_SIGN_FLAGS:-}"
 
 "$ROOT/Tools/fetch-sparkle.sh"
@@ -71,7 +73,16 @@ compile "$APP/Contents/Resources/graft-launch" \
     "$ROOT/Sources/Shared/Diagnostics.swift" \
     "$ROOT/Sources/Shared/ManualUpdates.swift" \
     "$ROOT/Sources/Shared/ClaudeUpdateGate.swift" \
+    "$ROOT/Sources/Shared/UsagePool.swift" \
+    "$ROOT/Sources/Shared/PoolEnvironment.swift" \
     "$ROOT/Sources/Launcher/main.swift"
+
+# A process of its own so that it goes on answering while Graft is quit: a
+# Claude told to use a proxy that is not there cannot reach the service at all.
+echo "building relay"
+compile "$APP/Contents/Resources/graft-relay" \
+    "$ROOT"/Sources/Shared/*.swift \
+    "$ROOT"/Sources/Relay/*.swift
 
 echo "building app"
 compile "$APP/Contents/MacOS/ClaudeGraft" \
@@ -82,6 +93,8 @@ compile "$APP/Contents/MacOS/ClaudeGraft" \
     "$ROOT/Sources/Shared/Diagnostics.swift" \
     "$ROOT/Sources/Shared/ManualUpdates.swift" \
     "$ROOT/Sources/Shared/ClaudeUpdateGate.swift" \
+    "$ROOT/Sources/Shared/UsagePool.swift" \
+    "$ROOT/Sources/Shared/PoolEnvironment.swift" \
     "$ROOT"/Sources/App/*.swift
 
 echo "embedding Sparkle"

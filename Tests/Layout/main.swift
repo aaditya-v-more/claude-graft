@@ -1,4 +1,5 @@
 import AppKit
+import PDFKit
 import ApplicationServices
 import SwiftUI
 
@@ -38,8 +39,30 @@ Installer.installDirectoryOverride = temporary.appending(path: "Applications")
 Installer.registersWithLaunchServices = false
 Graft.runningClaudesOverride = { [] }
 Shared.usage.mayPromptUnasked = false
-let shortcut = Shortcut(name: "Claude 2")
-Shared.store.shortcuts = [shortcut, Shortcut(name: "Claude 3", source: .own)]
+// Claude 2 is created, borrows Claude's chats and draws on two accounts,
+// which is the fullest a shortcut's pane gets; Claude 3 is a draft. A bundle
+// carrying `graft.json` is all that makes a shortcut created.
+var shortcut = Shortcut(name: "Claude 2")
+shortcut.installedName = "Claude 2"
+let draft = Shortcut(name: "Claude 3", source: .own)
+Shared.store.shortcuts = [shortcut, draft]
+let resources = Installer.installDirectoryOverride!.appending(path: "Claude 2.app/Contents/Resources")
+try fm.createDirectory(at: resources, withIntermediateDirectories: true)
+try JSONEncoder().encode(GraftConfig(profileDir: shortcut.profileDir.path, sourceDir: Graft.mainProfile.path))
+    .write(to: resources.appending(path: "graft.json"))
+// Claude's pane with accounts to draw on, one of them a Claude and one signed
+// in here, written before the pool first reads them. Attached rather than
+// started: nothing in here may run a relay or touch a Code environment.
+let lentAccount = PoolAccount(id: UsagePoolController.accountPrefix + "lent-account", accountUuid: "lent-account",
+                              email: "lent@example.com", organizationName: nil, scopes: ["user:inference"],
+                              expires: Date().addingTimeInterval(3e7), added: Date(), sealed: "")
+try fm.createDirectory(at: UsagePool.accountsFile.deletingLastPathComponent(), withIntermediateDirectories: true)
+try JSONEncoder().encode([lentAccount]).write(to: UsagePool.accountsFile)
+try JSONEncoder().encode(UsageSharing(lenders: [
+    UsagePoolController.mainKey: [UsagePoolController.key(for: shortcut), lentAccount.id],
+    UsagePoolController.key(for: shortcut): [UsagePoolController.mainKey, lentAccount.id],
+])).write(to: UsagePool.settingsFile)
+Shared.usagePool.attach(store: Shared.store, usage: Shared.usage)
 let app = NSApplication.shared
 app.setActivationPolicy(.accessory)
 // Without it AppKit never starts answering accessibility requests, and the
@@ -56,12 +79,38 @@ func descendants(_ view: NSView) -> [NSView] {
 }
 func settle() { RunLoop.main.run(until: Date().addingTimeInterval(0.3)) }
 
+/// Each identified element's name as a reader in another process gets it:
+/// its description, or its title when it has none. The run loop keeps turning
+/// while the reader works, because every question it asks is answered here, on
+/// the main thread, and waiting on it would leave nobody to answer.
+func readFromOutside(_ window: NSWindow) -> [String: String] {
+    guard let reader = Bundle.main.url(forResource: "outside-reader", withExtension: nil) else { return [:] }
+    let process = Process()
+    let pipe = Pipe()
+    process.executableURL = reader
+    process.arguments = [String(getpid()), window.title]
+    process.standardOutput = pipe
+    guard (try? process.run()) != nil else { return [:] }
+    let deadline = Date().addingTimeInterval(20)
+    while process.isRunning && Date() < deadline { RunLoop.main.run(until: Date().addingTimeInterval(0.05)) }
+    if process.isRunning { process.terminate() }
+    let output = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+    var names: [String: String] = [:]
+    for line in output.split(separator: "\n") {
+        let fields = line.split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
+        guard fields.count == 4 else { continue }
+        names[fields[0]] = fields[2].isEmpty ? fields[3] : fields[2]
+    }
+    return names
+}
+
 // MARK: - What VoiceOver and a script see
 
 /// One element as VoiceOver and every other client of the accessibility API
 /// sees it.
 struct Seen {
     var role = "", subrole = "", label = "", title = "", titledBy = "", value = "", identifier = ""
+    var frame = CGRect.zero
     /// What VoiceOver says the element is. A control in a grouped form has
     /// none of its own: AppKit links it to the label drawn beside it instead,
     /// and VoiceOver reads that.
@@ -96,6 +145,12 @@ func seen(_ window: NSWindow) -> [Seen]? {
             default: return ""
             }
         }
+        func frame(_ element: AXUIElement) -> CGRect {
+            var origin = CGPoint.zero, size = CGSize.zero
+            if let value = attribute(element, kAXPositionAttribute) { AXValueGetValue(value as! AXValue, .cgPoint, &origin) }
+            if let value = attribute(element, kAXSizeAttribute) { AXValueGetValue(value as! AXValue, .cgSize, &size) }
+            return CGRect(origin: origin, size: size)
+        }
         // A scroller's arrows belong to AppKit, which names them itself.
         func walk(_ element: AXUIElement) -> [Seen] {
             let role = text(element, kAXRoleAttribute)
@@ -111,11 +166,13 @@ func seen(_ window: NSWindow) -> [Seen]? {
                             title: text(element, kAXTitleAttribute),
                             titledBy: titledBy,
                             value: described.isEmpty ? text(element, kAXValueAttribute) : described,
-                            identifier: text(element, "AXIdentifier"))
+                            identifier: text(element, "AXIdentifier"),
+                            frame: frame(element))
             return [here] + ((attribute(element, kAXChildrenAttribute) as? [AXUIElement]) ?? []).flatMap(walk)
         }
         let windows = (attribute(app, kAXWindowsAttribute) as? [AXUIElement]) ?? []
-        let found = windows.first { text($0, kAXTitleAttribute) == title }.map(walk)
+        // A subtitle is read as part of the title, after it.
+        let found = windows.first { text($0, kAXTitleAttribute).hasPrefix(title) }.map(walk)
         DispatchQueue.main.async { result = found; finished = true }
     }
     let deadline = Date().addingTimeInterval(30)
@@ -145,7 +202,13 @@ func checkAccessibility(_ window: NSWindow, surface: String, _ place: String) ->
     let controls = elements.filter { controlRoles.contains($0.role) && !windowButtons.contains($0.subrole) }
     let unnamed = controls.filter { $0.name.isEmpty }
     check(unnamed.isEmpty, "\(place): every control says what it is \(unnamed.map(\.described))")
-    let unidentified = controls.filter { !$0.identifier.hasPrefix(ours) }
+    // The sidebar's own toggle is the split view's, which AppKit names in
+    // the person's language and this app does not build. It is known by the
+    // toolbar item SwiftUI puts it in, never by its words.
+    let systemToggles = Set((window.toolbar?.items ?? [])
+        .filter { $0.itemIdentifier.rawValue.hasSuffix("navigationSplitView.toggleSidebar") }
+        .map(\.label))
+    let unidentified = controls.filter { !$0.identifier.hasPrefix(ours) && !systemToggles.contains($0.name) }
     check(unidentified.isEmpty,
           "\(place): every control can be asked for by a name this app gave it \(unidentified.map(\.described))")
     let roleless = elements.filter { $0.role == kAXUnknownRole && $0.identifier.hasPrefix(ours) }
@@ -166,6 +229,39 @@ func element(_ name: String, in elements: [Seen]) -> Seen? {
     elements.first { $0.identifier == name }
 }
 
+/// Brings the window on screen long enough for the window server to draw it
+/// with its frame, and asks `screencapture` for that one window.
+func capture(_ window: NSWindow, as name: String, in directory: String) {
+    let wasVisible = window.isVisible && window.frame.minX > -5000
+    let origin = window.frame.origin
+    if !wasVisible { window.setFrameOrigin(NSPoint(x: 80, y: 120)) }
+    window.orderFrontRegardless()
+    RunLoop.main.run(until: Date().addingTimeInterval(1.2))
+    try? fm.createDirectory(atPath: directory, withIntermediateDirectories: true)
+    let shot = Process()
+    shot.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
+    shot.arguments = ["-x", "-o", "-l", String(window.windowNumber), "\(directory)/\(name).png"]
+    try? shot.run()
+    shot.waitUntilExit()
+    if !wasVisible {
+        window.setFrameOrigin(origin)
+        window.orderBack(nil)
+        settle()
+    }
+}
+
+/// The height a scroll view shows its document in: its clip view less what
+/// sits over it, the toolbar above and the buttons along the bottom. Those
+/// insets reach the clip view either through the scroll view, which hands
+/// its own on, or set on the clip view alone; counting both counts the
+/// toolbar twice, and counting neither passed with the last row hidden.
+func room(in scroll: NSScrollView) -> CGFloat {
+    let clip = scroll.contentView
+    return clip.bounds.height
+        - max(clip.contentInsets.top, scroll.contentInsets.top)
+        - max(clip.contentInsets.bottom, scroll.contentInsets.bottom)
+}
+
 final class LayoutWindow: NSWindow {
     // CI's virtual display can be smaller than the largest test window. Keep
     // AppKit from shrinking that case to the screen instead of testing it.
@@ -174,19 +270,110 @@ final class LayoutWindow: NSWindow {
     }
 }
 
+// Figures for the two Claudes, with all three bars, as an account on a plan
+// with a Fable allowance shows them. A usage pass in here finds no login and
+// would leave them empty, so they are put back before every measurement.
+let taken = Date()
+let pageFigures = [Graft.mainProfile, shortcut.profileDir].map { profile in
+    UsageMonitor.Entry(name: profile == Graft.mainProfile ? "Claude" : "Claude 2", profile: profile,
+                       usage: Graft.Usage(fiveHour: 6, week: 20, organization: nil, sampled: taken,
+                                          fiveHourReset: taken.addingTimeInterval(4 * 3600),
+                                          weekReset: taken.addingTimeInterval(4 * 86400),
+                                          fable: 3, fableReset: taken.addingTimeInterval(4 * 86400)),
+                       isRunning: false, shortcut: profile == Graft.mainProfile ? nil : shortcut.id,
+                       isLive: true, plan: "Max", refreshed: taken)
+}
+
+func sampleArtifacts() -> (ArtifactCenter, [Artifact]) {
+    MainActor.assumeIsolated {
+        let first = ArtifactAccount(id: UUID(), email: "me@example.com", accountUuid: "a1", org: "o1")
+        let second = ArtifactAccount(id: UUID(), email: "lent@example.com", accountUuid: "a2", org: "o2")
+        func artifact(_ id: String, _ title: String, _ account: ArtifactAccount, _ audience: String,
+                      _ rel: String) -> Artifact {
+            Artifact(id: id, account: account.id, org: account.org!, title: title, kind: "page",
+                     openURL: URL(string: "https://claude.ai/artifact/\(id)"), audience: audience, rel: rel,
+                     sortTime: taken, ownerAccount: nil)
+        }
+        let samples = [
+            artifact("11111111-a", "Quarterly plan with a title long enough to need cutting short somewhere", first, "public", "mine"),
+            artifact("22222222-b", "Pool check", first, "owner", "mine"),
+            artifact("33333333-c", "Design review", second, "users", "shared"),
+        ]
+        let groups = [ArtifactGroup(id: UUID(), name: "Design", emails: ["a@example.com", "b@example.com"])]
+        return (ArtifactCenter(accounts: [first, second], artifacts: samples, groups: groups), samples)
+    }
+}
+
+/// Every page the sidebar leads to, each in the state that fills it most.
+struct Page {
+    let name: String
+    let selection: UUID
+    let profile: URL?
+}
+let pages = [
+    Page(name: "claude", selection: ContentView.mainProfileID, profile: Graft.mainProfile),
+    Page(name: "claude-2", selection: shortcut.id, profile: shortcut.profileDir),
+    Page(name: "claude-3-draft", selection: draft.id, profile: draft.profileDir),
+    Page(name: "artifacts", selection: ContentView.artifactsID, profile: nil),
+    Page(name: "projects", selection: ContentView.projectsID, profile: nil),
+    Page(name: "search", selection: ContentView.searchID, profile: nil),
+]
+let (pageArtifacts, artifactSamples) = sampleArtifacts()
+
+/// Projects and search results drawn from sample rows, over the same sample
+/// accounts, for the same reason: the real ones are asked of claude.ai.
+func sampleProjects(_ accounts: ArtifactCenter) -> ProjectCenter {
+    MainActor.assumeIsolated {
+        let first = accounts.accounts[0].id
+        let second = accounts.accounts[1].id
+        let projects = [
+            ClaudeProject(id: "p1111111-a", account: first, name: "Claude Graft", summary: "The app",
+                          isPrivate: true, isStarred: true, isExample: false, creator: nil, updated: taken),
+            ClaudeProject(id: "p2222222-b", account: second, name: "A project with a name long enough to need cutting short",
+                          summary: "", isPrivate: false, isStarred: false, isExample: false, creator: nil, updated: taken),
+            ClaudeProject(id: "p3333333-c", account: first, name: "How to use Claude", summary: "",
+                          isPrivate: true, isStarred: false, isExample: true, creator: nil, updated: taken),
+        ]
+        func hit(_ id: String, _ account: UUID, _ kind: SearchHit.Kind, _ title: String, _ snippet: String,
+                 place: SearchHit.Place? = nil, archived: Bool = false, project: String? = nil) -> SearchHit {
+            SearchHit(id: id, account: account, kind: kind, title: title, snippet: snippet,
+                      snippetMatches: [0..<5], titleMatches: [0..<5], project: project, updated: taken,
+                      isArchived: archived, isStarred: kind == .chat && project != nil, place: place,
+                      folder: kind == .code ? snippet : nil,
+                      transcript: place == .goneFromClaude ? URL(fileURLWithPath: "/tmp/\(id).jsonl") : nil,
+                      rank: 0, openURL: place == .goneFromClaude ? nil : URL(string: "https://claude.ai/chat/\(id)"))
+        }
+        let results = [
+            hit("c1111111-a", first, .chat, "Graft release plan", "Graft ships both architectures and a note for the floor version, which is long enough to wrap onto a second line here", project: "p1111111-a"),
+            hit("c2222222-b", second, .chat, "Graft on a lent account", "Graft lends the week to the account with the soonest reset"),
+            hit("cse_3333333", first, .code, "Graft layout fix", "/Users/Shared/Developer/claude-graft", place: .thisMac),
+            hit("local-gone", first, .code, "Graft notes", "/Users/Shared/Developer/claude-graft", place: .goneFromClaude),
+        ]
+        return ProjectCenter(accounts: accounts, projects: projects, results: results, searched: "Graft")
+    }
+}
+let pageProjects = sampleProjects(pageArtifacts)
+
 for appearance in [NSAppearance.Name.aqua, .darkAqua] {
-for selection in [ContentView.mainProfileID, shortcut.id] {
-    let root = ContentView(selection: selection)
+for page in pages {
+    let root = ContentView(selection: page.selection, artifacts: pageArtifacts, projects: pageProjects)
         .environmentObject(Shared.store)
         .environmentObject(Shared.settings)
         .environmentObject(Shared.usage)
-    let hosting = NSHostingView(rootView: root)
-    hosting.sizingOptions = []
+    // Built the way the app's own window is: the toolbar and title come from
+    // the view, and the content runs up under the titlebar, which is where a
+    // sidebar and a title can be seen to be one piece or two.
+    let controller = NSHostingController(rootView: root)
+    controller.sizingOptions = []
+    if #available(macOS 14, *) { controller.sceneBridgingOptions = .all }
     let window = LayoutWindow(contentRect: NSRect(x: 100, y: 100, width: 820, height: 560),
-                          styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
-    window.contentView = hosting
+                              styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+                              backing: .buffered, defer: false)
+    window.contentViewController = controller
+    window.setContentSize(NSSize(width: 820, height: 560))
+    let hosting = controller.view
     window.appearance = NSAppearance(named: appearance)
-    window.title = "Claude Graft layout check"
+    window.title = "Claude Graft"
     if ProcessInfo.processInfo.environment["GRAFT_LAYOUT_VISIBLE"] == "1" {
         window.orderFront(nil)
     } else {
@@ -194,7 +381,7 @@ for selection in [ContentView.mainProfileID, shortcut.id] {
         window.orderBack(nil)
     }
     settle()
-    var currentOffsets: [CGFloat: CGFloat] = [:]
+    let pageName = "the \(page.name) page"
     for state in ["current", "available", "error", "current-again"] {
         UpdateResponse.available = state == "available"
         UpdateResponse.failing = state == "error"
@@ -211,34 +398,108 @@ for selection in [ContentView.mainProfileID, shortcut.id] {
             .sizeThatFits(in: CGSize(width: 320, height: 1000)).height
         check(dropdownHeader <= (state.hasPrefix("current") ? 32 : 52),
               "\(state): the dropdown's update line takes \(state.hasPrefix("current") ? "one line" : "two at most")")
-        for size in [NSSize(width: 720, height: 460), NSSize(width: 820, height: 560),
-                     NSSize(width: 1200, height: 800)] {
+        for size in [NSSize(width: 820, height: 560), NSSize(width: 1200, height: 800)] {
+            Shared.usage.setEntriesForTesting(pageFigures)
             window.setContentSize(size)
             settle()
+            if Shared.usage.entry(for: Graft.mainProfile)?.usage == nil {
+                Shared.usage.setEntriesForTesting(pageFigures)
+                settle()
+            }
             hosting.layoutSubtreeIfNeeded()
+            let place = "\(state), \(size), \(pageName)"
             check(abs(hosting.bounds.width - size.width) <= 1
                   && abs(hosting.bounds.height - size.height) <= 1,
                   "the window reaches the requested \(size) size")
             let views = descendants(hosting)
             if size.width == 820, state == "current" || state == "available" {
-                let main = selection == ContentView.mainProfileID
-                let place = "\(state), the \(main ? "main profile's" : "shortcut's") window"
-                let tree = checkAccessibility(window, surface: ControlSurface.window, place)
-                let profile = main ? Graft.mainProfile.lastPathComponent : shortcut.profileDir.lastPathComponent
-                let scope = "\(ControlSurface.window).\(profile)."
-                check(element(scope + "usage-info", in: tree)?.name
-                        == L10n.format("About %@", L10n.text("Plan usage")),
-                      "\(place): the button explaining a section says which section, not “Error”")
-                check(element(scope + "show-in-finder", in: tree)?.name == L10n.text("Show in Finder"),
-                      "\(place): the folder button says it shows the folder, not “Move”")
-                check(element(scope + "folder", in: tree)?.name == L10n.text("Profile folder"),
-                      "\(place): the profile folder is read out under its own name")
-                check(element(scope + "open", in: tree)?.role == kAXButtonRole,
-                      "\(place): Open can be asked for by the profile it opens")
-                check(element("\(ControlSurface.window).sidebar.\(profile)", in: tree) != nil,
-                      "\(place): each sidebar row can be asked for by its profile")
+                let tree = checkAccessibility(window, surface: ControlSurface.window, "\(state), \(pageName)")
+                check(element("\(ControlSurface.window).new-shortcut", in: tree) != nil,
+                      "\(place): New Shortcut in the toolbar can be asked for by name")
+                let toggle = window.toolbar?.items.first {
+                    $0.itemIdentifier.rawValue.hasSuffix("navigationSplitView.toggleSidebar")
+                }
+                check(toggle.map { item in tree.contains { $0.role == kAXButtonRole && $0.name == item.label } } == true,
+                      "\(place): the sidebar can be hidden from the toolbar, as any sidebar can")
                 check(state != "available" || element("window.claude-update.install", in: tree) != nil,
                       "\(place): a waiting Claude update can be asked for by name")
+                if let profileDir = page.profile {
+                    let profile = profileDir.lastPathComponent
+                    let scope = "\(ControlSurface.window).\(profile)."
+                    check(element(scope + "usage-info", in: tree)?.name
+                            == L10n.format("About %@", L10n.text("Plan usage")),
+                          "\(place): the button explaining a section says which section, not “Error”")
+                    check(element(scope + "show-in-finder", in: tree)?.name == L10n.text("Show in Finder"),
+                          "\(place): the folder button says it shows the folder, not “Move”")
+                    check(element(scope + "folder", in: tree)?.name == L10n.text("Profile folder"),
+                          "\(place): the profile folder is read out under its own name")
+                    check(element(scope + "open", in: tree)?.role == kAXButtonRole,
+                          "\(place): Open can be asked for by the profile it opens")
+                    check(element("\(ControlSurface.window).sidebar.\(profile)", in: tree) != nil,
+                          "\(place): each sidebar row can be asked for by its profile")
+                    if page.profile != draft.profileDir {
+                        check(element(scope + "week", in: tree)?.role == kAXProgressIndicatorRole,
+                              "\(place): the week's figure is drawn")
+                        check(element(scope + "shared-usage.add", in: tree) != nil,
+                              "\(place): adding an account can be asked for by name")
+                    }
+                    if page.selection == ContentView.mainProfileID {
+                        let lent = scope + "lender.\(shortcut.profileDir.lastPathComponent)"
+                        check(element(lent, in: tree)?.name == "Claude 2",
+                              "\(place): an account Claude draws on is read out under its own name")
+                        check(element(lent + ".remove", in: tree)?.name == L10n.format("Stop drawing on %@", "Claude 2"),
+                              "\(place): the button taking an account away says which account, not “Remove”")
+                        check(element(scope + "lender.lent-account.remove", in: tree)?.name
+                                == L10n.format("Stop drawing on %@", "lent@example.com"),
+                              "\(place): an account signed in here is named by its email")
+                    }
+                }
+                if page.profile == nil {
+                    // One sign-in for all three: each page heads itself with
+                    // the same accounts, each offering to sign in again or out.
+                    let scope = page.selection == ContentView.projectsID ? "projects"
+                        : page.selection == ContentView.searchID ? "search" : "artifacts"
+                    for account in MainActor.assumeIsolated({ pageArtifacts.accounts }) {
+                        check(element("window.\(scope).account.\(account.id.uuidString.prefix(8))", in: tree) != nil,
+                              "\(place): \(account.email ?? "") is shown as signed in here too")
+                    }
+                }
+                if page.selection == ContentView.projectsID {
+                    for control in ["refresh", "add-account", "filter", "count"] {
+                        check(element("window.projects.\(control)", in: tree) != nil,
+                              "\(place): projects \(control) can be asked for by name")
+                    }
+                    check(element("window.project.p1111111.open", in: tree)?.name
+                            == L10n.format("Open %@", "Claude Graft"),
+                          "\(place): opening a project says which project")
+                    check(element("window.project.p3333333", in: tree)?.value.contains(L10n.text("Example")) == true,
+                          "\(place): the example project says it is one")
+                } else if page.selection == ContentView.searchID {
+                    for control in ["query", "go", "filters", "add-account"] {
+                        check(element("window.search.\(control)", in: tree) != nil,
+                              "\(place): search \(control) can be asked for by name")
+                    }
+                    check(element("window.search.filters", in: tree)?.name == L10n.text("Filters"),
+                          "\(place): the filter icon is read out as the filters, not as a picture")
+                    check(element("window.search.kind", in: tree) == nil,
+                          "\(place): the filters stay behind their icon rather than across the page")
+                    check(element("window.hit.c1111111.open", in: tree)?.name
+                            == L10n.format("Open %@", "Graft release plan"),
+                          "\(place): opening a chat says which chat")
+                    check(element("window.hit.local-go.open", in: tree)?.name
+                            == L10n.format("Show %@ in Finder", "Graft notes"),
+                          "\(place): a session gone from claude.ai offers Finder, not a dead link")
+                    check(element("window.hit.3333333", in: tree)?.value.contains(L10n.text("On this Mac")) == true,
+                          "\(place): a Code session says where it ran")
+                } else if page.selection == ContentView.artifactsID {
+                    for control in ["refresh", "add-account", "filter", "search", "groups"] {
+                        check(element("window.artifacts.\(control)", in: tree) != nil,
+                              "\(place): \(control) can be asked for by name")
+                    }
+                    let share = element("window.artifact.11111111.share", in: tree)
+                    check(share?.name == L10n.format("Share %@ with a Group", artifactSamples[0].title),
+                          "\(place): sharing says which artifact it shares \(share?.described ?? "missing")")
+                }
             }
             if let directory = ProcessInfo.processInfo.environment["GRAFT_LAYOUT_SNAPSHOTS"],
                state == "current", size.width == 820 {
@@ -246,49 +507,101 @@ for selection in [ContentView.mainProfileID, shortcut.id] {
                     .appending(path: Bundle.main.preferredLocalizations.first ?? "en")
                     .appending(path: appearance == .aqua ? "light" : "dark")
                 try! fm.createDirectory(at: output, withIntermediateDirectories: true)
-                let name = selection == ContentView.mainProfileID ? "main" : "shortcut"
-                if let bitmap = hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds) {
-                    hosting.cacheDisplay(in: hosting.bounds, to: bitmap)
-                    try! bitmap.representation(using: .png, properties: [:])!
-                        .write(to: output.appending(path: "\(name).png"))
-                }
                 let tree = views.map { "\(type(of: $0)) \(hosting.convert($0.bounds, from: $0))" }
                 try! tree.joined(separator: "\n").write(
-                    to: output.appending(path: "\(name)-views.txt"), atomically: true, encoding: .utf8)
+                    to: output.appending(path: "\(page.name)-views.txt"), atomically: true, encoding: .utf8)
             }
+            // The whole window, titlebar and all, as a person sees it: what a
+            // snapshot of the content leaves out is exactly the sidebar
+            // running up under the title and the title reading as one piece.
+            if let directory = ProcessInfo.processInfo.environment["GRAFT_LAYOUT_WINDOWS"],
+               state == "current", size.width == 820 {
+                let language = Bundle.main.preferredLocalizations.first ?? "en"
+                capture(window, as: "\(language)-\(appearance == .aqua ? "light" : "dark")-\(page.name)",
+                        in: directory)
+            }
+
+            // A real sidebar: the split view's first item is a sidebar, and
+            // it runs the full height of the window, up under the titlebar.
             let split = views.compactMap { $0 as? NSSplitView }.first!
             let splitBounds = hosting.convert(split.bounds, from: split)
+            check(abs(splitBounds.minY) <= 1 && splitBounds.maxY <= hosting.bounds.maxY + 1,
+                  "\(place): the split view fills the window from its top edge")
+            // A page wider than the window does not make the window grow: it
+            // pushes the sidebar off the left edge and itself off the right.
+            check(splitBounds.minX >= -1 && splitBounds.maxX <= hosting.bounds.maxX + 1,
+                  "\(place): the page fits the window's width \(Int(splitBounds.width)) in \(Int(hosting.bounds.width))")
+            let controllerItem = (split.delegate as? NSSplitViewController)?.splitViewItems.first
+            check(controllerItem?.behavior == .sidebar,
+                  "\(place): the first column is a sidebar, not one half of a split")
+            let column = split.arrangedSubviews.first.map { hosting.convert($0.bounds, from: $0) } ?? .zero
+            check(column.minY <= 1 && column.maxY >= hosting.bounds.maxY - 1,
+                  "\(place): the sidebar runs the full height of the window, under the titlebar")
+            let titlebarHeight = window.frame.height - window.contentLayoutRect.height
+            // One backdrop over each column at the very top, and none lower
+            // down: one drawn inside the detail covered its first heading.
             let titlebars = views.filter {
                 String(describing: type(of: $0)) == "NSTitlebarBackgroundView"
                     && !$0.isHiddenOrHasHiddenAncestor && $0.bounds.height > 1
+            }.map { hosting.convert($0.bounds, from: $0) }
+            check(titlebars.allSatisfy { $0.minY <= 1 && $0.height <= titlebarHeight + 1 },
+                  "\(place): no titlebar backdrop sits below the titlebar \(titlebars)")
+            // The title lies wholly on one side of the sidebar's edge: across
+            // it, the split cut the title in two.
+            let edge = split.arrangedSubviews.first.map { $0.convert($0.bounds, to: nil).maxX } ?? 0
+            let titles = (window.contentView?.superview).map(descendants)?
+                .compactMap { $0 as? NSTextField }
+                .filter { $0.stringValue == window.title && !$0.isHiddenOrHasHiddenAncestor }
+                .map { $0.convert($0.bounds, to: nil) } ?? []
+            check(!titles.isEmpty && titles.allSatisfy { $0.minX >= edge - 1 || $0.maxX <= edge + 1 },
+                  "\(place): the title reads as one piece, clear of the sidebar's edge \(titles) edge \(edge)")
+
+            let sidebarList = split.arrangedSubviews.first.map(descendants)?
+                .compactMap { $0 as? NSOutlineView }.first
+            check(sidebarList != nil, "\(place): the sidebar lists the profiles")
+            if let sidebarList {
+                let account = hosting.convert(sidebarList.rect(ofRow: 1), from: sidebarList)
+                check(account.minY >= titlebarHeight - 1 && account.maxY <= hosting.bounds.maxY,
+                      "\(place): the main account row is fully visible, below the titlebar")
             }
-            check(titlebars.isEmpty,
-                  "\(state), \(size): no extra titlebar covers the profile section heading")
-            // A split view drawn underneath an inset still starts at y=0. Its
-            // own bounds must instead begin below the whole update line, at
-            // whatever height the line has in this state, and its divider.
-            let header = NSHostingController(rootView: ClaudeUpdateStatus())
-                .sizeThatFits(in: CGSize(width: size.width, height: 1000)).height
-            check(header >= 30 && abs(splitBounds.minY - (header + 1)) <= 1,
-                  "\(state), \(size): profiles start right below the update header")
-            check(header <= 52, "\(state), \(size): the update header takes two lines at most")
-            if state == "current" { currentOffsets[size.width] = splitBounds.minY }
-            if let original = currentOffsets[size.width], state == "available" || state == "current-again" {
-                check(abs(splitBounds.minY - original) <= 1,
-                      "\(state), \(size): the header keeps to one line, a waiting update included")
+            let sidebarLine = NSHostingController(rootView: ClaudeUpdateStatus(stacked: true))
+                .sizeThatFits(in: CGSize(width: 220, height: 1000)).height
+            check(sidebarLine <= (state == "available" ? 90 : 52),
+                  "\(place): the sidebar's update line takes two lines at most, and its button one more")
+
+            // Every page is done in one view, without scrolling: what does not
+            // fit goes behind an ⓘ, never below the bottom edge or under the
+            // toolbar. A horizontal strip of account chips is not a page.
+            let sidebarScroll = sidebarList?.enclosingScrollView
+            let pageScrolls = views.compactMap { $0 as? NSScrollView }.filter {
+                $0 !== sidebarScroll && !$0.isHiddenOrHasHiddenAncestor && $0.bounds.height > 40
             }
-            check(splitBounds.maxY <= hosting.bounds.maxY + 1,
-                  "\(state), \(size): profiles fit inside the window")
-            let list = views.compactMap { $0 as? NSOutlineView }.first!
-            let account = hosting.convert(list.rect(ofRow: 1), from: list)
-            check(account.minY >= splitBounds.minY && account.maxY <= splitBounds.maxY,
-                  "\(state), \(size): the main account row is fully visible")
-            let scrolls = views.compactMap { $0 as? NSScrollView }
-            check(scrolls.count >= 2, "both the sidebar and profile form are present")
-            for scroll in scrolls {
-                let bounds = hosting.convert(scroll.bounds, from: scroll)
-                check(bounds.minY >= splitBounds.minY - 1,
-                      "\(state), \(size): a scroll view cannot extend under the header")
+            check(!pageScrolls.isEmpty, "\(place): the page is present")
+            for scroll in pageScrolls {
+                let frame = hosting.convert(scroll.bounds, from: scroll)
+                let top = max(scroll.contentView.contentInsets.top, scroll.contentInsets.top)
+                check(frame.minY + top >= titlebarHeight - 1,
+                      "\(place): nothing on the page starts under the toolbar")
+                guard size == NSSize(width: 820, height: 560), let document = scroll.documentView else { continue }
+                // A list's table stretches to fill whatever it is shown in, so
+                // what it holds is where its last row ends, not its own height.
+                let table = document as? NSTableView
+                let content = table.map { $0.numberOfRows == 0 ? 0 : $0.rect(ofRow: $0.numberOfRows - 1).maxY }
+                    ?? document.frame.height
+                let overflow = content - room(in: scroll)
+                check(overflow <= 1, "\(place): fits without scrolling (\(Int(overflow)) points over)")
+                // A page over on one macOS and not another is found by which
+                // row grew, and the machine that sees it may be one nobody can
+                // sit at, so the failure says where every row lies.
+                if overflow > 1 || ProcessInfo.processInfo.environment["GRAFT_LAYOUT_ROWS"] == "1", state == "current" {
+                    print("ROWS \(place): document \(Int(content)), room \(Int(room(in: scroll)))")
+                    for row in seen(window) ?? [] where row.frame.height > 0 && (!row.identifier.isEmpty || row.role == kAXStaticTextRole) {
+                        print("    y \(Int(row.frame.minY)) h \(Int(row.frame.height)) \(row.described) \(row.value.prefix(40))")
+                    }
+                }
+                if ProcessInfo.processInfo.environment["GRAFT_LAYOUT_MARGINS"] == "1" {
+                    print("MARGIN \(page.name) \(state) \(Int(-overflow))")
+                }
             }
         }
     }
@@ -381,12 +694,301 @@ check(element("dropdown.\(Graft.mainProfile.lastPathComponent).account", in: row
       "a running Claude's heading says so")
 rows.orderOut(nil)
 
-let settingsWindow = hosted(SettingsView().environmentObject(Shared.settings), title: "Settings check")
+// Drawn from figures, since in here no relay has carried a conversation.
+let claude2 = UsagePoolController.key(for: shortcut)
+let conversations = hosted(ConversationList(chats: [
+    UsagePoolController.Chat(id: "first-session", title: "Plan the next release", claude: UsagePoolController.mainKey,
+                             servedBy: claude2, assigned: nil, choices: [UsagePoolController.mainKey, claude2],
+                             lastAt: now, passedOver: false),
+    UsagePoolController.Chat(id: "second-session", title: nil, claude: UsagePoolController.mainKey,
+                             servedBy: UsagePoolController.mainKey, assigned: claude2,
+                             choices: [UsagePoolController.mainKey, claude2],
+                             lastAt: now.addingTimeInterval(-60), passedOver: true),
+], front: UsagePoolController.mainKey, othersShown: true)
+.frame(width: 320)
+.environment(\.controlSurface, ControlSurface.dropdown), title: "Conversations check")
+let conversationTree = checkAccessibility(conversations, surface: ControlSurface.dropdown, "conversations in the dropdown")
+let moving = element("dropdown.conversation.first-session.account", in: conversationTree)
+check(moving?.name == L10n.format("Account answering “%@”", "Plan the next release"),
+      "the menu moving a conversation says which conversation it moves, not only an account")
+check(moving?.value == L10n.format("Auto · %@", "Claude 2"),
+      "and it says which account answers that conversation now, and that the ranking put it there")
+check(element("dropdown.conversation.second-session.account", in: conversationTree)?.value == "Claude",
+      "one moved by hand reads the account's name alone")
+check(element("dropdown.conversation.second-session", in: conversationTree)?.value
+        == L10n.format("%@ had no room", "Claude 2"),
+      "a conversation the chosen account could not take says so out loud as well as in orange")
+check(element("dropdown.conversations.others", in: conversationTree)?.value == L10n.text("Shown"),
+      "the other conversations sit behind a line that says whether they are shown")
+conversations.orderOut(nil)
+
+let folded = hosted(ConversationList(chats: [
+    UsagePoolController.Chat(id: "first-session", title: "Plan the next release", claude: UsagePoolController.mainKey,
+                             servedBy: claude2, assigned: nil, choices: [UsagePoolController.mainKey, claude2],
+                             lastAt: now, passedOver: false),
+    UsagePoolController.Chat(id: "second-session", title: nil, claude: UsagePoolController.mainKey,
+                             servedBy: UsagePoolController.mainKey, assigned: nil,
+                             choices: [UsagePoolController.mainKey, claude2],
+                             lastAt: now.addingTimeInterval(-60), passedOver: false),
+], front: UsagePoolController.mainKey)
+.frame(width: 320)
+.environment(\.controlSurface, ControlSurface.dropdown), title: "Folded conversations check")
+let foldedTree = checkAccessibility(folded, surface: ControlSurface.dropdown, "folded conversations")
+check(element("dropdown.conversation.first-session", in: foldedTree) != nil
+        && element("dropdown.conversation.second-session", in: foldedTree) == nil
+        && element("dropdown.conversations.others", in: foldedTree)?.name
+            == L10n.format("Other conversations · %ld", 1),
+      "the conversation in front comes first, and the rest wait behind a count until asked for")
+folded.orderOut(nil)
+
+// Sized by its content, as the Settings scene sizes its window.
+let settingsController = NSHostingController(rootView: SettingsView().environmentObject(Shared.settings))
+let settingsWindow = LayoutWindow(contentViewController: settingsController)
+settingsWindow.styleMask = [.titled, .closable]
+settingsWindow.title = "Settings check"
+settingsWindow.setFrameOrigin(NSPoint(x: -10000, y: -10000))
+settingsWindow.orderBack(nil)
+settle()
+for scroll in descendants(settingsWindow.contentView!).compactMap({ $0 as? NSScrollView }) {
+    guard let document = scroll.documentView else { continue }
+    let overflow = document.frame.height - room(in: scroll)
+    check(overflow <= 1, "Settings fits its window without scrolling (\(Int(overflow)) points over)")
+}
+if let directory = ProcessInfo.processInfo.environment["GRAFT_LAYOUT_WINDOWS"] {
+    capture(settingsWindow, as: "\(Bundle.main.preferredLocalizations.first ?? "en")-settings", in: directory)
+}
 let settingsTree = checkAccessibility(settingsWindow, surface: ControlSurface.settings, "Settings")
 check(["open-at-login", "show-in-menu-bar", "front-icon", "front-name", "manual-updates", "hold-updates"]
         .allSatisfy { element("settings.\($0)", in: settingsTree) != nil },
       "every switch in Settings can be asked for by name, apart from the dropdown's copy of it")
 settingsWindow.orderOut(nil)
+
+// Artifacts, drawn from sample rows: the real list is asked of claude.ai,
+// which a layout check must never reach.
+MainActor.assumeIsolated {
+    let first = ArtifactAccount(id: UUID(), email: "me@example.com", accountUuid: "a1", org: "o1")
+    let second = ArtifactAccount(id: UUID(), email: "lent@example.com", accountUuid: "a2", org: "o2")
+    func artifact(_ id: String, _ title: String, _ account: ArtifactAccount, _ audience: String,
+                  _ rel: String) -> Artifact {
+        Artifact(id: id, account: account.id, org: account.org!, title: title, kind: "page",
+                 openURL: URL(string: "https://claude.ai/artifact/\(id)"), audience: audience, rel: rel,
+                 sortTime: now, ownerAccount: nil)
+    }
+    let samples = [
+        artifact("11111111-a", "Quarterly plan with a title long enough to need cutting short somewhere", first, "public", "mine"),
+        artifact("22222222-b", "Pool check", first, "owner", "mine"),
+        artifact("33333333-c", "Design review", second, "users", "shared"),
+    ]
+    let groups = [ArtifactGroup(id: UUID(), name: "Design", emails: ["a@example.com", "b@example.com"])]
+    for (name, center) in [("artifacts", ArtifactCenter(accounts: [first, second], artifacts: samples, groups: groups)),
+                           ("artifacts-signed-out", ArtifactCenter(accounts: [], artifacts: [], groups: []))] {
+        // The window's own background, which a snapshot taken off screen
+        // does not draw and which the split view gives it in the app.
+        let hosting = NSHostingView(rootView: ArtifactsView(center: center)
+            .background(Color(nsColor: .windowBackgroundColor))
+            .environment(\.controlSurface, ControlSurface.window))
+        hosting.sizingOptions = []
+        let window = LayoutWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 560),
+                                  styleMask: [.titled], backing: .buffered, defer: false)
+        window.title = "Artifacts check \(name)"
+        window.appearance = NSAppearance(named: .aqua)
+        window.contentView = hosting
+        window.setFrameOrigin(NSPoint(x: -10000, y: -10000))
+        window.orderBack(nil)
+        settle()
+        let tree = checkAccessibility(window, surface: ControlSurface.window, name)
+        if center.accounts.isEmpty {
+            check(element("window.artifacts.sign-in", in: tree) != nil
+                    && element("window.artifacts.sign-in-note-info", in: tree) != nil,
+                  "\(name): with no account, one line says to sign in, and the rest is behind ⓘ")
+            check(element("window.artifacts.sign-in-hint", in: tree)?.value == L10n.text(ArtifactsView.signInHint),
+                  "\(name): under Sign In, one line says to use an emailed code")
+        } else {
+            for control in ["refresh", "add-account", "filter", "search", "groups"] {
+                check(element("window.artifacts.\(control)", in: tree) != nil,
+                      "\(name): \(control) can be asked for by name")
+            }
+            let share = element("window.artifact.11111111.share", in: tree)
+            check(share?.name == L10n.format("Share %@ with a Group", samples[0].title),
+                  "\(name): sharing says which artifact it shares \(share?.described ?? "missing")")
+            let access = element("window.artifact.11111111.access", in: tree)
+            check(access?.value == ArtifactAccess.anyoneWithLink.label
+                    && access?.name == L10n.format("Who Can Open %@", samples[0].title),
+                  "\(name): who can open an artifact is read out with it, not as “Globe” \(access?.described ?? "missing")")
+            check(element("window.artifact.11111111.more", in: tree)?.name
+                    == L10n.format("More for %@", samples[0].title)
+                    && element("window.artifact.33333333.more", in: tree) != nil,
+                  "\(name): every artifact has its menu of actions, named for the artifact")
+            check(element("window.artifact.33333333.access", in: tree) == nil,
+                  "\(name): an artifact someone else owns offers no change to who can open it")
+            let row = element("window.artifact.33333333", in: tree)
+            check(row?.value.contains(L10n.format("Shared with %@", "lent@example.com")) == true,
+                  "\(name): an artifact shared with an account says which account")
+        }
+        let views = descendants(hosting)
+        let scrolls = views.compactMap { $0 as? NSScrollView }.filter { !$0.hasHorizontalScroller && $0.bounds.height > 40 }
+        for scroll in scrolls {
+            guard let document = scroll.documentView else { continue }
+            let shown = room(in: scroll)
+            // A list's table stretches to fill whatever it is shown in, so
+            // what it holds is where its last row ends, not its own height.
+            let table = document as? NSTableView
+            let content = table.map { $0.numberOfRows == 0 ? 0 : $0.rect(ofRow: $0.numberOfRows - 1).maxY }
+                ?? document.frame.height
+            check(content - shown <= 1,
+                  "\(name): three artifacts fit beside the sidebar without scrolling (\(Int(content - shown)) points over)")
+        }
+        if let directory = ProcessInfo.processInfo.environment["GRAFT_LAYOUT_SNAPSHOTS"] {
+            let output = URL(fileURLWithPath: directory)
+                .appending(path: Bundle.main.preferredLocalizations.first ?? "en")
+            try! fm.createDirectory(at: output, withIntermediateDirectories: true)
+            if let bitmap = hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds) {
+                hosting.cacheDisplay(in: hosting.bounds, to: bitmap)
+                try! bitmap.representation(using: .png, properties: [:])!
+                    .write(to: output.appending(path: "\(name).png"))
+            }
+        }
+        window.orderOut(nil)
+    }
+}
+
+// Each person in a group with what they may do, and every control in the
+// editor reachable from outside: a live run found its minus button drawn and
+// working but missing from what assistive apps were given.
+MainActor.assumeIsolated {
+    var group = ArtifactGroup(id: UUID(), name: "Review",
+                              emails: ["editor@example.com", "commenter@example.com", "viewer@example.com"])
+    group.setRole(.editor, for: "editor@example.com")
+    group.setRole(.commenter, for: "commenter@example.com")
+    let center = ArtifactCenter(accounts: [], artifacts: [], groups: [group])
+    let hosting = NSHostingView(rootView: GroupsEditor(center: center)
+        .background(Color(nsColor: .windowBackgroundColor))
+        .environment(\.controlSurface, ControlSurface.window))
+    let window = LayoutWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 420),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+    window.title = "Groups check"
+    window.appearance = NSAppearance(named: .aqua)
+    window.contentView = hosting
+    window.setFrameOrigin(NSPoint(x: -10000, y: -10000))
+    window.orderBack(nil)
+    settle()
+    let tree = checkAccessibility(window, surface: ControlSurface.window, "groups")
+    check(element("window.groups.add", in: tree)?.name == L10n.text("New Group")
+            && element("window.groups.delete", in: tree)?.name == L10n.text("Delete Group"),
+          "groups: adding and deleting a group can both be found and say what they do")
+    // The same two read from another process. A reader in a second process is
+    // what VoiceOver and every script is, and it was there, not here, that the
+    // minus button turned up with its help and no name.
+    let outside = readFromOutside(window)
+    check(outside["window.groups.add"] == L10n.text("New Group")
+            && outside["window.groups.delete"] == L10n.text("Delete Group"),
+          "groups: read from another process, adding and deleting a group still say what they do")
+    // And as the app shows it, a sheet over the window, which is where the live
+    // run read it.
+    window.contentView = NSView()
+    let parent = LayoutWindow(contentRect: NSRect(x: 0, y: 0, width: 820, height: 560),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+    parent.title = "Groups sheet check"
+    parent.appearance = NSAppearance(named: .aqua)
+    parent.setFrameOrigin(NSPoint(x: -10000, y: -10000))
+    parent.orderBack(nil)
+    let sheet = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 420),
+                         styleMask: [.titled], backing: .buffered, defer: false)
+    sheet.contentView = hosting
+    parent.beginSheet(sheet)
+    settle()
+    let inSheet = readFromOutside(parent)
+    check(inSheet["window.groups.add"] == L10n.text("New Group")
+            && inSheet["window.groups.delete"] == L10n.text("Delete Group"),
+          "groups: in a sheet, read from another process, adding and deleting a group say what they do")
+    if inSheet["window.groups.delete"] != L10n.text("Delete Group") {
+        print("    outside read of the sheet: \(inSheet.filter { $0.key.hasPrefix("window.groups.") && !$0.key.contains("member") })")
+    }
+    parent.endSheet(sheet)
+    parent.orderOut(nil)
+    for position in 0..<3 {
+        check(element("window.groups.member.\(position).role", in: tree) != nil
+                && element("window.groups.member.\(position).remove", in: tree) != nil,
+              "groups: person \(position + 1) has a role to choose and a way out of the group")
+    }
+    let editorRole = element("window.groups.member.0.role", in: tree)
+    check(editorRole?.value == ArtifactRole.editor.label || editorRole?.title == ArtifactRole.editor.label,
+          "groups: each person's role is read out as the one they have \(editorRole.map { "\($0.described) \($0.value)" } ?? "missing")")
+    check(element("window.groups.everyone", in: tree) != nil && element("window.groups.new-addresses", in: tree) != nil,
+          "groups: everyone can be given one role, and more addresses pasted in")
+    if let directory = ProcessInfo.processInfo.environment["GRAFT_LAYOUT_SNAPSHOTS"] {
+        let output = URL(fileURLWithPath: directory).appending(path: Bundle.main.preferredLocalizations.first ?? "en")
+        try! fm.createDirectory(at: output, withIntermediateDirectories: true)
+        if let bitmap = hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds) {
+            hosting.cacheDisplay(in: hosting.bounds, to: bitmap)
+            try! bitmap.representation(using: .png, properties: [:])!.write(to: output.appending(path: "groups.png"))
+        }
+    }
+    window.orderOut(nil)
+}
+
+// An export drawn from files on disk, as one read from claude.ai would be,
+// without reaching it. The page builds part of itself with script, which is
+// the part an export of the source alone would miss.
+MainActor.assumeIsolated {
+    let folder = fm.temporaryDirectory.appending(path: "graft-export-check-\(UUID().uuidString)")
+    try! fm.createDirectory(at: folder, withIntermediateDirectories: true)
+    defer { try? fm.removeItem(at: folder) }
+    let page = """
+        <!doctype html><html><head><title>Plan</title><style>.gone{display:none}</style></head><body>
+        <h1>Quarterly plan</h1>
+        <p>Ship <strong>roles</strong>, <em>exports</em> and <code>a_b</code>. See <a href="https://example.com/x">the notes</a>.</p>
+        <ul><li><input type="checkbox" checked> done</li><li><input type="checkbox"> next
+          <ol><li>first</li><li>second</li></ol></li></ul>
+        <table><tr><th>Name</th><th>Role</th></tr><tr><td>Ana</td><td>Editor</td></tr></table>
+        <pre>let x = 1</pre>
+        <p class="gone">hidden words</p>
+        <button>Press</button>
+        <div id="later"></div>
+        <script>document.getElementById("later").innerHTML = "<p>Drawn by script</p>";</script>
+        </body></html>
+        """
+    try! Data(page.utf8).write(to: folder.appending(path: "index.html"))
+    var results: [ArtifactExportFormat: Data] = [:]
+    var failed: [ArtifactExportFormat: String] = [:]
+    var finished = false
+    Task { @MainActor in
+        for format in [ArtifactExportFormat.markdown, .pdf, .word] {
+            do {
+                results[format] = try await ArtifactRenderer.render(folder.appending(path: "index.html"),
+                                                                    in: folder, as: format)
+            } catch {
+                failed[format] = "\(error)"
+            }
+        }
+        finished = true
+    }
+    let deadline = Date().addingTimeInterval(90)
+    while !finished && Date() < deadline { RunLoop.main.run(until: Date().addingTimeInterval(0.05)) }
+    let markdown = results[.markdown].map { String(decoding: $0, as: UTF8.self) } ?? ""
+    let expected = [
+        "# Quarterly plan",
+        "Ship **roles**, *exports* and `a_b`. See [the notes](https://example.com/x).",
+        "- [x] done\n- [ ] next\n  1. first\n  2. second",
+        "| Name | Role |\n| --- | --- |\n| Ana | Editor |",
+        "```\nlet x = 1\n```",
+        "Drawn by script",
+    ]
+    let missing = expected.filter { !markdown.contains($0) }
+    check(failed[.markdown] == nil && missing.isEmpty,
+          "export: Markdown keeps headings, emphasis, links, checkboxes, nested lists, tables and code \(failed[.markdown] ?? "") missing \(missing) in \(markdown.debugDescription)")
+    check(!markdown.contains("hidden words") && !markdown.contains("Press") && !markdown.contains("getElementById"),
+          "export: Markdown leaves out what is hidden, controls and scripts, as claude.ai's own does")
+    let pdf = results[.pdf].flatMap { PDFDocument(data: $0) }
+    check(failed[.pdf] == nil && pdf?.string?.contains("Quarterly plan") == true
+            && pdf?.string?.contains("Drawn by script") == true,
+          "export: the PDF holds the page as drawn \(failed[.pdf] ?? "")")
+    let word = results[.word]
+    let reread = word.flatMap { try? NSAttributedString(data: $0, options: [.documentType: NSAttributedString.DocumentType.officeOpenXML],
+                                                        documentAttributes: nil) }
+    check(failed[.word] == nil && word?.prefix(2) == Data("PK".utf8) && reread?.string.contains("Quarterly plan") == true,
+          "export: the Word document opens and holds the page's text \(failed[.word] ?? "")")
+}
 
 print("\(checks - failures)/\(checks) layout checks passed (\(Bundle.main.preferredLocalizations.joined(separator: ",")))")
 exit(failures == 0 ? 0 : 1)

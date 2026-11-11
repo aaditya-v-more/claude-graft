@@ -30,6 +30,10 @@ clones the tap into `dist/`, rewrites the cask against the checksum of the disk
 image that run actually built, commits it, and names the push beside the other
 two. Nothing here pushes, as before; what changed is that no number is carried
 across by hand and the printed instructions are no longer half a publish.
+Every run deletes that clone and takes a fresh one, so a change to the rest of
+the cask — 2.0.1's uninstall step, which takes the sharing lines out of each
+closed Claude — is committed on top after the run and pushed with it, or the
+next run quietly drops it.
 
 **A release carries both architectures.** `build.sh` compiles one slice per
 architecture and `lipo`s them; a plain `./build.sh` stays single-slice because a
@@ -44,6 +48,14 @@ what comes out is a complete, launchable `Claude Graft.app`, so an ordinary
 to tell them apart. Opening the wrong one gives two instances polling the same
 profiles, racing for the same keychain prompt, and a Sparkle that updates a
 bundle nobody installed. Seen for real, which is why the directory was renamed.
+
+**The Command Line Tools' default SDK cannot build the app.** With only the
+Command Line Tools installed, the macOS 27 SDK they default to cannot expand
+SwiftUI's `@State` — the compiler reports that the plugin for `SwiftUIMacros`
+was not found — so anything that compiles the app fails in `SettingsView`
+before it reaches a line of this project. The 26.5 SDK beside it works:
+`SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk` in front of
+any of the commands.
 
 ## Claude Desktop's own updates
 
@@ -118,6 +130,71 @@ an updater already running, but never authorizes another round of quitting
 working profiles. Manual policy stays in place throughout. A refusal to quit,
 bad process read, failed download, or failed install is a visible error, never
 permission to force quit or claim success.
+
+**A restarted Graft holds the lock before it reads anything that can fail.**
+`resume` used to read the processes first and take the lock after, with one
+error path for both that went to `finish`, which deletes the journal and lets
+the lock go. The read fails while any Claude has no launch date yet, which is
+exactly the updater starting or a Claude closing — and `poll` treats the same
+failure as a reason to wait. A Graft that restarted in that window, through its
+own update, a crash or a quit, forgot the run: nothing blocked a shortcut, and
+when the updater nobody watched any more quit, Claude's installer could swap
+`Claude.app` under a Claude opened meanwhile. The lock is now taken as soon as
+the journal decodes, the saved phase is shown, and the decision
+`ClaudeUpdateResume` makes waits for the first snapshot that reads; until then
+each poll asks again and the journal stays.
+
+**Stopping the updater asks again, and stops hiding it.** One quit was sent and
+then nothing, for as long as it took. A quit the updater missed held the lock —
+every shortcut refused — behind a status line that never changed, with the one
+window that could have been closed by hand kept hidden even from its Dock icon.
+While stopping, `poll` sends the quit again every ten seconds, and a minute
+after the first one stops concealing the updater for the rest of the run
+(`ClaudeUpdateStop`). The lock is still held until it has gone; that part was
+right.
+
+**The updater stays out of sight and signed out.** `open -g -j` asks for a
+Claude launched behind everything, and Claude shows its window regardless. On
+6 November that window came up during an update with Claude's sign-in screen,
+which reads as Claude asking for the account again, so it was signed into; the
+update itself had never needed it, since every update from September on ran in
+a profile nobody had signed into. Hiding it once is not enough: in a live run
+from 4.16336.0, polling found the updater four seconds after it started, and
+five seconds later Claude unhid itself and came to the front to show its
+window. So Graft identifies the updater the moment it is announced as launched
+or active, and from then on watches its hidden, active and finished-launching
+flags and hides it again as each one changes. A second run showed what that
+can and cannot do. Claude cannot be hidden until it has finished launching,
+about five seconds into a cold start, and until then it reads as visible while
+owning no window at all; the first hide lands at that moment. The window it
+then tried to show four seconds later was hidden again between two samples a
+third of a second apart, and none of 132 screenshots caught it. So the
+`visible` flag is the wrong measure for a run: what a person can see is a
+window on screen, and that is what to count. A third run counted them from the
+window server eighteen times a second: across the whole update the updater put
+a window on screen twice, 600 by 600, each time for less than an eighth of a
+second, both right as Claude unhid itself and Graft hid it again. None of 116
+screenshots caught either. That is the floor for hiding from outside the app:
+Claude shows the window before anything outside it can react.
+
+**Never write `stealth-relaunch` into the updater's profile.** Claude writes
+that file before restarting itself for an update, and a launch that finds it
+fresh with `windowVisible` false comes up hidden. Tried in place it looked like
+the cure: the cold-start window never appeared. A fourth live run showed what it
+costs. Claude honoured the file and started with the app hidden; about five
+seconds in, once it decided nobody was signed in, it put its sign-in window on
+screen anyway, without unhiding the app. System Events went on reporting the
+app hidden and Graft had nothing left to hide, so the window stood for the
+whole sixty-one seconds the updater ran, and sixty-one of 150 screenshots
+caught it. A hidden app and an app whose window is on screen look the same
+from `isHidden`; only the window server tells them apart. Before launching it,
+a profile that holds a login, remembers an account, has an account folder in
+either session store or has a config that will not parse is moved to the Trash
+and replaced by one holding only `ant-did`. The Trash, not a delete, because
+whoever signed in may have done something there; the same identifier, so the
+feed keeps this machine in the same rollout. A reset that fails is logged and
+the update goes on hidden, since a leftover login is no reason to leave Claude
+out of date.
 
 ## Graft's updates
 
@@ -194,9 +271,17 @@ shows a scheduled update alert immediately but, in its own words, "behind other
 running applications" — and that is a delay, not a silent merge, which is the
 half that matters.
 
-The release the floor names has to bring a note, and `release.sh` refuses to
-build it otherwise: it is the one release that puts a dialog in front of
-somebody, and a dialog with nothing in it is worse than no dialog. Notes live in
+Every release has to bring a note, and that note has to say what upgrading from
+1.0.x does; `release.sh` refuses to build one without both. This used to be
+asked of 1.1.0 alone, on the reasoning that it was the one release putting a
+dialog in front of somebody. It is not. Sparkle offers a 1.0.x machine the
+newest entry in the feed, not the one the floor names, and the dialog it puts
+up carries that entry's notes — so from a 1.0.11 Mac every release since 1.1.0
+has been the one that stops to ask, and 1.1.7, 1.1.8 and 2.0.0 asked with notes
+that never mentioned the merge the question exists for. A note with nothing to
+say about 1.0.x is as good as no note in that dialog. The check looks for
+"from 1.0.x", which both headings used so far carry: "Upgrading from 1.0.x"
+and "Coming from 1.0.x?". Notes live in
 `docs/release-notes/<version>.html` and are copied beside the archive, which is
 where `generate_appcast` looks for them; carrying no DOCTYPE or body tags is what
 makes them embed rather than become a link to somewhere that has to stay up.
@@ -210,6 +295,20 @@ again, so a dropped entry cannot be regenerated, only recovered out of git.
 `release.sh` passes `--maximum-versions 0` and checks the count went up by
 exactly one; the old check was "no fewer than before", which adding one and
 losing one satisfies perfectly.
+
+**The new entry is checked on its own, and the live feed changes last.** The
+signature check used to search the whole file for `sparkle:edSignature`, and
+every older entry carries one, so it passed whether or not the new entry was
+signed — the exact silent failure it was written for, when the key found does
+not match `SUPublicEDKey`. `release.sh` now cuts out the `<item>` naming this
+version's zip and asks that one for a signature, a `length` equal to the zip it
+built, and the floor; it also counts signatures across the file, one more than
+before, for a pass that lost an old one. All of this used to happen in
+`docs/appcast.xml` itself, so a run that stopped at a check, or at the cask
+after it, left the live file offering a release with no archive uploaded and no
+tag, one `git add docs` away from being served. The feed is built and checked in
+`dist/sparkle/appcast.xml` and copied into `docs/` as the last step before
+`--install`.
 
 **The feed URL is unchangeable once shipped.** A copy out in the world polls the
 URL it was born with, and GitHub gives Pages no redirect if the account is ever
@@ -226,7 +325,13 @@ EdDSA signature alone — the header comment on `validateUpdateForHost` says it
 does on every compile. Elsewhere it says outright that "if no Apple Code Signing
 certificate is available, adhoc signing can be used at minimum". `SUFileManager`
 strips `com.apple.quarantine` from what it installs, so only the first install
-meets Gatekeeper. The XPC services are removed from the embedded copy: they need
+meets Gatekeeper.
+
+A plain `./build.sh` is not a release and is signed with the Mac's Apple
+Development certificate when there is one, so the keychain stops asking at every
+rebuild ([usage-and-credentials.md](usage-and-credentials.md)). `release.sh`
+always passes its own identity, a Developer ID or ad-hoc, so that certificate
+never reaches a download. The XPC services are removed from the embedded copy: they need
 entitlements this app does not carry, and launchd refuses them for a
 non-sandboxed app. The signing key lives in the login keychain under
 `https://sparkle-project.org`; `vendor/bin/generate_keys -x` exports it if CI

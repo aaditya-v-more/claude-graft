@@ -22,69 +22,56 @@ struct MainProfileDetail: View {
         !FileManager.default.fileExists(atPath: Graft.claudeApp.path)
     }
 
+    private static let note = L10n.text("""
+        The Claude you installed, launched the ordinary way. Graft does \
+        not create or modify it — shortcuts borrow from it, and it can \
+        never be renamed, re-pointed or deleted from here.
+        """)
+
     var body: some View {
         Form {
-            if claudeMissing {
-                Section {
-                    Label("Claude.app was not found.", systemImage: "exclamationmark.triangle")
-                        .foregroundStyle(.secondary)
-                        .identified("claude-missing")
-                }
-            }
-
             Section {
-                LabeledContent("Name", value: "Claude")
-                    .spoken(L10n.text("Name"), value: "Claude")
-                    .identified("name")
-                LabeledContent {
-                    HStack(spacing: 6) {
-                        Text("Claude")
-                            .font(.callout.monospaced())
-                            .foregroundStyle(.secondary)
-                            .spoken(L10n.text("Profile folder"), value: Graft.mainProfile.lastPathComponent)
-                            .identified("folder")
-                        Button {
-                            NSWorkspace.shared.activateFileViewerSelecting([Graft.mainProfile])
-                        } label: {
-                            Image(systemName: "folder")
-                        }
-                        .buttonStyle(.borderless)
-                        .help("Show in Finder")
-                        // SwiftUI reads the folder symbol out as "Move".
-                        .accessibilityLabel(L10n.text("Show in Finder"))
-                        .identified("show-in-finder")
+                // What it is and where it keeps its profile, on one row, as a
+                // shortcut's view has them; whether it is running is the
+                // window's subtitle.
+                HStack(spacing: 10) {
+                    Image(systemName: "house")
+                        .frame(width: 28, height: 28)
+                        .foregroundStyle(.secondary)
+                        .accessibilityHidden(true)
+                    Text("Claude")
+                        .spoken(L10n.text("Name"), value: "Claude")
+                        .identified("name")
+                    InfoButton(Self.note, about: "Claude", id: "profile-info")
+                    Spacer()
+                    Text(Graft.mainProfile.lastPathComponent)
+                        .font(.callout.monospaced())
+                        .foregroundStyle(.secondary)
+                        .help("Profile folder")
+                        .spoken(L10n.text("Profile folder"), value: Graft.mainProfile.lastPathComponent)
+                        .identified("folder")
+                    Button {
+                        NSWorkspace.shared.activateFileViewerSelecting([Graft.mainProfile])
+                    } label: {
+                        Image(systemName: "folder")
                     }
-                } label: {
-                    // Said with the folder's name instead, which is not a row
-                    // of its own and so cannot carry it the way Name does.
-                    Text("Profile folder").accessibilityHidden(true)
+                    .buttonStyle(.borderless)
+                    .help("Show in Finder")
+                    // SwiftUI reads the folder symbol out as "Move".
+                    .accessibilityLabel(L10n.text("Show in Finder"))
+                    .identified("show-in-finder")
                 }
-            } header: {
-                SectionHeader(title: "Claude", info: L10n.text("""
-                    The Claude you installed, launched the ordinary way. Graft does \
-                    not create or modify it — shortcuts borrow from it, and it can \
-                    never be renamed, re-pointed or deleted from here.
-                    """), id: "profile-info")
-            }
-
-            Section("Status") {
-                LabeledContent("Claude") {
-                    Text(L10n.text(isRunning ? "Running on this profile" : "Not running"))
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                }
-                .spoken("Claude", value: L10n.text(isRunning ? "Running on this profile" : "Not running"))
-                .identified("running")
             }
 
             Section {
-                UsageSummary(entry: plan) {
+                UsageSummary(entry: plan)
+            } header: {
+                UsageSummary.header(for: plan) {
                     usage.refresh(store, interactive: true, focus: Graft.mainProfile)
                 }
-            } header: {
-                SectionHeader(title: "Plan usage", info: UsageSummary.explanation(for: plan),
-                              id: "usage-info")
             }
+
+            SharedUsageSection(claude: UsagePoolController.mainKey)
         }
         .formStyle(.grouped)
         .safeAreaInset(edge: .bottom) {
@@ -111,9 +98,13 @@ struct MainProfileDetail: View {
                 .disabled(claudeMissing)
                 .identified("open")
             }
-            .padding(14)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
             .background(.bar)
         }
+        // A missing Claude is said where running is, as a shortcut's view
+        // says it, and takes no row of the page.
+        .navigationSubtitle(L10n.text(claudeMissing ? "Claude.app was not found." : isRunning ? "Running" : "Not running"))
         .onAppear {
             refresh()
             // Selecting a profile is someone looking at its figures, which is the
@@ -188,7 +179,9 @@ struct MainProfileDetail: View {
                 startingSession = false
                 error = failure?.errorDescription
                 refresh()
-                usage.refresh(store, interactive: true)
+                // Starting the session already asked the keychain for this
+                // press, so this asks nobody, and only about this account.
+                usage.refresh(store, interactive: true, prompting: .no, focus: profile)
             }
         }
     }

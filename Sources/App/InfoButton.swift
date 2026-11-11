@@ -1,8 +1,9 @@
 import SwiftUI
 
-/// The small "!" beside a section heading. Hovering gives the standard tooltip,
-/// clicking opens the same text as a popover — the explanations used to sit
-/// under every section as a paragraph of grey text.
+/// The small ⓘ beside a heading or a note. Hovering gives the standard
+/// tooltip, clicking opens the same text as a popover. The explanations used
+/// to sit under every section as paragraphs of grey text, and the window had to
+/// scroll to get past them.
 struct InfoButton: View {
     let text: String
     let topic: String
@@ -19,7 +20,7 @@ struct InfoButton: View {
 
     var body: some View {
         Button { showing.toggle() } label: {
-            Image(systemName: "exclamationmark.circle")
+            Image(systemName: "info.circle")
                 .imageScale(.medium)
                 .foregroundStyle(.secondary)
         }
@@ -37,17 +38,58 @@ struct InfoButton: View {
     }
 }
 
-/// A section heading with its explanation tucked behind the "!".
-struct SectionHeader: View {
+/// A section heading with its explanation tucked behind the ⓘ, and on the
+/// right whatever belongs to the whole section — when its figures are from,
+/// or the button that adds to it — so that it takes no row of its own.
+struct SectionHeader<Trailing: View>: View {
     let title: String
     let info: String
     let id: String
+    let trailing: Trailing
+
+    init(title: String, info: String, id: String, @ViewBuilder trailing: () -> Trailing) {
+        self.title = title
+        self.info = info
+        self.id = id
+        self.trailing = trailing()
+    }
 
     var body: some View {
         HStack(spacing: 5) {
             Text(L10n.text(title))
+                .layoutPriority(1)
             InfoButton(info, about: title, id: id)
-            Spacer()
+            Spacer(minLength: 8)
+            trailing
+        }
+    }
+}
+
+extension SectionHeader where Trailing == EmptyView {
+    init(title: String, info: String, id: String) {
+        self.init(title: title, info: info, id: id) { EmptyView() }
+    }
+}
+
+/// A note held to one line, with anything longer behind the ⓘ beside it, so a
+/// window built from notes still fits without scrolling.
+struct OneLineNote: View {
+    let text: String
+    var more: String?
+    var topic = "Details"
+    var attention = false
+    let id: String
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Text(text)
+                .font(.caption)
+                .foregroundStyle(attention ? Color.orange : Color.secondary)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .help(more ?? text)
+                .identified(id)
+            if let more { InfoButton(more, about: topic, id: "\(id)-info") }
         }
     }
 }

@@ -28,9 +28,30 @@ import ServiceManagement
 ///
 /// Horizontal only, on purpose: the bar sits above `NSScreen.frame`, so asking
 /// whether a screen contains the whole item rejects every item there is.
+///
+/// The notch is the other place an item goes unseen, and it is inside the
+/// screen. A new conversation's text widened Graft's item to x 866–1054 on a
+/// MacBook Air whose notch covers 751–959. The item was on the screen by every
+/// other measure, but behind the notch, where no pointer reaches it. So any
+/// overlap with a notch counts as out of reach.
 enum MenuBarPlacement {
-    static func isReachable(_ frame: CGRect, onAnyOf screens: [CGRect]) -> Bool {
+    static func isReachable(_ frame: CGRect, onAnyOf screens: [CGRect], notches: [CGRect] = []) -> Bool {
         screens.contains { frame.minX >= $0.minX && frame.maxX <= $0.maxX }
+            && !notches.contains { frame.intersects($0) }
+    }
+
+    /// The part of the bar between the two clear corners at the top of the
+    /// screen, in global coordinates, or nil for a screen without a notch.
+    static func notch(of screen: NSScreen) -> CGRect? {
+        guard let left = screen.auxiliaryTopLeftArea, let right = screen.auxiliaryTopRightArea,
+              right.minX > left.maxX else { return nil }
+        let gap = CGRect(x: left.maxX, y: right.minY, width: right.minX - left.maxX, height: right.height)
+        // The only notched screen measured sat at the origin, which cannot
+        // say whether these corners are global or the screen's own. A gap
+        // lying outside its screen must be the screen's own, so it is moved
+        // onto the screen.
+        return screen.frame.intersects(gap) ? gap
+            : gap.offsetBy(dx: screen.frame.minX, dy: screen.frame.minY)
     }
 }
 
@@ -40,6 +61,27 @@ enum QuitPolicy {
                            systemGoingDown: Bool,
                            menuBarShowing: Bool) -> Bool {
         askedFor || installingUpdate || systemGoingDown || !menuBarShowing
+    }
+}
+
+/// When the window may go away and take the Dock icon with it.
+///
+/// With the window closed and the app an accessory, the status item is the
+/// only way back in. So the setting is not enough: an item the bar had no room
+/// for, or one sitting behind the notch, leaves an app with nothing to click,
+/// and the only way to reach it again was to open it from Finder.
+enum WindowPolicy {
+    static func hidesDockIcon(showInMenuBar: Bool, hasShownWindow: Bool,
+                              hasWindow: Bool, menuBarShowing: Bool) -> Bool {
+        showInMenuBar && hasShownWindow && !hasWindow && menuBarShowing
+    }
+
+    /// A login launch closes its window before the status item has been
+    /// placed, so reachability is asked again once the bar has had a moment.
+    static let placementGrace: TimeInterval = 3
+
+    static func showsWindowAfterHiddenLaunch(menuBarShowing: Bool, hasWindow: Bool) -> Bool {
+        !menuBarShowing && !hasWindow
     }
 }
 

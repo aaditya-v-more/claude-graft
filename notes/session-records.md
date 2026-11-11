@@ -105,6 +105,23 @@ both written down — and the name is fixed by the session, so a later pass
 can only ever find a record where an earlier one left it, and a delete in a
 sidebar writes a marker naming it the same way.
 
+**A filed record never grants more than its transcript says.** Every record
+the sweep wrote up to 2.0.0 carried `chromePermissionMode:
+skip_all_permission_checks`, whatever the person had chosen, and a transcript
+naming no permission mode was filed as `auto`. Neither value came out of a
+transcript and no note gave a reason for either. The browser setting is a
+choice Claude makes per session — on this machine three records carry
+`follow_a_plan` and the twelve Claude rewrote carry no such key at all — so a
+recovered session continued in Claude got the most permissive setting there
+is, which nobody picked. The key is left out now, which is how Claude's own
+rewrites leave it and lets the person's setting hold, and a transcript with no
+mode files as `default`. A record still holding the bytes the older shape gave
+it is still this app's, so `olderSessionRecordData` recognises it and the next
+pass rewrites it whether or not its transcript moved; waiting for the session
+to move again would have left the setting there for good. The transcript cache
+is stamped with `transcriptReadingVersion` for the same reason, since an entry
+read the old way goes on saying `auto` for as long as its file sits still.
+
 Four things hold the sweep in. A transcript written moments ago waits out a
 quiet window first, a minute of it — but only while a Claude signed into the
 owner's account is actually running, because that is the only thing the wait
@@ -194,6 +211,18 @@ as the paragraph above, reached by the half of the case its fix did not cover.
 `isStashedAway` asks about every folder up to the store, and everything that
 reasons about an absent folder goes through it.
 
+**A stash hides what is in it, not what stands beside it.** Every mirrored
+folder has a stash beside it, and `mayFileRecords` lets the sweep file into one,
+since it is there and was read. From the next pass on, though, the withdrawal
+loop put every session remembered in a folder with a stash beside it out of
+sight before asking anything else, so a record the sweep had filed there kept
+the title, model and last activity it was filed with for as long as the graft
+lasted. The guard is for records remembered before a first pass moved them into
+the stash, which the walk cannot see; it could not tell those from a record
+filed afterwards and standing in the live folder in plain view. A session the
+walk found a record for is in sight now, whatever sits beside its folder, and
+goes on to be refreshed like any other.
+
 **A record remembered where nothing exists any more is a pair to drop, not a
 fact to act on.** `state.records` was only ever added to, so a folder that
 stopped existing — the profile deleted, or a sign-in moving `<account>/<org>` —
@@ -213,6 +242,21 @@ used to see every marker on the machine, including the ones named for a session
 outright — and markers accumulate and are never pruned, so one deletion went on
 suppressing whatever else had happened to go quiet in the minute before it, for
 as long as the marker existed. Only markers naming no transcript reach it now.
+
+**A marker that withdrew a session is not news the next time it is read.**
+Markers are never pruned, so the one that named a session goes on naming it on
+every pass for good, and the sweep read it afresh each time: one session,
+deleted from Claude's sidebar on 16 October, was logged as withdrawn on 54
+passes in a row across 1.1.8 and 2.0.0 builds, and every `sweep.end` said
+`"withdrawn":5`. Nothing was being done to it. Its marker, its transcript and
+the copies a mirror had carried into Claude-2 were all untouched since the day
+they were written, no record for it existed anywhere, and `session-records.json`
+had it in `withdrawn` and nowhere else; the count was the running total of all
+five sessions ever withdrawn, under a name that reads as this pass's. The four
+withdrawn by a store read twice were each logged once, because a withdrawal
+drops them from `records` and nothing brings them back to be read again. Only a
+session not yet withdrawn is withdrawn by its marker now, `withdrawn` on
+`sweep.end` is the pass's own count, and the total is `withdrawnInAll`.
 
 ## Resumed copies and forks
 
@@ -284,6 +328,35 @@ pass that needs them is the one where neither does. Neither half of a remembered
 pair is ever a copy of the other. A retry of either half still is, and on this
 machine the rule went from 29 copies to the 27 it should hold.
 
+## Sessions from another Mac
+
+**A transcript carried over from another Mac is not a session that lost its
+record here.** On 5 November fourteen insta-orchestrator conversations came
+across with the rest of `~/.claude/projects`, every one of them worked in under
+`/Users/aaditya`, a home this Mac has never had. Each had a bridge line, a
+stamp naming an account a profile here holds, and no record anywhere, which is
+exactly what a grafted profile's lost session looks like, so the first pass
+filed all fourteen into Claude. They sat in the sidebar beside this Mac's own
+copy of the project under `/Volumes/SSD/Developer`, four of them titled the
+same, and when Claude reached for one it failed to start it with
+`cwd_not_found`. The repeated titles were four separate conversations, not one
+filed four times.
+
+So `sessionFolderIsHere` is asked before anything is filed, and it asks about
+the home folder or the drive, never the folder itself. A worktree cleaned up
+after its chat closed is gone while the project it sat in is not, and that chat
+is this Mac's history: the sidebar still reads it. Only a `/Users/<name>` or a
+`/Volumes/<drive>` that is not here at all says the session happened somewhere
+else. Nothing is remembered about the refusal — the answer is `folderElsewhere`
+and the next pass asks again — so a drive that was not mounted files once it
+is. A path outside every home and drive, or none at all, files as it always
+did.
+
+The rule only keeps a pass from filing. What was filed before it existed has
+long since been rewritten by Claude in its own shape and belongs to Claude, so
+those fourteen are deleted from the sidebar by hand, and the deletion markers
+keep them from coming back.
+
 ## Which profiles are written to
 
 **A Claude this app did not make is read, never written to.** Every profile in
@@ -310,7 +383,7 @@ profile that is already open too, which is the one case nothing else covers:
 with no timer, that press is not going to start anything, and without a pass
 on it, going looking for a chat that had not arrived yet was the surest way to
 leave it not arriving. Graft itself runs one when it starts and one when the
-dropdown opens, which is where the line about what was recovered is shown. The thirty-second timer this replaced filed records
+dropdown opens, which is where the line about what was recovered is shown, and one a few seconds after any Claude quits, so a profile opened next, even from the Dock, already has what that Claude wrote ([chat-sharing.md](chat-sharing.md)). The thirty-second timer this replaced filed records
 that nobody would read for hours, and the one thing it was really buying —
 being current when a profile opened — is bought better by the profile's own
 launch.

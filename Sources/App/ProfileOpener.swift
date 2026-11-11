@@ -22,29 +22,10 @@ enum ProfileOpener {
         }
     }
 
+    /// The same lookup the repairs and Delete use, so what Open reaches is
+    /// the app they keep up to date.
     static func bundle(for shortcut: Shortcut) -> URL? {
-        func matches(_ bundle: URL) -> Bool {
-            guard bundle.pathExtension == "app",
-                  let data = try? Data(contentsOf: bundle.appending(path: "Contents/Resources/graft.json")),
-                  let config = try? JSONDecoder().decode(GraftConfig.self, from: data)
-            else { return false }
-            return Graft.samePath(URL(fileURLWithPath: config.profileDir), shortcut.profileDir)
-        }
-
-        for directory in Installer.searchDirectories {
-            for name in [shortcut.name, shortcut.installedName].compactMap({ $0 }) {
-                let candidate = directory.appending(path: name + ".app")
-                if matches(candidate) { return candidate }
-            }
-        }
-        for directory in Installer.searchDirectories {
-            let candidates = (try? FileManager.default.contentsOfDirectory(
-                at: directory, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])) ?? []
-            if let found = candidates.sorted(by: { $0.path < $1.path }).first(where: matches) {
-                return found
-            }
-        }
-        return nil
+        Installer.installedBundle(for: shortcut)
     }
 
     static func destination(profile: URL, shortcut: Shortcut?) throws -> Destination {

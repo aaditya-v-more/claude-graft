@@ -43,8 +43,6 @@ enum Installer {
         fm.fileExists(atPath: url.appending(path: "Contents/Resources/graft.json").path)
     }
 
-    /// An installed shortcut bundle, wherever it ended up. Deliberately blind
-    /// to anything Graft did not create.
     /// Where an already-installed shortcut might be sitting.
     static var searchDirectories: [URL] {
         if let installDirectoryOverride { return [installDirectoryOverride] }
@@ -52,12 +50,81 @@ enum Installer {
                 fm.homeDirectoryForCurrentUser.appending(path: "Applications")]
     }
 
-    static func installedBundle(for shortcut: Shortcut) -> URL? {
+    /// The bundle a shortcut was installed as, wherever it is and whatever it
+    /// is called now: the names it has had first, then any bundle whose
+    /// `graft.json` names its profile. Deliberately blind to anything Graft
+    /// did not create, and to a description that will not parse.
+    ///
+    /// Looking only for `<name>.app` missed every bundle renamed in Finder and
+    /// every name edited in the window without Update being pressed, so those
+    /// were never repaired at launch, and deleting the shortcut left its app
+    /// in Applications still naming a source, ready to graft again the next
+    /// time anybody opened it. Opening had already learned this; there is one
+    /// lookup now, and `ProfileOpener` uses it too.
+    ///
+    /// `shortcuts` is the whole list. Two shortcuts on one profile folder have
+    /// an app each describing it, and only the name says which is whose, so
+    /// for those the scan is not made: guessing would hand one shortcut's app
+    /// to the other's Delete.
+    static func installedBundle(for shortcut: Shortcut, among shortcuts: [Shortcut] = []) -> URL? {
         for directory in searchDirectories {
-            let candidate = bundleURL(for: shortcut, in: directory)
-            if fm.fileExists(atPath: candidate.path), isGraftBundle(candidate) { return candidate }
+            for name in names(of: shortcut) {
+                let candidate = directory.appending(path: "\(name).app")
+                if describes(candidate, shortcut.profileDir) { return candidate }
+            }
+        }
+        guard !shortcuts.contains(where: {
+            $0.id != shortcut.id && Graft.samePath($0.profileDir, shortcut.profileDir)
+        }) else { return nil }
+        for directory in searchDirectories {
+            let candidates = (try? fm.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil,
+                                                          options: [.skipsHiddenFiles])) ?? []
+            if let found = candidates.sorted(by: { $0.path < $1.path })
+                .first(where: { describes($0, shortcut.profileDir) }) { return found }
         }
         return nil
+    }
+
+    /// A bundle of Graft's under one of the shortcut's names that describes no
+    /// other shortcut's profile, whatever profile it does describe, or none.
+    ///
+    /// Only for the steps that do not care which profile a bundle opens:
+    /// replacing its launcher, deleting it with its shortcut, and finding the
+    /// app an Update writes over. `refreshConfig` takes it only when its
+    /// description will not parse. A bundle naming another folder than the
+    /// list is a folder change nobody applied, and applying it unasked at
+    /// launch is what left a shortcut opening an empty profile.
+    static func namedBundle(for shortcut: Shortcut, among shortcuts: [Shortcut] = []) -> URL? {
+        let others = shortcuts.filter { $0.id != shortcut.id }
+        for directory in searchDirectories {
+            for name in names(of: shortcut) {
+                let candidate = directory.appending(path: "\(name).app")
+                guard isGraftBundle(candidate) else { continue }
+                if let profile = describedProfile(of: candidate),
+                   others.contains(where: { Graft.samePath($0.profileDir, profile) }) { continue }
+                return candidate
+            }
+        }
+        return nil
+    }
+
+    private static func names(of shortcut: Shortcut) -> [String] {
+        var names = [shortcut.name]
+        if let installed = shortcut.installedName, installed != shortcut.name { names.append(installed) }
+        return names.filter { !$0.isEmpty }
+    }
+
+    /// The profile a bundle's `graft.json` opens, or nil without a readable one.
+    static func describedProfile(of bundle: URL) -> URL? {
+        guard bundle.pathExtension == "app",
+              let data = try? Data(contentsOf: bundle.appending(path: "Contents/Resources/graft.json")),
+              let config = try? JSONDecoder().decode(GraftConfig.self, from: data)
+        else { return nil }
+        return URL(fileURLWithPath: config.profileDir)
+    }
+
+    private static func describes(_ bundle: URL, _ profile: URL) -> Bool {
+        describedProfile(of: bundle).map { Graft.samePath($0, profile) } ?? false
     }
 
     enum InstallError: LocalizedError {
@@ -92,8 +159,12 @@ enum Installer {
         }
     }
 
+    /// `previous` is the shortcut as it was last installed, when this press
+    /// changes its folder: the app to replace is the one describing the old
+    /// profile, and the new one is not described by anything yet.
     @discardableResult
-    static func install(_ shortcut: Shortcut, sourceDir: URL?, previousName: String? = nil) throws -> URL {
+    static func install(_ shortcut: Shortcut, sourceDir: URL?, replacing previous: Shortcut? = nil,
+                        among shortcuts: [Shortcut] = []) throws -> URL {
         guard let launcher = Bundle.main.url(forResource: "graft-launch", withExtension: nil) else {
             throw InstallError.missingLauncher
         }
@@ -110,7 +181,13 @@ enum Installer {
             throw InstallError.selfSource
         }
 
-        let bundle = installedBundle(for: shortcut) ?? bundleURL(for: shortcut)
+        // Written under the name asked for, beside the app it replaces. That
+        // app may be under an older name or one given it in Finder, and it is
+        // removed only once its replacement is in place.
+        let existing = previous.flatMap { installedBundle(for: $0, among: shortcuts) }
+            ?? installedBundle(for: shortcut, among: shortcuts)
+            ?? namedBundle(for: shortcut, among: shortcuts)
+        let bundle = bundleURL(for: shortcut, in: existing?.deletingLastPathComponent())
         // Something is already there and it is not a shortcut of ours. Checked
         // before anything is removed, so a refused rename leaves both intact.
         if fm.fileExists(atPath: bundle.path), !isGraftBundle(bundle) {
@@ -159,12 +236,8 @@ enum Installer {
         }
 
         // A failed rename keeps its old app until the new one is usable.
-        if let previousName, previousName != shortcut.name {
-            var stale = shortcut
-            stale.name = previousName
-            if let old = installedBundle(for: stale), !Graft.samePath(old, bundle) {
-                try? fm.removeItem(at: old)
-            }
+        if let existing, !Graft.samePath(existing, bundle), isGraftBundle(existing) {
+            try? fm.removeItem(at: existing)
         }
         touch(bundle)
 
@@ -192,9 +265,10 @@ enum Installer {
     /// profile it points at are the person's.
     @discardableResult
     static func refreshLaunchers(in shortcuts: [(shortcut: Shortcut, sourceDir: URL?)]) -> Int {
-        shortcuts.reduce(0) {
-            let launcher = refreshLauncher(for: $1.shortcut)
-            let config = refreshConfig(for: $1.shortcut, sourceDir: $1.sourceDir)
+        let list = shortcuts.map(\.shortcut)
+        return shortcuts.reduce(0) {
+            let launcher = refreshLauncher(for: $1.shortcut, among: list)
+            let config = refreshConfig(for: $1.shortcut, sourceDir: $1.sourceDir, among: list)
             return $0 + (launcher || config ? 1 : 0)
         }
     }
@@ -220,9 +294,29 @@ enum Installer {
     /// and the version stamp are somebody else's business, and rewriting the
     /// plist here would stamp a renamed shortcut's new name into a bundle still
     /// sitting under the old one.
+    ///
+    /// The source is repaired; the profile is never moved. A bundle is found
+    /// here by the profile it already opens, or under its name when its
+    /// description will not parse, so a folder typed into the list and never
+    /// applied cannot re-point it. That is what this used to do: the field
+    /// saved every keystroke, and the next start wrote whatever was there into
+    /// the bundle unchecked, so the shortcut opened a new, signed-out profile,
+    /// or with an empty folder Application Support itself. The checks Update
+    /// makes are made here too, for a list edited by hand.
     @discardableResult
-    static func refreshConfig(for shortcut: Shortcut, sourceDir: URL?) -> Bool {
-        guard let bundle = installedBundle(for: shortcut) else { return false }
+    static func refreshConfig(for shortcut: Shortcut, sourceDir: URL?, among shortcuts: [Shortcut] = []) -> Bool {
+        if let reason = Graft.validateFolder(shortcut.folder) {
+            Diagnostics.note("shortcut.config-skipped", ["shortcut": shortcut.name, "reason": reason])
+            return false
+        }
+        if let sourceDir, Graft.samePath(sourceDir, shortcut.profileDir) {
+            Diagnostics.note("shortcut.config-skipped", ["shortcut": shortcut.name, "reason": "self-source"])
+            return false
+        }
+        let unreadable = namedBundle(for: shortcut, among: shortcuts).flatMap {
+            describedProfile(of: $0) == nil ? $0 : nil
+        }
+        guard let bundle = installedBundle(for: shortcut, among: shortcuts) ?? unreadable else { return false }
         let file = bundle.appending(path: "Contents/Resources/graft.json")
         let wanted = GraftConfig(profileDir: shortcut.profileDir.path,
                                  sourceDir: sourceDir?.path)
@@ -239,10 +333,11 @@ enum Installer {
         return true
     }
 
-    static func refreshLauncher(for shortcut: Shortcut) -> Bool {
+    static func refreshLauncher(for shortcut: Shortcut, among shortcuts: [Shortcut] = []) -> Bool {
         let version = graftVersion
         guard let launcher = Bundle.main.url(forResource: "graft-launch", withExtension: nil),
-              let bundle = installedBundle(for: shortcut),
+              let bundle = installedBundle(for: shortcut, among: shortcuts)
+                ?? namedBundle(for: shortcut, among: shortcuts),
               builtBy(bundle) != version,
               let binary = executableURL(in: bundle)
         else { return false }
@@ -298,8 +393,10 @@ enum Installer {
         try updated.write(to: url)
     }
 
-    static func uninstall(_ shortcut: Shortcut) {
-        guard let bundle = installedBundle(for: shortcut), isGraftBundle(bundle) else { return }
+    static func uninstall(_ shortcut: Shortcut, among shortcuts: [Shortcut] = []) {
+        guard let bundle = installedBundle(for: shortcut, among: shortcuts)
+                ?? namedBundle(for: shortcut, among: shortcuts),
+              isGraftBundle(bundle) else { return }
         try? fm.removeItem(at: bundle)
     }
 

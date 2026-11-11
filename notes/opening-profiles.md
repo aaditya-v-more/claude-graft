@@ -13,6 +13,18 @@ names. This rule exists because an earlier version matched on name and deleted
 Support, never `Claude`, never a path. Without this, typing `Claude` into the
 folder field pointed a shortcut at Claude's own profile.
 
+The reserved names are compared ignoring case, because a Mac's usual volume
+does. `claude` passed the old check and was Claude's own profile under another
+spelling; `claudegraft` passed it too and put a profile in Graft's own state
+folder, and deleting that profile would have taken every pair, baseline and
+record with it. `deleteProfile` refuses Graft's folder outright, by path and by
+name, since a path spelt in another case need not resolve to the same string,
+and `ShortcutStore.delete` counts two shortcuts as sharing a profile when their
+folders match ignoring case or resolve to the same place, not when the text is
+identical. The one place that still lets `Claude` through, the manual-update
+library for the main profile, asks the same way, so a profile reached through a
+lower-case path is not refused there.
+
 ## Opening, revealing and the shortcut bundle
 
 **Every route that opens a profile asks first.** Two Claudes on one chat store
@@ -89,6 +101,44 @@ are somebody else's business, and rewriting the plist here would stamp a
 renamed shortcut's new name into a bundle still sitting under its old one.
 Writing into a signed bundle breaks the signature, so it is signed again on the
 way out.
+
+**The repair takes the source and never the profile.** The folder field was
+bound straight to the list, so every keystroke was saved to `shortcuts.json`,
+and the next start — a login, or an update's own relaunch — wrote whatever was
+there into the bundle with no check at all. Somebody who edited the folder of a
+created shortcut and moved to another page without pressing Update found it
+opening a new, signed-out profile with no chats, the old one still on disk and
+nothing pointing at it. Names Update refuses got through the same way: an empty
+folder is Application Support itself, `Claude` is the main profile under
+another name, `../x` is a folder outside it. Two looks that seem the same from
+inside `refreshConfig` are not: a list naming another source than the bundle is
+the bundle out of date, which is what the repair is for; a list naming another
+folder is a profile change nobody has applied. So `refreshConfig` finds a bundle
+by the profile it already opens, or under its name only when its `graft.json`
+will not parse, and it makes Update's own checks besides, for a list edited by
+hand. A created shortcut's folder edit stays in the window until Update succeeds
+and is lost if the page is left, which is what not pressing Update means. A
+shortcut not created yet still writes straight through, since nothing runs it
+and its name goes on suggesting a folder.
+
+**One lookup finds a shortcut's app.** `installedBundle` used to look only for
+`<name>.app`, while Open had learned to try the saved names and then any bundle
+whose `graft.json` named the profile. So a bundle renamed in Finder, or a name
+edited and not applied, was opened correctly and missed by everything else:
+the launcher was never replaced, so a shortcut from 1.1.8 went on running 1.1.8's
+code from the Dock; its source was never repaired; and Delete found nothing,
+removed the list entry and its pairs, and left the app in Applications still
+naming a source, which re-grafted a profile nothing listed the next time it
+was opened. `Installer.installedBundle(for:among:)` is Open's lookup and
+`ProfileOpener` calls it. The list it is given matters for one case: two
+shortcuts on one folder each have an app describing it, and only the name says
+which is whose, so for those the scan by profile is not made. Replacing a
+launcher and Delete also take `namedBundle`, a Graft bundle under one of the
+shortcut's names that describes no other listed shortcut's profile, because
+neither depends on which profile the app opens. Update writes the app under
+the shortcut's name beside the one it replaces and removes the old one only
+once the new one is in place, so a Finder rename comes back to the list's name
+with no second copy.
 
 `reveal` sends two things because neither does the other's job. Claude answers
 `window-all-closed` with an empty handler, so closing the last window leaves the

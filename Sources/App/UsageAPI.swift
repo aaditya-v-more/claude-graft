@@ -7,6 +7,17 @@ import Foundation
 enum UsageAPI {
     static let endpoint = URL(string: "https://api.anthropic.com/api/oauth/usage")!
 
+    /// Every request carrying a borrowed token goes through this. The shared
+    /// session's cache stores each request beside its answer, `Authorization`
+    /// header and all, in a file under Caches that anything running as the
+    /// person can read without asking the keychain.
+    static let session: URLSession = {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.urlCache = nil
+        configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
+        return URLSession(configuration: configuration)
+    }()
+
     struct Reading: Equatable {
         /// Nil when the account has no five-hour limit.
         var fiveHour: Int?
@@ -51,7 +62,7 @@ enum UsageAPI {
         var response: URLResponse?
         var failure: Error?
         let finished = DispatchSemaphore(value: 0)
-        URLSession.shared.dataTask(with: request) { data, urlResponse, error in
+        session.dataTask(with: request) { data, urlResponse, error in
             payload = data
             response = urlResponse
             failure = error

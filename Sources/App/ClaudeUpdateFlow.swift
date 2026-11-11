@@ -119,3 +119,42 @@ struct ClaudeUpdateFlow: Codable {
         return .wait
     }
 }
+
+/// Claude updates itself just as well signed out, and that is how the profile
+/// Graft starts it in is meant to stay. An account signed into it acts as that
+/// account for as long as the update runs: a second device on the account, its
+/// scheduled tasks and its plugins starting in a window nobody is watching.
+enum UpdaterProfile {
+    static func isSignedIn(_ profile: URL) -> Bool {
+        // A config that will not parse cannot show that nobody signed in, and
+        // no Claude is writing it while the updater is closed.
+        guard let config = Graft.readableConfigJSON(of: profile) else { return true }
+        if config["oauth:tokenCacheV2"] != nil || config["lastKnownAccountUuid"] != nil { return true }
+        for store in ["claude-code-sessions", "local-agent-mode-sessions"] {
+            let folder = profile.appending(path: store)
+            let names = (try? Graft.fm.contentsOfDirectory(atPath: folder.path)) ?? []
+            if names.contains(where: { $0 != "skills-plugin" && Graft.isDirectory(folder.appending(path: $0)) }) {
+                return true
+            }
+        }
+        return false
+    }
+
+    /// The old profile goes to the Trash rather than away, because somebody
+    /// signed in there and what they did in it is theirs to look through. The
+    /// device identifier carries over so the feed keeps placing this machine
+    /// in the same rollout.
+    static func reset(_ profile: URL, keeping deviceID: String,
+                      discard: (URL) throws -> Void = { try Graft.fm.trashItem(at: $0, resultingItemURL: nil) }) throws {
+        guard !Graft.isSymlink(profile) else { throw ManualUpdates.Failure.invalidProfile }
+        if Graft.exists(profile) { try discard(profile) }
+        try writeDeviceID(deviceID, into: profile)
+    }
+
+    static func writeDeviceID(_ id: String, into profile: URL) throws {
+        try Graft.fm.createDirectory(at: profile, withIntermediateDirectories: true)
+        let file = profile.appending(path: "ant-did")
+        try Data(id.utf8).base64EncodedData().write(to: file, options: .atomic)
+        try Graft.fm.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
+    }
+}

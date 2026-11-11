@@ -37,21 +37,55 @@ the bar sits above `NSScreen.frame` and a full containment test rejects every
 item there is. Seen for real: Graft vanished from the bar with the process alive
 and polling, and came back when another app's item was removed.
 
+The notch is the second place to vanish, and it is on the screen. An item laid
+out across it, measured at x 866–1054 against a notch of 751–959, passed the
+edge test while no pointer could reach it. `isReachable` also takes the notches,
+each one the gap between a screen's `auxiliaryTopLeftArea` and
+`auxiliaryTopRightArea`, and any overlap with one counts as out of reach.
+
+Quitting was not the only place that asked the setting. Closing the last window
+made the app an accessory whenever Show in Menu Bar was on, and a login launch
+whose window had been put away last time came up the same way, so with the item
+dropped or behind the notch Graft was running with no window, no Dock icon and
+nothing in the bar — reachable again only by opening it from Finder.
+`WindowPolicy` is the rule for both. A closing window takes the Dock icon only
+when `isShowing` says yes; otherwise nothing changes, and the window is still
+recorded as open so the next launch brings one up. A hidden launch cannot ask at
+once, since its window closes before the item has been placed, so it asks again
+`placementGrace` later and puts the window up if the item is still out of
+reach.
+
 ## SwiftUI and accessibility
 
-**The profile selector is a split view, not a navigation stack.** On macOS 27,
-`NavigationSplitView` below the notices adds another titlebar backdrop inside
-the detail pane. It covers the first section heading, and hiding scroll-edge
-effects or the toolbar background does not remove it. Use `HSplitView` with
-the toolbar on the outer view. The layout suite checks for this extra backdrop
-in both appearances, both languages and each supported window size.
+**The profile selector is a `NavigationSplitView`, and the notices sit inside
+its detail column.** For a while it was an `HSplitView` under a stack of
+notices, because on macOS 27 a `NavigationSplitView` *below* the notices drew a
+second titlebar backdrop inside the detail pane, over the first section
+heading. That split did what it was asked and looked wrong for it: the sidebar
+had no sidebar material, stopped short of the titlebar, and the window's title
+sat across the divider as two halves of one bar. The backdrop was never the
+split view's fault but the stack's — a split view that is not the window's
+root cannot reach the titlebar, so it draws its own. With the split view as the
+root and `UpdateRecoveryNotice` at the top of the detail column, the sidebar
+runs the full height under the titlebar, the system's Hide Sidebar button and
+View › Show Sidebar come with it, and the title belongs to the detail column
+alone.
 
-**Notices above the split view need their own layout space.** A top
-`safeAreaInset` on `NavigationSplitView` left its native sidebar and form
-drawing beneath the update banner. The first account and the top of the form
-were hidden even though accessibility still reported them. Keep the notices
-and split view as siblings in a vertical stack. `test-layout.sh` checks the
-native view bounds as the update state, window size and language change.
+What the old arrangement protected still holds, and `test-layout.sh` checks it
+in both appearances, both languages and each window size. The first split item
+must have `.sidebar` behaviour and run from the top of the window to the bottom.
+The title field must lie wholly on one side of the sidebar's edge. A titlebar
+backdrop may sit only at the top, no taller than the titlebar itself: the split
+view draws one per column there, which is how it should look, and a backdrop
+anywhere lower is the old fault back. No page's content may start under the
+toolbar. The suite's window bridges the toolbar and title as the real scene does
+(`sceneBridgingOptions`), because a window without a toolbar has 52 points the
+real one does not and hid the overflow that started all this.
+
+The system's sidebar button is the one control nobody here names. Its
+accessibility name is the label of its toolbar item, whose identifier ends in
+`navigationSplitView.toggleSidebar`, and the identifier check lets that one
+through by that label and fails instead if the button is missing.
 
 **Every control is named and identified by hand.** SwiftUI names a button
 holding only a symbol after the symbol, so the "!" beside every section read out
@@ -131,8 +165,77 @@ the run loop, re-enters AppKit layout mid-update, and segfaults with a null
 program counter. Every process wait now uses a semaphore, and status is read on
 a background queue into `@State`.
 
+A button's action is not a body, but the same holds for anything that waits.
+Create and Update Shortcut signed the app, waited on the update-settings lock
+and ran a mirror pass that can copy every chat a profile has, all on the main
+thread, so the window stopped answering for as long as that took and a second
+press queued a second install behind the first. `ShortcutDetail.install` runs
+`Installer.install` on a background queue and holds the page still, with a
+spinner in the button, until it answers; the result is written back to the
+shortcut found by id, since the list may have moved under it meanwhile.
+
 **Long-lived objects live in `enum Shared`, not `@StateObject` on the App.**
 Observing them from the App value invalidates the whole scene on every poll.
+
+## Fitting the window
+
+Both detail views fit the smallest window, 820 by 560, without scrolling.
+
+That size has to be the smallest in fact, not only in the notes. The scene
+asked for 720 by 460 for months, and a live run on 8 November dragged the
+window to 777 by 519 with every page laid out for more. A limit SwiftUI takes
+from a view belongs to the root view, which does not span the window: the
+titlebar and toolbar sit outside it by an amount AppKit decides, so a plain
+820 by 560 frame would have made the smallest window taller than 560 instead.
+`SmallestWindow` measures what lies outside the root and asks for 820 by 560
+less that; until the first measurement it asks for less, so the first layout
+cannot grow a saved frame.
+A note people skimmed was what made them scroll: three-line explanations of
+what a graft is, where chats are read from or why Anthropic did not answer
+pushed the buttons people came for below the fold. So a note is one line
+(`OneLineNote`), and the paragraph it used to be sits behind an
+`InfoButton` beside it. A one-line note still says everything a person needs
+to act: a usage figure says the time it is from, a wait says how long.
+
+The layout check measures the document view against the clip view minus the
+larger of the two content insets at each edge. The grouped form's bottom bar is
+a `safeAreaInset`, so a check that ignored the inset passed with the last row
+hidden under the buttons; it was 97 points over when first measured properly.
+Adding the two together was wrong the other way: in a window with a toolbar the
+clip view's insets repeat the scroll view's, and the sum counted the toolbar
+twice.
+
+What keeps the fullest page in, a shortcut lending two accounts with all three
+bars showing, is that nothing takes a row it does not need. Whether a Claude is
+running is the window's subtitle. When the figures are from, the refresh button
+and Add sit on the section heading's right (`SectionHeader`'s trailing view).
+A reset time sits on its bar's line, after the percentage. Shared usage shows at
+most one note row, a problem before the environment before Open at Login, with
+the others behind its ⓘ. A shortcut's name, folder and Show in Finder share a
+row, and where it reads chats from is a labelled picker with the sharing note
+under its label. At 820 by 560 that page has 6 points to spare, in both
+languages; a new row there needs another row to give one up.
+
+CI found the next row nobody had counted. Its runner has no Claude.app, and
+the "Claude.app was not found." notice was a section of its own, 46 points
+that put that page 40 over; on this machine, with Claude installed, the page
+had never drawn it. The notice is now the window's subtitle, in place of
+Running or Not running, which a Mac without Claude cannot be anyway. A
+failing fit check prints every row's position (`ROWS …`), so a page over on a
+machine nobody can sit at says which row grew.
+
+Settings is a grouped form too, and a grouped form scrolls, so it asks for no
+height and a window sized from it opens as a bare titlebar. It is held to its
+rows with `fixedSize(horizontal: false, vertical: true)`.
+
+The freshness line on the usage heading reads "Updated … from Anthropic" when
+the figure is current. "· figure from …" appears only beside the reason a
+refresh failed, where the time says how old the figure being shown is; a plan
+that expects it on a healthy account is expecting the wrong line.
+
+A row with its own button never takes `.spoken` on the whole row: the
+button inherits the row's name, and VoiceOver reads the account twice and
+the action never. Name the label part, and let the button name itself.
 
 ## The Dock, the icon and the Claude in front
 
@@ -237,3 +340,49 @@ The figure is AppKit's text placement, 10.2 points down against the symbol's
 comes forward. A point and not a point and a half because text lands on whole
 pixels: the larger figure put it half a pixel below the symbol. Measure all of
 this on a status item in the bar.
+
+**Graft's own mark leaves the bar while a Claude in front is drawn there.** The
+front Claude's icon or name already says whose item it is, and the half-filled
+circle beside it was width a full bar could not spare. It comes back when no
+Claude is shown, and an update's symbol stays whatever is in front, since that
+is news the front Claude cannot carry. With no mark, the title drops the space
+that parted it from one (`FrontTitle.make(afterImage:)`).
+
+**Each Claude and each lent account has a colour of its own unless a person
+picks a shared one.** `IconPreset.next(besides:)` hands out the first colour
+nothing wears, in `handedOut` order, and never Claude's own original, which
+is the main profile's. It is given once: a new shortcut takes it when made,
+and an account when it is added to the pool. Nothing recolours what exists, so
+a Dock icon somebody knows does not change under them. Accounts saved before
+accounts had colours get one on the first pass that knows which account each
+Claude is signed into (`learnAccounts`), so an account that is also a Claude
+here wears that Claude's colour instead of using up a free one; it follows that
+Claude's colour afterwards through `UsagePoolController.preset(of:)`.
+
+**A Claude that draws on other accounts shows all of them in the menu bar**
+(`PoolStrip`), its own first and always in the same order. The account
+answering the conversation on screen is drawn full size in a red ring and the
+rest small and faint, so which allowance is being spent reads off the bar.
+Size alone was easy to miss, so 2.0.1 added the ring: a one-point `systemRed`
+stroke at the edge of the lit icon's own square, with the icon drawn two points
+smaller inside it, because Claude's icon fills nearly all of its square and is
+as warm as the ring, and at full size the two ran together. The ring stays
+inside the square because a taller strip would no longer line up with the
+figure beside it. A conversation no account has answered lights nothing. The
+dropdown leads with the front Claude's latest conversation, usually the same
+one, and the others wait behind "Other conversations · n".
+
+## The Help menu
+
+SwiftUI fills the Help menu with one item that says help isn't available,
+which reads as an app nobody looks after, so `GraftHelpCommands` replaces it.
+It leads to the site, the release list, a new issue, an email, the
+developer's LinkedIn profile, the source and the tip jar. The menu is only on
+screen while the window is, since the app is an accessory the rest of the
+time; the dropdown keeps its own Support item for that reason.
+
+The email opens already addressed, with a subject naming the Graft version
+and a body ending in the Graft and macOS versions. The first reply to a
+problem report is otherwise always a question asking for exactly those. The
+address and the LinkedIn handle are spelled out in `Links`, not derived from
+the GitHub or Ko-fi names, and the suite reads them back.

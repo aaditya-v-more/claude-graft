@@ -1,0 +1,342 @@
+import AppKit
+import Combine
+import Foundation
+
+/// Every signed-in account's projects in one list, and one search across all
+/// of their chats.
+///
+/// The accounts are the Artifacts pane's: the same claude.ai sign-in, in the
+/// same web store, asked from the same page. Nothing here signs in or keeps a
+/// sign-in of its own, so an account added or signed out in any one of the
+/// three panes is added or gone in all of them at once.
+@MainActor
+final class ProjectCenter: ObservableObject {
+    enum State: Equatable {
+        case unknown
+        case loading
+        case ready
+        case signedOut
+        case failed
+    }
+
+    let accounts: ArtifactCenter
+    @Published private(set) var projects: [ClaudeProject] = []
+    @Published private(set) var projectStates: [UUID: State] = [:]
+
+    /// Everything the last search found, before the filters.
+    @Published private(set) var results: [SearchHit] = []
+    @Published private(set) var searchStates: [UUID: State] = [:]
+    /// The query the results answer, which is not always what is in the box.
+    @Published private(set) var searched: String?
+    @Published var filters = SearchFilters()
+
+    /// Set for the layout checks, which draw sample rows and must never reach
+    /// claude.ai.
+    private let offline: Bool
+    private var projectLists: [UUID: [ClaudeProject]] = [:]
+    private var searchGeneration = 0
+    /// Each account's whole Code session list, kept for the searches after
+    /// the one that read it: three pages of two hundred is a lot to ask again
+    /// for every word typed into the box.
+    private var codeLists: [UUID: (read: Date, sessions: [RemoteCodeSession], complete: Bool)] = [:]
+    static let codeListLifetime: TimeInterval = 120
+    /// This Mac's transcripts, kept as long as the session lists: a cold read
+    /// of three hundred of them took three seconds here, too long to stand in
+    /// front of every search.
+    private var localRead: (read: Date, sessions: [LocalCodeSession])?
+    /// The read under way, which every account whose list came before it
+    /// waits for rather than starting one of its own.
+    private var localReading: Task<(read: Date, sessions: [LocalCodeSession]), Never>?
+    /// Whether the Projects pane has asked yet. A sign-in made before it was
+    /// ever shown waits for it, like every other account.
+    private var askedForProjects = false
+    private var watching: [AnyCancellable] = []
+
+    init(accounts: ArtifactCenter) {
+        self.accounts = accounts
+        offline = false
+        // `@Published` hands over the new list before the property holds it,
+        // so the list is taken from what is handed over.
+        watching.append(accounts.$accounts.dropFirst().sink { [weak self] list in
+            self?.accountsChanged(to: Set(list.map(\.id)))
+        })
+        watching.append(accounts.$lastSignIn.compactMap { $0 }.sink { [weak self] signIn in
+            self?.signedIn(signIn.account)
+        })
+    }
+
+    /// For the layout checks, which must not reach claude.ai.
+    init(accounts: ArtifactCenter, projects: [ClaudeProject], results: [SearchHit], searched: String?) {
+        self.accounts = accounts
+        self.projects = projects
+        self.results = results
+        self.searched = searched
+        offline = true
+        for account in accounts.accounts {
+            projectStates[account.id] = .ready
+            searchStates[account.id] = .ready
+        }
+    }
+
+    var loadingProjects: Bool { projectStates.values.contains(.loading) }
+    var searching: Bool { searchStates.values.contains(.loading) }
+
+    /// The accounts claude.ai would not answer for, by name, for the one line
+    /// under a list.
+    func trouble(in states: [UUID: State]) -> [String] {
+        accounts.accounts.compactMap { account in
+            switch states[account.id] {
+            case .signedOut: return L10n.format("Sign in to %@ again", accounts.name(of: account.id))
+            case .failed: return L10n.format("%@ didn't answer", accounts.name(of: account.id))
+            default: return nil
+            }
+        }
+    }
+
+    func projectName(_ id: String?, account: UUID) -> String? {
+        guard let id else { return nil }
+        return projects.first { $0.id == id && $0.account == account }?.name
+    }
+
+    // MARK: - Accounts
+
+    /// An account signed out anywhere leaves every list here with it.
+    private func accountsChanged(to ids: Set<UUID>) {
+        projectLists = projectLists.filter { ids.contains($0.key) }
+        projectStates = projectStates.filter { ids.contains($0.key) }
+        searchStates = searchStates.filter { ids.contains($0.key) }
+        codeLists = codeLists.filter { ids.contains($0.key) }
+        projects = projects.filter { ids.contains($0.account) }
+        results = results.filter { ids.contains($0.account) }
+        if let account = filters.account, !ids.contains(account) { filters.account = nil }
+    }
+
+    /// An account signed in from any pane is asked for here as well, once,
+    /// because a person just asked for it; a search on screen is run again
+    /// so it covers the new account too.
+    private func signedIn(_ id: UUID) {
+        guard !offline else { return }
+        codeLists[id] = nil
+        projectStates[id] = nil
+        if askedForProjects { Task { await loadProjects(id) } }
+        if let searched { search(searched) }
+    }
+
+    // MARK: - Projects
+
+    /// From the pane's appearance and its refresh button, never a timer.
+    func refreshProjects() {
+        guard !offline else { return }
+        askedForProjects = true
+        accounts.refreshNames()
+        Task {
+            await withTaskGroup(of: Void.self) { group in
+                for account in accounts.accounts { group.addTask { await self.loadProjects(account.id) } }
+            }
+        }
+    }
+
+    /// What a search needs to name the project a chat is in.
+    private func askForProjectsNotYetAsked() {
+        let unasked = accounts.accounts.map(\.id).filter { projectStates[$0] == nil }
+        guard !unasked.isEmpty else { return }
+        askedForProjects = true
+        Task {
+            await withTaskGroup(of: Void.self) { group in
+                for id in unasked { group.addTask { await self.loadProjects(id) } }
+            }
+        }
+    }
+
+    private func loadProjects(_ id: UUID) async {
+        guard accounts.account(id) != nil, projectStates[id] != .loading else { return }
+        projectStates[id] = .loading
+        do {
+            let org = try await accounts.organization(of: id)
+            let session = accounts.session(id)
+            var found: [ClaudeProject] = []
+            for page in 0..<ClaudeAPI.maximumProjectPages {
+                let answer = try await session.send(
+                    "GET", ClaudeAPI.projectsPath(org: org, offset: page * ClaudeAPI.projectPageSize))
+                guard answer.status == 200, let list = ClaudeAPI.projects(from: answer.data, account: id)
+                else { throw ClaudeWebSession.Failure.unreadable }
+                found += list.projects
+                if !list.hasMore { break }
+            }
+            // Signed out while this ran: what it found goes with the account.
+            guard accounts.account(id) != nil else { return }
+            projectLists[id] = found
+            projectStates[id] = .ready
+            accounts.noteSignIn(id, accepted: true)
+        } catch ClaudeWebSession.Failure.signedOut {
+            guard accounts.account(id) != nil else { return }
+            projectLists[id] = nil
+            projectStates[id] = .signedOut
+            accounts.noteSignIn(id, accepted: false)
+        } catch {
+            guard accounts.account(id) != nil else { return }
+            projectStates[id] = .failed
+            Diagnostics.note("projects.list failed", ["reason": "\(error)"])
+        }
+        let signedIn = Set(accounts.accounts.map(\.id))
+        projectLists = projectLists.filter { signedIn.contains($0.key) }
+        projects = ClaudeAPI.merge(accounts.accounts.compactMap { projectLists[$0.id] })
+    }
+
+    // MARK: - Search
+
+    /// What the filters let through, in the order found.
+    var shown: [SearchHit] {
+        let now = Date()
+        return results.filter { filters.admits($0, now: now) }
+    }
+
+    /// When a person presses Return or the search button, never as they type:
+    /// each search asks every account, and claude.ai's own box asks once per
+    /// pause, not once per key. The filters narrow what came back and ask
+    /// nothing.
+    func search(_ text: String) {
+        let query = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !offline else { return }
+        searchGeneration += 1
+        let generation = searchGeneration
+        guard !query.isEmpty else {
+            clearSearch()
+            return
+        }
+        searched = query
+        results = []
+        let ids = accounts.accounts.map(\.id)
+        for id in ids { searchStates[id] = .loading }
+        // Only accounts never asked: one with no projects is answered already,
+        // and asking again whenever the list was empty walked every account's
+        // projects on every search.
+        askForProjectsNotYetAsked()
+        Task {
+            var lists: [UUID: [SearchHit]] = [:]
+            await withTaskGroup(of: (UUID, Result<[SearchHit], Error>).self) { group in
+                for id in ids {
+                    group.addTask { (id, await self.searchOne(id, query)) }
+                }
+                for await (id, outcome) in group {
+                    // A newer search has started, and this one's answers would
+                    // only mix into its list; or the account was signed out
+                    // while it ran, and its hits would come back with it.
+                    guard generation == self.searchGeneration, accounts.account(id) != nil else { continue }
+                    switch outcome {
+                    case .success(let found):
+                        lists[id] = found
+                        searchStates[id] = .ready
+                        accounts.noteSignIn(id, accepted: true)
+                    case .failure(ClaudeWebSession.Failure.signedOut):
+                        searchStates[id] = .signedOut
+                        accounts.noteSignIn(id, accepted: false)
+                    case .failure(let error):
+                        searchStates[id] = .failed
+                        Diagnostics.note("search failed", ["reason": "\(error)"])
+                    }
+                    results = ClaudeAPI.interleave(accounts.accounts.compactMap { lists[$0.id] })
+                }
+            }
+        }
+    }
+
+    private func searchOne(_ id: UUID, _ query: String) async -> Result<[SearchHit], Error> {
+        do {
+            let org = try await accounts.organization(of: id)
+            let session = accounts.session(id)
+            let answer = try await session.send("POST", ClaudeAPI.searchPath(org: org),
+                                                body: ClaudeAPI.searchBody(query: query))
+            guard answer.status == 200, let chats = ClaudeAPI.chats(from: answer.data, account: id)
+            else { throw ClaudeWebSession.Failure.unreadable }
+            let code = await codeSessions(id, org: org, session: session)
+            let local = await localSessions(readSince: code.read)
+            let hits = ClaudeAPI.codeHits(query, account: id, accountUuid: accounts.account(id)?.accountUuid,
+                                          organization: org, remote: code.sessions, complete: code.complete,
+                                          listedAt: code.read, local: local)
+            return .success(chats + hits)
+        } catch {
+            return .failure(error)
+        }
+    }
+
+    /// An account with no Code sessions, or whose session list will not
+    /// answer, still has its chats searched; only the chats' failure fails it.
+    private func codeSessions(_ id: UUID, org: String,
+                              session: ClaudeWebSession) async
+        -> (sessions: [RemoteCodeSession], complete: Bool, read: Date) {
+        if let kept = codeLists[id], Date().timeIntervalSince(kept.read) < Self.codeListLifetime {
+            return (kept.sessions, kept.complete, kept.read)
+        }
+        // From before the walk: a session that began while it ran may be on a
+        // page already read.
+        let started = Date()
+        var found: [RemoteCodeSession] = []
+        var cursor: String?
+        var complete = false
+        do {
+            for _ in 0..<ClaudeAPI.maximumCodePages {
+                let answer = try await session.send("GET", ClaudeAPI.codeSessionsPath(after: cursor),
+                                                    headers: ClaudeAPI.codeHeaders(org: org))
+                guard answer.status == 200, let page = ClaudeAPI.codeSessions(from: answer.data) else {
+                    Diagnostics.note("search.code-sessions refused", ["status": "\(answer.status)"])
+                    return (found, false, started)
+                }
+                found += page.sessions
+                cursor = page.next
+                if cursor == nil { complete = true; break }
+            }
+        } catch {
+            return (found, false, started)
+        }
+        codeLists[id] = (started, found, complete)
+        return (found, complete, started)
+    }
+
+    /// This Mac's transcripts, read no earlier than a session list they are
+    /// set beside. The two used to be kept two minutes each from reads of
+    /// their own, so a session begun here between a list and a newer read of
+    /// the transcripts showed as gone from claude.ai, and one begun between a
+    /// read and a newer list as on another Mac.
+    private func localSessions(readSince list: Date) async -> [LocalCodeSession] {
+        if let kept = localRead,
+           ClaudeAPI.localReadServes(kept.read, list: list, now: Date(), lifetime: Self.codeListLifetime) {
+            return kept.sessions
+        }
+        if let reading = localReading {
+            let done = await reading.value
+            if ClaudeAPI.localReadServes(done.read, list: list, now: Date(), lifetime: Self.codeListLifetime) {
+                return done.sessions
+            }
+        }
+        let reading = Task.detached(priority: .userInitiated) { () -> (read: Date, sessions: [LocalCodeSession]) in
+            let started = Date()
+            return (started, LocalCodeSessions.read())
+        }
+        localReading = reading
+        let done = await reading.value
+        if localReading == reading { localReading = nil }
+        if (localRead?.read ?? .distantPast) < done.read { localRead = done }
+        return done.sessions
+    }
+
+    func clearSearch() {
+        searchGeneration += 1
+        searched = nil
+        results = []
+        searchStates = [:]
+    }
+
+    /// A session claude.ai no longer has is shown where its transcript is.
+    func open(_ hit: SearchHit) {
+        if let url = hit.openURL {
+            NSWorkspace.shared.open(url)
+        } else if let transcript = hit.transcript {
+            NSWorkspace.shared.activateFileViewerSelecting([transcript])
+        }
+    }
+
+    func open(_ url: URL) {
+        NSWorkspace.shared.open(url)
+    }
+}

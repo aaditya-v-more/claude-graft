@@ -14,6 +14,41 @@ enum ClaudeUpdateConfirmation {
     }
 }
 
+/// What a Graft started part way through an update does with the run it finds
+/// in the journal, decided on a snapshot that could be read.
+enum ClaudeUpdateResume: Equatable {
+    /// Only an updater already running may be followed through a relaunch;
+    /// restarting Graft is not another press of Quit All.
+    case follow(ClaudeUpdateFlow.Phase)
+    case finished
+    case abandoned
+
+    static func decide(_ sample: ClaudeUpdateFlow.Sample, target: String) -> ClaudeUpdateResume {
+        if sample.helper != nil { return .follow(.downloading) }
+        if sample.installerRunning { return .follow(.installing) }
+        let installed = sample.installed.map { $0 == target || ClaudeUpdateFeed.isNewer($0, than: target) } ?? false
+        return installed ? .finished : .abandoned
+    }
+}
+
+/// Stopping Claude's updater used to send one quit and wait for ever. One quit
+/// it missed left the update lock held, so every shortcut refused to open,
+/// behind "Waiting for Claude's updater to close…" and a window kept hidden,
+/// so nobody could close it by hand either. The lock stays held while it
+/// runs: that much is right.
+enum ClaudeUpdateStop {
+    static let resendInterval: TimeInterval = 10
+    static let hidingLimit: TimeInterval = 60
+
+    static func resendsQuit(lastQuit: Date?, now: Date) -> Bool {
+        lastQuit.map { now.timeIntervalSince($0) >= resendInterval } ?? true
+    }
+
+    static func keepsHiding(stoppingSince: Date?, now: Date) -> Bool {
+        stoppingSince.map { now.timeIntervalSince($0) < hidingLimit } ?? true
+    }
+}
+
 final class ClaudeDesktopUpdater: ObservableObject {
     @Published private(set) var installedVersion: String?
     @Published private(set) var availableVersion: String?
@@ -31,10 +66,20 @@ final class ClaudeDesktopUpdater: ObservableObject {
     private let version: () -> String?
     private var timer: Timer?
     private var checkTimer: Timer?
+    private var observers: [NSObjectProtocol] = []
+    private var concealed: NSRunningApplication?
+    private var concealment: [NSKeyValueObservation] = []
     private var lastCheck: Date?
     private var run: Run?
     private var lease: ClaudeUpdateGate.Lease?
     private var stopping: String?
+    private var stoppingSince: Date?
+    private var lastQuit: Date?
+    /// Read on the main thread only, beside `concealed`.
+    private var showingUpdater = false
+    /// A journal found at start whose fate waits on a snapshot that could be
+    /// read. Its lock is already held.
+    private var pendingResume: Run?
     private var confirming = false
 
     static var directory: URL { Graft.applicationSupport.appending(path: "ClaudeGraft/DesktopUpdate.noindex") }
@@ -62,6 +107,25 @@ final class ClaudeDesktopUpdater: ObservableObject {
         }
         RunLoop.main.add(timer, forMode: .common)
         self.timer = timer
+        // Polling found the updater four seconds after it started, and its
+        // window came back on its own five seconds later. A Claude that starts
+        // during an update is checked the moment it is announced.
+        let workspace = NSWorkspace.shared.notificationCenter
+        for name in [NSWorkspace.didLaunchApplicationNotification, NSWorkspace.didActivateApplicationNotification] {
+            observers.append(workspace.addObserver(forName: name, object: nil, queue: .main) { [weak self] note in
+                guard let self, self.isUpdating,
+                      let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
+                      app.bundleIdentifier == "com.anthropic.claudefordesktop" else { return }
+                if app == self.concealed { Self.keepHidden(app); return }
+                let pid = app.processIdentifier
+                self.queue.async {
+                    if Graft.processes().contains(where: { $0.id == pid && Graft.carriesDataDir($0.command, Self.profile) }) {
+                        DispatchQueue.main.async { self.conceal(app) }
+                    }
+                    self.poll()
+                }
+            })
+        }
         let checkTimer = Timer(timeInterval: 60, repeats: true) { [weak self] _ in self?.check(force: false) }
         RunLoop.main.add(checkTimer, forMode: .common)
         self.checkTimer = checkTimer
@@ -182,8 +246,7 @@ final class ClaudeDesktopUpdater: ObservableObject {
             return id
         }
         let id = UUID().uuidString.lowercased()
-        try Data(id.utf8).base64EncodedData().write(to: file, options: .atomic)
-        try Graft.fm.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
+        try UpdaterProfile.writeDeviceID(id, into: profile)
         return id
     }
 
@@ -191,34 +254,79 @@ final class ClaudeDesktopUpdater: ObservableObject {
         if let run { try JSONEncoder().encode(run).write(to: Self.journal, options: .atomic) }
     }
 
+    /// The lock comes first and a snapshot that cannot be read decides nothing.
+    /// A snapshot fails while any Claude has no launch date, which is exactly
+    /// the updater starting or a Claude closing, and the old order sent that
+    /// failure to `finish`: the journal deleted, the lock let go, shortcuts
+    /// allowed to open, and Claude's installer left to swap the app under one
+    /// of them once the updater nobody was watching any more quit.
     private func resume() {
         guard Graft.exists(Self.journal) else { return }
         do {
             let saved = try JSONDecoder().decode(Run.self, from: Data(contentsOf: Self.journal))
-            let sample = try Self.snapshot()
             lease = try ClaudeUpdateGate.acquire()
-            run = saved
-            // Restarting Graft is not another press of Quit All. Only an
-            // updater already running may be followed through a relaunch.
-            if sample.helper != nil || sample.installerRunning {
-                run?.flow.phase = sample.helper != nil ? .downloading : .installing
-                run?.flow.phaseStarted = Date()
-                publish()
-                poll()
-            } else {
-                let installed = sample.installed.map { $0 == saved.flow.target || ClaudeUpdateFeed.isNewer($0, than: saved.flow.target) } ?? false
-                finish(installed ? nil : L10n.text("The previous Claude update did not finish. Check for updates and try again."))
-            }
+            pendingResume = saved
+            publish(saved.flow.phase)
+            settleResume()
         } catch { finish(error.localizedDescription) }
     }
 
+    private func settleResume() {
+        guard let saved = pendingResume else { return }
+        let sample: ClaudeUpdateFlow.Sample
+        do { sample = try Self.snapshot() } catch {
+            DispatchQueue.main.async { self.problem = error.localizedDescription }
+            return
+        }
+        pendingResume = nil
+        run = saved
+        switch ClaudeUpdateResume.decide(sample, target: saved.flow.target) {
+        case .follow(let phase):
+            run?.flow.phase = phase
+            run?.flow.phaseStarted = Date()
+            DispatchQueue.main.async { self.problem = nil }
+            publish()
+            poll()
+        case .finished:
+            finish(nil)
+        case .abandoned:
+            finish(L10n.text("The previous Claude update did not finish. Check for updates and try again."))
+        }
+    }
+
     private func poll() {
+        if pendingResume != nil { settleResume(); return }
         guard var current = run else { return }
         do {
             let sample = try Self.snapshot()
             if let stopping {
-                if sample.helper == nil && !sample.installerRunning { finish(stopping) }
+                if sample.helper == nil && !sample.installerRunning { finish(stopping); return }
+                let now = Date()
+                if let helper = sample.helper, ClaudeUpdateStop.resendsQuit(lastQuit: lastQuit, now: now) {
+                    Self.quit(helper)
+                    lastQuit = now
+                }
+                if !ClaudeUpdateStop.keepsHiding(stoppingSince: stoppingSince, now: now) {
+                    DispatchQueue.main.async {
+                        guard !self.showingUpdater else { return }
+                        // Hidden any longer, the one window that could be
+                        // closed by hand is the one nobody can reach.
+                        self.showingUpdater = true
+                        self.reveal()
+                        Diagnostics.note("claude-update.updater-shown", ["reason": "still running a minute after the quit"])
+                    }
+                }
                 return
+            }
+            // `open -g` launches it behind, but Claude shows its window anyway,
+            // and a signed-out window reads as a request to sign in.
+            if let helper = sample.helper {
+                DispatchQueue.main.async {
+                    guard let app = NSRunningApplication(processIdentifier: helper.pid),
+                          app.bundleIdentifier == "com.anthropic.claudefordesktop",
+                          app.launchDate == helper.launched else { return }
+                    self.conceal(app)
+                }
             }
             let previousPhase = current.flow.phase
             let action = current.flow.advance(sample, at: Date())
@@ -228,6 +336,16 @@ final class ClaudeDesktopUpdater: ObservableObject {
             case .launch:
                 // A dedicated, signed-out instance uses Claude's own signed
                 // updater. Working profiles keep disableAutoUpdates throughout.
+                if UpdaterProfile.isSignedIn(Self.profile) {
+                    do {
+                        try UpdaterProfile.reset(Self.profile, keeping: Self.deviceID())
+                        Diagnostics.note("claude-update.profile-reset", [:])
+                    } catch {
+                        // Hidden, a signed-in updater still updates; refusing
+                        // here would leave Claude out of date over a cleanup.
+                        Diagnostics.note("claude-update.profile-reset", ["error": error.localizedDescription])
+                    }
+                }
                 let arguments = ["-n", "-g", "-j", "-a", Graft.claudeApp.path,
                                  "--args", "--user-data-dir=\(Self.profile.path)"]
                 guard Graft.runTool("/usr/bin/open", arguments) == 0 else {
@@ -253,6 +371,8 @@ final class ClaudeDesktopUpdater: ObservableObject {
 
     private func stop(_ message: String, sample: ClaudeUpdateFlow.Sample) {
         stopping = message
+        stoppingSince = Date()
+        lastQuit = Date()
         if let helper = sample.helper { Self.quit(helper) }
         if sample.helper == nil && !sample.installerRunning { finish(message) }
         else {
@@ -267,10 +387,15 @@ final class ClaudeDesktopUpdater: ObservableObject {
         let target = run?.flow.target
         if run != nil { try? Graft.fm.removeItem(at: Self.journal) }
         run = nil
+        pendingResume = nil
         stopping = nil
+        stoppingSince = nil
+        lastQuit = nil
         lease = nil
         let installed = version()
         DispatchQueue.main.async {
+            self.reveal()
+            self.showingUpdater = false
             self.installedVersion = installed
             self.isUpdating = false
             self.problem = failure
@@ -282,8 +407,8 @@ final class ClaudeDesktopUpdater: ObservableObject {
         Diagnostics.note("claude-update.finished", ["version": installed ?? "", "error": failure ?? ""])
     }
 
-    private func publish() {
-        guard let phase = run?.flow.phase else { return }
+    private func publish(_ shown: ClaudeUpdateFlow.Phase? = nil) {
+        guard let phase = shown ?? run?.flow.phase else { return }
         let message: String
         switch phase {
         case .quitting: message = L10n.text("Closing all Claude instances…")
@@ -312,9 +437,10 @@ final class ClaudeDesktopUpdater: ObservableObject {
             instances.insert(instance)
             if Graft.carriesDataDir(process.command, profile) { helper = instance }
         }
+        let isInstaller = Graft.installerProcessCheck()
         return ClaudeUpdateFlow.Sample(instances: instances, helper: helper,
                                        installed: ClaudeUpdateFeed.installedVersion(), staged: stagedVersion(),
-                                       installerRunning: processes.contains { Graft.isClaudeInstallerProcess($0.command) })
+                                       installerRunning: processes.contains { isInstaller($0.command) })
     }
 
     private static func stagedVersion() -> String? {
@@ -336,6 +462,37 @@ final class ClaudeDesktopUpdater: ObservableObject {
                   app.bundleIdentifier == "com.anthropic.claudefordesktop", app.launchDate == instance.launched else { return }
             _ = app.terminate()
         }
+    }
+
+    /// Claude unhides itself whenever it shows a window, so hiding it once
+    /// lasts only until then. Watching the flag puts it back as it changes,
+    /// and watching the launch catches a hide that came before Claude could
+    /// take it.
+    private func conceal(_ app: NSRunningApplication) {
+        guard !showingUpdater else { return }
+        if app == concealed { Self.keepHidden(app); return }
+        concealed = app
+        concealment = [
+            app.observe(\.isHidden, options: [.initial, .new]) { app, _ in Self.keepHidden(app) },
+            app.observe(\.isFinishedLaunching, options: [.initial, .new]) { app, _ in Self.keepHidden(app) },
+            app.observe(\.isActive, options: [.new]) { app, _ in Self.keepHidden(app) },
+        ]
+    }
+
+    private func reveal() {
+        concealment = []
+        concealed = nil
+    }
+
+    private static func keepHidden(_ app: NSRunningApplication) {
+        let hide = {
+            guard !app.isTerminated, app.isFinishedLaunching, !app.isHidden else { return }
+            // Logged because a hide nobody sees is otherwise unprovable: the
+            // count and timing are how a run tells a flash from a clean pass.
+            // `pid` is already the logging process's own.
+            Diagnostics.note("claude-update.hid-updater", ["updater": Int(app.processIdentifier), "accepted": app.hide()])
+        }
+        if Thread.isMainThread { hide() } else { DispatchQueue.main.async(execute: hide) }
     }
 
     private static func logSize() -> UInt64 {

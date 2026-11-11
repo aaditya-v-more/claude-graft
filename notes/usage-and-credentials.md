@@ -7,7 +7,26 @@ Where the usage figures come from, how the token is read out of Claude's safe st
 **Credentials are borrowed, never taken.** Only the access token is decrypted,
 never the refresh token: Anthropic rotates those and using one signs Claude
 Desktop out. Nothing is written back to Claude's config, cookies or keychain.
-The token goes to `api.anthropic.com` and nowhere else.
+Claude's safe-storage key does seal two things of Graft's making, both for
+[shared usage](shared-usage.md): the Code environment it writes into a closed
+profile, and the logins signed in from the pane, kept in Graft's own
+`pool/accounts.json`. A token goes to `api.anthropic.com` and nowhere else. The
+one other address is `platform.claude.com`, which a sign-in from the pane sends
+the browser's one-time code to, and what it answers with is a login of Graft's
+own, never one of Claude's. claude.ai is the third, for [artifacts](artifacts.md) alone: it sees a
+sign-in made in Graft's own window, which stays in that window's web store and
+is never read out of it.
+
+**A borrowed token is never written down on the way out.** Up to 2.0.0 the
+usage request and Start Session went through `URLSession.shared`, whose
+`URLCache` stores the request it answered beside the answer, `Authorization`
+header included, in `~/Library/Caches/graft.claude-graft/Cache.db`. The review
+before 2.0.1 found one `api.anthropic.com` exchange there with a bearer token in
+it, readable by any process running as the person without the keychain being
+asked. Both now go through `UsageAPI.session`, ephemeral and with no cache at
+all, the way `AccountSignIn` and `ClaudeDesktopUpdater` already did; every
+launch empties `URLCache.shared` so what an older version left there goes, and
+the suite fails if anything under `Sources/` names `URLSession.shared` again.
 
 **The keychain is asked once, and only when asking is the way through.** Every
 read tries silently first, so a build already on the item's ACL never sees a
@@ -43,7 +62,20 @@ That item's decrypt ACL names each trusted build by code hash, so an ad-hoc
 signature earns a fresh entry every time the app is rebuilt — nine entries for
 the same `build.noindex/Claude Graft.app` path were counted on the development machine,
 alongside ten `cdhash:` entries in the item's partition list. A Developer ID
-would be one `teamid:` entry that survives every version. Both a suppressed read
+would be one `teamid:` entry that survives every version. Ad-hoc, the dialog
+comes back at every build and every update, and at every launch for as long as
+it is answered with the one-time Allow, which adds nothing to the list.
+
+Releases stay as `release.sh` signs them. A local build is signed with the
+Mac's Apple Development certificate when there is one
+(`Tools/signing-identity.sh`, team `H4RJ5YGKZA` on the Mac Mini), whose
+designated requirement names the certificate rather than the code, so "Always
+Allow" once lets every later development build in. Seen on the Mac Mini on 11
+November 2026: the first build signed this way asked once and was let in with
+Always Allow, and a later build with a different code hash opened, read the key
+and lent without a dialog. A rebuild of unchanged sources for one architecture
+came out with the same hash, so it proves nothing either way; the universal
+build is what changed it. The installed release goes on asking as before. Both a suppressed read
 and a declined dialog answer `errSecAuthFailed`, so the two are told apart by
 which call was made, never by the status.
 
@@ -155,4 +187,31 @@ Opening the dropdown asks for a current figure but does not skip the backoff,
 because a failing endpoint would then be asked again on every open. Failures
 back off 60/120/300/900/1800 seconds and a success clears the count; a
 `Retry-After` from the service wins and is the one wait a person pressing
-refresh cannot skip.
+refresh cannot skip. It holds only as long as the service is the one asking: a
+later failure that carries none starts a wait of Graft's own, and the service's
+mark comes off with it, or a press would sit out an ordinary backoff as though
+the service had asked for it.
+
+Only a failure that came back from the service, or no answer at all, backs
+off. One on this Mac — the keychain shut, no login, an expired one, a config
+caught mid-write — happens before anything is sent, is put right on this Mac,
+and is tried again on the next pass. All of them used to read "Anthropic didn't
+answer" and wait up to half an hour, which pointed the person at the network
+and kept the account stale for thirty minutes after they had fixed the cause.
+`UsageMonitor.cameFromService` is the line between the two, and each local one
+says what it is in the row.
+
+A config that is there and will not parse is Claude renaming a new one over it,
+not a profile with no login, so `ClaudeCredentials.tokens` reads it through
+`readableConfigJSON` and throws `configUnreadable`: retried, never taken for
+signed out. Read as empty, it left a lender with nothing to be recognised by
+for a pass.
+
+**A pass that has been told no asks nobody after it.** The key is one item for
+every profile, so once a read in a pass comes back shut, every profile after it
+in that pass is read silently. Before, `mayRaiseDialog(.yes)` answered yes for
+each profile whatever had just happened, and Start Session's follow-up refresh
+went out allowed to ask and with no focus, so a Deny on a Mac with three
+Claudes was answered with three more dialogs. That refresh now asks nobody and
+only about the account the session was started on: the press already asked the
+keychain once, in starting the session.

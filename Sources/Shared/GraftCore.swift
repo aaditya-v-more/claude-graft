@@ -63,13 +63,27 @@ enum Graft {
         if trimmed == "." || trimmed == ".." || trimmed.hasPrefix(".") {
             return L10n.format("“%@” is not a usable folder name.", trimmed)
         }
-        if trimmed == "Claude" {
+        // Ignoring case, because the disk does: `claude` is the same folder as
+        // `Claude` on a Mac's usual volume, and a shortcut on it was the main
+        // Claude under another name, while one on `claudegraft` put a profile
+        // inside Graft's own folder, which deleting that profile then removed.
+        if isNamed(trimmed, "Claude") {
             return L10n.text("That is Claude's own profile folder. Pick another name.")
         }
-        if trimmed == "ClaudeGraft" {
+        if isNamed(trimmed, graftFolderName) {
             return L10n.text("That folder belongs to Claude Graft itself. Pick another name.")
         }
         return nil
+    }
+
+    static let graftFolderName = "ClaudeGraft"
+
+    /// Where Graft keeps its own state, beside the profiles.
+    static var graftFolder: URL { applicationSupport.appending(path: graftFolderName) }
+
+    /// Two folder names the disk would take for one.
+    static func isNamed(_ folder: String, _ name: String) -> Bool {
+        folder.caseInsensitiveCompare(name) == .orderedSame
     }
 
     /// Files a second profile can share wholesale. Everything absent from this
@@ -597,7 +611,10 @@ enum Graft {
         // A session that got no answer back leaves no line carrying these,
         // so they hold the last values the transcript ever mentioned rather
         // than an honest read; the record still needs something in them.
-        var model = "claude-sonnet-5", effort = "medium", permissionMode = "auto", cwd = ""
+        // The permission mode is the one a session continued in Claude starts
+        // from, so a transcript that names none falls back to the mode that
+        // grants least rather than to one nobody chose.
+        var model = "claude-sonnet-5", effort = "medium", permissionMode = "default", cwd = ""
         var promptIds: Set<String> = []
         var trace = ConversationTrace()
         var branches: [String] = []
@@ -745,7 +762,11 @@ enum Graft {
             // here. Nothing the transcript holds can recover that, and an
             // empty list is what a session sees when none is configured.
             "remoteMcpServersConfig": [String](),
-            "chromePermissionMode": "skip_all_permission_checks",
+            // No `chromePermissionMode`. It is a choice made per session and
+            // nothing in a transcript says what it was; a record without one
+            // takes the person's own setting, which is how Claude itself
+            // rewrites most of them. Every record filed before this said to
+            // skip every browser permission check.
             "completedTurns": facts.prompts,
             "lastSpawnRootDetected": false,
             "bridgeSessionIds": facts.bridgeIds.map {
@@ -788,7 +809,13 @@ enum Graft {
         /// Optional so a cache written before traces were kept still loads;
         /// an entry without one is read again, once, rather than trusted.
         var trace: ConversationTrace?
+        /// Which reading of a transcript made this entry. A transcript that
+        /// names no permission mode was once read as `auto`, and an entry
+        /// from then would go on saying so for as long as the file sat still.
+        var reading: Int?
     }
+
+    static let transcriptReadingVersion = 2
 
     /// Parsed transcripts, kept on disk rather than only in memory.
     ///
@@ -1206,6 +1233,31 @@ enum Graft {
         /// Run from a terminal, or by a Claude without a bridge: never in a
         /// sidebar, so nothing is missing.
         case notADesktopSession
+        /// Worked in on another Mac, whose transcripts were carried here. Asked
+        /// again next pass, because a drive that is not mounted yet will be.
+        case folderElsewhere
+    }
+
+    /// Whether the folder a session worked in could be on this Mac at all.
+    ///
+    /// Transcripts carried over from another Mac name its home folder, and a
+    /// record filed for one is a chat that cannot be opened: Claude tries to
+    /// start it, finds no folder and leaves it in the sidebar unusable, beside
+    /// the real copy of the same project under this Mac's own path. Fourteen
+    /// came in that way from `/Users/aaditya`, which never existed here.
+    ///
+    /// The question is asked of the home folder or the drive, never of the
+    /// folder itself. A worktree cleaned up after its chat closed is gone
+    /// while its project is not, and that chat is this Mac's history, still
+    /// read in the sidebar; only a home or a volume that is not here at all
+    /// says the session happened somewhere else.
+    static func sessionFolderIsHere(_ cwd: String) -> Bool {
+        let parts = URL(fileURLWithPath: cwd).standardizedFileURL.pathComponents
+        guard cwd.hasPrefix("/"), parts.count > 1 else { return true }
+        let depth = ["Users", "Volumes"].contains(parts[1]) ? 3 : 2
+        let place = NSString.path(withComponents: Array(parts.prefix(depth)))
+        var isDirectory: ObjCBool = false
+        return fm.fileExists(atPath: place, isDirectory: &isDirectory) && isDirectory.boolValue
     }
 
     /// Whether a transcript still needs a record written for it.
@@ -1216,9 +1268,11 @@ enum Graft {
                               lastWrite: Date,
                               ownerProfile: URL?,
                               ownerIsRunning: Bool = true,
+                              folderIsHere: Bool = true,
                               now: Date,
                               quietWindow: TimeInterval) -> SessionFiling {
         guard let facts else { return .notADesktopSession }
+        guard folderIsHere else { return .folderElsewhere }
         guard !recorded.contains(facts.cliSessionId) else { return .alreadyRecorded }
         guard !withdrawn.contains(facts.cliSessionId) else { return .withdrawn }
 
@@ -1275,10 +1329,18 @@ enum Graft {
     /// within seconds of the session being opened in the owner's window —
     /// and flattening one of those back into a parsed version would throw
     /// away everything a transcript cannot recover.
+    ///
+    /// A record still in the shape an earlier version filed is this app's as
+    /// surely as one in today's, and is rewritten whether or not its transcript
+    /// moved: that shape skipped every browser permission check, and leaving it
+    /// until the session happened to move again would leave it there for good.
     static func sessionUpdateDecision(authored: SessionFacts?,
                                       facts: SessionFacts,
-                                      diskMatchesAuthored: Bool) -> SessionUpdate {
-        guard let authored, authored != facts else { return .leave }
+                                      diskMatchesAuthored: Bool,
+                                      diskInOlderShape: Bool = false) -> SessionUpdate {
+        guard let authored else { return .leave }
+        if diskInOlderShape { return .refresh }
+        guard authored != facts else { return .leave }
         return diskMatchesAuthored ? .refresh : .takenOver
     }
 
@@ -1355,6 +1417,8 @@ enum Graft {
     static func fileMissingSessionRecords(filingInto profiles: [URL],
                                           now: Date = Date(),
                                           quietWindow: TimeInterval = 60) -> [SessionFacts] {
+        enterStateLock()
+        defer { leaveStateLock() }
         var state = loadSessionRecordState()
         let contents = sessionStoreContents()
         let candidates = recordFilingProfiles(named: profiles)
@@ -1369,6 +1433,7 @@ enum Graft {
 
         let recorded = Set(contents.records.keys)
         var withdrawn = Set(state.withdrawn)
+        let withdrawnBefore = withdrawn.count
         let vanished = Set(state.vanished)
         var missing: Set<String> = []
         // Sessions whose record is remembered in a store this pass never got
@@ -1424,7 +1489,13 @@ enum Graft {
             // this on the way in and it has to be asked on the way out too:
             // withdrawing is forever, and this is how 150 sessions across two
             // profiles were withdrawn in a single pass.
-            guard !answers(for: store).stashed else {
+            //
+            // A record this pass can see is not one of those, whatever sits
+            // beside its folder. Every mirrored folder has a stash beside it,
+            // so a record the sweep filed there was out of sight from the next
+            // pass on, and kept the title and the last activity it was filed
+            // with for as long as the graft lasted.
+            guard !answers(for: store).stashed || recorded.contains(session) else {
                 outOfSight.insert(session)
                 stashedStores.insert(store)
                 continue
@@ -1555,7 +1626,12 @@ enum Graft {
             // The records this app files are named for their session, so
             // a marker naming one names the session outright. Nothing to
             // infer, and nothing for an unreadable store to confuse.
-            if contents.deleted.contains(facts.cliSessionId) {
+            // Markers are never pruned, so the one that withdrew a session
+            // is still there on every pass after; reading it as news put a
+            // withdrawal in the log for one session on each of 54 passes
+            // when nothing had been done to it since October.
+            if contents.deleted.contains(facts.cliSessionId),
+               !withdrawn.contains(facts.cliSessionId) {
                 withdrawn.insert(facts.cliSessionId)
                 state.authored.removeValue(forKey: facts.cliSessionId)
                 Diagnostics.note("sweep.withdraw", [
@@ -1589,11 +1665,11 @@ enum Graft {
                 // pass filed here is this app's to keep current, and the
                 // transcript moving on past it is the moment to do so.
                 if let owner, let authored = state.authored[facts.cliSessionId] {
+                    let shape = recordOnDisk(matches: authored, at: recordFile(for: facts, in: owner))
                     switch sessionUpdateDecision(authored: authored,
                                                  facts: facts,
-                                                 diskMatchesAuthored:
-                                                    recordOnDisk(matches: authored,
-                                                                 at: recordFile(for: facts, in: owner))) {
+                                                 diskMatchesAuthored: shape.current,
+                                                 diskInOlderShape: shape.older) {
                     case .leave:
                         break
                     case .takenOver:
@@ -1623,6 +1699,7 @@ enum Graft {
                                              lastWrite: lastWrite,
                                              ownerProfile: owner,
                                              ownerIsRunning: running(owner),
+                                             folderIsHere: sessionFolderIsHere(facts.cwd),
                                              now: now,
                                              quietWindow: quietWindow)
             else { continue }
@@ -1650,7 +1727,8 @@ enum Graft {
                     "session": facts.cliSessionId,
                     "owner": facts.ownerAccount,
                     "into": owner.lastPathComponent,
-                    "title": facts.title,
+                    // No title. The session id names it already, and the log
+                    // is what a bug report asks to have pasted in.
                     "cwd": facts.cwd,
                 ])
                 filed.append(facts)
@@ -1669,7 +1747,10 @@ enum Graft {
         saveSessionRecordState(state)
         Diagnostics.note("sweep.end", [
             "filed": filed.count,
-            "withdrawn": withdrawn.count,
+            // Every other count here is this pass's, and a running total
+            // under the same kind of name read as five withdrawals a pass.
+            "withdrawn": withdrawn.count - withdrawnBefore,
+            "withdrawnInAll": withdrawn.count,
             "missingThisPass": missing.count,
             "outOfSight": outOfSight.count,
             "forgotten": forgotten.count,
@@ -1692,7 +1773,7 @@ enum Graft {
         transcriptCacheLock.lock()
         loadTranscriptCache()
         if let cached = transcriptCache[url.path], cached.modified == stamp, cached.size == size,
-           let trace = cached.trace {
+           cached.reading == transcriptReadingVersion, let trace = cached.trace {
             transcriptCacheLock.unlock()
             return (cached.facts, trace)
         }
@@ -1701,7 +1782,8 @@ enum Graft {
         let reading = readTranscript(at: url, cliSessionId: cliSessionId)
         transcriptCacheLock.lock()
         transcriptCache[url.path] = CachedTranscript(modified: stamp, size: size,
-                                                     facts: reading.facts, trace: reading.trace)
+                                                     facts: reading.facts, trace: reading.trace,
+                                                     reading: transcriptReadingVersion)
         transcriptCacheDirty = true
         transcriptCacheLock.unlock()
         return reading
@@ -1727,14 +1809,24 @@ enum Graft {
             .appending(path: "local_\(facts.cliSessionId).json")
     }
 
-    /// Whether the record on disk is still the one this app wrote. Claude
-    /// writes its own shape over a record it takes an interest in, so this
-    /// is the line between keeping a record current and flattening one.
-    private static func recordOnDisk(matches facts: SessionFacts, at file: URL) -> Bool {
-        guard let onDisk = try? Data(contentsOf: file),
-              let authored = sessionRecordData(for: facts)
-        else { return false }
-        return onDisk == authored
+    /// The bytes versions up to 2.0.0 filed for the same facts, which said to
+    /// skip every browser permission check. Kept only so a record still in
+    /// that shape is known to be this app's, and rewritten without it.
+    private static func olderSessionRecordData(for facts: SessionFacts) -> Data? {
+        var record = sessionRecord(for: facts)
+        record["chromePermissionMode"] = "skip_all_permission_checks"
+        return try? JSONSerialization.data(withJSONObject: record, options: [.sortedKeys])
+    }
+
+    /// Whether the record on disk is still the one this app wrote, today or
+    /// in the shape an earlier version wrote it. Claude writes its own shape
+    /// over a record it takes an interest in, so this is the line between
+    /// keeping a record current and flattening one.
+    private static func recordOnDisk(matches facts: SessionFacts,
+                                     at file: URL) -> (current: Bool, older: Bool) {
+        guard let onDisk = try? Data(contentsOf: file) else { return (false, false) }
+        return (onDisk == sessionRecordData(for: facts),
+                onDisk == olderSessionRecordData(for: facts))
     }
 
     /// Puts one record where the session's owner will list it.
@@ -1816,7 +1908,84 @@ enum Graft {
                                 withIntermediateDirectories: true)
         if (try? data.write(to: mirrorStateFile, options: .atomic)) != nil {
             SidebarSync.forgetPairs(except: Set(state.pairs.keys))
+            forgetRecordBaselines(except: Set(state.pairs.keys))
         }
+    }
+
+    // MARK: The state lock
+
+    /// One pass at a time over `mirrored-chats.json` and `session-records.json`,
+    /// across every process that writes them.
+    ///
+    /// Graft's own sweep and each shortcut's launcher are separate processes,
+    /// and both read a state file, work for a while and write it back. An
+    /// atomic write keeps the file whole but not the other pass's work: two
+    /// launchers clicked together, or one clicked while the dropdown's sweep
+    /// was running, each wrote the state it had read, and whichever finished
+    /// second put back a baseline from before the other's copies. A baseline
+    /// that no longer says what the filesystem did reads the next pass's
+    /// copies as deletions.
+    ///
+    /// Reentrant within a process, since a pass holding it calls functions
+    /// that take it themselves. Never taken inside `SidebarSync.withLaunchLock`
+    /// on the way to it: `launch` takes that one after this is let go, so
+    /// nothing holds the two in opposite orders.
+    @discardableResult
+    static func withStateLock<T>(_ work: () -> T) -> T {
+        enterStateLock()
+        defer { leaveStateLock() }
+        return work()
+    }
+
+    /// How long a pass waits for another before going ahead without it.
+    /// A launcher stands in front of a window opening, and one that waited
+    /// forever on a pass that had hung would never open it; going ahead is
+    /// what every pass did before there was a lock.
+    static var stateLockPatience: TimeInterval = 20
+
+    private static let stateLockLocal = NSRecursiveLock()
+    private static var stateLockDepth = 0
+    private static var stateLockDescriptor: Int32 = -1
+
+    static var stateLockFile: URL { applicationSupport.appending(path: "ClaudeGraft/state.lock") }
+
+    static func enterStateLock() {
+        stateLockLocal.lock()
+        stateLockDepth += 1
+        // Only the outermost hold takes the file. flock belongs to the open
+        // file, so a second descriptor from a nested hold would wait on the
+        // first one forever.
+        guard stateLockDepth == 1 else { return }
+        try? fm.createDirectory(at: stateLockFile.deletingLastPathComponent(),
+                                withIntermediateDirectories: true)
+        let fd = Darwin.open(stateLockFile.path, O_CREAT | O_RDWR, 0o600)
+        guard fd >= 0 else {
+            Diagnostics.note("state-lock.unavailable", ["errno": Int(errno)])
+            return
+        }
+        // Tried at once first, so the usual case — nobody else in a pass —
+        // costs one system call and no wait.
+        let deadline = Date().addingTimeInterval(stateLockPatience)
+        while flock(fd, LOCK_EX | LOCK_NB) != 0 {
+            let failure = errno
+            guard failure == EWOULDBLOCK || failure == EINTR, Date() < deadline else {
+                Diagnostics.note("state-lock.gave-up", ["errno": Int(failure)])
+                Darwin.close(fd)
+                return
+            }
+            usleep(20_000)
+        }
+        stateLockDescriptor = fd
+    }
+
+    static func leaveStateLock() {
+        stateLockDepth -= 1
+        if stateLockDepth == 0, stateLockDescriptor >= 0 {
+            _ = flock(stateLockDescriptor, LOCK_UN)
+            Darwin.close(stateLockDescriptor)
+            stateLockDescriptor = -1
+        }
+        stateLockLocal.unlock()
     }
 
     /// A byte no path can contain, so the two halves of a key always come
@@ -1938,9 +2107,21 @@ enum Graft {
     @discardableResult
     static func mirrorKnownPairs() -> Int {
         var moved = 0
-        for key in loadMirrorState().pairs.keys.sorted() {
-            guard let pair = pairFolders(key) else { continue }
-            moved += mirrorChatFolders(pair.one, pair.other)
+        let keys = loadMirrorState().pairs.keys.sorted()
+        // Pairs that share a folder pass a change along one pair at a time. A
+        // chat archived in the borrower whose pair comes last reaches the
+        // source on this round and the borrowers listed before it only on the
+        // next, so a launcher that stopped after one round opened its profile
+        // a change behind. Round again until a round moves nothing; a change
+        // never needs more rounds than there are pairs, and one more proves it.
+        for _ in 0...keys.count {
+            var round = 0
+            for key in keys {
+                guard let pair = pairFolders(key) else { continue }
+                round += mirrorChatFolders(pair.one, pair.other)
+            }
+            moved += round
+            if round == 0 { break }
         }
         return moved
     }
@@ -1953,6 +2134,67 @@ enum Graft {
         (name.hasPrefix("local_") && name.hasSuffix(".json")) || name.hasPrefix("deleted_")
     }
 
+    /// A chat's record, as opposed to a deletion marker, which has no inside.
+    static func isRecordName(_ name: String) -> Bool {
+        name.hasPrefix("local_") && name.hasSuffix(".json")
+    }
+
+    /// Claude identifies an unfiled chat by an origin under its own profile.
+    /// Its actual cwd must stay shared so resuming still finds the transcript.
+    private static func scratchRecord(_ data: Data) -> (record: [String: Any], cwd: URL, suffix: String)? {
+        guard let record = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              record["sessionId"] is String,
+              record["sshConfig"] == nil, record["wslConfig"] == nil,
+              let cwd = record["cwd"] as? String,
+              let origin = record["originCwd"] as? String else { return nil }
+        func suffix(_ path: String) -> String? {
+            let prefix = applicationSupport.standardizedFileURL.path + "/"
+            guard path.hasPrefix(prefix) else { return nil }
+            let parts = String(path.dropFirst(prefix.count)).split(separator: "/").map(String.init)
+            guard parts.count == 5, parts[1] == "scratch-workspaces",
+                  parts.allSatisfy({ $0 != "." && $0 != ".." }),
+                  parts[4].range(of: #"^scratch-\d{4}-\d{2}-\d{2}-[0-9a-f]{6}$"#,
+                                 options: .regularExpression) != nil else { return nil }
+            return parts.dropFirst(2).joined(separator: "/")
+        }
+        guard let relative = suffix(cwd), suffix(origin) == relative else { return nil }
+        return (record, URL(fileURLWithPath: cwd), relative)
+    }
+
+    /// A local origin alias is not an edit to a shared conversation.
+    private static func mirrorData(_ data: Data) -> Data {
+        guard var scratch = scratchRecord(data) else { return data }
+        scratch.record["originCwd"] = scratch.cwd.path
+        return (try? JSONSerialization.data(withJSONObject: scratch.record, options: [.sortedKeys])) ?? data
+    }
+
+    private static func localScratchOrigin(_ data: Data, in folder: URL) -> Data {
+        guard var scratch = scratchRecord(data) else { return data }
+        let store = folder.deletingLastPathComponent().deletingLastPathComponent()
+        guard store.lastPathComponent == "claude-code-sessions" else { return data }
+        let profile = store.deletingLastPathComponent()
+        guard samePath(profile.deletingLastPathComponent(), applicationSupport) else { return data }
+        let local = profile.appending(path: "scratch-workspaces").appending(path: scratch.suffix)
+        guard scratch.record["originCwd"] as? String != local.path else { return data }
+        do {
+            if !samePath(local, scratch.cwd) {
+                guard isDirectory(scratch.cwd) else { return data }
+                if exists(local) {
+                    guard samePath(local, scratch.cwd) else { return data }
+                } else {
+                    try fm.createDirectory(at: local.deletingLastPathComponent(), withIntermediateDirectories: true)
+                    try fm.createSymbolicLink(at: local, withDestinationURL: scratch.cwd)
+                }
+            }
+            scratch.record["originCwd"] = local.path
+            return try JSONSerialization.data(withJSONObject: scratch.record, options: [.sortedKeys])
+        } catch {
+            Diagnostics.note("scratch.origin-failed", ["profile": profile.lastPathComponent,
+                                                       "reason": error.localizedDescription])
+            return data
+        }
+    }
+
     /// When a record says it last moved, for settling a name both sides have
     /// rewritten since the last pass. The file's own timestamp is the fallback,
     /// since a marker has no inside to read.
@@ -1961,6 +2203,203 @@ enum Graft {
             .flatMap({ try? JSONSerialization.jsonObject(with: $0) as? [String: Any] })
             .flatMap({ $0["lastActivityAt"] as? Double }) { return value }
         return modified(url).timeIntervalSince1970 * 1000
+    }
+
+    // MARK: Field baselines
+
+    /// Which half of a pair, in the order its key was written: the borrowing
+    /// folder is `one`, the folder it borrows from is `other`.
+    enum MirrorSide { case one, other }
+
+    /// What a pass knows about one record beyond its whole-file digest.
+    ///
+    /// A whole-file digest can only say that both sides moved. It cannot say
+    /// that one side archived the chat while the other only showed it, so the
+    /// pass used to keep one whole record and drop the other — and showing a
+    /// chat is enough for Claude to write its whole record back, so the old
+    /// `isArchived` went straight back over the archive. A digest of every
+    /// top-level field as it stood at the baseline lets the pass keep what
+    /// each side changed instead.
+    struct RecordBaseline: Equatable {
+        /// The whole-file digest these fields were taken from. An entry whose
+        /// digest is not the pair's baseline any more was left behind by a pass
+        /// that kept no fields — a shortcut still on an older launcher — and is
+        /// not trusted.
+        var digest: String
+        /// Each top-level field by a digest of its value. Nil for a file that
+        /// is not a JSON object, such as a marker.
+        var fields: [String: String]?
+        /// `lastActivityAt` as both sides held it. Claude only ever moves it
+        /// forward, so a side that comes back with an earlier one was written
+        /// from a copy of the chat older than the baseline.
+        var activity: Double? = nil
+    }
+
+    /// Kept beside the state file rather than in it. Field digests for a
+    /// history of a couple of thousand chats run to a couple of megabytes a
+    /// pair, and the state file is read and written by every pass over every
+    /// pair; this one is read by its own pair's pass and written only when
+    /// something moved.
+    static var mirrorFieldsFolder: URL { applicationSupport.appending(path: "ClaudeGraft/mirror-fields") }
+
+    static func mirrorFieldsFile(for key: String) -> URL {
+        mirrorFieldsFolder.appending(path: digest(Data(key.utf8)) + ".json")
+    }
+
+    static func loadRecordBaselines(for key: String) -> [String: RecordBaseline] {
+        guard let data = try? Data(contentsOf: mirrorFieldsFile(for: key)),
+              let top = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              top["version"] as? Int == 1, top["pair"] as? String == key,
+              let entries = top["records"] as? [String: [String: Any]]
+        else { return [:] }
+        var result: [String: RecordBaseline] = [:]
+        for (name, entry) in entries {
+            guard let digest = entry["d"] as? String else { continue }
+            result[name] = RecordBaseline(digest: digest, fields: entry["f"] as? [String: String],
+                                          activity: entry["a"] as? Double)
+        }
+        return result
+    }
+
+    static func saveRecordBaselines(_ records: [String: RecordBaseline], for key: String) {
+        let file = mirrorFieldsFile(for: key)
+        guard !records.isEmpty else { try? fm.removeItem(at: file); return }
+        var entries: [String: Any] = [:]
+        for (name, record) in records {
+            var entry: [String: Any] = ["d": record.digest]
+            if let fields = record.fields { entry["f"] = fields }
+            if let activity = record.activity { entry["a"] = activity }
+            entries[name] = entry
+        }
+        guard let data = try? JSONSerialization.data(
+            withJSONObject: ["version": 1, "pair": key, "records": entries], options: [.sortedKeys])
+        else { return }
+        try? fm.createDirectory(at: mirrorFieldsFolder, withIntermediateDirectories: true)
+        try? data.write(to: file, options: .atomic)
+    }
+
+    /// A pair that is no longer mirrored has no use for its fields, and one
+    /// mirrored again later must start from what its two sides hold then.
+    static func forgetRecordBaselines(except keys: Set<String>) {
+        let wanted = Set(keys.map { mirrorFieldsFile(for: $0).lastPathComponent })
+        for file in (try? fm.contentsOfDirectory(atPath: mirrorFieldsFolder.path)) ?? []
+        where file.hasSuffix(".json") && !wanted.contains(file) {
+            try? fm.removeItem(at: mirrorFieldsFolder.appending(path: file))
+        }
+    }
+
+    static func recordObject(_ data: Data) -> [String: Any]? {
+        (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+    }
+
+    static func fieldDigest(_ value: Any) -> String {
+        guard let data = try? JSONSerialization.data(withJSONObject: value,
+                                                     options: [.sortedKeys, .fragmentsAllowed])
+        else { return "unencodable" }
+        return digest(data)
+    }
+
+    static func fieldDigests(of record: [String: Any]) -> [String: String] {
+        record.mapValues(fieldDigest)
+    }
+
+    static func sameRecord(_ a: [String: Any], _ b: [String: Any]) -> Bool {
+        let encode = { (r: [String: Any]) in try? JSONSerialization.data(withJSONObject: r, options: [.sortedKeys]) }
+        guard let x = encode(a), let y = encode(b) else { return false }
+        return x == y
+    }
+
+    /// What a Claude is called where people see it: Claude's own profile by
+    /// Claude's name, a shortcut by the name it was given in the window. Read
+    /// from the list rather than `Shortcut`, which never reaches a launcher.
+    static func claudeName(of profile: URL) -> String {
+        if samePath(profile, mainProfile) { return "Claude" }
+        if let data = try? Data(contentsOf: shortcutsFile),
+           let list = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]],
+           let entry = list.first(where: { ($0["folder"] as? String) == profile.lastPathComponent }),
+           let name = entry["name"] as? String, !name.isEmpty {
+            return name
+        }
+        return profile.lastPathComponent
+    }
+
+    /// A chat store folder is `<profile>/<store>/<account>/<organization>`.
+    static func profile(ofChatFolder folder: URL) -> URL {
+        folder.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+    }
+
+    /// A split chat's title: what it was called, then the Claude that carried
+    /// this half on. A half split again keeps the one mark.
+    static func splitTitle(_ title: Any?, by claude: String) -> String {
+        let mark = " (\(claude))"
+        let base = (title as? String).flatMap { $0.trimmingCharacters(in: .whitespaces).isEmpty ? nil : $0 } ?? "Chat"
+        return base.hasSuffix(mark) ? base : base + mark
+    }
+
+    struct FieldMerge {
+        var record: [String: Any]
+        /// Fields both sides changed, to different values.
+        var contested: [String]
+    }
+
+    /// One record out of two that both moved since they last agreed, field by
+    /// field.
+    ///
+    /// A field one side changed and the other did not takes the change,
+    /// whichever side made it: an archive survives a glance on the other side,
+    /// and so does an unarchive, which no rule about archived records winning
+    /// could keep. Only a field both sides changed to different values is a
+    /// contest. A time takes the later of the two, and an archive state the
+    /// unarchived one; anything else is settled the way the whole record used
+    /// to be, so `prefer` is the side whose record says it moved last and on a
+    /// tie the borrower.
+    ///
+    /// `isArchived` alone is also read through what goes with it. Claude sets
+    /// `resumedAt` when it unarchives a chat and when it brings a stopped one
+    /// back to work in, which unarchives it too, so a side whose `resumedAt`
+    /// moved has decided the archive state itself even when the flag came back
+    /// to the value it started from: a Claude still showing a chat as archived
+    /// after a pass wrote the unarchive underneath it, unarchiving it there,
+    /// writes the same `false` the pass did.
+    static func mergeRecordFields(one: [String: Any], other: [String: Any],
+                                  base: [String: String], prefer: MirrorSide) -> FieldMerge {
+        var merged: [String: Any] = [:]
+        var contested: [String] = []
+        func moved(_ record: [String: Any], _ key: String) -> Bool {
+            record[key].map(fieldDigest) != base[key]
+        }
+        func decidedArchive(_ record: [String: Any]) -> Bool {
+            moved(record, "isArchived") || moved(record, "resumedAt")
+        }
+        for key in Set(one.keys).union(other.keys).union(base.keys).sorted() {
+            let a = one[key], b = other[key]
+            let da = a.map(fieldDigest), db = b.map(fieldDigest)
+            let movedOne = key == "isArchived" ? decidedArchive(one) : da != base[key]
+            let movedOther = key == "isArchived" ? decidedArchive(other) : db != base[key]
+            let pick: Any?
+            if da == db {
+                pick = a
+            } else if !movedOne {
+                pick = b
+            } else if !movedOther {
+                pick = a
+            } else {
+                contested.append(key)
+                if key == "isArchived" {
+                    // Archived on one side and brought back on the other: the
+                    // chat stays out. An archive lost costs a click; a chat
+                    // somebody was still using gone from view costs the chat.
+                    pick = (a as? Bool) == true ? b : a
+                } else if key.hasSuffix("At"), let x = a as? NSNumber, let y = b as? NSNumber,
+                   CFGetTypeID(x) != CFBooleanGetTypeID(), CFGetTypeID(y) != CFBooleanGetTypeID() {
+                    pick = x.doubleValue >= y.doubleValue ? a : b
+                } else {
+                    pick = prefer == .one ? a : b
+                }
+            }
+            if let pick { merged[key] = pick }
+        }
+        return FieldMerge(record: merged, contested: contested)
     }
 
     /// Bring two organization folders into line, and remember what they agreed
@@ -1974,6 +2413,8 @@ enum Graft {
     @discardableResult
     static func mirrorChatFolders(_ one: URL, _ other: URL) -> Int {
         guard !samePath(one, other) else { return 0 }
+        enterStateLock()
+        defer { leaveStateLock() }
         for folder in [one, other] where !exists(folder) {
             // Only the folder itself, never the path to it. A profile someone
             // deleted has no account directory left, and a pass whose whole
@@ -1994,6 +2435,8 @@ enum Graft {
         var state = loadMirrorState()
         let key = pairKey(one, other)
         var baseline = state.pairs[key] ?? [:]
+        let recordsAsLoaded = loadRecordBaselines(for: key)
+        var records = recordsAsLoaded
         var moved = 0
 
         // A side holding none of the names the baseline describes, while the
@@ -2010,15 +2453,15 @@ enum Graft {
             let described = Set(baseline.keys)
             let hereHasNone = Set(oneNames.filter(isMirrored)).isDisjoint(with: described)
             let thereHasNone = Set(otherNames.filter(isMirrored)).isDisjoint(with: described)
-            if hereHasNone != thereHasNone { baseline = [:] }
+            if hereHasNone != thereHasNone { baseline = [:]; records = [:] }
         }
 
         func read(_ folder: URL, _ name: String) -> (data: Data, digest: String)? {
             guard let data = try? Data(contentsOf: folder.appending(path: name)) else { return nil }
-            return (data, digest(data))
+            return (data, digest(mirrorData(data)))
         }
         func put(_ data: Data, _ folder: URL, _ name: String) -> Bool {
-            (try? data.write(to: folder.appending(path: name), options: .atomic)) != nil
+            (try? localScratchOrigin(data, in: folder).write(to: folder.appending(path: name), options: .atomic)) != nil
         }
         /// A removal that did not happen must not be written down as one. The
         /// baseline was dropped whether or not the file went, so a removal the
@@ -2029,22 +2472,161 @@ enum Graft {
             (try? fm.removeItem(at: folder.appending(path: name))) != nil
         }
 
+        typealias Copy = (data: Data, digest: String)
+
+        /// Both sides hold `copy` now.
+        func settle(_ name: String, _ copy: Copy, known: RecordBaseline?) {
+            baseline[name] = copy.digest
+            if let known, known.digest == copy.digest, known.fields != nil {
+                records[name] = known
+            } else {
+                let record = recordObject(mirrorData(copy.data))
+                records[name] = RecordBaseline(digest: copy.digest,
+                                               fields: record.map(fieldDigests(of:)),
+                                               activity: (record?["lastActivityAt"] as? NSNumber)?.doubleValue)
+            }
+        }
+
+        var running: [URL]?
+        /// Both sides had a reply land since they last agreed: two Claudes
+        /// carried the conversation on from one point, each into a transcript
+        /// of its own, and no record can point at both. So the chat becomes
+        /// two, the source's half under its name and the borrower's under a
+        /// new one, each titled with the Claude that carried it on. Waits while
+        /// either Claude is open: one never reads a record again once it holds
+        /// it, and would write its own half back over the split. Returns false
+        /// when the split is not this pass's to make.
+        func split(_ name: String, borrowed: [String: Any], source: [String: Any]) -> Bool {
+            running = running ?? runningClaudes()
+            let profiles = [profile(ofChatFolder: one), profile(ofChatFolder: other)]
+            if running!.contains(where: { open in profiles.contains { samePath($0, open) } }) {
+                Diagnostics.note("mirror.diverged", ["record": name, "status": "waiting"])
+                return true
+            }
+            let newName = "local_" + UUID().uuidString.lowercased()
+            var kept = source, carried = borrowed
+            kept["title"] = splitTitle(source["title"], by: claudeName(of: profiles[1]))
+            carried["title"] = splitTitle(borrowed["title"], by: claudeName(of: profiles[0]))
+            // An automatic title gives way to the next one Claude thinks of,
+            // and the mark with it.
+            kept["titleSource"] = "user"
+            carried["titleSource"] = "user"
+            carried["sessionId"] = newName
+            let encode = { (record: [String: Any]) in
+                try? JSONSerialization.data(withJSONObject: record, options: [.sortedKeys, .withoutEscapingSlashes])
+            }
+            guard let keptData = encode(kept), let carriedData = encode(carried) else { return false }
+            // The new half goes in first and comes out again if it cannot land
+            // on both sides, so a failure leaves the two halves as they were
+            // for the next pass rather than one side split and one not.
+            let file = newName + ".json"
+            let placed = [one, other].filter { put(carriedData, $0, file) }
+            guard placed.count == 2 else {
+                for folder in placed { _ = drop(folder, file) }
+                return true
+            }
+            moved += 2
+            settle(file, (carriedData, digest(mirrorData(carriedData))), known: nil)
+            var landed = true
+            for folder in [one, other] {
+                if put(keptData, folder, name) { moved += 1 } else { landed = false }
+            }
+            if landed { settle(name, (keptData, digest(mirrorData(keptData))), known: nil) }
+            Diagnostics.note("mirror.diverged", ["record": name, "split": file])
+            return true
+        }
+
+        /// Both sides moved since they last agreed: keep what each changed.
+        func merge(_ name: String, _ here: Copy, _ there: Copy, base known: RecordBaseline?) {
+            // Read as `read` hashes them, a scratch chat's origin set back to
+            // its cwd: each side's own alias is not a change to merge, and
+            // `put` gives the side it lands in its alias again.
+            let oneRecord = recordObject(mirrorData(here.data)), otherRecord = recordObject(mirrorData(there.data))
+            // A side whose activity went back past the baseline was written by a
+            // Claude that loaded the chat before the other side's last turn
+            // reached it — a running one, writing back what it still had. Every
+            // field it differs in is then as likely its old memory as its own
+            // doing, so the record is settled whole, the way it always was: the
+            // later activity wins, which is the side that is not out of date.
+            func wentBack(_ record: [String: Any]?) -> Bool {
+                guard let then = known?.activity,
+                      let now = (record?["lastActivityAt"] as? NSNumber)?.doubleValue else { return false }
+                return now < then
+            }
+            func progressed(_ record: [String: Any]) -> Bool {
+                guard let then = known?.activity,
+                      let now = (record["lastActivityAt"] as? NSNumber)?.doubleValue, now > then,
+                      let reply = record["lastAssistantUuid"] else { return false }
+                return fieldDigest(reply) != known?.fields?["lastAssistantUuid"]
+            }
+            if isRecordName(name), let oneRecord, let otherRecord,
+               progressed(oneRecord), progressed(otherRecord),
+               let a = oneRecord["lastAssistantUuid"], let b = otherRecord["lastAssistantUuid"],
+               fieldDigest(a) != fieldDigest(b),
+               split(name, borrowed: oneRecord, source: otherRecord) {
+                return
+            }
+            let settled: Copy
+            if let oneRecord, let otherRecord, let base = known?.fields,
+               !wentBack(oneRecord), !wentBack(otherRecord) {
+                let prefer: MirrorSide = recordMoment(at: one.appending(path: name))
+                    >= recordMoment(at: other.appending(path: name)) ? .one : .other
+                let result = mergeRecordFields(one: oneRecord, other: otherRecord,
+                                               base: base, prefer: prefer)
+                if !result.contested.isEmpty {
+                    Diagnostics.note("mirror.contested", ["record": name, "fields": result.contested])
+                }
+                if sameRecord(result.record, oneRecord) {
+                    settled = here
+                } else if sameRecord(result.record, otherRecord) {
+                    settled = there
+                } else {
+                    guard let data = try? JSONSerialization.data(withJSONObject: result.record,
+                                                                 options: [.sortedKeys, .withoutEscapingSlashes])
+                    else { return }
+                    settled = (data, digest(mirrorData(data)))
+                }
+            } else if isRecordName(name), (oneRecord == nil) != (otherRecord == nil) {
+                // A record that reads beats one that does not. An empty or torn
+                // file carried over a whole one takes the chat out of both
+                // sidebars, since Claude skips a record it cannot read.
+                settled = oneRecord != nil ? here : there
+            } else {
+                // Nothing to read fields against: a marker, or a baseline left
+                // by a pass that kept none. What the records say about
+                // themselves, as before.
+                settled = recordMoment(at: one.appending(path: name))
+                    >= recordMoment(at: other.appending(path: name)) ? here : there
+            }
+            var landed = true
+            for (folder, current) in [(one, here), (other, there)] where current.digest != settled.digest {
+                if put(settled.data, folder, name) { moved += 1 } else { landed = false }
+            }
+            // A write that did not land is not written down as one: the side
+            // that refused it still holds what it held, and the next pass reads
+            // the two against the same baseline again.
+            if landed { settle(name, settled, known: nil) }
+        }
+
         let names = Set(oneNames.filter(isMirrored)).union(otherNames.filter(isMirrored))
         for name in names.sorted() {
             let here = read(one, name), there = read(other, name)
+            // Fields taken from this baseline and no other.
+            let known = records[name].flatMap { $0.digest == baseline[name] ? $0 : nil }
+            if known == nil { records.removeValue(forKey: name) }
+
             var action = mirrorDecision(one: here?.digest, other: there?.digest,
                                         baseline: baseline[name])
-            // Both sides moved. What the records say about themselves is the
-            // only thing left to go on, and a record that still exists beats
-            // one that was deleted — a chat put back is a nuisance, a chat
-            // taken away for good is not.
+            // Both sides moved. A record that still exists beats one that was
+            // deleted — a chat put back is a nuisance, a chat taken away for
+            // good is not — and two that both exist are merged field by field.
             if action == .conflict {
                 switch (here, there) {
                 case (nil, .some): action = .copyToOne
                 case (.some, nil): action = .copyToOther
-                case (.some, .some):
-                    action = recordMoment(at: one.appending(path: name))
-                        >= recordMoment(at: other.appending(path: name)) ? .copyToOther : .copyToOne
+                case let (.some(here), .some(there)):
+                    merge(name, here, there, base: known)
+                    continue
                 case (nil, nil): action = .nothing
                 }
             }
@@ -2054,16 +2636,34 @@ enum Graft {
                 // Where a name held identically by both sides first earns a
                 // baseline. `mirrorDecision` answers this only when the two
                 // digests are equal, so either side names it.
-                if let digest = here?.digest { baseline[name] = digest }
+                if let here { settle(name, here, known: known) }
+                for (folder, record) in [(one, here), (other, there)] {
+                    guard let record else { continue }
+                    let localized = localScratchOrigin(record.data, in: folder)
+                    if localized != record.data { _ = put(localized, folder, name) }
+                }
             case .copyToOther, .copyToOne:
-                let source = action == .copyToOther ? here : there
-                let destination = action == .copyToOther ? other : one
-                guard let source, put(source.data, destination, name) else { break }
-                baseline[name] = source.digest
+                let toOther = action == .copyToOther
+                guard let source = toOther ? here : there else { break }
+                let current = toOther ? there : here
+                // A record nobody can read is not a change to carry: copied, it
+                // would take a readable chat out of both sidebars. The readable
+                // copy goes back the other way instead.
+                if isRecordName(name), let current,
+                   recordObject(source.data) == nil, recordObject(current.data) != nil {
+                    if put(current.data, toOther ? one : other, name) {
+                        settle(name, current, known: nil)
+                        moved += 1
+                    }
+                    break
+                }
+                guard put(source.data, toOther ? other : one, name) else { break }
+                settle(name, source, known: nil)
                 moved += 1
             case .removeFromOne, .removeFromOther:
                 guard drop(action == .removeFromOne ? one : other, name) else { break }
                 baseline.removeValue(forKey: name)
+                records.removeValue(forKey: name)
                 moved += 1
             case .conflict:
                 break
@@ -2075,7 +2675,9 @@ enum Graft {
         // file, and standing ready to read the name coming back on one side
         // alone as a deletion to carry across.
         state.pairs[key] = baseline.filter { names.contains($0.key) }
+        records = records.filter { names.contains($0.key) && baseline[$0.key] == $0.value.digest }
         saveMirrorState(state)
+        if records != recordsAsLoaded { saveRecordBaselines(records, for: key) }
         return moved
     }
 
@@ -2340,7 +2942,9 @@ enum Graft {
             guard !exists(own.appending(path: name)),
                   let mine = try? Data(contentsOf: here),
                   let theirs = try? Data(contentsOf: source.appending(path: name)),
-                  mine == theirs,
+                  // An unfiled chat's copy names this profile's own folder as
+                  // its origin, so the bytes of a borrowed one never match.
+                  mirrorData(mine) == mirrorData(theirs),
                   (try? fm.removeItem(at: here)) != nil
             else { continue }
             dropped += 1
@@ -2541,12 +3145,76 @@ enum Graft {
         let theirs = src.appending(path: sourceAccountDir).appending(path: sourceOrg)
         try? fm.createDirectory(at: mine.deletingLastPathComponent(),
                                 withIntermediateDirectories: true)
-        forgetStalePairs(under: dst, keeping: [(mine: mine, theirs: theirs)])
+
+        // Asked before anything is dropped. The source half is the one that
+        // moves when the lender signs into another account or starts working
+        // in another organization, and a folder that was borrowing yesterday
+        // is not new today because what it borrows from moved: read as a first
+        // pass, the stash folded the old source's records in as this profile's
+        // own and the seeding copied them into the new one.
+        let earlier = mirrorPairs(borrowedBy: mine).filter { $0 != pairKey(mine, theirs) }
         let firstPass = mirrorPairs(borrowedBy: mine).isEmpty
+        for key in earlier {
+            guard let old = pairFolders(key)?.other else { continue }
+            repair(mine, from: old)
+        }
+        forgetStalePairs(under: dst, keeping: [(mine: mine, theirs: theirs)])
         if firstPass { dropBorrowedCopies(from: mine, sharing: theirs, store: dst) }
         openForMirror(mine, firstPass: firstPass)
         if firstPass { seedOwnChats(into: mine, store: dst) }
         mirrorChatFolders(mine, theirs)
+    }
+
+    /// Take what a folder borrowed from one source back out before it starts
+    /// borrowing from another, the way going back to its own chats would.
+    ///
+    /// Left in, the old source's records are carried into the new one as
+    /// though this profile had brought them, so a lender that changed
+    /// organization found the other organization's chats in it, and changing
+    /// back put the union in both. A source that is not there any more has
+    /// nothing to be handed back to, and its copies are all that is left of
+    /// those chats, so they stay.
+    private static func repair(_ mine: URL, from old: URL) {
+        guard isDirectory(old) else {
+            Diagnostics.note("mirror.repair.kept", [
+                "folder": mine.path, "was": old.path,
+                "because": "the folder it borrowed from is gone, so its copies are kept",
+            ])
+            return
+        }
+        let returned = handBack(mine, to: old)
+        Diagnostics.note("mirror.repair", ["folder": mine.path, "was": old.path, "returned": returned])
+    }
+
+    /// One last pass, then out with every copy the other side holds byte for
+    /// byte that the stash does not name. Returns how many went.
+    ///
+    /// The last pass carries what the profile did while it was borrowing — a
+    /// chat started, one archived, one deleted — over to the other side first,
+    /// so what goes is only ever bytes the other side already has. What the
+    /// stash names is the profile's own and stays: since the merge it has been
+    /// on both sides too, and the byte test alone would hand this profile's
+    /// own history to the one it borrowed from and keep nothing back.
+    private static func handBack(_ mine: URL, to theirs: URL) -> Int {
+        mirrorChatFolders(mine, theirs)
+        let store = mine.deletingLastPathComponent().deletingLastPathComponent()
+        let own = stashedCounterpart(of: mine, store: store)
+        var removed = 0
+        for name in (try? fm.contentsOfDirectory(atPath: mine.path)) ?? [] where isMirrored(name) {
+            // Kept rather than removed and fetched back out of the stash, so
+            // that a chat of its own the profile archived while the graft was
+            // up stays archived. Restoring the stashed copy over it would put
+            // the conversation back in the sidebar unarchived, which is the
+            // one symptom this app gets reported for most.
+            if let own, exists(own.appending(path: name)) { continue }
+            guard let here = try? Data(contentsOf: mine.appending(path: name)),
+                  let there = try? Data(contentsOf: theirs.appending(path: name)),
+                  mirrorData(here) == mirrorData(there),
+                  (try? fm.removeItem(at: mine.appending(path: name))) != nil
+            else { continue }
+            removed += 1
+        }
+        return removed
     }
 
     /// Permission opt-ins live beside MCP definitions. Linking that file lets
@@ -2657,6 +3325,8 @@ enum Graft {
     }
 
     private static func dropPairs(_ stale: Set<String>) {
+        enterStateLock()
+        defer { leaveStateLock() }
         var state = loadMirrorState()
         state.pairs = state.pairs.filter { !stale.contains($0.key) }
         saveMirrorState(state)
@@ -2732,34 +3402,7 @@ enum Graft {
 
         for key in keys {
             guard let pair = pairFolders(key) else { continue }
-            let (mine, theirs) = (pair.one, pair.other)
-
-            mirrorChatFolders(pair.one, pair.other)
-
-            // Which of the merged records this profile brought to the graft,
-            // asked of the stash because that is the only thing that still
-            // knows. Since the merge these have been on both sides, so the
-            // handover above leaves them byte for byte identical and the test
-            // below would take every one of them out of the profile that
-            // owns them — the chats would be left in the profile they were
-            // only ever lent to.
-            let store = mine.deletingLastPathComponent().deletingLastPathComponent()
-            let own = stashedCounterpart(of: mine, store: store)
-
-            for name in (try? fm.contentsOfDirectory(atPath: mine.path)) ?? [] where isMirrored(name) {
-                // Kept rather than removed and fetched back out of the stash,
-                // so that a chat of its own the profile archived while the
-                // graft was up stays archived. Restoring the stashed copy over
-                // it would put the conversation back in the sidebar unarchived,
-                // which is the one symptom this app gets reported for most.
-                if let own, exists(own.appending(path: name)) { continue }
-                guard let here = try? Data(contentsOf: mine.appending(path: name)),
-                      let there = try? Data(contentsOf: theirs.appending(path: name)),
-                      here == there
-                else { continue }
-                try? fm.removeItem(at: mine.appending(path: name))
-                removed += 1
-            }
+            removed += handBack(pair.one, to: pair.other)
         }
         // Only the pairs this pass settled. `forgetMirrors` drops every pair
         // with a half under the profile, and the ones it lends are somebody
@@ -3080,6 +3723,7 @@ enum Graft {
 
     enum ProfileError: LocalizedError, Equatable {
         case mainProfile
+        case graftFolder
         case outsideApplicationSupport
         case running
 
@@ -3087,6 +3731,8 @@ enum Graft {
             switch self {
             case .mainProfile:
                 return L10n.text("That folder belongs to Claude itself and will not be deleted.")
+            case .graftFolder:
+                return L10n.text("That folder belongs to Claude Graft itself and will not be deleted.")
             case .outsideApplicationSupport:
                 return L10n.text("Only folders directly inside ~/Library/Application Support can be deleted.")
             case .running:
@@ -3103,7 +3749,12 @@ enum Graft {
         guard samePath(profile.deletingLastPathComponent(), applicationSupport),
               !profile.lastPathComponent.isEmpty
         else { throw ProfileError.outsideApplicationSupport }
-        guard !samePath(profile, mainProfile) else { throw ProfileError.mainProfile }
+        // By name as well as by path. The disk folds case, and a path that
+        // does not resolve to the spelling on disk compares as another place.
+        guard !samePath(profile, mainProfile), !isNamed(profile.lastPathComponent, "Claude")
+        else { throw ProfileError.mainProfile }
+        guard !samePath(profile, graftFolder), !isNamed(profile.lastPathComponent, graftFolderName)
+        else { throw ProfileError.graftFolder }
         guard !isRunning(profile: profile) else { throw ProfileError.running }
         guard isDirectory(profile) else { return }
         try fm.removeItem(at: profile)
@@ -3201,12 +3852,34 @@ enum Graft {
     }
 
     static func isClaudeInstallerProcess(_ command: String) -> Bool {
+        installerProcessCheck()(command)
+    }
+
+    /// The installer test with its two paths worked out once, for a whole
+    /// process listing. Finding Claude's app looks at the disk, and asked again
+    /// for each of the seven hundred lines a listing here has, every five
+    /// seconds, it cost more than everything else the listing is read for.
+    static func installerProcessCheck() -> (String) -> Bool {
         // A terminal following ShipIt's log has the same name in its arguments.
         // Only the executable's location is evidence of an installer running.
         let framework = claudeApp.appending(path: "Contents/Frameworks/Squirrel.framework").path + "/"
-        if command.hasPrefix(framework), command.contains("/ShipIt ") || command.hasSuffix("/ShipIt") { return true }
         let cached = fm.homeDirectoryForCurrentUser.appending(path: "Library/Caches/com.anthropic.claudefordesktop.ShipIt/ShipIt").path
-        return command == cached || command.hasPrefix(cached + " ")
+        let cachedWithArguments = cached + " "
+        return { command in
+            if command.hasPrefix(framework), command.contains("/ShipIt ") || command.hasSuffix("/ShipIt") { return true }
+            return command == cached || command.hasPrefix(cachedWithArguments)
+        }
+    }
+
+    /// A file's modification date from one `lstat`, which like
+    /// `attributesOfItem` does not follow a link. That call reads a dozen
+    /// attributes to hand back this one, and over every record of every Claude
+    /// every two seconds it cost eight times as much.
+    static func modificationDate(atPath path: String) -> Date? {
+        var info = stat()
+        guard lstat(path, &info) == 0 else { return nil }
+        return Date(timeIntervalSince1970: TimeInterval(info.st_mtimespec.tv_sec)
+                        + TimeInterval(info.st_mtimespec.tv_nsec) / 1_000_000_000)
     }
 
     /// The main binary of Claude itself, on no profile in particular.
@@ -3320,6 +3993,10 @@ enum Graft {
                 return processIdentifier(of: profile).map { reveal(pid: $0) } ?? false
             }
             SidebarSync.synchronize(beforeOpening: profile)
+            SidebarSync.synchronizeProjectOrder(beforeOpening: profile)
+            PoolEnvironment.settle(beforeOpening: profile) {
+                PoolEnvironment.ensureRelay(PoolEnvironment.readJournal().relay)
+            }
             return runTool("/usr/bin/open", launchArguments(for: profile, inBackground: inBackground)) == 0
         }
     }
@@ -3336,10 +4013,12 @@ enum Graft {
     @discardableResult
     static func squareUp(filingInto profiles: [URL],
                          checkingRunning: Bool = true) -> [SessionFacts] {
-        mirrorKnownPairs()
-        let filed = fileMissingSessionRecords(filingInto: profiles)
-        writeStateReport(checkingRunning: checkingRunning)
-        return filed
+        withStateLock {
+            mirrorKnownPairs()
+            let filed = fileMissingSessionRecords(filingInto: profiles)
+            writeStateReport(checkingRunning: checkingRunning)
+            return filed
+        }
     }
 
     /// Opening a profile that is already open shows the Claude that is there.
@@ -3407,13 +4086,20 @@ enum Graft {
             return
         }
         guard prepareUpdatePolicy(for: profile) else { return }
-        apply(config)
         // After the links, so a record filed through a graft lands where the
         // link now points rather than where it pointed last time. The mirror
         // runs here for the same reason and one more: this profile may be the
         // source somebody else borrows from, and opening it is the only
         // moment their changes have to reach the sidebar about to be built.
-        squareUp(filingInto: filing, checkingRunning: false)
+        //
+        // One hold for both, so no other pass reads the pairs between the
+        // links changing and the mirror catching up with them; and let go
+        // before `launch`, which takes the launch lock, so the two locks are
+        // never held in both orders.
+        withStateLock {
+            apply(config)
+            squareUp(filingInto: filing, checkingRunning: false)
+        }
         launch(profile: profile)
     }
 
@@ -3432,6 +4118,8 @@ enum Graft {
 
     /// Bring a profile's storage in line with its configuration.
     static func apply(_ config: GraftConfig) {
+        enterStateLock()
+        defer { leaveStateLock() }
         let profile = URL(fileURLWithPath: config.profileDir)
         try? fm.createDirectory(at: profile, withIntermediateDirectories: true)
         if let source = config.sourceDir, !source.isEmpty {

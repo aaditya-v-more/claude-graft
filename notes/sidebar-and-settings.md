@@ -64,6 +64,24 @@ again too. The installed Claude's framework hashes the same before and after.
 `helperFormat` is part of the cache key, because the helper cached before this
 still verified as signed and still could not start.
 
+**The cache keeps one helper, and a bad one is replaced rather than obeyed.**
+Every Claude update and every change to the script makes a new key, and each
+key a new clone of the whole runtime under `sidebar-runtime.noindex`. A clone
+is free on disk only while it shares its blocks with the installed Claude; the
+next Claude update unshares them, and a backup copies every clone in full.
+Nothing removed an old one — this machine was keeping two, two days apart — nor
+a `.build-` folder left by a pass that was killed, nor the backups in
+`sidebar-backups`, one per writing pass. `pruneHelperCache` now runs after
+every `prepareHelper` that succeeds, under the launch lock: it removes every
+other key's folder, `.build-` folders more than an hour old, and copies set
+aside as damaged, touches nothing whose name it did not make, and marks the
+cache as excluded from backups. `pruneBackups` keeps the newest twenty.
+
+A copy at the destination that lacked its marker or failed verification used to
+stop the pass with `runtime-cache-damaged`, and since the key does not change
+until Claude does, every later pass stopped the same way until someone deleted
+the folder by hand. `installHelper` moves it aside and puts the fresh copy in.
+
 `./test-sidebar.sh` checks the selective updates and then uses actual Chromium
 databases in disposable profiles, including a fresh process after each change.
 It needs a local Claude installation and Node for the JavaScript checks; neither
@@ -81,3 +99,70 @@ every local preference. A legacy link migrates from the saved original; without
 one, it imports only MCP definitions, never another profile's permission grants.
 An unreadable settings file or backup blocks the copy. The source is never
 written, and the backup remains until the ordinary ungraft cleanup.
+
+**The sidebar helper leaves the settings file as a person would find it.** A
+sync writes two fallback preferences into `claude_desktop_config.json`, and
+it used to write the whole file back as one compact line with mode 0600, on the
+way forward and on a rollback alike. The values were right and the file was
+not: a file people open and edit by hand turned unreadable, a mode widened on
+purpose was narrowed, and a rollback put back the object the text parsed to
+rather than the text, which is not the same file once a key repeats or the
+layout mattered to somebody. A rollback now writes `prefsText` back byte for
+byte; a forward write keeps the indent the file had (two spaces for a file
+written for the first time), its final newline and its mode, chmodded past the
+umask.
+
+## Project order
+
+The order of the sidebar's project headings is kept per account, so two
+accounts sharing one history drift apart as soon as either is reordered. Claude
+stores it twice. `preferences.epitaxyPrefs["code-projects-order.<account>"]` in
+`claude_desktop_config.json` is the list the sidebar is built from at startup.
+`LSS-persisted.code-projects-order.<account>` in local storage holds the same
+list with the time it was saved. Writing only the local-storage copy changes
+nothing on screen: a profile showed an order from a month earlier while its
+local storage held the new one, because its preferences file still had the old
+list.
+
+`synchronizeProjectOrder` reads the local-storage copies from clones of each
+profile's storage, so a profile about to open is never locked for a read, and
+takes the list from the preferences file where there is one. The newest order
+wins and keeps its time, so the next pass finds nothing to do, and two orders
+saved at the same moment are left alone rather than overwriting each other in
+turn. Folders and repositories are named the same in every profile. A saved
+environment is not: `preset::<id>` is matched by name and target, then by folder,
+and dropped where the receiving account has no equivalent. Entries only the
+receiving account lists stay, after the copied ones. Only that one preference and
+that one local-storage entry are written, and only while no connected Claude is
+running.
+
+It runs before a profile is opened through Graft and two seconds after the last
+Claude quits. The second is the only moment that covers a profile opened from the
+Dock, which runs no launcher, and it goes over every group of profiles sharing a
+history: a quit says nothing about which group it belonged to, and a group that
+leaves Claude's own profile out is as likely to have been reordered.
+
+Both run under the launch lock, so a shortcut clicked while either is under way
+waits for it and opens on the order it left. Claude's own app opened from the
+Dock waits for nothing: it is not Graft's to hold, and one that starts while
+the helper has its Local Storage open cannot open its own. So the pass after a
+quit gives Claude's own profile the preferences entry alone, a file replaced
+whole that a starting Claude reads either before or after, which is all it
+displays from; the timed copy is left for a pass made before Graft opens
+something, with the door shut. Until then that profile shows the new order
+under its old time, which no pass carries anywhere.
+
+A saved environment that matches by neither name nor target falls back to its
+folder alone, so two environments on one folder that differ only in kind can
+stand in for each other. Claude matches them no better itself; it is left as a
+known limit.
+
+The preferences entry is written by the helper, with `preferencesText` and
+`atomicWrite`, like the pin pass's fallbacks. It was first written from Swift,
+and `JSONSerialization` gave the file Apple's indent, a key order of its own and
+the default mode, which is the hand-edited file turned unrecognisable that the
+section above describes. It goes in before the timed Local Storage copy: a pass
+stopped between the two then leaves an order shown with an old time, which the
+next pass carries nowhere, rather than an old order under a new time, which it
+would carry everywhere.
+

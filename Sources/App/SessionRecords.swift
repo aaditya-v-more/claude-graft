@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 
 /// Keeps session records whole.
@@ -16,7 +17,9 @@ import Foundation
 /// moment, so the pass that matters is the one a shortcut runs on its way to
 /// opening one — and that happens in the launcher, in a process this app
 /// never sees. What is left here are the two times somebody is looking at
-/// Graft itself: when it starts, and when the dropdown opens.
+/// Graft itself — when it starts, and when the dropdown opens — and the
+/// moment a Claude quits, when what it wrote can reach the profiles sharing
+/// its chats before any of them opens.
 final class SessionRecords: ObservableObject {
     /// Titles filed by the last pass, for a line in the dropdown. Empty the
     /// rest of the time: the session list is the history, and the line is
@@ -24,14 +27,34 @@ final class SessionRecords: ObservableObject {
     @Published private(set) var recovered: [String] = []
 
     private var inFlight = false
+    private var askedAgain = false
+    private var quitObserver: NSObjectProtocol?
+
+    /// A Claude that has just quit has written everything it is going to, and
+    /// a profile sharing its chats may be opened next straight from the Dock,
+    /// which asks Graft nothing on the way in. A Claude reads its records once,
+    /// as it starts, so the pass has to land before that: without one here, an
+    /// archive made in one profile waited for somebody to open the dropdown or
+    /// a shortcut before any other profile could see it.
+    func watchForClaudeQuitting(_ store: ShortcutStore) {
+        guard quitObserver == nil else { return }
+        quitObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didTerminateApplicationNotification, object: nil, queue: .main
+        ) { [weak self] note in
+            guard let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
+                  app.bundleURL.map({ Graft.samePath($0, Graft.claudeApp) }) == true else { return }
+            // A moment's grace for the last of its writes to land.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3) { self?.sweep(store) }
+        }
+    }
 
     /// Reads the store on the main thread, does the scanning away from it —
     /// transcripts run to megabytes, and none of that belongs on a run loop
     /// that is also holding a menu bar together. A pass still running when
-    /// another is asked for is left to finish; the write it is headed for
-    /// refuses to land twice.
+    /// another is asked for is left to finish, and one more follows it: the
+    /// pass under way may have read a Claude as running that has since quit.
     func sweep(_ store: ShortcutStore) {
-        guard !inFlight else { return }
+        guard !inFlight else { askedAgain = true; return }
         inFlight = true
 
         var filing: [URL] = [Graft.mainProfile]
@@ -48,6 +71,10 @@ final class SessionRecords: ObservableObject {
                 self.inFlight = false
                 let titles = filed.map(\.title)
                 if self.recovered != titles { self.recovered = titles }
+                if self.askedAgain {
+                    self.askedAgain = false
+                    self.sweep(store)
+                }
             }
         }
     }

@@ -72,7 +72,8 @@ echo "built universal"
 
 # What was actually produced, asked of the bundle rather than assumed. A single
 # slice here would be a download that cannot run on half the Macs there are.
-for binary in "$APP/Contents/MacOS/ClaudeGraft" "$APP/Contents/Resources/graft-launch"; do
+for binary in "$APP/Contents/MacOS/ClaudeGraft" "$APP/Contents/Resources/graft-launch" \
+    "$APP/Contents/Resources/graft-relay"; do
     for arch in arm64 x86_64; do
         lipo -archs "$binary" | grep -qw "$arch" \
             || { echo "$(basename "$binary") is missing its $arch slice." >&2; exit 1; }
@@ -95,17 +96,18 @@ ditto -c -k --keepParent "$APP" "$ZIP"
 echo "packaged $ZIP"
 
 # generate_appcast reads release notes from a file named after the archive, and
-# embeds them when they carry no DOCTYPE or body tags. An update that stops to
-# ask has to have something to say in the dialog it puts up, so the release the
-# floor is set at must bring its own note; every other release may.
+# embeds them when they carry no DOCTYPE or body tags. The floor puts a dialog
+# in front of anybody still on 1.0.x, and that dialog shows whichever release is
+# newest, not 1.1.0's: from a 1.0.11 Mac every release is the one that stops to
+# ask. So every release brings a note, and the note says what crossing from
+# 1.0.x does to chats, since that is what the question is about.
 NOTES="$ROOT/docs/release-notes/$VERSION.html"
-if [ -f "$NOTES" ]; then
-    cp "$NOTES" "$DIST/sparkle/ClaudeGraft-$VERSION.html"
-    echo "release notes from docs/release-notes/$VERSION.html"
-elif [ "$VERSION" = "$CONFIRM_BELOW" ]; then
-    echo "$VERSION is the version that stops to ask, and docs/release-notes/$VERSION.html is missing." >&2
-    exit 1
-fi
+[ -f "$NOTES" ] \
+    || { echo "docs/release-notes/$VERSION.html is missing, and a 1.0.x Mac is asked about $VERSION with it." >&2; exit 1; }
+grep -q "from 1\.0\.x" "$NOTES" \
+    || { echo "docs/release-notes/$VERSION.html says nothing about upgrading from 1.0.x." >&2; exit 1; }
+cp "$NOTES" "$DIST/sparkle/ClaudeGraft-$VERSION.html"
+echo "release notes from docs/release-notes/$VERSION.html"
 
 # The zip is for Sparkle, which unpacks it correctly. People get a disk image.
 # A zip has to be unarchived, and an unarchiver that drops the framework's
@@ -135,8 +137,14 @@ echo "packaged $DMG"
 # The appcast is a file in docs/, which Pages serves straight off main. No
 # branch to juggle, no CI secret: the signing key stays in this machine's
 # keychain and generate_appcast reads it from there.
+#
+# The new feed is built and checked in dist/sparkle, and docs/ gets it only once
+# every check below and the cask have passed. Written straight into docs/, a run
+# that failed half way left the live file naming a release that had no archive
+# uploaded, no tag and no cask, one `git add docs` away from being served.
 echo "updating the appcast"
 mkdir -p "$ROOT/docs"
+FEED="$DIST/sparkle/appcast.xml"
 
 # generate_appcast merges into an appcast it finds beside the archives, and the
 # download prefix it is given applies only to the build it has not seen before.
@@ -144,10 +152,12 @@ mkdir -p "$ROOT/docs"
 # the one new zip and every earlier version would vanish along with its URL.
 BEFORE=0
 ASKED_BEFORE=0
+SIGNED_BEFORE=0
 if [ -f "$ROOT/docs/appcast.xml" ]; then
-    cp "$ROOT/docs/appcast.xml" "$DIST/sparkle/appcast.xml"
-    BEFORE="$(grep -c "<item>" "$ROOT/docs/appcast.xml" || true)"
-    ASKED_BEFORE="$(grep -c "sparkle:minimumAutoupdateVersion" "$ROOT/docs/appcast.xml" || true)"
+    cp "$ROOT/docs/appcast.xml" "$FEED"
+    BEFORE="$(grep -c "<item>" "$FEED" || true)"
+    ASKED_BEFORE="$(grep -c "sparkle:minimumAutoupdateVersion" "$FEED" || true)"
+    SIGNED_BEFORE="$(grep -o "sparkle:edSignature=" "$FEED" | wc -l | tr -d ' ' || true)"
 fi
 
 # --maximum-versions 0 keeps every entry. The default prunes to a handful per
@@ -159,13 +169,13 @@ fi
     --maximum-versions 0 \
     --download-url-prefix "https://github.com/aaditya-v-more/claude-graft/releases/download/$TAG/" \
     --link "https://github.com/aaditya-v-more/claude-graft" \
-    -o "$ROOT/docs/appcast.xml" \
+    -o "$FEED" \
     "$DIST/sparkle"
 
 # One new entry and not one fewer of the old ones. The check used to be
 # "no fewer than before", which is satisfied exactly as well by adding this
 # release and dropping the oldest — which is what was happening.
-AFTER="$(grep -c "<item>" "$ROOT/docs/appcast.xml" || true)"
+AFTER="$(grep -c "<item>" "$FEED" || true)"
 [ "$AFTER" -eq "$((BEFORE + 1))" ] \
     || { echo "the appcast should have gone $BEFORE -> $((BEFORE + 1)), went $BEFORE -> $AFTER." >&2; exit 1; }
 
@@ -178,25 +188,43 @@ awk -v v="$VERSION" -v floor="$CONFIRM_BELOW" '
     $0 ~ "<sparkle:shortVersionString>" v "</sparkle:shortVersionString>" {
         print "            <sparkle:minimumAutoupdateVersion>" floor "</sparkle:minimumAutoupdateVersion>"
     }
-' "$ROOT/docs/appcast.xml" > "$ROOT/docs/appcast.xml.new"
-mv "$ROOT/docs/appcast.xml.new" "$ROOT/docs/appcast.xml"
+' "$FEED" > "$FEED.new"
+mv "$FEED.new" "$FEED"
 
 # One more than before, counted the same way the items are and for the same
 # reason. This catches the floor failing to go into the new entry, and it
 # catches generate_appcast dropping it from an older one on a later run — an
 # entry that lost it is an entry that installs itself on a 1.0.x machine
 # without asking, which is silent and would be found by nobody.
-ASKED_AFTER="$(grep -c "sparkle:minimumAutoupdateVersion" "$ROOT/docs/appcast.xml" || true)"
+ASKED_AFTER="$(grep -c "sparkle:minimumAutoupdateVersion" "$FEED" || true)"
 [ "$ASKED_AFTER" -eq "$((ASKED_BEFORE + 1))" ] \
     || { echo "entries asking before they install should have gone $ASKED_BEFORE -> $((ASKED_BEFORE + 1)), went $ASKED_BEFORE -> $ASKED_AFTER." >&2; exit 1; }
 
 # generate_appcast drops the signature silently when the key it finds does not
 # match SUPublicEDKey, and an unsigned enclosure is one every client refuses.
-# Better to hear about it here than from a user who cannot update.
-grep -q "sparkle:edSignature" "$ROOT/docs/appcast.xml" \
-    || { echo "the new appcast entry carries no EdDSA signature." >&2; exit 1; }
-grep -q "ClaudeGraft-$VERSION.zip" "$ROOT/docs/appcast.xml" \
-    || { echo "the appcast does not mention $VERSION." >&2; exit 1; }
+# Asked of this version's own entry: every older one carries a signature, so a
+# search of the whole file found one whether or not the new entry had any. The
+# length is asked too, since an entry describing some other zip is refused as
+# surely as an unsigned one.
+ENTRY="$(awk -v zip="ClaudeGraft-$VERSION.zip" '
+    /<item>/ { block = ""; inside = 1 }
+    inside { block = block $0 "\n" }
+    /<\/item>/ { if (inside && index(block, zip)) printf "%s", block; inside = 0 }
+' "$FEED")"
+ZIP_SIZE="$(stat -f %z "$ZIP")"
+[ "$(grep -c "<item>" <<< "$ENTRY")" -eq 1 ] \
+    || { echo "the appcast should hold one entry for $VERSION." >&2; exit 1; }
+grep -q "sparkle:edSignature=\"[^\"]" <<< "$ENTRY" \
+    || { echo "the appcast entry for $VERSION carries no EdDSA signature." >&2; exit 1; }
+grep -q "length=\"$ZIP_SIZE\"" <<< "$ENTRY" \
+    || { echo "the appcast entry for $VERSION does not describe the $ZIP_SIZE-byte zip this run built." >&2; exit 1; }
+grep -q "<sparkle:minimumAutoupdateVersion>$CONFIRM_BELOW</sparkle:minimumAutoupdateVersion>" <<< "$ENTRY" \
+    || { echo "the appcast entry for $VERSION does not ask a 1.0.x Mac first." >&2; exit 1; }
+# And counted across the file like the items, which catches a pass that
+# signed the new entry and lost an old one's signature.
+SIGNED_AFTER="$(grep -o "sparkle:edSignature=" "$FEED" | wc -l | tr -d ' ' || true)"
+[ "$SIGNED_AFTER" -eq "$((SIGNED_BEFORE + 1))" ] \
+    || { echo "signed entries should have gone $SIGNED_BEFORE -> $((SIGNED_BEFORE + 1)), went $SIGNED_BEFORE -> $SIGNED_AFTER." >&2; exit 1; }
 echo "appcast has a signed entry for $VERSION"
 
 # The version is written down twice, and the second one is a different
@@ -229,6 +257,10 @@ else
     echo "could not reach the tap; the cask must be updated by hand:" >&2
     echo "  version \"$VERSION\"  sha256 \"$DMG_SHA\"" >&2
 fi
+
+# Last, so a run that stopped anywhere above leaves the live feed as it was.
+cp "$FEED" "$ROOT/docs/appcast.xml"
+echo "docs/appcast.xml now offers $VERSION"
 
 if [ "${1:-}" = "--install" ]; then
     rm -rf "/Applications/Claude Graft.app"

@@ -1,4 +1,5 @@
 import AppKit
+import CryptoKit
 import Foundation
 
 // Every test runs against a throwaway Application Support and Applications
@@ -227,25 +228,25 @@ do {
     check(fm.fileExists(atPath: shortcut.profileDir.path), "the profile folder was created")
 
     // Update in place: same bundle, no duplicates.
-    let again = try! Installer.install(shortcut, sourceDir: main, previousName: shortcut.name)
+    let again = try! Installer.install(shortcut, sourceDir: main)
     check(again == bundle, "updating writes to the same bundle")
     let installed = (try? fm.contentsOfDirectory(atPath: apps.path))?.filter { $0.hasSuffix(".app") }
     check(installed?.count == 1, "updating does not leave a second copy behind")
 
     // Update after switching the source to none.
-    let detached = try! Installer.install(shortcut, sourceDir: nil, previousName: shortcut.name)
+    let detached = try! Installer.install(shortcut, sourceDir: nil)
     check(sourcePath(ofBundle: detached) == nil, "switching to its own chats clears the source")
     check(chatsVisible(to: shortcut.profileDir).isEmpty, "and the borrowed chats are gone")
 
     // And back again.
-    _ = try! Installer.install(shortcut, sourceDir: main, previousName: shortcut.name)
+    _ = try! Installer.install(shortcut, sourceDir: main)
     check(chatsVisible(to: shortcut.profileDir) == ["local_a1.json", "local_a2.json"],
           "switching back restores them")
 
-    // Rename.
-    let oldName = shortcut.name
+    // Rename. Nothing says what it was called before: the app is found by the
+    // profile it opens.
     shortcut.name = "Work Two"
-    let renamed = try! Installer.install(shortcut, sourceDir: main, previousName: oldName)
+    let renamed = try! Installer.install(shortcut, sourceDir: main)
     check(renamed.lastPathComponent == "Work Two.app", "renaming installs under the new name")
     check(!fm.fileExists(atPath: apps.appending(path: "Work.app").path),
           "and removes the bundle under the old name")
@@ -255,11 +256,60 @@ do {
     var clash = shortcut
     clash.name = "Taken"
     var blocked = false
-    do { _ = try Installer.install(clash, sourceDir: main, previousName: shortcut.name) }
+    do { _ = try Installer.install(clash, sourceDir: main, replacing: shortcut) }
     catch { blocked = true }
     check(blocked, "renaming onto an occupied name is refused")
     check(isIntact(occupied), "the occupying app survives")
     check(fm.fileExists(atPath: renamed.path), "and the original bundle is still there")
+
+    // Renamed in Finder, the app is still this shortcut's, and every repair
+    // made at launch has to reach it, or it goes on running whatever launcher
+    // and source it was last given.
+    let inFinder = apps.appending(path: "Moved by Hand.app")
+    try! fm.moveItem(at: renamed, to: inFinder)
+    check(Installer.installedBundle(for: shortcut).map { Graft.samePath($0, inFinder) } == true,
+          "an app renamed in Finder is found by the profile it opens")
+    let movedPlist = inFinder.appending(path: "Contents/Info.plist")
+    try! (try! String(contentsOf: movedPlist, encoding: .utf8))
+        .replacingOccurrences(of: Installer.graftVersion, with: "0.0.1")
+        .write(to: movedPlist, atomically: true, encoding: .utf8)
+    check(Installer.refreshLauncher(for: shortcut) && Installer.builtBy(inFinder) == Installer.graftVersion,
+          "so its launcher is brought up to date at launch")
+    check(Installer.refreshConfig(for: shortcut, sourceDir: nil) && sourcePath(ofBundle: inFinder) == nil,
+          "and so is the source it borrows from")
+
+    // Two shortcuts on one folder each have an app describing it, so a guess
+    // by profile would hand one shortcut's app to the other's Delete.
+    let twin = Shortcut(name: "Twin", folder: shortcut.folder, source: .own)
+    check(Installer.installedBundle(for: twin, among: [shortcut, twin]) == nil,
+          "a profile two shortcuts share is not searched for by what it opens")
+    Installer.uninstall(twin, among: [shortcut, twin])
+    check(fm.fileExists(atPath: inFinder.path),
+          "so deleting one of them leaves the other's renamed app alone")
+
+    let back = try! Installer.install(shortcut, sourceDir: main)
+    check(back.lastPathComponent == "Work Two.app" && !fm.fileExists(atPath: inFinder.path),
+          "Update puts the app back under the shortcut's name, with no second copy")
+
+    // A new folder typed into the window is a different profile, and nothing
+    // describes it yet; the app to replace is the one the old folder opens.
+    var moved = shortcut
+    moved.folder = "Claude-Work-Moved"
+    let refolded = try! Installer.install(moved, sourceDir: nil, replacing: shortcut)
+    check(Graft.samePath(refolded, back) && Installer.describedProfile(of: refolded)
+            .map { Graft.samePath($0, moved.profileDir) } == true,
+          "Update applies a new folder to the same app rather than making another")
+    _ = try! Installer.install(shortcut, sourceDir: main, replacing: moved)
+    let renamed2 = Installer.installedBundle(for: shortcut)!
+
+    // Gone with its shortcut wherever it went, or it is left in Applications
+    // still naming a source, and opening it grafts a profile nothing lists.
+    let hidden = apps.appending(path: "Hidden Away.app")
+    try! fm.moveItem(at: renamed2, to: hidden)
+    Installer.uninstall(shortcut, among: [shortcut])
+    check(!fm.fileExists(atPath: hidden.path),
+          "deleting a shortcut removes its app even after a rename in Finder")
+    try? fm.removeItem(at: moved.profileDir)
 
     try? fm.removeItem(at: occupied)
     try? fm.removeItem(at: renamed)
@@ -298,7 +348,7 @@ do {
           "the generated shortcut remains validly ad-hoc signed")
 
     styled.iconPreset = .blue
-    _ = try! Installer.install(styled, sourceDir: nil, previousName: styled.name)
+    _ = try! Installer.install(styled, sourceDir: nil)
     check(try! Data(contentsOf: icon) != workIcon,
           "updating the shortcut replaces the badged icon with the newly selected preset")
     check(Graft.runTool("/usr/bin/codesign", ["--verify", "--strict", bundle.path]) == 0,
@@ -324,7 +374,7 @@ do {
     }
     changed.name = "Failed Icon Rename"
     do {
-        _ = try Installer.install(changed, sourceDir: nil, previousName: styled.name)
+        _ = try Installer.install(changed, sourceDir: nil, replacing: styled)
         check(false, "an unreadable icon refuses the rename")
     } catch {
         check(sealedFiles.map { try! Data(contentsOf: bundle.appending(path: $0)) } == before,
@@ -647,6 +697,19 @@ do {
           "the root of the disk is refused")
     check(refusal(support.appending(path: "Claude/../Claude")) == .mainProfile,
           "a path that walks back round to the main profile is still refused")
+    check(refusal(support.appending(path: "claude")) == .mainProfile,
+          "so is the main profile spelt in lower case")
+    check(fm.fileExists(atPath: main.path), "which is still there")
+
+    let graftOwn = support.appending(path: "ClaudeGraft")
+    try? fm.createDirectory(at: graftOwn, withIntermediateDirectories: true)
+    let graftMarker = graftOwn.appending(path: "graft-deletion-marker")
+    try? Data("x".utf8).write(to: graftMarker)
+    check(refusal(graftOwn) == .graftFolder, "Graft's own folder is refused")
+    check(refusal(support.appending(path: "claudegraft")) == .graftFolder,
+          "and so is it in lower case")
+    check(fm.fileExists(atPath: graftMarker.path), "and what Graft keeps there survives")
+    try? fm.removeItem(at: graftMarker)
 
     let store = ShortcutStore()
     var keeper = Shortcut(name: "Work", source: .main)
@@ -673,6 +736,17 @@ do {
     store.delete(keepShortcut.id, deletingProfile: false)
     check(fm.fileExists(atPath: kept.path), "deleting the shortcut alone keeps the profile")
 
+    let cased = makeProfile("Claude-Cased", account: "DDDD", org: "ORG-D", chats: ["kept"])
+    var upper = Shortcut(name: "Cased", source: .own)
+    upper.folder = "Claude-Cased"
+    var lower = Shortcut(name: "cased", source: .own)
+    lower.folder = "claude-cased"
+    store.shortcuts = [upper, lower]
+    check(store.delete(lower.id, deletingProfile: true) != nil,
+          "a shortcut whose folder differs from another's only in case is sharing it")
+    check(fm.fileExists(atPath: cased.path), "so the profile both read survives")
+
+    try? fm.removeItem(at: cased)
     try? fm.removeItem(at: main)
     try? fm.removeItem(at: kept)
 }
@@ -767,6 +841,9 @@ check(Graft.validateFolder("a/b") != nil, "nor one with a separator")
 check(Graft.validateFolder(".hidden") != nil, "nor a hidden name")
 check(Graft.validateFolder("Claude") != nil, "Claude's own folder is refused")
 check(Graft.validateFolder("ClaudeGraft") != nil, "and so is Graft's own")
+check(Graft.validateFolder("claude") != nil, "Claude's folder is refused in any case, as the disk ignores it")
+check(Graft.validateFolder("CLAUDEGRAFT") != nil, "and so is Graft's")
+check(Graft.validateFolder("Claude-claude") == nil, "a name merely containing Claude is still fine")
 
 do {
     var shortcut = Shortcut(name: "Escapee", folder: "../Escaped", source: .own)
@@ -1320,10 +1397,50 @@ do {
     check(UsageAPI.endpoint.host == "api.anthropic.com", "usage is read from Anthropic")
     check(UsageAPI.endpoint.scheme == "https", "over https")
 
+    // The shared session's cache keeps each request beside its answer, its
+    // Authorization header included, in a file anyone running as the person
+    // can read, so a borrowed token never goes near it.
+    check(UsageAPI.session.configuration.urlCache == nil
+            && UsageAPI.session.configuration.requestCachePolicy == .reloadIgnoringLocalCacheData,
+          "a borrowed token goes out through a session that writes nothing down")
+    let repoRoot = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+    let sourceFiles = (fm.enumerator(at: repoRoot.appending(path: "Sources"), includingPropertiesForKeys: nil)?
+        .compactMap { $0 as? URL } ?? []).filter { $0.pathExtension == "swift" }
+    let usingShared = sourceFiles.filter {
+        (try? String(contentsOf: $0, encoding: .utf8))?.contains("URLSession.shared") == true
+    }
+    check(sourceFiles.count > 10 && usingShared.isEmpty,
+          "nothing in the app sends a request through the shared session and its cache")
+    // On macOS 27 listing or removing WebKit stores crashes a process in which
+    // no store has done any work yet, and launch lists them before any page
+    // exists: every pane that reaches claude.ai took Graft down on opening.
+    let storeCalls = sourceFiles.map { url -> (String, String) in
+        (url.lastPathComponent, (try? String(contentsOf: url, encoding: .utf8)) ?? "")
+    }.filter { $0.1.contains("WKWebsiteDataStore.fetchAllDataStoreIdentifiers")
+        || $0.1.contains("WKWebsiteDataStore.remove(forIdentifier")
+        || $0.1.contains("WKWebsiteDataStore.allDataStoreIdentifiers") }
+    check(storeCalls.map(\.0) == ["ArtifactCenter.swift"]
+            && storeCalls.allSatisfy { $0.1.components(separatedBy: "await prepareStores()").count == 3 }
+            && !storeCalls.contains { $0.1.contains("await WKWebsiteDataStore.") },
+          "WebKit is made ready before a store is listed or removed, in the one place that does either")
+    let launch = (try? String(contentsOf: repoRoot.appending(path: "Sources/App/ClaudeGraftApp.swift"),
+                              encoding: .utf8)) ?? ""
+    check(launch.contains("URLCache.shared.removeAllCachedResponses()"),
+          "and a launch empties that cache, so a token an older version left in it goes")
+
     // A profile with no cached login yields nothing rather than throwing.
     let bare = makeProfile("Claude-NoLogin", account: "AAAA")
     check((try? ClaudeCredentials.token(for: bare, prompting: .no)) ?? nil == nil,
           "a profile with no stored login has no token")
+
+    // Claude renames a new config over the old, and a read landing between
+    // the two sees a file that is there and will not parse.
+    let midWrite = makeProfile("Claude-MidWrite", account: "AAAA")
+    try? Data(#"{"oauth:tokenCacheV2": "djEw"#.utf8).write(to: midWrite.appending(path: "config.json"))
+    var caught: Error?
+    do { _ = try ClaudeCredentials.tokens(for: midWrite, prompting: .no) } catch { caught = error }
+    check(caught as? ClaudeCredentials.Failure == .configUnreadable,
+          "a config caught mid-write is a read to try again, not a profile with no login")
 
     // Starting a session goes to Anthropic, per profile, with a real model id.
     check(SessionStarter.endpoint.host == "api.anthropic.com", "sessions start against Anthropic")
@@ -1525,6 +1642,30 @@ do {
     check(site.contains("github.com/\(owner)/claude-graft"),
           "and so does the site")
 
+    // Two and a half months after the site went up Google had indexed none of
+    // it: no sitemap, nothing naming one, and Search Console listing the home
+    // page as discovered and never fetched. A page left out of the sitemap is a
+    // page nobody told Google about.
+    let home = "https://graft.aadityamore.com/"
+    let robots = read("docs/robots.txt")
+    let sitemap = read("docs/sitemap.xml")
+    check(robots.contains("Sitemap: \(home)sitemap.xml"),
+          "the site tells crawlers where its sitemap is")
+    check(robots.contains("Disallow: /release-notes/"),
+          "and keeps the update dialog's fragments out of search results")
+    check(site.contains("<link rel=\"canonical\" href=\"\(home)\">") && sitemap.contains("<loc>\(home)</loc>"),
+          "the home page names its own address, and the sitemap lists it")
+    let pages = ((try? FileManager.default.contentsOfDirectory(
+        atPath: repo.appending(path: "docs").path(percentEncoded: false))) ?? [])
+        .filter { $0.hasSuffix(".html") }
+    check(!pages.isEmpty && pages.allSatisfy { page in
+              sitemap.contains("<loc>\(home)\(page == "index.html" ? "" : page)</loc>") },
+          "every page at the top of the site is in the sitemap")
+    check(site.contains("\"@type\": \"SoftwareApplication\"") && site.contains("\"name\": \"Claude Graft\""),
+          "the home page tells search engines what the app is called")
+    check(readme.contains("href=\"\(home)\""),
+          "the README sends people to the site's own address, not the one that redirects")
+
     // The tip jar is a second account under a second spelling. GitHub Sponsors
     // cannot pay into an Indian account, so the money goes through Ko-fi, whose
     // handle carries no hyphens — neither name can be built out of the other,
@@ -1538,6 +1679,26 @@ do {
           "and the one on the site")
     check(readme.contains("https://ko-fi.com/\(kofi)"),
           "and the one in the README")
+
+    // The Help menu is the one place someone stuck inside the app looks for a
+    // person, so every way to reach one has to be there and has to be right.
+    check(links.contains("static let email = \"aadityavmore@gmail.com\""),
+          "the Help menu writes to the developer's own address")
+    check(links.contains("https://www.linkedin.com/in/aadityavmore/"),
+          "and links to the developer's LinkedIn profile")
+    let mail = Links.mail(version: "2.0.0", system: "Version 26.1")
+    let mailParts = URLComponents(url: mail, resolvingAgainstBaseURL: false)
+    check(mail.scheme == "mailto" && mailParts?.path == "aadityavmore@gmail.com",
+          "an email from Help goes to that address")
+    check(mailParts?.queryItems?.first { $0.name == "subject" }?.value == "Claude Graft 2.0.0"
+            && mailParts?.queryItems?.first { $0.name == "body" }?.value?.contains("macOS Version 26.1") == true,
+          "and already says which Graft and which macOS it comes from")
+    for item in ["Claude Graft Help", "Report a Problem…", "Email the Developer…",
+                 "Aaditya More on LinkedIn", "View Source on GitHub", "Support Claude Graft…"] {
+        check(links.contains("L10n.text(\"\(item)\")"), "the Help menu offers \(item)")
+    }
+    check(read("Sources/App/ClaudeGraftApp.swift").contains("GraftHelpCommands()"),
+          "and replaces SwiftUI's help-isn't-available item")
 
     // A sponsor page nobody can pay into is worse than no link at all: it reads
     // as an oversight rather than a decision, and it takes a press to find out
@@ -1563,6 +1724,38 @@ do {
         check(release.contains("[ \"$AFTER\" -eq \"$((BEFORE + 1))\" ]"),
               "and a run that adds one while losing another is caught, not waved through")
     }
+
+    // Every older entry is signed, so a search of the whole feed found a
+    // signature whether or not the new entry had one.
+    check(release.contains("ENTRY=\"$(awk -v zip=\"ClaudeGraft-$VERSION.zip\"")
+            && release.contains("grep -q \"sparkle:edSignature=\\\"[^\\\"]\" <<< \"$ENTRY\"")
+            && release.contains("grep -q \"length=\\\"$ZIP_SIZE\\\"\" <<< \"$ENTRY\"")
+            && release.contains("</sparkle:minimumAutoupdateVersion>\" <<< \"$ENTRY\""),
+          "the release asks the new entry itself for its signature, its length and the floor")
+    check(release.contains("[ \"$SIGNED_AFTER\" -eq \"$((SIGNED_BEFORE + 1))\" ]"),
+          "and counts signatures like the items, so an old one lost on the way is caught")
+    check(!release.contains("-o \"$ROOT/docs/appcast.xml\"") && release.contains("-o \"$FEED\""),
+          "the feed is generated beside the archives, not in the live file")
+    if let copied = release.range(of: "cp \"$FEED\" \"$ROOT/docs/appcast.xml\""),
+       let cask = release.range(of: "TAP_READY=\"yes\""),
+       let signed = release.range(of: "appcast has a signed entry for"),
+       let install = release.range(of: "if [ \"${1:-}\" = \"--install\" ]") {
+        check(signed.lowerBound < copied.lowerBound && cask.lowerBound < copied.lowerBound
+                && copied.lowerBound < install.lowerBound,
+              "and the live file gets it only once every check and the cask have passed")
+    } else {
+        check(false, "and the live file gets it only once every check and the cask have passed")
+    }
+
+    // A Mac on 1.0.x is offered the newest entry and asked about it with that
+    // entry's notes, so every release is the one that stops to ask.
+    let version = read("VERSION").trimmingCharacters(in: .whitespacesAndNewlines)
+    let notes = read("docs/release-notes/\(version).html")
+    check(notes.contains("from 1.0.x"),
+          "this version's notes say what upgrading from 1.0.x does to chats")
+    check(release.contains("grep -q \"from 1\\.0\\.x\" \"$NOTES\"")
+            && !release.contains("elif [ \"$VERSION\" = \"$CONFIRM_BELOW\" ]"),
+          "and the release refuses any version whose notes are missing or do not say it")
 }
 
 // MARK: - Who is allowed to put a keychain dialog on screen
@@ -1594,6 +1787,16 @@ do {
     // app. The monitor starts willing; the app turns it off for a login launch.
     let monitor = UsageMonitor()
     check(monitor.mayPromptUnasked, "a monitor is willing to ask until something says otherwise")
+
+    // The key is one item for every profile, so a pass that has been told no
+    // asks nobody after that.
+    check(UsageMonitor.prompting(asking: .yes, elsewhere: .onceIfShut, focused: true, locked: false) == .yes,
+          "a press asks the keychain for the account it is about")
+    check(UsageMonitor.prompting(asking: .yes, elsewhere: .onceIfShut, focused: false, locked: false) == .onceIfShut,
+          "and reads the others the way a tick would")
+    check(UsageMonitor.prompting(asking: .yes, elsewhere: .onceIfShut, focused: true, locked: true) == .no
+            && UsageMonitor.prompting(asking: .yes, elsewhere: .onceIfShut, focused: false, locked: true) == .no,
+          "but once the keychain has said no in a pass, no profile after it raises another dialog")
 }
 
 // MARK: - Nothing asks for a session by itself
@@ -1642,6 +1845,15 @@ do {
           "only the three Start Session buttons ask Anthropic for a session")
     check(automatic.isEmpty, "and nothing that runs on its own is wired to one")
     check(quiet.isEmpty, "each of the three says a person asked, which is what allows the keychain prompt")
+
+    // Starting the session is where the press asks the keychain. The refresh
+    // after it went out unfocused and allowed to ask, which after a Deny was a
+    // dialog for every signed-in Claude in turn.
+    let followUps = ["MainProfileDetail.swift", "MenuBarContent.swift", "ShortcutDetail.swift"].map { name in
+        (try? String(contentsOf: appSource.appending(path: name), encoding: .utf8)) ?? ""
+    }
+    check(followUps.allSatisfy { $0.contains("usage.refresh(store, interactive: true, prompting: .no, focus: profile)") },
+          "the refresh after a session starts asks nobody, and only about that account")
 
     // `.yes` asks unconditionally. Nothing should name it directly: it is
     // reached by saying a person pressed something, which is auditable.
@@ -1791,6 +2003,30 @@ do {
     check(UsageMonitor.mayAttempt(now: now, until: now.addingTimeInterval(-1),
                                   interactive: false, serverAsked: true),
           "and an expired wait releases either way")
+
+    // Only the service's own answer is the service's wait. A failure after a
+    // Retry-After that carries none starts a wait a press may skip again.
+    check(UsageMonitor.waitAsked(by: UsageAPI.Failure.http(429, retryAfter: 900)) == 900,
+          "a refusal that says how long to wait is the service asking")
+    check(UsageMonitor.waitAsked(by: UsageAPI.Failure.http(500, retryAfter: nil)) == nil
+            && UsageMonitor.waitAsked(by: URLError(.timedOut)) == nil,
+          "and one that does not, or no answer at all, asks nothing of a press")
+
+    // A failure on this Mac is not the service failing, and waiting longer
+    // between tries fixes none of them.
+    let local: [ClaudeCredentials.Failure] = [.notSignedIn, .expired, .configUnreadable,
+                                              .noKeychainAccess, .keychainDeclined]
+    check(local.allSatisfy { !UsageMonitor.cameFromService($0) },
+          "a login that cannot be read here is retried on the next pass, with no backoff")
+    check(UsageMonitor.cameFromService(UsageAPI.Failure.http(503, retryAfter: nil))
+            && UsageMonitor.cameFromService(UsageAPI.Failure.unreadable)
+            && UsageMonitor.cameFromService(URLError(.notConnectedToInternet)),
+          "while an answer from the service, or none, backs off as before")
+    let anthropic = L10n.text("Anthropic didn't answer")
+    check(local.allSatisfy { UsageMonitor.failureLine($0) != anthropic },
+          "and a local failure never reads as Anthropic not answering")
+    check(UsageMonitor.failureLine(URLError(.timedOut)) == anthropic,
+          "which is kept for the service")
 }
 
 // MARK: - Telling instances apart
@@ -1934,8 +2170,8 @@ do {
     let menuBar = read("App/MenuBarController.swift")
     check(menuBar.contains("setAccessibilityIdentifier(\"status-item\")"),
           "the menu bar item can be asked for by a name that does not change with its figure")
-    check(menuBar.contains("setAccessibilityTitle([spoken, updateTip]"),
-          "and says in words whose figure it shows and what its symbol stands for")
+    check(menuBar.contains("spokenTitle = [spoken, drawing?.spoken, updateTip]") && menuBar.contains("setAccessibilityTitle([spokenTitle, chat]"),
+          "and says in words whose figure it shows, which account answers, what its symbol stands for and which conversation has just begun")
     check(menuBar.contains("window.setAccessibilityParent(NSApp)"),
           "the open dropdown is among the app's windows, where a client looking for its controls searches")
     check(!menuBar.contains("setAccessibilityWindows("),
@@ -1954,8 +2190,8 @@ do {
           "editing the display name still finds the previously installed shortcut")
     let renamed = apps.appending(path: "Renamed in Finder.app")
     try! fm.moveItem(at: original, to: renamed)
-    check(Installer.installedBundle(for: shortcut) == nil,
-          "a renamed bundle reproduces the old name lookup failure")
+    check(Installer.installedBundle(for: shortcut).map { Graft.samePath($0, renamed) } == true,
+          "the repairs and Delete find a renamed bundle the way Open does")
     let resolved = try! ProfileOpener.destination(profile: shortcut.profileDir, shortcut: shortcut)
     let renamedDestination: Bool
     if case .shortcut(let bundle) = resolved { renamedDestination = Graft.samePath(bundle, renamed) }
@@ -1979,6 +2215,33 @@ do {
     check(ProfileOpener.bundle(for: other) == nil,
           "an unreadable profile description is not trusted because its name matches")
     try? fm.removeItem(at: wrong)
+
+    // The folder field saved every keystroke into the list, which every
+    // launcher and the next start read as the profile the shortcut opens.
+    let detail = (try? String(contentsOf: URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        .deletingLastPathComponent().appending(path: "Sources/App/ShortcutDetail.swift"), encoding: .utf8)) ?? ""
+    check(!detail.contains("text: $shortcut.folder") && detail.contains("folderDraft = typed"),
+          "a created shortcut's folder edit waits for Update instead of going straight into the list")
+    check(detail.contains("].folder = target.folder") && detail.contains("let previous = shortcut")
+            && detail.contains("replacing: previous"),
+          "and Update hands the installer the shortcut as it was, so the old app is the one replaced")
+
+    // Create and Update end in a mirror pass, which on a newly shared profile
+    // copies every chat both ways; on the main thread the window stopped
+    // answering for as long as that took.
+    let pressed = detail.components(separatedBy: "private func install()").dropFirst().first?
+        .components(separatedBy: "private func refresh(").first ?? ""
+    if let away = pressed.range(of: "DispatchQueue.global"),
+       let call = pressed.range(of: "try Installer.install("),
+       let back = pressed.range(of: "DispatchQueue.main.async") {
+        check(away.lowerBound < call.lowerBound && call.lowerBound < back.lowerBound,
+              "Create and Update write the shortcut off the main thread and answer on it")
+    } else {
+        check(false, "Create and Update write the shortcut off the main thread and answer on it")
+    }
+    check(pressed.contains("guard !installing") && detail.contains(".disabled(installing)")
+            && detail.contains("ProgressView().controlSize(.small) } }"),
+          "with the button held and a spinner in it until the answer comes back")
 }
 
 // MARK: - Profiles lost during Claude's update restart
@@ -2354,6 +2617,13 @@ do {
           "reading the updater log cannot block an update forever")
     check(!Graft.isClaudeInstallerProcess("/bin/zsh -c '" + shipIt + " com.anthropic.claudefordesktop.ShipIt'"),
           "a command mentioning the installer is not the installer itself")
+    let cachedShipIt = Graft.fm.homeDirectoryForCurrentUser
+        .appending(path: "Library/Caches/com.anthropic.claudefordesktop.ShipIt/ShipIt").path
+    let isInstaller = Graft.installerProcessCheck()
+    check(isInstaller(cachedShipIt) && isInstaller(cachedShipIt + " com.anthropic.claudefordesktop.ShipIt")
+            && isInstaller(shipIt + " com.anthropic.claudefordesktop.ShipIt")
+            && !isInstaller("/bin/zsh -c '" + shipIt + "'") && !isInstaller(cachedShipIt + "_stderr.log"),
+          "a listing's installer check, its paths worked out once, finds ShipIt from Claude or its cache and nothing that names it")
 
     let now = Date(timeIntervalSince1970: 2_000_000_000)
     let one = ClaudeUpdateFlow.Instance(pid: 101, launched: now.addingTimeInterval(-100))
@@ -2417,6 +2687,38 @@ do {
     check(failed(update.advance(sample([]), at: now.addingTimeInterval(180))),
           "a quit alone is not mistaken for a successful installation")
 
+    check(ClaudeUpdateResume.decide(sample([helper], helper: helper), target: "1.2.4") == .follow(.downloading),
+          "a Graft restarted mid-update follows the updater it finds running")
+    check(ClaudeUpdateResume.decide(sample([], installing: true), target: "1.2.4") == .follow(.installing),
+          "and the installer it finds running")
+    check(ClaudeUpdateResume.decide(sample([], installed: "1.2.4"), target: "1.2.4") == .finished,
+          "a run whose version is already in place is finished")
+    check(ClaudeUpdateResume.decide(sample([one]), target: "1.2.4") == .abandoned,
+          "and one with nothing running and nothing installed is reported unfinished, not started again")
+    let updaterSource = (try? String(contentsOf: URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        .deletingLastPathComponent().appending(path: "Sources/App/ClaudeDesktopUpdater.swift"), encoding: .utf8)) ?? ""
+    if let body = updaterSource.range(of: "private func resume() {"),
+       let end = updaterSource.range(of: "private func settleResume()", range: body.upperBound..<updaterSource.endIndex) {
+        let resume = String(updaterSource[body.upperBound..<end.lowerBound])
+        check(resume.contains("lease = try ClaudeUpdateGate.acquire()") && !resume.contains("snapshot()"),
+              "a restarted Graft takes the update lock before it reads anything that can fail")
+    } else {
+        check(false, "a restarted Graft takes the update lock before it reads anything that can fail")
+    }
+    check(updaterSource.contains("if pendingResume != nil { settleResume(); return }")
+            && updaterSource.contains("do { sample = try Self.snapshot() } catch {\n            DispatchQueue.main.async { self.problem = error.localizedDescription }\n            return\n        }"),
+          "and a snapshot it cannot read keeps the journal and asks again on the next poll")
+
+    check(ClaudeUpdateStop.resendsQuit(lastQuit: now.addingTimeInterval(-10), now: now)
+            && !ClaudeUpdateStop.resendsQuit(lastQuit: now.addingTimeInterval(-4), now: now),
+          "an updater that has not closed is asked again every ten seconds, not every poll")
+    check(ClaudeUpdateStop.keepsHiding(stoppingSince: now.addingTimeInterval(-30), now: now)
+            && !ClaudeUpdateStop.keepsHiding(stoppingSince: now.addingTimeInterval(-60), now: now),
+          "and is no longer kept hidden a minute after the first quit")
+    check(updaterSource.contains("ClaudeUpdateStop.resendsQuit(lastQuit: lastQuit, now: now)")
+            && updaterSource.contains("guard !showingUpdater else { return }"),
+          "the stopping updater is quit again and, once shown, never hidden again")
+
     let previousSupport = Graft.applicationSupportOverride
     Graft.applicationSupportOverride = support.appending(path: "UpdateGate")
     defer { Graft.applicationSupportOverride = previousSupport }
@@ -2472,6 +2774,54 @@ do {
         try ClaudeUpdateGate.requireLaunchAllowed()
         check(true, "normal launches resume when the update releases its lock")
     } catch { check(false, "normal launches resume when the update releases its lock") }
+}
+
+section("Keeping Claude's updater signed out")
+
+do {
+    let root = Graft.applicationSupport.appending(path: "UpdaterProfiles")
+    func profile(_ name: String, config: String? = nil, stores: [String: [String]] = [:]) -> URL {
+        let folder = root.appending(path: name)
+        try! Graft.fm.createDirectory(at: folder, withIntermediateDirectories: true)
+        try! UpdaterProfile.writeDeviceID("8a1f0c3e-5b2d-4e6f-9a7b-1c2d3e4f5a6b", into: folder)
+        if let config { try! Data(config.utf8).write(to: folder.appending(path: "config.json")) }
+        for (store, names) in stores {
+            for name in names {
+                try! Graft.fm.createDirectory(at: folder.appending(path: "\(store)/\(name)"), withIntermediateDirectories: true)
+            }
+        }
+        return folder
+    }
+
+    check(!UpdaterProfile.isSignedIn(profile("never-opened")),
+          "an updater profile that has only its device identifier is signed out")
+    check(!UpdaterProfile.isSignedIn(profile("opened", config: #"{"locale":"en-US","updaterLastSeenVersion":"1.2.3"}"#,
+                                             stores: ["local-agent-mode-sessions": ["skills-plugin"]])),
+          "an updater that ran signed out and unpacked its skills is still signed out")
+    check(UpdaterProfile.isSignedIn(profile("token", config: #"{"oauth:tokenCacheV2":"sealed"}"#)),
+          "a stored login marks the updater profile as signed in")
+    check(UpdaterProfile.isSignedIn(profile("account", config: #"{"lastKnownAccountUuid":"account-a"}"#)),
+          "an account remembered in the config marks the updater profile as signed in")
+    check(UpdaterProfile.isSignedIn(profile("chats", stores: ["claude-code-sessions": ["account-a"]])),
+          "an account folder among the session stores marks the updater profile as signed in")
+    check(UpdaterProfile.isSignedIn(profile("torn", config: #"{"oauth:token"#)),
+          "a config that will not parse is not taken as proof that nobody signed in")
+
+    let used = profile("used", config: #"{"oauth:tokenCacheV2":"sealed"}"#,
+                       stores: ["claude-code-sessions": ["account-a"]])
+    let trash = root.appending(path: "Trash")
+    try! Graft.fm.createDirectory(at: trash, withIntermediateDirectories: true)
+    try! UpdaterProfile.reset(used, keeping: "8a1f0c3e-5b2d-4e6f-9a7b-1c2d3e4f5a6b") {
+        try Graft.fm.moveItem(at: $0, to: trash.appending(path: $0.lastPathComponent))
+    }
+    check(!UpdaterProfile.isSignedIn(used), "a reset updater profile opens signed out")
+    check((try? Graft.fm.contentsOfDirectory(atPath: used.path)) == ["ant-did"],
+          "a reset updater profile keeps nothing but its device identifier")
+    check(Graft.exists(trash.appending(path: "used/claude-code-sessions/account-a")),
+          "what somebody left in the updater profile goes where it can still be found")
+    check(Data(base64Encoded: (try? Data(contentsOf: used.appending(path: "ant-did"))) ?? Data())
+            .flatMap { String(data: $0, encoding: .utf8) } == "8a1f0c3e-5b2d-4e6f-9a7b-1c2d3e4f5a6b",
+          "the device identifier survives a reset, so the rollout does not change")
 }
 
 // MARK: - What the bar shows
@@ -2683,6 +3033,9 @@ do {
     let week = Graft.Usage.Headline(percent: 94, isWeekly: true)
     check(FrontTitle.make(icon: nil, tag: nil, figure: week, font: font).string == " W 94%",
           "a week's figure carries a W, so it is not taken for a five-hour one")
+    check(!FrontTitle.make(icon: icon, tag: short, figure: five, font: font, afterImage: false).string.hasPrefix(" ")
+            && FrontTitle.make(icon: nil, tag: nil, figure: week, font: font, afterImage: false).string == "W 94%",
+          "with no mark before it, the title starts at the edge of the item instead of a space in")
     let weekBeside = FrontTitle.make(icon: icon, tag: short, figure: week, font: font)
     check(weekBeside.string.hasSuffix(" W 94%") && lowered(weekBeside) == -FrontTitle.figureDrop,
           "beside a Claude in front as well, lowered like any other figure")
@@ -2717,6 +3070,18 @@ do {
                                         onAnyOf: []),
           "with no screen at all there is nowhere for it to be")
 
+    // This MacBook Air's notch, from auxiliaryTopLeftArea and
+    // auxiliaryTopRightArea, and the item's frames from the live run: with
+    // the new-conversation text showing, and then without it.
+    let notch = CGRect(x: 751, y: 1074.5, width: 208, height: 37.5)
+    let fullScreen = CGRect(x: 0, y: 0, width: 1710, height: 1112)
+    check(!MenuBarPlacement.isReachable(CGRect(x: 866, y: 1081, width: 188.5, height: 24),
+                                        onAnyOf: [fullScreen], notches: [notch]),
+          "an item widened behind the notch is out of reach, though it is on the screen")
+    check(MenuBarPlacement.isReachable(CGRect(x: 969, y: 1081, width: 85.5, height: 24),
+                                       onAnyOf: [fullScreen], notches: [notch]),
+          "the same item clear of the notch is within reach")
+
     check(!QuitPolicy.endsTheApp(askedFor: false, installingUpdate: false, systemGoingDown: false, menuBarShowing: true),
           "command-Q puts the window away and leaves the menu bar item reporting")
     check(QuitPolicy.endsTheApp(askedFor: true, installingUpdate: false, systemGoingDown: false, menuBarShowing: true),
@@ -2737,6 +3102,31 @@ do {
 
     check(QuitPolicy.endsTheApp(askedFor: false, installingUpdate: false, systemGoingDown: false, menuBarShowing: false),
           "with nothing in the bar to go back to, a quit is a quit")
+
+    check(WindowPolicy.hidesDockIcon(showInMenuBar: true, hasShownWindow: true,
+                                     hasWindow: false, menuBarShowing: true),
+          "closing the last window with the item in reach takes the Dock icon with it")
+    check(!WindowPolicy.hidesDockIcon(showInMenuBar: true, hasShownWindow: true,
+                                      hasWindow: false, menuBarShowing: false),
+          "closing it with the item behind the notch leaves the Dock icon, the one way back")
+    check(!WindowPolicy.hidesDockIcon(showInMenuBar: false, hasShownWindow: true,
+                                      hasWindow: false, menuBarShowing: true),
+          "with the item turned off the Dock icon always stays")
+    check(!WindowPolicy.hidesDockIcon(showInMenuBar: true, hasShownWindow: true,
+                                      hasWindow: true, menuBarShowing: true),
+          "a window still open keeps the Dock icon")
+    check(WindowPolicy.showsWindowAfterHiddenLaunch(menuBarShowing: false, hasWindow: false),
+          "a hidden launch whose item cannot be reached puts the window up after all")
+    check(!WindowPolicy.showsWindowAfterHiddenLaunch(menuBarShowing: true, hasWindow: false),
+          "a hidden launch whose item can be reached stays hidden")
+    let delegate = (try? String(contentsOf: URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        .deletingLastPathComponent().appending(path: "Sources/App/ClaudeGraftApp.swift"), encoding: .utf8)) ?? ""
+    check(delegate.contains("guard WindowPolicy.hidesDockIcon(")
+            && delegate.contains("menuBarShowing: menuBar?.isShowing == true)\n        else { return }"),
+          "the window closing asks whether the item can be reached before hiding the Dock icon")
+    check(delegate.contains("asyncAfter(deadline: .now() + WindowPolicy.placementGrace)")
+            && delegate.contains("WindowPolicy.showsWindowAfterHiddenLaunch("),
+          "a hidden launch looks again once the item has been placed")
 }
 
 section("Session records")
@@ -2776,17 +3166,17 @@ func makeTranscript(session: String,
     }
     if spoke {
         lines.append("{\"parentUuid\":null,\"isSidechain\":false,\"promptId\":\"prompt-one\","
-                     + "\"cwd\":\"/Users/test/work\",\"permissionMode\":\"auto\",\"gitBranch\":\"main\","
+                     + "\"cwd\":\"/Users/Shared/work\",\"permissionMode\":\"auto\",\"gitBranch\":\"main\","
                      + "\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":\"\(said ?? "hello from \(session)")\"},"
                      + "\"uuid\":\"u-1\",\"timestamp\":\"\(first)\"}")
-        lines.append("{\"parentUuid\":\"u-1\",\"isSidechain\":false,\"cwd\":\"/Users/test/work\","
+        lines.append("{\"parentUuid\":\"u-1\",\"isSidechain\":false,\"cwd\":\"/Users/Shared/work\","
                      + "\"permissionMode\":\"auto\",\"gitBranch\":\"main\",\"type\":\"assistant\","
                      + "\"message\":{\"id\":\"m-1\",\"model\":\"claude-opus-5\",\"content\":[{\"text\":\"hi\",\"type\":\"text\"}]},"
                      + "\"uuid\":\"a-1\",\"timestamp\":\"\(last)\",\"effort\":\"max\"}")
     } else {
         // A session opened and closed with nothing said in it still leaves a
         // transcript: a bridge line, a stamp, and no conversation at all.
-        lines.append("{\"cwd\":\"/Users/test/work\",\"permissionMode\":\"auto\","
+        lines.append("{\"cwd\":\"/Users/Shared/work\",\"permissionMode\":\"auto\","
                      + "\"type\":\"file-history-summary\",\"timestamp\":\"\(last)\"}")
     }
     if let title {
@@ -2805,7 +3195,7 @@ do {
     check(facts?.title == "Test 4", "the title comes from the title line")
     check(facts?.ownerAccount == ownerAccount && facts?.ownerOrganization == ownerOrg,
           "the owner and the organization come from the bridge line")
-    check(facts?.cwd == "/Users/test/work" && facts?.permissionMode == "auto",
+    check(facts?.cwd == "/Users/Shared/work" && facts?.permissionMode == "auto",
           "so do the working directory and the permission mode")
     check(facts?.model == "claude-opus-5" && facts?.effort == "max",
           "the model and the effort come from the answer")
@@ -2823,7 +3213,7 @@ do {
     let busy = Graft.sessionFacts(inTranscriptAt: makeTranscript(
         session: "22222222-2222-4222-8222-222222222222",
         extra: ["{\"parentUuid\":\"a-1\",\"isSidechain\":false,\"promptId\":\"prompt-one\","
-                + "\"cwd\":\"/Users/test/work\",\"type\":\"user\","
+                + "\"cwd\":\"/Users/Shared/work\",\"type\":\"user\","
                 + "\"message\":{\"role\":\"user\",\"content\":[{\"tool_use_id\":\"t-1\",\"type\":\"tool_result\",\"content\":\"ok\"}]},"
                 + "\"uuid\":\"u-2\",\"timestamp\":\"2026-08-29T17:00:11.000Z\"}"]),
         cliSessionId: "22222222-2222-4222-8222-222222222222")
@@ -2844,7 +3234,26 @@ do {
         check(record["cliSessionId"] as? String == "11111111-1111-4111-8111-111111111111"
               && record["isArchived"] as? Bool == false && record["titleSource"] as? String == "auto",
               "the rest of the record says what Claude's own records say about a session")
+        check(record["chromePermissionMode"] == nil,
+              "and it says nothing about browser permission checks, so the person's own setting holds")
+        check(record["permissionMode"] as? String == "auto",
+              "while the permission mode is the one the transcript names")
     }
+
+    // Nothing in this one names a permission mode, and a record is what a
+    // session continued in Claude starts from.
+    let unnamed = "12121212-1212-4121-8121-121212121212"
+    let silent = Graft.claudeProjects.appending(path: "-Users-test-work/\(unnamed).jsonl")
+    try! ["{\"type\":\"bridge-session\",\"sessionId\":\"\(unnamed)\",\"bridgeSessionId\":\"cse_01Silent\","
+          + "\"ownerAccountUuid\":\"\(ownerAccount)\",\"ownerOrganizationUuid\":\"\(ownerOrg)\"}",
+          "{\"promptId\":\"p-1\",\"cwd\":\"/Users/Shared/work\",\"type\":\"user\","
+          + "\"message\":{\"role\":\"user\",\"content\":\"hello\"},\"uuid\":\"u-1\","
+          + "\"timestamp\":\"2026-08-29T17:00:00.000Z\"}"]
+        .joined(separator: "\n").write(to: silent, atomically: true, encoding: .utf8)
+    let silentFacts = Graft.sessionFacts(inTranscriptAt: silent, cliSessionId: unnamed)
+    check(silentFacts?.permissionMode == "default",
+          "a transcript that names no permission mode is filed with the one that grants least")
+    try? fm.removeItem(at: silent)
 }
 
 do {
@@ -2889,8 +3298,26 @@ do {
                               lastWrite: then, ownerProfile: nil, now: later, quietWindow: 300) == .noOwnerProfile,
           "a session whose owner lives on no profile here waits for one to appear")
     check(Graft.sessionFiling(facts: facts, recorded: [], withdrawn: [], deletions: [],
+                              lastWrite: then, ownerProfile: owner, folderIsHere: false,
+                              now: later, quietWindow: 300) == .folderElsewhere,
+          "a session worked in on another Mac is not put in a sidebar that cannot open it")
+    check(Graft.sessionFiling(facts: facts, recorded: [], withdrawn: [], deletions: [],
                               lastWrite: then, ownerProfile: owner, now: later, quietWindow: 300) == .file,
           "with everything in place, the record is written")
+}
+
+do {
+    let home = FileManager.default.homeDirectoryForCurrentUser.path
+    check(!Graft.sessionFolderIsHere("/Users/someone-who-never-lived-here/Developer/project"),
+          "a project in a home folder this Mac has never had was worked in somewhere else")
+    check(!Graft.sessionFolderIsHere("/Volumes/a-drive-that-is-not-mounted/Developer/project"),
+          "a drive that is not here is not here, until it is mounted and the next pass files it")
+    check(Graft.sessionFolderIsHere(home + "/a-worktree-cleaned-up-long-ago/after-the-chat"),
+          "a folder gone from a home that is here is this Mac's own history, and is still filed")
+    check(Graft.sessionFolderIsHere("/Volumes/../Users/someone-else/../../" + home.dropFirst() + "/x"),
+          "a path is read for where it leads, not for how it is spelt")
+    check(Graft.sessionFolderIsHere("/tmp/gone-already") && Graft.sessionFolderIsHere(""),
+          "a session with no folder, or one outside every home and drive, is filed as before")
 }
 
 do {
@@ -2910,6 +3337,46 @@ do {
           "a record behind its transcript, still holding what this app wrote, is brought up")
     check(Graft.sessionUpdateDecision(authored: early, facts: later, diskMatchesAuthored: false) == .takenOver,
           "once something else has rewritten the record, this app never touches it again")
+    check(Graft.sessionUpdateDecision(authored: early, facts: early, diskMatchesAuthored: false,
+                                      diskInOlderShape: true) == .refresh,
+          "a record still in the shape an earlier version filed is rewritten even with nothing new to say")
+    check(Graft.sessionUpdateDecision(authored: nil, facts: early, diskMatchesAuthored: false,
+                                      diskInOlderShape: true) == .leave,
+          "though only one this app remembers filing")
+}
+
+do {
+    // Every record filed before said to skip every browser permission check.
+    // One still in that shape is this app's, and the next pass takes it out.
+    let account = "2e2e2e2e-2e2e-4e2e-8e2e-2e2e2e2e2e2e"
+    let org = "2f2f2f2f-2f2f-4f2f-8f2f-2f2f2f2f2f2f"
+    let session = "2a2a2a2a-2a2a-4a2a-8a2a-2a2a2a2a2a2a"
+    let profile = makeProfile("Claude-Older-Shape", account: account, org: org)
+    let transcript = makeTranscript(session: session, owner: account, org: org, title: "Filed before")
+    let file = profile.appending(path: "claude-code-sessions/\(account)/\(org)/local_\(session).json")
+
+    try? fm.removeItem(at: Diagnostics.file)
+    Graft.fileMissingSessionRecords(filingInto: [profile], now: Date())
+    let log = (try? String(contentsOf: Diagnostics.file, encoding: .utf8)) ?? ""
+    check(log.contains("\"sweep.file\"") && log.contains(session) && !log.contains("Filed before"),
+          "the log names a session it filed by its id, never by its title")
+    if let authored = Graft.loadSessionRecordState().authored[session] {
+        var older = Graft.sessionRecord(for: authored)
+        older["chromePermissionMode"] = "skip_all_permission_checks"
+        try! JSONSerialization.data(withJSONObject: older, options: [.sortedKeys]).write(to: file)
+    }
+    check((try? String(contentsOf: file, encoding: .utf8))?.contains("skip_all_permission_checks") == true,
+          "a record filed by an earlier version said to skip every browser permission check")
+    Graft.fileMissingSessionRecords(filingInto: [profile], now: Date())
+    let record = (try? Data(contentsOf: file))
+        .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+    check(record?["title"] as? String == "Filed before" && record?["chromePermissionMode"] == nil,
+          "and the next pass rewrites it without that")
+    check(Graft.loadSessionRecordState().authored[session] != nil,
+          "keeping it this app's to bring up to date")
+
+    try? fm.removeItem(at: profile)
+    try? fm.removeItem(at: transcript)
 }
 
 do {
@@ -3000,10 +3467,10 @@ do {
     _ = makeTranscript(session: lostId, title: "Lost work, continued",
                        last: "2026-08-29T17:05:00.000Z",
                        extra: ["{\"parentUuid\":\"a-1\",\"isSidechain\":false,\"promptId\":\"prompt-two\","
-                               + "\"cwd\":\"/Users/test/work\",\"type\":\"user\","
+                               + "\"cwd\":\"/Users/Shared/work\",\"type\":\"user\","
                                + "\"message\":{\"role\":\"user\",\"content\":\"more\"},"
                                + "\"uuid\":\"u-3\",\"timestamp\":\"2026-08-29T17:04:50.000Z\"}",
-                               "{\"parentUuid\":\"u-3\",\"isSidechain\":false,\"cwd\":\"/Users/test/work\","
+                               "{\"parentUuid\":\"u-3\",\"isSidechain\":false,\"cwd\":\"/Users/Shared/work\","
                                + "\"type\":\"assistant\",\"message\":{\"model\":\"claude-opus-5\"},"
                                + "\"uuid\":\"a-2\",\"timestamp\":\"2026-08-29T17:05:00.000Z\"}"])
     check(Graft.fileMissingSessionRecords(filingInto: filing,
@@ -3163,6 +3630,19 @@ do {
           "so nothing is written for it")
     check(Graft.loadSessionRecordState().withdrawn == [id],
           "and it is written down, so the marker may be tidied away without the session coming back")
+
+    // The marker outlives the withdrawal, and the next pass meets it again.
+    try? fm.removeItem(at: Diagnostics.file)
+    _ = Graft.fileMissingSessionRecords(filingInto: [home], now: now.addingTimeInterval(60))
+    let events = ((try? String(contentsOf: Diagnostics.file, encoding: .utf8)) ?? "")
+        .split(separator: "\n")
+        .compactMap { (try? JSONSerialization.jsonObject(with: Data($0.utf8))) as? [String: Any] }
+    check(!events.contains { $0["event"] as? String == "sweep.withdraw" },
+          "a session withdrawn on an earlier pass is not withdrawn again because its marker is still there")
+    let end = events.last { $0["event"] as? String == "sweep.end" }
+    check(end?["withdrawn"] as? Int == 0 && end?["withdrawnInAll"] as? Int == 1,
+          "and the end of the pass counts what it withdrew, with the running total named as one")
+    try? fm.removeItem(at: Diagnostics.file)
 }
 
 do {
@@ -3330,7 +3810,7 @@ do {
         .appending(path: account).appending(path: org)
 
     func prompt(_ words: String, _ id: String, extra: String = "") -> String {
-        "{\"parentUuid\":null,\"promptId\":\"\(id)\",\"cwd\":\"/Users/test/work\","
+        "{\"parentUuid\":null,\"promptId\":\"\(id)\",\"cwd\":\"/Users/Shared/work\","
             + "\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":\"\(words)\"},"
             + "\(extra)\"uuid\":\"\(id)-u\",\"timestamp\":\"2026-08-29T17:05:00.000Z\"}"
     }
@@ -3361,7 +3841,7 @@ do {
     try? fm.removeItem(at: reading)
 
     // The rule on its own, over facts made up for it.
-    func facts(_ id: String, cwd: String = "/Users/test/work", owner: String = account,
+    func facts(_ id: String, cwd: String = "/Users/Shared/work", owner: String = account,
                last: Double) -> Graft.SessionFacts {
         Graft.SessionFacts(cliSessionId: id, bridgeIds: ["cse_x"], ownerAccount: owner,
                            ownerOrganization: org, title: "Same title", cwd: cwd,
@@ -3382,7 +3862,7 @@ do {
         (facts("twin-new", last: 2), trace(["x"])),
         (facts("hi-one", last: 1), trace(["hi"], opening: 2)),
         (facts("hi-two", last: 2), trace(["hi", "sync my profiles"], opening: 2)),
-        (facts("elsewhere", cwd: "/Users/test/other", last: 1), trace(["a"])),
+        (facts("elsewhere", cwd: "/Users/Shared/other", last: 1), trace(["a"])),
         (facts("someone-else", owner: "f0f0f0f0-f0f0-4f0f-8f0f-f0f0f0f0f0f0", last: 1), trace(["a"])),
         (facts("other-opening", last: 1), trace(["b"])),
     ])
@@ -3439,7 +3919,7 @@ do {
     let draft = String(repeating: "A finished comment, ready to paste. ", count: 30)
     _ = makeTranscript(session: answered, owner: account, org: org, title: "Multi-account sync",
                        said: "Two accounts, one history?", extra: [
-        "{\"parentUuid\":\"u-1\",\"cwd\":\"/Users/test/work\",\"message\":{\"id\":\"m-9\","
+        "{\"parentUuid\":\"u-1\",\"cwd\":\"/Users/Shared/work\",\"message\":{\"id\":\"m-9\","
             + "\"content\":[{\"type\":\"text\",\"text\":\"\(draft)\"}]},\"type\":\"assistant\","
             + "\"uuid\":\"a-draft\",\"timestamp\":\"2026-08-29T17:20:00.000Z\"}",
     ])
@@ -3729,6 +4209,171 @@ do {
           "and a pass with nothing left to carry moves nothing")
 }
 
+func writeChatRecord(_ record: [String: Any], _ folder: URL, _ name: String) {
+    try! JSONSerialization.data(withJSONObject: record, options: [.sortedKeys])
+        .write(to: folder.appending(path: name))
+}
+
+func chatRecord(_ folder: URL, _ name: String) -> [String: Any] {
+    (try? Data(contentsOf: folder.appending(path: name)))
+        .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } ?? [:]
+}
+
+func editChatRecord(_ folder: URL, _ name: String, _ change: (inout [String: Any]) -> Void) {
+    var record = chatRecord(folder, name)
+    change(&record)
+    writeChatRecord(record, folder, name)
+}
+
+do {
+    // Claude writes a chat's whole record back every time it shows the chat,
+    // and archiving leaves lastActivityAt where it was. So two sides that both
+    // moved since the last pass are far more often an archive on one and a
+    // glance on the other than two edits of the same thing — and keeping one
+    // whole record, the borrower's on a tie, put the old isArchived straight
+    // back over the archive on both sides.
+    try? fm.removeItem(at: Graft.mirrorStateFile)
+    let source = makeProfile("Claude-Fields-Src", account: "FSRC", org: "FSRCORG")
+    let borrower = makeProfile("Claude-Fields", account: "FOWN", org: "FOWNORG")
+    let srcOrg = source.appending(path: "claude-code-sessions/FSRC/FSRCORG")
+    let ownOrg = borrower.appending(path: "claude-code-sessions/FOWN/FOWNORG")
+    let name = "local_fields.json"
+    let shared: [String: Any] = ["isArchived": false, "lastActivityAt": 1000,
+                                 "lastFocusedAt": 1000, "title": "A chat"]
+    writeChatRecord(shared, ownOrg, name)
+    writeChatRecord(shared, srcOrg, name)
+    Graft.mirrorChatFolders(ownOrg, srcOrg)
+
+    editChatRecord(srcOrg, name) { $0["isArchived"] = true }
+    editChatRecord(ownOrg, name) { $0["lastFocusedAt"] = 2000 }
+    Graft.mirrorChatFolders(ownOrg, srcOrg)
+    check(chatRecord(srcOrg, name)["isArchived"] as? Bool == true
+            && chatRecord(ownOrg, name)["isArchived"] as? Bool == true,
+          "a chat archived on one side stays archived when the other side has only shown it since")
+    check(chatRecord(srcOrg, name)["lastFocusedAt"] as? Int == 2000,
+          "and what the other side did is kept too, rather than one whole record standing in for both")
+    check(Graft.mirrorChatFolders(ownOrg, srcOrg) == 0,
+          "after which a pass has nothing left to carry")
+
+    editChatRecord(ownOrg, name) { $0["lastAssistantCliSessionId"] = "later" }
+    editChatRecord(srcOrg, name) { $0["isArchived"] = false; $0["autoArchiveExempt"] = true }
+    Graft.mirrorChatFolders(ownOrg, srcOrg)
+    check(chatRecord(ownOrg, name)["isArchived"] as? Bool == false
+            && chatRecord(ownOrg, name)["autoArchiveExempt"] as? Bool == true
+            && chatRecord(srcOrg, name)["lastAssistantCliSessionId"] as? String == "later",
+          "an unarchive survives the same way, which no rule about archived records winning could keep")
+
+    editChatRecord(srcOrg, name) { $0["keptDirtyWorktree"] = true }
+    Graft.mirrorChatFolders(ownOrg, srcOrg)
+    editChatRecord(srcOrg, name) { $0["keptDirtyWorktree"] = nil }
+    editChatRecord(ownOrg, name) { $0["lastFocusedAt"] = 3000 }
+    Graft.mirrorChatFolders(ownOrg, srcOrg)
+    check(chatRecord(ownOrg, name)["keptDirtyWorktree"] == nil
+            && chatRecord(srcOrg, name)["lastFocusedAt"] as? Int == 3000,
+          "a field one side took out is gone from both")
+
+    editChatRecord(ownOrg, name) { $0["lastFocusedAt"] = 4000 }
+    editChatRecord(srcOrg, name) { $0["lastFocusedAt"] = 5000 }
+    Graft.mirrorChatFolders(ownOrg, srcOrg)
+    check(chatRecord(ownOrg, name)["lastFocusedAt"] as? Int == 5000
+            && chatRecord(srcOrg, name)["lastFocusedAt"] as? Int == 5000,
+          "a time both sides changed takes the later of the two")
+
+    editChatRecord(ownOrg, name) { $0["title"] = "the borrower's" }
+    editChatRecord(srcOrg, name) { $0["title"] = "the source's" }
+    Graft.mirrorChatFolders(ownOrg, srcOrg)
+    check(chatRecord(srcOrg, name)["title"] as? String == "the borrower's",
+          "anything else both sides changed is settled as the whole record used to be: on a tie, the borrower's")
+    editChatRecord(ownOrg, name) { $0["title"] = "the borrower's again" }
+    editChatRecord(srcOrg, name) { $0["title"] = "the source's again"; $0["lastActivityAt"] = 9000 }
+    Graft.mirrorChatFolders(ownOrg, srcOrg)
+    check(chatRecord(ownOrg, name)["title"] as? String == "the source's again",
+          "and otherwise the side whose record says it moved last")
+
+    // A Claude still showing a chat as archived after a pass wrote the
+    // unarchive underneath it, unarchiving it there, writes the same false the
+    // pass did; what moved is resumedAt, which Claude sets when it unarchives.
+    editChatRecord(srcOrg, name) { $0["isArchived"] = false; $0["resumedAt"] = 200 }
+    Graft.mirrorChatFolders(ownOrg, srcOrg)
+    editChatRecord(ownOrg, name) { $0["isArchived"] = false; $0["resumedAt"] = 300 }
+    editChatRecord(srcOrg, name) { $0["isArchived"] = true }
+    Graft.mirrorChatFolders(ownOrg, srcOrg)
+    check(chatRecord(srcOrg, name)["isArchived"] as? Bool == false,
+          "an unarchive counts on the side that made it even when the flag comes back as it already was")
+    editChatRecord(ownOrg, name) { $0["isArchived"] = true }
+    editChatRecord(srcOrg, name) { $0["isArchived"] = false; $0["resumedAt"] = 400 }
+    Graft.mirrorChatFolders(ownOrg, srcOrg)
+    check(chatRecord(ownOrg, name)["isArchived"] as? Bool == false
+            && chatRecord(srcOrg, name)["isArchived"] as? Bool == false,
+          "and it outlasts an archive made against it on the other side, whichever side each was made on")
+
+    // Claude only moves lastActivityAt forward, so a side that comes back with
+    // an earlier one is a running Claude writing back a copy from before the
+    // other side's last turn reached it.
+    editChatRecord(srcOrg, name) { $0["isArchived"] = true; $0["lastActivityAt"] = 20000 }
+    Graft.mirrorChatFolders(ownOrg, srcOrg)
+    editChatRecord(ownOrg, name) { $0["isArchived"] = false; $0["lastActivityAt"] = 9000; $0["lastFocusedAt"] = 30000 }
+    editChatRecord(srcOrg, name) { $0["lastFocusedAt"] = 25000 }
+    Graft.mirrorChatFolders(ownOrg, srcOrg)
+    check(chatRecord(ownOrg, name)["isArchived"] as? Bool == true
+            && chatRecord(srcOrg, name)["isArchived"] as? Bool == true,
+          "a record that comes back with older activity than both sides agreed on is settled whole, and the later one keeps its archive")
+
+    // Claude skips a record it cannot read, so an empty file carried over a
+    // whole one takes the chat out of both sidebars.
+    try! Data().write(to: ownOrg.appending(path: name))
+    editChatRecord(srcOrg, name) { $0["isArchived"] = true }
+    Graft.mirrorChatFolders(ownOrg, srcOrg)
+    check(chatRecord(srcOrg, name)["isArchived"] as? Bool == true
+            && chatRecord(ownOrg, name)["isArchived"] as? Bool == true,
+          "an empty record never replaces a readable one, and its side gets the readable copy back")
+    try! Data().write(to: ownOrg.appending(path: name))
+    Graft.mirrorChatFolders(ownOrg, srcOrg)
+    check(!chatRecord(srcOrg, name).isEmpty && !chatRecord(ownOrg, name).isEmpty,
+          "even when the empty file is the only thing that changed since the last pass")
+
+    // What an upgrade finds: a pair and its baseline, and no fields yet.
+    let key = Graft.pairKey(ownOrg, srcOrg)
+    try? fm.removeItem(at: Graft.mirrorFieldsFolder)
+    Graft.mirrorChatFolders(ownOrg, srcOrg)
+    check(Graft.loadRecordBaselines(for: key)[name]?.fields?["isArchived"] != nil,
+          "a pair mirrored before fields were kept has them written down on its next pass")
+    var state = Graft.loadMirrorState()
+    state.pairs.removeValue(forKey: key)
+    Graft.saveMirrorState(state)
+    check(Graft.loadRecordBaselines(for: key).isEmpty,
+          "and a pair that stops being mirrored takes its fields with it")
+}
+
+do {
+    // Pairs that share a source pass a change along one pair at a time, in
+    // the order of their keys: a chat archived in the borrower that comes last
+    // reached the source on the first round and the borrower before it only on
+    // the next, so a launcher that stopped after one round opened its Claude a
+    // change behind.
+    try? fm.removeItem(at: Graft.mirrorStateFile)
+    let source = makeProfile("Claude-Hub", account: "HUB", org: "HUBORG")
+    let first = makeProfile("Claude-Hub-A", account: "HUBA", org: "HUBAORG")
+    let second = makeProfile("Claude-Hub-B", account: "HUBB", org: "HUBBORG")
+    let hub = source.appending(path: "claude-code-sessions/HUB/HUBORG")
+    let a = first.appending(path: "claude-code-sessions/HUBA/HUBAORG")
+    let b = second.appending(path: "claude-code-sessions/HUBB/HUBBORG")
+    let name = "local_hub.json"
+    let shared: [String: Any] = ["isArchived": false, "lastActivityAt": 1000, "lastFocusedAt": 1000]
+    for folder in [hub, a, b] { writeChatRecord(shared, folder, name) }
+    Graft.mirrorChatFolders(a, hub)
+    Graft.mirrorChatFolders(b, hub)
+
+    editChatRecord(b, name) { $0["isArchived"] = true }
+    editChatRecord(a, name) { $0["lastFocusedAt"] = 2000 }
+    Graft.mirrorKnownPairs()
+    check([hub, a, b].allSatisfy { chatRecord($0, name)["isArchived"] as? Bool == true },
+          "a chat archived in the borrower whose pair comes last is archived everywhere after one pass")
+    check([hub, a, b].allSatisfy { chatRecord($0, name)["lastFocusedAt"] as? Int == 2000 },
+          "and the other borrower's glance at it reaches all three as well")
+    check(Graft.mirrorKnownPairs() == 0, "with nothing left over for the pass after")
+}
+
 do {
     // Everything an earlier version can leave behind, converted.
     try? fm.removeItem(at: Graft.mirrorStateFile)
@@ -3925,6 +4570,132 @@ do {
     Graft.apply(GraftConfig(profileDir: own.path, sourceDir: nil))
     check(chatsVisible(to: own) == ["local_ours.json"],
           "so going back is still exact rather than a guess at which record belonged to whom")
+}
+
+/// The records in one organization folder, by name.
+func records(in folder: URL) -> [String] {
+    ((try? fm.contentsOfDirectory(atPath: folder.path)) ?? [])
+        .filter { $0.hasPrefix("local_") }
+        .sorted()
+}
+
+/// Make one organization the one a profile is working in, the way a new chat
+/// there does: the newest folder under the account, in both stores.
+func workIn(_ org: String, of profile: URL, account: String) {
+    for store in Graft.chatStores {
+        let accountDir = profile.appending(path: store).appending(path: account)
+        for name in (try? fm.contentsOfDirectory(atPath: accountDir.path)) ?? [] where !name.hasPrefix(".") {
+            try? fm.setAttributes([.modificationDate: Date().addingTimeInterval(name == org ? 0 : -600)],
+                                  ofItemAtPath: accountDir.appending(path: name).path)
+        }
+    }
+}
+
+do {
+    // The lender's account belongs to two organizations, and the person starts
+    // working in the other one. The borrower's folder stays where it is while
+    // what it borrows from moves, and reading that as a first pass stashed the
+    // first organization's chats as the borrower's own and copied them into
+    // the second — and back again the other way, until both held the union.
+    try? fm.removeItem(at: Graft.mirrorStateFile)
+    let lender = makeProfile("Claude-Two-Orgs", account: "TWOORGS", org: "ORG-ONE",
+                             chats: ["one-a", "one-b"])
+    _ = makeProfile("Claude-Two-Orgs", account: "TWOORGS", org: "ORG-TWO", chats: ["two-a"])
+    let borrower = makeProfile("Claude-Two-Orgs-B", account: "TOBORROW", org: "TOBORG", chats: ["b-own"])
+    let config = GraftConfig(profileDir: borrower.path, sourceDir: lender.path)
+    let account = lender.appending(path: "claude-code-sessions/TWOORGS")
+    let one = account.appending(path: "ORG-ONE"), two = account.appending(path: "ORG-TWO")
+    let mine = borrower.appending(path: "claude-code-sessions/TOBORROW/TOBORG")
+    let stash = mine.deletingLastPathComponent().appending(path: ".TOBORG\(Graft.stashSuffix)")
+
+    workIn("ORG-ONE", of: lender, account: "TWOORGS")
+    Graft.apply(config)
+    check(records(in: mine) == ["local_b-own.json", "local_one-a.json", "local_one-b.json"],
+          "a borrower starts out with the organization its lender is working in")
+
+    try! "{}".write(to: two.appending(path: "local_two-b.json"), atomically: true, encoding: .utf8)
+    workIn("ORG-TWO", of: lender, account: "TWOORGS")
+    Graft.apply(config)
+    check(records(in: two) == ["local_b-own.json", "local_two-a.json", "local_two-b.json"],
+          "the organization the lender moved to holds only its own chats and the borrower's")
+    check(records(in: mine) == ["local_b-own.json", "local_two-a.json", "local_two-b.json"],
+          "and the borrower follows it there, leaving the first organization's chats behind")
+    check(records(in: stash) == ["local_b-own.json"],
+          "while its stash goes on naming what it brought and none of what it borrowed")
+
+    try! "{}".write(to: one.appending(path: "local_one-c.json"), atomically: true, encoding: .utf8)
+    workIn("ORG-ONE", of: lender, account: "TWOORGS")
+    Graft.apply(config)
+    check(records(in: one) == ["local_b-own.json", "local_one-a.json", "local_one-b.json", "local_one-c.json"],
+          "going back to the first organization brings none of the second's chats with it")
+    check(records(in: two) == ["local_b-own.json", "local_two-a.json", "local_two-b.json"],
+          "and leaves the second as it was")
+    check(records(in: stash) == ["local_b-own.json"], "with the stash still naming only the borrower's own")
+
+    Graft.apply(GraftConfig(profileDir: borrower.path, sourceDir: nil))
+    check(chatsVisible(to: borrower) == ["local_b-own.json"],
+          "so going back to its own chats keeps none of the lender's, whichever organization they came from")
+}
+
+do {
+    // The lender's profile signs into a second account, which starts a folder
+    // of its own. The first account's chats were copied into it, beside its own
+    // and the borrower's.
+    try? fm.removeItem(at: Graft.mirrorStateFile)
+    let lender = makeProfile("Claude-Signs-In", account: "FIRSTACC", org: "FIRSTORG", chats: ["first"])
+    let borrower = makeProfile("Claude-Signs-In-B", account: "SIBORROW", org: "SIBORG", chats: ["b-own"])
+    let config = GraftConfig(profileDir: borrower.path, sourceDir: lender.path)
+    let first = lender.appending(path: "claude-code-sessions/FIRSTACC/FIRSTORG")
+    let second = lender.appending(path: "claude-code-sessions/SECONDACC/SECONDORG")
+    let mine = borrower.appending(path: "claude-code-sessions/SIBORROW/SIBORG")
+    let stash = mine.deletingLastPathComponent().appending(path: ".SIBORG\(Graft.stashSuffix)")
+
+    Graft.apply(config)
+    try! "{}".write(to: mine.appending(path: "local_during.json"), atomically: true, encoding: .utf8)
+
+    _ = makeProfile("Claude-Signs-In", account: "SECONDACC", org: "SECONDORG", chats: ["second"])
+    Graft.apply(config)
+    check(records(in: second) == ["local_b-own.json", "local_second.json"],
+          "a lender signed into a second account holds only that account's chats and the borrower's")
+    check(records(in: mine) == ["local_b-own.json", "local_second.json"],
+          "and the borrower now reads that account's chats instead of the first one's")
+    check(records(in: stash) == ["local_b-own.json"],
+          "without its stash taking the first account's chats for its own")
+    check(records(in: first) == ["local_b-own.json", "local_during.json", "local_first.json"],
+          "a chat started while it borrowed the first account is handed back to it, the way going back would")
+}
+
+do {
+    // The same, starting from two profiles on one account: the pair moves from
+    // the branch that stashes the whole store to the one that stashes an
+    // organization, and a second stash appeared beside the first, holding the
+    // lender's chats.
+    try? fm.removeItem(at: Graft.mirrorStateFile)
+    let lender = makeProfile("Claude-Turns", account: "TURNACC", org: "TURNORG", chats: ["first"])
+    let borrower = makeProfile("Claude-Turns-B", account: "TURNACC", org: "TURNORG", chats: ["b-own"])
+    let config = GraftConfig(profileDir: borrower.path, sourceDir: lender.path)
+    let second = lender.appending(path: "claude-code-sessions/TURN2ACC/TURN2ORG")
+    let mine = borrower.appending(path: "claude-code-sessions/TURNACC/TURNORG")
+    let storeStash = borrower.appending(path: ".claude-code-sessions\(Graft.stashSuffix)/TURNACC/TURNORG")
+
+    Graft.apply(config)
+    check(records(in: storeStash) == ["local_b-own.json"],
+          "two profiles on one account put the borrower's store away whole")
+
+    _ = makeProfile("Claude-Turns", account: "TURN2ACC", org: "TURN2ORG", chats: ["second"])
+    Graft.apply(config)
+    check(records(in: second) == ["local_b-own.json", "local_second.json"],
+          "a lender moving to another account takes none of the first account's chats with it")
+    check(records(in: mine) == ["local_b-own.json", "local_second.json"],
+          "and the borrower reads the new account's chats and its own")
+    check(!Graft.exists(Graft.stashURL(for: mine)),
+          "with no second stash put down beside the store's")
+    check(records(in: storeStash) == ["local_b-own.json"],
+          "and the store's stash still naming only what the borrower brought")
+
+    Graft.apply(GraftConfig(profileDir: borrower.path, sourceDir: nil))
+    check(chatsVisible(to: borrower) == ["local_b-own.json"],
+          "so going back still gives it exactly its own chats")
 }
 
 do {
@@ -4169,6 +4940,24 @@ do {
     check(after.profileDir == shortcut.profileDir.path,
           "and the profile it opens is untouched")
 
+    // A folder typed into the window and never applied is not the list
+    // describing the bundle wrongly but a profile change nobody made, and
+    // applied at the next start it opened a new, signed-out profile.
+    let configBefore = try! Data(contentsOf: configFile)
+    for (typed, what) in [("Claude-Saved-Typed", "a folder typed but never applied"),
+                          ("", "an empty folder, which is Application Support itself"),
+                          ("Claude", "Claude's own folder"),
+                          ("../Elsewhere", "a path out of Application Support")] {
+        var edited = shortcut
+        edited.folder = typed
+        check(!Installer.refreshConfig(for: edited, sourceDir: nil)
+                && (try! Data(contentsOf: configFile)) == configBefore,
+              "the next start does not move a shortcut onto \(what)")
+    }
+    check(!Installer.refreshConfig(for: shortcut, sourceDir: profile)
+            && (try! Data(contentsOf: configFile)) == configBefore,
+          "nor onto borrowing from its own profile")
+
     // A bundle can fall out of step at any version, and it was the current one
     // that did, so this cannot be gated on the version the way the launcher is.
     try! Data("not json".utf8).write(to: configFile)
@@ -4309,6 +5098,34 @@ do {
           "with no stash beside it, a record twice missing from a store that was read is one somebody deleted")
 
     try? fm.removeItem(at: profile)
+}
+
+do {
+    // Every mirrored folder has a stash beside it, and the sweep may file into
+    // one: it is there and it was read. The stash is about records that cannot
+    // be seen, though, and a record standing in the folder can.
+    let account = "3e3e3e3e-3e3e-4e3e-8e3e-3e3e3e3e3e3e"
+    let org = "3f3f3f3f-3f3f-4f3f-8f3f-3f3f3f3f3f3f"
+    let session = "3a3a3a3a-3a3a-4a3a-8a3a-3a3a3a3a3a3a"
+    let profile = makeProfile("Claude-Mirrored-Own", account: account, org: org)
+    let folder = profile.appending(path: "claude-code-sessions/\(account)/\(org)")
+    try! fm.createDirectory(at: Graft.stashURL(for: folder), withIntermediateDirectories: true)
+    let file = folder.appending(path: "local_\(session).json")
+
+    _ = makeTranscript(session: session, owner: account, org: org, title: "Filed beside a stash")
+    Graft.fileMissingSessionRecords(filingInto: [profile], now: Date())
+    check(Graft.exists(file), "a session is filed into a mirrored folder, which is there and was read")
+
+    let transcript = makeTranscript(session: session, owner: account, org: org, title: "Renamed since",
+                                    last: "2026-08-29T17:05:00.000Z")
+    Graft.fileMissingSessionRecords(filingInto: [profile], now: Date())
+    let record = (try? Data(contentsOf: file))
+        .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+    check(record?["title"] as? String == "Renamed since",
+          "and the record standing there is kept current, since a stash beside it does not hide it")
+
+    try? fm.removeItem(at: profile)
+    try? fm.removeItem(at: transcript)
 }
 
 // MARK: - A store put away whole
@@ -4708,7 +5525,7 @@ do {
     makeTranscript(session: original, owner: account, org: org, title: "Mac move", said: opening)
     makeTranscript(session: fork, owner: account, org: org, title: "Mac move (fork)",
                    last: "2026-08-29T18:00:10.000Z", said: opening, extra: [
-        "{\"parentUuid\":\"a-1\",\"promptId\":\"p-side\",\"cwd\":\"/Users/test/work\","
+        "{\"parentUuid\":\"a-1\",\"promptId\":\"p-side\",\"cwd\":\"/Users/Shared/work\","
             + "\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":\"And the routines on it?\"},"
             + "\"uuid\":\"u-side\",\"timestamp\":\"2026-08-29T18:00:00.000Z\"}",
     ])
@@ -4797,6 +5614,70 @@ do {
 // MARK: - What the mirror writes down
 
 section("What the mirror writes down")
+
+do {
+    // A launcher and Graft's sweep are separate processes writing the same
+    // two state files. Another process is stood in for by a second open of
+    // the lock file: flock belongs to the open file, so this process's own
+    // passes wait on it exactly as they would on a launcher's.
+    let one = support.appending(path: "Locked/one")
+    let other = support.appending(path: "Locked/other")
+    for dir in [one, other] {
+        try? fm.removeItem(at: dir)
+        try! fm.createDirectory(at: dir, withIntermediateDirectories: true)
+    }
+    try! "a".write(to: one.appending(path: "local_lock-a.json"), atomically: true, encoding: .utf8)
+    try? fm.createDirectory(at: Graft.stateLockFile.deletingLastPathComponent(),
+                            withIntermediateDirectories: true)
+
+    func outsideHolder() -> Int32 {
+        let fd = open(Graft.stateLockFile.path, O_CREAT | O_RDWR, 0o600)
+        return flock(fd, LOCK_EX | LOCK_NB) == 0 ? fd : -1
+    }
+    func letGo(_ fd: Int32) { _ = flock(fd, LOCK_UN); close(fd) }
+
+    var heldElsewhere: Int32 = 0
+    Graft.withStateLock { heldElsewhere = outsideHolder() }
+    check(heldElsewhere < 0, "while a pass runs, no other process can take the state lock")
+    let afterwards = outsideHolder()
+    check(afterwards >= 0, "and it is let go when the pass ends")
+
+    let started = Date()
+    DispatchQueue.global().asyncAfter(deadline: .now() + 0.4) { letGo(afterwards) }
+    Graft.mirrorChatFolders(one, other)
+    check(Date().timeIntervalSince(started) >= 0.3,
+          "a pass waits for one another process is in the middle of")
+    check(fm.fileExists(atPath: other.appending(path: "local_lock-a.json").path),
+          "and then does its work")
+
+    let nested = Date()
+    var finished = false
+    Graft.withStateLock { Graft.withStateLock { Graft.mirrorChatFolders(one, other); finished = true } }
+    check(finished && Date().timeIntervalSince(nested) < 2,
+          "a pass holding the lock may call one that takes it again without waiting on itself")
+
+    let inLaunch = Date()
+    SidebarSync.withLaunchLock { Graft.mirrorChatFolders(one, other) }
+    check(Date().timeIntervalSince(inLaunch) < 2, "the launch lock and the state lock do not wait on each other")
+
+    let stuck = outsideHolder()
+    let patience = Graft.stateLockPatience
+    Graft.stateLockPatience = 0.2
+    try! "b".write(to: one.appending(path: "local_lock-b.json"), atomically: true, encoding: .utf8)
+    Graft.mirrorChatFolders(one, other)
+    check(fm.fileExists(atPath: other.appending(path: "local_lock-b.json").path),
+          "a pass kept waiting past its patience goes ahead, so a hung one never stops a Claude opening")
+    Graft.stateLockPatience = patience
+    letGo(stuck)
+
+    let core = (try? String(contentsOf: URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        .deletingLastPathComponent().appending(path: "Sources/Shared/GraftCore.swift"), encoding: .utf8)) ?? ""
+    let compact = core.filter { !$0.isWhitespace }
+    check(compact.contains("withStateLock{apply(config)squareUp(filingInto:filing,checkingRunning:false)}launch(profile:profile)"),
+          "a launcher links and squares up under one hold of the state lock, and lets it go before launching")
+    for dir in [one, other] { try? fm.removeItem(at: dir) }
+    try? fm.removeItem(at: Graft.mirrorStateFile)
+}
 
 do {
     // The baseline is what makes an absence mean something, so it may only say
@@ -5114,6 +5995,65 @@ do {
           shared: ["local_a", "local_b"], wanted: ["local_b", "local_a"]) == ["remote", "local_b", "project", "local_a"],
           "reordering shared pins preserves the positions of unrelated sidebar entries")
 
+    // The helper is a clone of all of Electron, made again for every Claude
+    // update, and nothing ever took an old one away.
+    do {
+        let cache = root.appending(path: "sidebar-runtime-\(UUID().uuidString).noindex")
+        let current = "0123456789abcdef0123", older = "fedcba9876543210fedc"
+        let now = Date()
+        for name in [current, older, ".build-fresh.noindex", ".build-stale.noindex", ".damaged-x.noindex", "Notes"] {
+            try! fm.createDirectory(at: cache.appending(path: "\(name)/Sidebar.app"), withIntermediateDirectories: true)
+        }
+        try! fm.setAttributes([.creationDate: now.addingTimeInterval(-7200)],
+                              ofItemAtPath: cache.appending(path: ".build-stale.noindex").path)
+        SidebarSync.pruneHelperCache(cache, keeping: current, now: now)
+        let left = Set((try? fm.contentsOfDirectory(atPath: cache.path)) ?? [])
+        check(left.contains(current), "the helper this Claude needs is kept")
+        check(!left.contains(older), "a helper built for an earlier Claude is removed")
+        check(!left.contains(".build-stale.noindex"), "a staging folder abandoned over an hour ago is removed")
+        check(left.contains(".build-fresh.noindex"), "a staging folder that may still be in use is left alone")
+        check(!left.contains(".damaged-x.noindex"), "a damaged copy set aside is removed")
+        check(left.contains("Notes"), "and nothing the cache did not make is touched")
+        check((try? cache.resourceValues(forKeys: [.isExcludedFromBackupKey]))?.isExcludedFromBackup == true,
+              "the helper cache is left out of backups")
+
+        let destination = cache.appending(path: "\(current)/Sidebar.app")
+        try! Data("half written".utf8).write(to: destination.appending(path: "leftover"))
+        let fresh = cache.appending(path: ".build-new.noindex/Sidebar.app")
+        try! fm.createDirectory(at: fresh, withIntermediateDirectories: true)
+        try! Data("fresh".utf8).write(to: fresh.appending(path: "marker"))
+        let installed: Bool
+        do { try SidebarSync.installHelper(fresh, at: destination, cache: cache); installed = true } catch { installed = false }
+        check(installed && Graft.exists(destination.appending(path: "marker"))
+                && !Graft.exists(destination.appending(path: "leftover")),
+              "a damaged cached helper is replaced by the fresh one rather than refusing the sync")
+        SidebarSync.pruneHelperCache(cache, keeping: current, now: now)
+        check(!((try? fm.contentsOfDirectory(atPath: cache.path)) ?? []).contains { $0.hasPrefix(".damaged-") },
+              "and the copy it replaced is gone after the next prune")
+
+        let backups = cache.appending(path: "backups")
+        try! fm.createDirectory(at: backups, withIntermediateDirectories: true)
+        for index in 0..<25 {
+            let file = backups.appending(path: "backup-\(index).json")
+            try! Data("{}".utf8).write(to: file)
+            try! fm.setAttributes([.modificationDate: now.addingTimeInterval(Double(index - 25) * 60)], ofItemAtPath: file.path)
+        }
+        SidebarSync.pruneBackups(backups)
+        let kept = Set((try? fm.contentsOfDirectory(atPath: backups.path)) ?? [])
+        check(kept.count == SidebarSync.keptBackups && kept.contains("backup-24.json") && !kept.contains("backup-4.json"),
+              "only the newest sidebar backups are kept")
+        try? fm.removeItem(at: cache)
+    }
+
+    // A failed pass puts the settings file back as it was read, not as the
+    // object it parsed to, and a pass that succeeds keeps its layout and mode.
+    let helperScript = SidebarStorage.script
+    check(helperScript.contains("atomicWrite(item.prefsPath, item.prefsText, item.prefsMode)")
+            && !helperScript.contains("atomicJSON(item.prefsPath, item.prefs)"),
+          "a desktop settings file rolled back is written back byte for byte")
+    check(helperScript.contains("atomicWrite(item.prefsPath, preferencesText(item.prefsText, item.nextPrefs), item.prefsMode)"),
+          "and one written forward keeps its indent and permissions")
+
     let previousSupport = Graft.applicationSupportOverride
     let isolated = root.appending(path: "sidebar-support")
     Graft.applicationSupportOverride = isolated
@@ -5175,6 +6115,1949 @@ do {
     let beforeReads = reads
     SidebarSync.synchronize(beforeOpening: one)
     check(reads == beforeReads, "independent profiles never open the sidebar helper")
+}
+
+// MARK: - Usage pool
+
+section("Usage pool")
+
+do {
+    let now = Date(timeIntervalSince1970: 1_800_000_000)
+    let hour: TimeInterval = 60 * 60
+    let day = 24 * hour
+    let prefix = "anthropic-ratelimit-unified-"
+    func stamp(_ offset: TimeInterval) -> String { String(Int(now.timeIntervalSince1970 + offset)) }
+
+    let read = PoolLimits.parse([
+        (prefix + "5h-utilization", "0.42"), (prefix + "5h-reset", stamp(2 * hour)),
+        (prefix + "7d-utilization", "0.9"), (prefix + "7d-reset", stamp(3 * day)),
+        (prefix + "status", "allowed"),
+    ], now: now)
+    check(read?.fiveHour == 0.42 && read?.week == 0.9,
+          "an answer's headers give the account's two windows as fractions")
+    check(read?.weekReset == now.addingTimeInterval(3 * day) && read?.fiveHourReset == now.addingTimeInterval(2 * hour),
+          "and when each resets, in seconds since 1970")
+    check(read != nil && read?.refusedUntil == nil, "an allowed answer leaves the account open")
+    check(PoolLimits.parse([(prefix + "status", "rejected")], now: now)?.refusedUntil == now.addingTimeInterval(60),
+          "a refusal that names no reset closes the account for a minute")
+    check(PoolLimits.parse([("content-type", "application/json")], now: now) == nil,
+          "an answer that never reached the model teaches nothing about the account")
+    check(PoolLimits.parse([("Anthropic-RateLimit-Unified-5h-Utilization", "0.5")], now: now)?.fiveHour == 0.5,
+          "header names are matched whatever their case")
+    let percent = PoolLimits(fiveHourPercent: 34, fiveHourReset: nil, weekPercent: 71, weekReset: nil, observed: now)
+    check(abs(percent.fiveHour - 0.34) < 1e-9 && abs(percent.week - 0.71) < 1e-9,
+          "the usage endpoint's percentages become the same fractions")
+
+    func limits(five: Double = 0.1, fiveReset: TimeInterval? = nil, week: Double = 0.1,
+                weekReset: TimeInterval?, refused: TimeInterval? = nil) -> PoolLimits {
+        PoolLimits(fiveHour: five, fiveHourReset: fiveReset.map { now + $0 }, week: week,
+                   weekReset: weekReset.map { now + $0 }, refusedUntil: refused.map { now + $0 },
+                   observed: now)
+    }
+    func order(_ accounts: [PoolPolicy.Account], prefer: [String] = []) -> [String] {
+        PoolPolicy.order(own: "own", accounts: accounts, prefer: prefer, now: now)
+    }
+    let soon = PoolPolicy.Account(id: "soon", limits: limits(weekReset: day), usable: true)
+    let later = PoolPolicy.Account(id: "later", limits: limits(weekReset: 5 * day), usable: true)
+    let own = PoolPolicy.Account(id: "own", limits: limits(weekReset: 3 * day), usable: true)
+    check(order([later, own, soon]) == ["soon", "own", "later"],
+          "the account whose week resets soonest is asked first, its own included")
+    let spent = PoolPolicy.Account(id: "soon", limits: limits(five: 0.99, fiveReset: 2 * hour, weekReset: day),
+                                   usable: true)
+    check(order([later, own, spent]) == ["own", "later"],
+          "an account with its five hours spent is passed over until they reset")
+    let rolled = PoolPolicy.Account(id: "soon", limits: limits(five: 0.99, fiveReset: -hour, weekReset: day),
+                                    usable: true)
+    check(order([later, own, rolled]).first == "soon",
+          "and is back at the front once the window it spent has reset")
+    let weekGone = PoolPolicy.Account(id: "soon", limits: limits(week: 1, weekReset: day), usable: true)
+    check(!order([own, weekGone]).contains("soon"), "a spent week is passed over too")
+    let refusing = PoolPolicy.Account(id: "soon", limits: limits(weekReset: day, refused: 30 * 60), usable: true)
+    check(!order([own, refusing]).contains("soon"),
+          "an account the service refused is left alone until the time it named")
+    let unheard = PoolPolicy.Account(id: "unheard", limits: nil, usable: true)
+    check(order([unheard, later]) == ["later", "unheard", "own"],
+          "an account nobody has heard from goes after every one with a known reset")
+    check(order([PoolPolicy.Account(id: "other", limits: nil, usable: true),
+                 PoolPolicy.Account(id: "own", limits: nil, usable: true)]) == ["own", "other"],
+          "with nothing known about anyone, a request stays with the account that sent it")
+    check(order([own, PoolPolicy.Account(id: "soon", limits: limits(weekReset: day), usable: false)]) == ["own"],
+          "an account whose login cannot be used lends nothing")
+    let fullOwn = PoolPolicy.Account(id: "own", limits: limits(five: 1, fiveReset: hour, weekReset: 3 * day),
+                                     usable: true)
+    check(order([fullOwn, later]) == ["later", "own"],
+          "a sender with no room of its own is still the last resort, so the service decides")
+    check(order([later, own, soon], prefer: ["later"]).first == "later",
+          "a conversation stays on the account holding its prompt cache")
+    check(order([own, spent, later], prefer: ["soon"]).first == "own",
+          "but not on one that has since run out of room")
+    check(order([later, own, soon], prefer: ["own", "later"]) == ["own", "later", "soon"],
+          "a conversation moved by hand goes where it was put, ahead of where its cache is")
+    check(PoolPolicy.cacheLifetime(of: Data(#"{"cache_control":{"type":"ephemeral","ttl":"1h"}}"#.utf8)) == 3600,
+          "a request that asked for an hour of cache keeps its conversation where it is for an hour")
+    check(PoolPolicy.cacheLifetime(of: Data(#"{"cache_control":{"type":"ephemeral"}}"#.utf8)) == 300,
+          "and one that did not, for the five minutes a cache lasts by default")
+    check(PoolPolicy.nextWeekReset(now - day, now: now) == now + 6 * day,
+          "a weekly reset that has passed is followed by one a week later")
+
+    check(PoolPolicy.outcome(status: 429, headers: [("retry-after", "30")], borrowed: true, now: now)
+            == .exhausted(until: now + 30),
+          "a refusal for lack of room moves on, for as long as the service asked")
+    check(PoolPolicy.outcome(status: 429, headers: [(prefix + "status", "rejected"), (prefix + "reset", stamp(hour))],
+                             borrowed: false, now: now) == .exhausted(until: now + hour),
+          "or until the reset it named")
+    check(PoolPolicy.outcome(status: 401, headers: [], borrowed: true, now: now) == .loginRefused,
+          "a borrowed login that is refused is not lent again")
+    check(PoolPolicy.outcome(status: 401, headers: [], borrowed: false, now: now) == .deliver,
+          "a sender's own refusal reaches it untouched")
+    check([400, 403, 404].allSatisfy {
+              PoolPolicy.outcome(status: $0, headers: [], borrowed: true, now: now) == .refusedForAccount },
+          "a request another account cannot serve goes back to the one it came from")
+    check([400, 403, 404].allSatisfy {
+              PoolPolicy.outcome(status: $0, headers: [], borrowed: false, now: now) == .deliver },
+          "and on that account it is delivered as the service answered it")
+    check([200, 500, 529].allSatisfy {
+              PoolPolicy.outcome(status: $0, headers: [], borrowed: true, now: now) == .deliver },
+          "an answer, or a service that is down for everyone, is passed straight back")
+
+    check(PoolRequest.isInference(method: "POST", target: "/v1/messages?beta=true"),
+          "a message to the model is the request worth moving")
+    check(!PoolRequest.isInference(method: "POST", target: "/v1/messages/count_tokens?beta=true"),
+          "counting tokens is not")
+    check(!PoolRequest.isInference(method: "GET", target: "/v1/messages"), "nor is anything but a POST")
+    check(!PoolRequest.isInference(method: "POST", target: "/api/oauth/profile"),
+          "nor anything under the account's own API")
+    let upload = Data(#"{"model":"claude-x","messages":[{"content":[{"type":"document","source":{"type":"file","file_id":"file_1"}}]}]}"#.utf8)
+    check(PoolRequest.mustStayWithSender(body: upload, contentEncoding: nil),
+          "a request naming an uploaded file stays with the account holding the file")
+    let quoted = Data(#"{"messages":[{"content":"what is \"file_id\": for"}]}"#.utf8)
+    check(!PoolRequest.mustStayWithSender(body: quoted, contentEncoding: nil),
+          "the same key quoted inside a prompt pins nothing")
+    check(PoolRequest.mustStayWithSender(body: quoted, contentEncoding: "gzip"),
+          "a compressed body cannot be read, so it is not moved")
+    check(!PoolRequest.mustStayWithSender(body: quoted, contentEncoding: "identity"),
+          "an uncompressed one can be")
+    let reasoned = Data(#"{"model":"claude-sonnet-5-5","messages":[{"role":"assistant","content":[{"type":"thinking","thinking":"…","signature":"x"}]}]}"#.utf8)
+    check(PoolRequest.carriesBoundReasoning(body: reasoned),
+          "a conversation carrying reasoning back is held to the account that wrote it")
+    check(PoolRequest.carriesBoundReasoning(body: Data(#"{"model":"claude-haiku-5-5","messages":[{"content":[{"type":"redacted_thinking","data":"x"}]}]}"#.utf8)),
+          "and so is one carrying reasoning the service wrote out of sight")
+    check(!PoolRequest.carriesBoundReasoning(body: Data(#"{"model":"claude-sonnet-5-5","thinking":{"type":"adaptive"},"messages":[{"role":"user","content":"hi"}]}"#.utf8)),
+          "a new conversation asking to reason has none yet to lose, so it may go anywhere")
+    check(!PoolRequest.carriesBoundReasoning(body: Data(#"{"model":"claude-sonnet-5-5","messages":[{"content":"what does \"type\":\"thinking\" mean"}]}"#.utf8)),
+          "the words quoted inside a prompt hold nothing")
+    check(!PoolRequest.carriesBoundReasoning(body: Data(String(decoding: reasoned, as: UTF8.self)
+              .replacingOccurrences(of: "claude-sonnet-5-5", with: "claude-opus-5-5[1m]").utf8)),
+          "a model whose reasoning was seen surviving the move is routed as before")
+    check(PoolRequest.carriesBoundReasoning(body: Data(String(decoding: reasoned, as: UTF8.self)
+              .replacingOccurrences(of: "claude-sonnet-5-5", with: "claude-next-1").utf8)),
+          "while one nobody has measured is taken to be bound")
+    check(PoolRequest.model(in: upload) == "claude-x", "the model is read off the request for the record")
+    check(PoolRequest.bearer(in: [("authorization", "Bearer abc ")]) == "abc",
+          "the bearer is found whatever the field's case")
+    check(PoolRequest.bearer(in: [("Authorization", "Basic abc")]) == nil, "and only a bearer counts")
+
+    let sent = HTTPHead.parse(Data("""
+        POST /v1/messages?beta=true HTTP/1.1\r
+        Host: api.anthropic.com\r
+        Content-Length: 12\r
+        Connection: keep-alive, x-hop\r
+        X-Hop: 1\r
+        Authorization: Bearer mine\r
+        X-Claude-Code-Session-Id: s1\r
+        \r
+
+        """.utf8))
+    check(sent?.requestBody == .length(12), "a request's length is read from its head")
+    check(HTTPHead.parse(Data("POST / HTTP/1.1\r\nContent-Length: 3\r\nContent-Length: 4\r\n\r\n".utf8))?
+            .requestBody == nil,
+          "two lengths that disagree are refused rather than guessed between")
+    check(HTTPHead.parse(Data("POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n".utf8))?.requestBody
+            == .chunked,
+          "a chunked request is read as chunks")
+    check(HTTPHead.parse(Data("GET /ws HTTP/1.1\r\nConnection: keep-alive, Upgrade\r\nUpgrade: websocket\r\n\r\n".utf8))?
+            .asksToUpgrade == true,
+          "a request for a socket is known as one, so the relay passes it on rather than rebuilding it")
+    check(HTTPHead.parse(Data("GET /ws HTTP/1.1\r\nUpgrade: websocket\r\n\r\n".utf8))?.asksToUpgrade == false,
+          "while an Upgrade the connection does not name asks for nothing a server would honour")
+    let stream = HTTPHead.parse(Data("HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\n\r\n".utf8))
+    check(stream?.responseBody(to: "POST") == .untilClose,
+          "a stream with neither a length nor chunks runs until the connection closes")
+    check(stream?.responseBody(to: "HEAD") == HTTPBody.none, "an answer to HEAD has no body whatever it says")
+    check(HTTPHead.parse(Data("HTTP/1.1 204 No Content\r\nContent-Length: 10\r\n\r\n".utf8))?
+            .responseBody(to: "POST") == HTTPBody.none,
+          "and neither has a 204")
+    if let sent {
+        let lent = String(decoding: HTTPMessage.request(sent, body: Data("hello".utf8),
+                                                        authorization: "Bearer theirs"), as: UTF8.self)
+        check(lent.contains("Authorization: Bearer theirs\r\n") && !lent.contains("mine"),
+              "a lent request carries the lender's token and not the sender's")
+        check(lent.contains("X-Claude-Code-Session-Id: s1\r\n"), "every end-to-end field goes on as it came")
+        check(!lent.lowercased().contains("x-hop") && !lent.lowercased().contains("connection:"),
+              "the hop's own fields, and any it names, do not")
+        check(lent.contains("Content-Length: 5\r\n") && lent.hasSuffix("\r\n\r\nhello"),
+              "the body goes whole, with a length of its own")
+        let kept = String(decoding: HTTPMessage.request(sent, body: Data("hello".utf8), authorization: nil),
+                          as: UTF8.self)
+        check(kept.contains("Authorization: Bearer mine\r\n"), "a request kept by its sender keeps its own token")
+    }
+
+    let wire = Data("5\r\nhello\r\n6;x=1\r\n world\r\n0\r\nTrailer: y\r\n\r\nNEXT".utf8)
+    var framing = ChunkedFraming()
+    var payload: Data? = Data()
+    var used = 0
+    var malformed = false
+    for byte in wire where !framing.isDone {
+        do { used += try framing.consume(Data([byte]), collecting: &payload) } catch { malformed = true; break }
+    }
+    check(!malformed && framing.isDone && payload == Data("hello world".utf8),
+          "a chunked body is read whole however its bytes arrive")
+    check(used == wire.count - 4, "and nothing after its end is taken from the next message")
+    var broken = ChunkedFraming()
+    var ignored: Data?
+    check((try? broken.consume(Data("zz\r\n".utf8), collecting: &ignored)) == nil, "a chunk size that is not hex is refused")
+
+    let member = PoolMember(id: "main", name: "Claude", identify: [UsagePool.digest("token")], token: "token",
+                            limits: percent)
+    let command = PoolCommand(configure: PoolConfiguration(enabled: true, members: [member]))
+    let delivered = (try? JSONEncoder().encode(command))
+        .flatMap { try? JSONDecoder().decode(PoolCommand.self, from: $0) }
+    check(delivered?.configure == command.configure, "the pool reaches the relay exactly as Graft described it")
+
+    // Replacing a relay. A relay holds the logins it was last given, and a new
+    // one knows none until it is told, so only a Graft that can tell it
+    // everything replaces one.
+    func relayAnswering(_ line: String) -> String {
+        let path = NSTemporaryDirectory() + "graft-\(getpid())-\(UUID().uuidString.prefix(6)).sock"
+        unlink(path)
+        let listener = socket(AF_UNIX, SOCK_STREAM, 0)
+        var address = PoolSocket.unixAddress(path)!
+        _ = withUnsafePointer(to: &address) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                bind(listener, $0, socklen_t(MemoryLayout<sockaddr_un>.size))
+            }
+        }
+        listen(listener, 1)
+        DispatchQueue.global().async {
+            let client = accept(listener, nil, nil)
+            _ = PoolSocket.readLine(client, limit: 1 << 20)
+            _ = PoolSocket.writeAll(client, Data((line + "\n").utf8))
+            close(client)
+            close(listener)
+            unlink(path)
+        }
+        return path
+    }
+    let today = PoolStatus(binary: "today", pid: 1, started: Date(), enabled: true, configured: true,
+                           members: [], recent: [], sessions: [], openExchanges: 0)
+    let todayLine = String(decoding: try! JSONEncoder().encode(today), as: UTF8.self)
+    check(UsagePoolController.ask(PoolCommand(), at: relayAnswering(todayLine)).reply == .running(binary: "today"),
+          "a relay that answers in this release's shape is known by its binary")
+    // A release that dropped fields this one requires: no sessions, no count
+    // of open exchanges.
+    let older = #"{"binary":"older","pid":1,"started":0,"enabled":true,"configured":true,"members":[],"recent":[]}"#
+    check(UsagePoolController.ask(PoolCommand(), at: relayAnswering(older)).reply == .unreadable,
+          "one answering in an older shape is still a relay, one whose status cannot be read")
+    check(UsagePoolController.ask(PoolCommand(), at: NSTemporaryDirectory() + "graft-nobody.sock").reply == .nobody,
+          "and a socket nobody listens on is no relay at all")
+    check(String(decoding: try! JSONEncoder().encode(PoolCommand(quit: true)), as: UTF8.self) == #"{"quit":true}"#,
+          "the quit sent to a relay that cannot be read is bare, which every relay since 2.0.0 reads")
+
+    let step = UsagePoolController.relayStep
+    check(step(.unreadable, "today", true) == .replace,
+          "a relay whose status cannot be read is asked to step aside, rather than a second started beside it")
+    check(step(.running(binary: "older"), "today", true) == .replace,
+          "and so is one built from another binary, by a Graft that can tell its successor everything")
+    check(step(.running(binary: "older"), "today", false) == .keep && step(.unreadable, "today", false) == .keep,
+          "but a Graft shut out of the keychain leaves either with the logins it was lending")
+    check(step(.running(binary: "today"), "today", true) == .keep && step(.running(binary: "today"), "today", false) == .keep,
+          "a relay built from this binary is kept whatever this Graft can read")
+    check(step(.nobody, "today", false) == .start && step(.nobody, "today", true) == .start,
+          "and with none at all one is started either way, since a Claude pointed at no relay has no Claude Code")
+
+    // A config caught mid-write reads as a login that cannot be read, and the
+    // relay would forget who that Claude is for the pass.
+    let whole: UsagePoolController.Login = (.ready, ["digest"], "token")
+    let caughtMidWrite: UsagePoolController.Login = (.unreadable, [], nil)
+    let carried = UsagePoolController.steady(caughtMidWrite, kept: (whole, now.addingTimeInterval(-30)), now: now)
+    check(carried.state == .ready && carried.identify == ["digest"] && carried.token == "token",
+          "a login caught mid-write is lent as it was last read whole")
+    check(UsagePoolController.steady(caughtMidWrite, kept: (whole, now.addingTimeInterval(-3600)), now: now).state
+            == .unreadable,
+          "but not for long: a file still unreadable after ten minutes is not a rename")
+    check(UsagePoolController.steady((.signedOut, [], nil), kept: (whole, now.addingTimeInterval(-30)), now: now).state
+            == .signedOut,
+          "and a login read whole always says what it says")
+    check(UsagePool.digest("abc") == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+          "a login is known to the relay by its SHA-256 alone")
+    check(PoolEnvironment.lines == ["HTTPS_PROXY": "http://127.0.0.1:47823",
+                                    "NODE_EXTRA_CA_CERTS": UsagePool.certificateFile.path],
+          "Claude Code is pointed at a port on this Mac alone, and told to trust the relay's own certificate")
+    check(UsagePool.certificateFile.path.hasSuffix("ClaudeGraft/pool/relay-ca.pem"),
+          "which is kept with Graft's state")
+
+    let pool = UsagePoolController()
+    let main = UsagePoolController.mainKey
+    check(pool.sharing == UsageSharing() && pool.accounts.isEmpty,
+          "a machine that never shared usage has nothing set up")
+    pool.addLender("second", to: main)
+    check(pool.lenders(of: main) == ["second"], "a Claude is given an account to draw on")
+    pool.addLender("second", to: main)
+    pool.addLender(main, to: main)
+    check(pool.lenders(of: main) == ["second"], "once, and never itself")
+    check(UsagePoolController().lenders(of: main) == ["second"], "what each Claude draws on is kept between launches")
+    check(pool.lenders(of: "second").isEmpty, "lending to a Claude does not make it a borrower")
+    pool.removeLender("second", from: main)
+    check(pool.sharing.lenders.isEmpty, "a Claude given nothing has no entry left")
+
+    func account(_ id: String, uuid: String?, sealed: String) -> PoolAccount {
+        PoolAccount(id: id, accountUuid: uuid, email: "\(uuid ?? "x")@example.com", organizationName: nil,
+                    scopes: [AccountSignIn.scope], expires: now + 365 * day, added: now, sealed: sealed)
+    }
+    pool.add(account("account:a", uuid: "a", sealed: "first"), to: main)
+    pool.add(account("account:other-id", uuid: "a", sealed: "second"), to: main)
+    check(pool.accounts.count == 1 && pool.accounts.first?.id == "account:a" && pool.accounts.first?.sealed == "second",
+          "one account signed in twice is one entry, holding the newer login")
+    check(pool.lenders(of: main) == ["account:a"], "and is lent once")
+    check(pool.name(of: "account:a") == "a@example.com" && pool.name(of: main) == "Claude",
+          "a signed-in account goes by its address, Claude's own profile by its name")
+    pool.add(account("account:a", uuid: "a", sealed: "third"), to: "elsewhere")
+    pool.removeLender("account:a", from: main)
+    check(pool.accounts.count == 1, "an account another Claude still draws on is kept")
+    pool.removeLender("account:a", from: "elsewhere")
+    check(pool.accounts.isEmpty && UsagePoolController().accounts.isEmpty,
+          "and goes, login and all, when nothing draws on it any more")
+
+    try? fm.createDirectory(at: Graft.mainProfile, withIntermediateDirectories: true)
+    let mainConfig = Graft.mainProfile.appending(path: "config.json")
+    let hadConfig = fm.fileExists(atPath: mainConfig.path)
+    if !hadConfig {
+        try! Data(#"{"lastKnownAccountUuid":"a"}"#.utf8).write(to: mainConfig)
+        check(pool.sameAccount(as: main, besides: "elsewhere") == nil,
+              "nothing is known of a Claude's account until a pass has read it, which no view does")
+        pool.learnAccounts(UsagePoolController.readAccounts([(main, Graft.mainProfile)]))
+        pool.add(account("account:a", uuid: "a", sealed: "s"), to: "elsewhere")
+        check(pool.sameAccount(as: "account:a", besides: "elsewhere") == main,
+              "an account signed in here that a Claude already holds is named as the same account")
+        check(pool.sameAccount(as: "account:a", besides: main) == nil, "but not to the Claude that holds it")
+        pool.removeLender("account:a", from: "elsewhere")
+        try? fm.removeItem(at: mainConfig)
+    }
+
+    // Sealing the way Claude's own store seals, with a key made up here.
+    let key = Data((0..<16).map { UInt8($0 * 7 + 1) })
+    let plain = Data(#"{"A":"1"}"#.utf8)
+    let sealed = ClaudeCredentials.seal(plain, key: key)
+    check(sealed.flatMap { ClaudeCredentials.unseal($0, key: key) } == plain,
+          "a value sealed with Claude's key opens with it")
+    check(sealed != nil && sealed == ClaudeCredentials.seal(plain, key: key)
+            && Data(base64Encoded: sealed!)?.prefix(3) == Data("v10".utf8),
+          "and seals the same every time, in Claude's own format, so a launcher can recognise it")
+    check(ClaudeCodeEnvironment.seal(["B": "/x/y", "A": "1"], key: key)
+            .flatMap { ClaudeCredentials.unseal($0, key: key) } == Data(#"{"A":"1","B":"/x/y"}"#.utf8),
+          "variables are written compact and in order, slashes left alone, the way Claude writes them")
+
+    let profiles = support.appending(path: "PoolProfiles")
+    func profile(_ name: String, _ object: [String: Any]?) -> URL {
+        let url = profiles.appending(path: name)
+        try? fm.removeItem(at: url)
+        try! fm.createDirectory(at: url, withIntermediateDirectories: true)
+        if let object {
+            try! JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted])
+                .write(to: url.appending(path: PoolEnvironment.fileName))
+        }
+        return url
+    }
+    func seal(_ variables: [String: String]) -> String { ClaudeCodeEnvironment.seal(variables, key: key)! }
+    func variables(_ value: String?) -> [String: String]? {
+        value.flatMap { ClaudeCredentials.unseal($0, key: key) }
+            .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: String] }
+    }
+    let lines = PoolEnvironment.lines
+
+    let empty = profile("empty", nil)
+    if let reading = ClaudeCodeEnvironment.read(empty, wanted: true, key: key) {
+        check(!reading.holding && reading.entry.plain == nil && variables(reading.entry.pooled) == lines,
+              "a Claude with no Code environment yet gets one holding just the two lines")
+    } else { check(false, "a Claude with no Code environment yet gets one holding just the two lines") }
+
+    let existing = ["FOO": "bar", "PATH_EXTRA": "/opt/x"]
+    let kept = profile("kept", ["envVars": seal(existing), "tmpDirOverride": NSNull()])
+    if let reading = ClaudeCodeEnvironment.read(kept, wanted: true, key: key) {
+        check(!reading.holding && reading.entry.plain == seal(existing),
+              "what a Claude already holds is recognised byte for byte")
+        check(variables(reading.entry.pooled) == existing.merging(lines) { $1 },
+              "and the lines go in beside its own variables, which stay as they were")
+    } else { check(false, "what a Claude already holds is recognised byte for byte") }
+
+    let holdingProfile = profile("holding", ["envVars": seal(existing.merging(lines) { $1 })])
+    if let reading = ClaudeCodeEnvironment.read(holdingProfile, wanted: false, key: key) {
+        check(reading.holding && variables(reading.entry.plain) == existing,
+              "a Claude holding the lines can be given back exactly what it had without them")
+    } else { check(false, "a Claude holding the lines can be given back exactly what it had without them") }
+    let bare = profile("bare", ["envVars": seal(lines)])
+    if let reading = ClaudeCodeEnvironment.read(bare, wanted: false, key: key), reading.holding {
+        check(reading.entry.plain == nil, "and one that had nothing before gets nothing back")
+    } else { check(false, "and one that had nothing before gets nothing back") }
+
+    let ownProxy = ["https_proxy": "http://proxy.example:8080"]
+    let corporate = profile("corporate", ["envVars": seal(ownProxy)])
+    let corporateReading = ClaudeCodeEnvironment.read(corporate, wanted: true, key: key)
+    check(corporateReading?.conflict == "HTTPS_PROXY" && corporateReading?.entry.wanted == false
+            && corporateReading?.holding == false,
+          "a proxy of the person's own is theirs, whatever its case, and is left alone")
+    let scopedOwn = seal([:])
+    let scoped = profile("scoped", ["envVars": scopedOwn,
+                                    "scopedEnvVars": ClaudeCredentials.seal(
+                                        Data(#"{"acct":{"scope":{"NODE_EXTRA_CA_CERTS":"/mine.pem"}}}"#.utf8),
+                                        key: key)!])
+    check(ClaudeCodeEnvironment.read(scoped, wanted: true, key: key)?.conflict == "NODE_EXTRA_CA_CERTS",
+          "and so is a certificate set for one folder, which would win over the lines without a word")
+    let garbled = profile("garbled", ["envVars": "not sealed at all"])
+    check(ClaudeCodeEnvironment.read(garbled, wanted: true, key: key) == nil,
+          "an environment that will not open is not read as an empty one")
+    check(ClaudeCodeEnvironment.read(kept, wanted: true, key: Data(repeating: 9, count: 16)) == nil,
+          "nor is one sealed with a key Graft does not have")
+    let torn = profile("torn", ["envVars": seal(existing)])
+    fm.createFile(atPath: torn.appending(path: PoolEnvironment.fileName + ".journal").path, contents: Data())
+    check(ClaudeCodeEnvironment.read(torn, wanted: true, key: key) == nil,
+          "nor one Claude was part way through writing")
+
+    // The swap a launcher makes, which needs no key at all.
+    func field(_ profile: URL) -> String? { PoolEnvironment.field(in: profile).value }
+    func journal(_ entries: [URL: PoolEnvironment.Entry]) {
+        var written = PoolEnvironment.Journal()
+        for (url, entry) in entries { written.profiles[PoolEnvironment.key(for: url)] = entry }
+        PoolEnvironment.writeJournal(written)
+    }
+    let swap = profile("swap", ["envVars": "P", "other": ["kept": true]])
+    journal([swap: PoolEnvironment.Entry(wanted: true, plain: "P", pooled: "Q")])
+    PoolEnvironment.settle(beforeOpening: swap) { true }
+    check(field(swap) == "Q", "a Claude that wants the lines is given them as it opens")
+    let rest = (try? JSONSerialization.jsonObject(with: Data(contentsOf: swap.appending(path: PoolEnvironment.fileName))))
+        as? [String: Any]
+    check((rest?["other"] as? [String: Bool])?["kept"] == true, "and nothing else in the file changes")
+    let mode = (try? fm.attributesOfItem(atPath: swap.appending(path: PoolEnvironment.fileName).path))?[.posixPermissions] as? Int
+    check(mode == 0o600, "which stays readable by this user alone")
+    PoolEnvironment.settle(beforeOpening: swap) { false }
+    check(field(swap) == "P", "a Claude whose relay cannot be started opens without the lines rather than without Claude Code")
+    journal([swap: PoolEnvironment.Entry(wanted: false, plain: nil, pooled: "P")])
+    var asked = false
+    PoolEnvironment.settle(beforeOpening: swap) { asked = true; return true }
+    check(field(swap) == nil && rest?["other"] != nil && !asked,
+          "lines no longer wanted come out, a field that was not there before goes, and nobody asks after the relay")
+    let edited = profile("edited", ["envVars": "edited since"])
+    journal([edited: PoolEnvironment.Entry(wanted: true, plain: "P", pooled: "Q")])
+    PoolEnvironment.settle(beforeOpening: edited) { true }
+    check(field(edited) == "edited since", "an environment changed since Graft read it is left for Graft to read again")
+    let tornSwap = profile("tornSwap", ["envVars": "P"])
+    fm.createFile(atPath: tornSwap.appending(path: PoolEnvironment.fileName + ".journal").path, contents: Data())
+    journal([tornSwap: PoolEnvironment.Entry(wanted: true, plain: "P", pooled: "Q")])
+    PoolEnvironment.settle(beforeOpening: tornSwap) { true }
+    try? fm.removeItem(at: tornSwap.appending(path: PoolEnvironment.fileName + ".journal"))
+    check(field(tornSwap) == "P", "and so is one Claude was part way through writing")
+
+    // What removing Graft runs, as `graft-launch --stop-sharing`, with no key.
+    let leftClosed = profile("leftClosed", ["envVars": "Q"])
+    let leftOpen = profile("leftOpen", ["envVars": "Q2"])
+    let leftEdited = profile("leftEdited", ["envVars": "edited since"])
+    journal([leftClosed: PoolEnvironment.Entry(wanted: true, plain: "P", pooled: "Q"),
+             leftOpen: PoolEnvironment.Entry(wanted: true, plain: nil, pooled: "Q2"),
+             leftEdited: PoolEnvironment.Entry(wanted: true, plain: "P", pooled: "Q3")])
+    let stillHeld = PoolEnvironment.takeOutLines { PoolEnvironment.key(for: $0) == PoolEnvironment.key(for: leftOpen) }
+    check(field(leftClosed) == "P", "removing Graft gives a closed Claude back what it held before sharing")
+    check(field(leftOpen) == "Q2" && field(leftEdited) == "edited since"
+            && Set(stillHeld) == [PoolEnvironment.key(for: leftOpen), PoolEnvironment.key(for: leftEdited)],
+          "and leaves an open one, and one changed since Graft read it, saying both may still point at the relay")
+    check(PoolEnvironment.readJournal().profiles.values.allSatisfy { !$0.wanted },
+          "while nothing is left wanting the lines, so a launcher left behind puts none back")
+    let remembered = PoolEnvironment.readJournal()
+    try? fm.removeItem(at: PoolEnvironment.journalFile)
+    let stillOpen = PoolEnvironment.takeOutLines(remembered) { _ in false }
+    check(field(leftOpen) == nil && stillOpen == [PoolEnvironment.key(for: leftEdited)]
+            && !fm.fileExists(atPath: PoolEnvironment.journalFile.path),
+          "a journal remembered after a zap took the file still serves, and is not written back")
+
+    // A whole pass, as Graft runs it.
+    PoolEnvironment.writeJournal(PoolEnvironment.Journal())
+    let closed = profile("closed", ["envVars": seal(existing)])
+    let opened = profile("open", ["envVars": seal(existing)])
+    var states = ClaudeCodeEnvironment.settle(wanted: [closed: true, opened: true], key: key, relay: "/relay",
+                                              relayReady: true, running: { $0 == opened })
+    check(states[PoolEnvironment.key(for: closed)] == .on && variables(field(closed)) == existing.merging(lines) { $1 },
+          "a closed Claude is given the lines straight away")
+    check(states[PoolEnvironment.key(for: opened)] == .waiting && variables(field(opened)) == existing,
+          "an open one is left alone until it next starts, and says so")
+    check(PoolEnvironment.readJournal().relay == "/relay"
+            && PoolEnvironment.readJournal().profiles[PoolEnvironment.key(for: opened)]?.wanted == true,
+          "which is the launcher's to do, from what Graft left it")
+    states = ClaudeCodeEnvironment.settle(wanted: [:], key: key, relay: "/relay", relayReady: true,
+                                          running: { _ in false })
+    check(states[PoolEnvironment.key(for: closed)] == .off && states[PoolEnvironment.key(for: opened)] == .off
+            && variables(field(closed)) == existing && variables(field(opened)) == existing,
+          "a Claude that stops borrowing has its own environment back, exactly")
+    check(PoolEnvironment.readJournal().profiles.isEmpty, "and nothing is left for a launcher to do")
+    states = ClaudeCodeEnvironment.settle(wanted: [closed: true], key: key, relay: nil, relayReady: false,
+                                          running: { _ in false })
+    check(states[PoolEnvironment.key(for: closed)] == .waiting && variables(field(closed)) == existing,
+          "with no relay to send it to, a Claude is not pointed at one")
+    _ = ClaudeCodeEnvironment.settle(wanted: [:], key: key, relay: nil, relayReady: false, running: { _ in false })
+
+    // A value of the person's own set beside the lines after they went in:
+    // the line of Graft's that is left is still Graft's, and still keeps the
+    // relay up while that Claude is open.
+    let ownCertificate = ["NODE_EXTRA_CA_CERTS": "/mine.pem"]
+    let beside = profile("beside", ["envVars": seal(existing.merging(ownCertificate) { $1 }
+        .merging([PoolEnvironment.proxyName: PoolEnvironment.proxyValue]) { $1 })])
+    let besideReading = ClaudeCodeEnvironment.read(beside, wanted: true, key: key)
+    check(besideReading?.holding == true && besideReading?.conflict == "NODE_EXTRA_CA_CERTS"
+            && variables(besideReading?.entry.plain) == existing.merging(ownCertificate) { $1 },
+          "a line of Graft's beside a certificate of the person's own is still Graft's to take out")
+    states = ClaudeCodeEnvironment.settle(wanted: [beside: true], key: key, relay: "/relay", relayReady: true,
+                                          running: { $0 == beside })
+    check(states[PoolEnvironment.key(for: beside)] == .conflict("NODE_EXTRA_CA_CERTS", holding: true)
+            && states[PoolEnvironment.key(for: beside)]?.holdsLines == true
+            && PoolEnvironment.readJournal().profiles[PoolEnvironment.key(for: beside)] != nil,
+          "and while that Claude is open it says why it is not shared and keeps the relay up")
+    states = ClaudeCodeEnvironment.settle(wanted: [:], key: key, relay: "/relay", relayReady: true,
+                                          running: { PoolEnvironment.key(for: $0) == PoolEnvironment.key(for: beside) })
+    check(states[PoolEnvironment.key(for: beside)] == .leaving,
+          "even once nothing is lent to it any more")
+    states = ClaudeCodeEnvironment.settle(wanted: [beside: true], key: key, relay: "/relay", relayReady: true,
+                                          running: { _ in false })
+    check(states[PoolEnvironment.key(for: beside)] == .conflict("NODE_EXTRA_CA_CERTS", holding: false)
+            && variables(field(beside)) == existing.merging(ownCertificate) { $1 },
+          "once it closes the proxy comes out and the person's certificate stays")
+    let lone = profile("lone", ["envVars": seal(existing.merging(
+        [PoolEnvironment.proxyName: PoolEnvironment.proxyValue]) { $1 })])
+    states = ClaudeCodeEnvironment.settle(wanted: [lone: false], key: key, relay: "/relay", relayReady: true,
+                                          running: { $0 == lone })
+    check(states[PoolEnvironment.key(for: lone)] == .leaving,
+          "a proxy of Graft's left alone after the certificate was deleted still counts as pointing at the relay")
+    states = ClaudeCodeEnvironment.settle(wanted: [lone: false], key: key, relay: "/relay", relayReady: true,
+                                          running: { _ in false })
+    check(states[PoolEnvironment.key(for: lone)] == .off && variables(field(lone)) == existing,
+          "and comes out when that Claude closes, though no finished value matched it")
+    _ = profile("lone", ["envVars": seal(existing.merging(
+        [PoolEnvironment.proxyName: PoolEnvironment.proxyValue]) { $1 })])
+    states = ClaudeCodeEnvironment.settle(wanted: [lone: true], key: key, relay: "/relay", relayReady: true,
+                                          running: { _ in false })
+    check(states[PoolEnvironment.key(for: lone)] == .on && variables(field(lone)) == existing.merging(lines) { $1 },
+          "while a Claude still borrowing has the pair made whole")
+    _ = ClaudeCodeEnvironment.settle(wanted: [:], key: key, relay: nil, relayReady: false, running: { _ in false })
+
+    // A copy Claude made of the lines for one folder, which it lays over the
+    // profile-wide ones and which would otherwise outlive them.
+    func scopedField(_ object: [String: Any]) -> String {
+        ClaudeCredentials.seal(try! JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]), key: key)!
+    }
+    func scopedVariables(_ profile: URL) -> [String: Any]? {
+        let outer = (try? JSONSerialization.jsonObject(
+            with: Data(contentsOf: profile.appending(path: PoolEnvironment.fileName)))) as? [String: Any]
+        return (outer?[PoolEnvironment.scopedField] as? String)
+            .flatMap { ClaudeCredentials.unseal($0, key: key) }
+            .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+    }
+    let copiedScopes: [String: Any] = ["acct": [":machine:builtin_local": lines.merging(["FOO": "bar"]) { $1 },
+                                                "builtin_local": ["OWN": "1"]]]
+    let copied = profile("copied", ["envVars": seal(existing), "scopedEnvVars": scopedField(copiedScopes)])
+    check(ClaudeCodeEnvironment.holdsLines(copied, key: key),
+          "lines copied into a folder's own environment still point Claude Code at the relay")
+    states = ClaudeCodeEnvironment.settle(wanted: [copied: false], key: key, relay: "/relay", relayReady: true,
+                                          running: { $0 == copied })
+    check(states[PoolEnvironment.key(for: copied)] == .leaving
+            && PoolEnvironment.readJournal().profiles[PoolEnvironment.key(for: copied)] != nil,
+          "so a Claude holding them that way keeps the relay, until it closes")
+    states = ClaudeCodeEnvironment.settle(wanted: [copied: false], key: key, relay: "/relay", relayReady: true,
+                                          running: { _ in false })
+    let scopesAfter = scopedVariables(copied)?["acct"] as? [String: [String: String]]
+    check(states[PoolEnvironment.key(for: copied)] == .off
+            && scopesAfter?[":machine:builtin_local"] == ["FOO": "bar"]
+            && scopesAfter?["builtin_local"] == ["OWN": "1"]
+            && variables(field(copied)) == existing,
+          "and once it closes the copies come out, leaving everything else in every folder as it was")
+    _ = ClaudeCodeEnvironment.settle(wanted: [:], key: key, relay: nil, relayReady: false, running: { _ in false })
+
+    let verifier = AccountSignIn.randomToken()
+    check(verifier.count == 43 && !verifier.contains { "+/=".contains($0) },
+          "a sign-in's secrets are thirty-two random bytes, written the way a URL can carry them")
+    let authorize = AccountSignIn.authorizeURL(redirect: "http://localhost:4321/callback", verifier: verifier,
+                                               state: "st")
+    let query = URLComponents(url: authorize, resolvingAgainstBaseURL: false)?.queryItems ?? []
+    func item(_ name: String) -> String? { query.first { $0.name == name }?.value }
+    check(authorize.host == "claude.com" && item("scope") == "user:inference"
+            && item("redirect_uri") == "http://localhost:4321/callback" && item("state") == "st"
+            && item("client_id") == AccountSignIn.clientID,
+          "an account is signed in for model requests alone, back to this Mac")
+    let challenge = Data(SHA256.hash(data: Data(verifier.utf8))).base64EncodedString()
+        .replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_")
+        .replacingOccurrences(of: "=", with: "")
+    check(item("code_challenge") == challenge && item("code_challenge_method") == "S256",
+          "and the code that comes back is worth nothing without the secret that stayed here")
+    check(!authorize.absoluteString.contains(verifier), "which never leaves this Mac")
+    check(AccountSignIn.page("<b>&").contains("&lt;b&gt;&amp;"), "the page the browser comes back to shows text, never markup")
+
+    let repo = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+    func sources(_ folder: String) -> [String] {
+        let directory = repo.appending(path: folder)
+        let names = (try? fm.contentsOfDirectory(atPath: directory.path)) ?? []
+        return names.filter { $0.hasSuffix(".swift") }
+            .compactMap { try? String(contentsOf: directory.appending(path: $0), encoding: .utf8) }
+    }
+    let everything = sources("Sources/App") + sources("Sources/Relay") + sources("Sources/Shared")
+    let named = ["Sources/App", "Sources/Relay", "Sources/Shared"].flatMap { folder in
+        ((try? fm.contentsOfDirectory(atPath: repo.appending(path: folder).path)) ?? [])
+            .filter { name in
+                (try? String(contentsOf: repo.appending(path: folder).appending(path: name), encoding: .utf8))?
+                    .contains("ccd-environment-config") == true
+            }
+    }
+    check(!everything.isEmpty && named == ["PoolEnvironment.swift"],
+          "Claude's Code environment is named in one place, and only that place writes it")
+    let signInSource = sources("Sources/App").first { $0.contains("final class AccountSignIn") } ?? ""
+    check(!signInSource.isEmpty && !signInSource.contains("\"refresh_token\""),
+          "the refresh token a sign-in returns is never read")
+    let notes = sources("Sources/Relay").flatMap { $0.components(separatedBy: "\n") }
+        .filter { $0.contains("Diagnostics.note") }
+    check(!notes.isEmpty && notes.allSatisfy { !$0.lowercased().contains("token") && !$0.lowercased().contains("bearer") },
+          "the relay never writes a login into the diagnostics log")
+}
+
+section("The conversation on screen")
+
+do {
+    let now = Date()
+    func chat(_ id: String, quiet: TimeInterval = 0, focused: TimeInterval? = nil, typed: TimeInterval? = nil,
+              begun: TimeInterval? = nil, servedBy: String? = "main", assigned: String? = nil)
+        -> UsagePoolController.Chat {
+        UsagePoolController.Chat(id: id, title: nil, claude: "main", servedBy: servedBy, assigned: assigned,
+                                 choices: ["main", "c2"], lastAt: now.addingTimeInterval(-quiet), passedOver: false,
+                                 startedAt: begun.map { now.addingTimeInterval(-$0) },
+                                 focusedAt: focused.map { now.addingTimeInterval(-$0) },
+                                 promptedAt: typed.map { now.addingTimeInterval(-$0) })
+    }
+    func focus(_ session: String, _ ago: TimeInterval) -> UsagePoolController.Focus {
+        UsagePoolController.Focus(session: session, at: now.addingTimeInterval(-ago))
+    }
+    check(UsagePoolController.current([chat("a", typed: 5), chat("b", quiet: 900, focused: 60)],
+                                      focused: focus("b", 60), now: now)?.id == "b",
+          "the bar names the conversation Claude last brought on screen, whatever was typed elsewhere")
+    var twin = chat("a", focused: 10), other = chat("b", focused: 30)
+    twin.title = "Is 391 prime?"
+    other.title = "Is 391 prime?"
+    check(UsagePoolController.current([twin, other], focused: focus("a", 10), now: now)?.id == "a"
+            && UsagePoolController.current([twin, other], focused: focus("b", 5), now: now)?.id == "b",
+          "two conversations with one name are told apart by their session, never their title")
+    check(UsagePoolController.current([chat("a", quiet: 3 * 3600, focused: 3 * 3600)],
+                                      focused: focus("a", 3 * 3600), now: now)?.id == "a",
+          "and goes on naming it however long it has been quiet")
+    check(UsagePoolController.current([chat("a", focused: 300, typed: 30)], focused: focus("x", 2), now: now) == nil,
+          "a conversation on screen that the bar may not name names nothing, rather than the one before it")
+    let unsent = UsagePoolController.Focus(session: "old", at: now.addingTimeInterval(-2), title: "Before sharing began")
+    let alone = UsagePoolController.uncarried(unsent, in: "main", carried: [], choices: ["main", "c2"], assigned: nil)
+    check(alone?.title == "Before sharing began" && alone?.carried == false
+            && UsagePoolController.current([chat("a", focused: 300, typed: 30)] + [alone].compactMap { $0 },
+                                           focused: unsent, now: now)?.id == "old",
+          "a conversation opened that the relay has not carried is named from its record")
+    check(alone.map(UsagePoolController.answeringKey) == .some(nil)
+            && NewChatTicker.text(title: alone?.title, account: nil) == "Before sharing began"
+            && NewChatTicker.spoken(title: alone?.title, account: nil) == "Conversation on screen “Before sharing began”",
+          "by its title alone, since no account has answered it")
+    var archivedUnsent = unsent
+    archivedUnsent.putAway = true
+    let carriedOld = PoolSession(id: "old", from: "main", servedBy: "main", lastAt: now, requests: 1, model: nil,
+                                 cachedUntil: nil, passedOver: [])
+    check(UsagePoolController.uncarried(archivedUnsent, in: "main", carried: [], choices: [], assigned: nil) == nil
+            && UsagePoolController.uncarried(unsent, in: "main", carried: [carriedOld], choices: [], assigned: nil) == nil,
+          "but not once it is put away, nor when the relay carried it and its own row decides")
+    check(UsagePoolController.current([chat("a", typed: 5)], focused: focus("x", 600), now: now)?.id == "a",
+          "one typed into since the last focus Claude recorded is the one on screen")
+    check(UsagePoolController.current([chat("a", typed: 120), chat("b", begun: 30)], now: now)?.id == "b",
+          "with no word from Claude, the conversation begun or typed into last is named")
+    check(UsagePoolController.current([chat("a", quiet: 60), chat("b", quiet: 10)], now: now)?.id == "b",
+          "and with nothing to say even that, the one that last heard back")
+    check(UsagePoolController.current([chat("a", quiet: 31 * 60, typed: 31 * 60)], now: now) == nil,
+          "a conversation quiet for half an hour is not guessed to be on screen")
+
+    let pool = UsagePoolController()
+    check(UsagePoolController.answeringKey(chat("a", servedBy: "main", assigned: "c2")) == "c2",
+          "a conversation just moved names the account it was moved to, before that account has answered")
+    var refused = chat("a", servedBy: "main", assigned: "c2")
+    refused.passedOver = true
+    check(UsagePoolController.answeringKey(refused) == "main"
+            && UsagePoolController.answeringKey(chat("a", servedBy: "main")) == "main",
+          "and the one that answered in its place once it had no room, as for one left to the ranking")
+    check(pool.automaticTitle(chat("a", servedBy: "main")) == "Automatic · now Claude",
+          "Automatic says which account it has settled on")
+    check(pool.automaticTitle(chat("a", servedBy: "c2", assigned: "c2")) == "Automatic"
+            && pool.automaticTitle(chat("a", servedBy: nil)) == "Automatic",
+          "and only that, once an account is chosen or before anyone has answered")
+
+    let typed = #"{"model":"m","messages":[{"role":"user","content":[{"type":"text","text":"Is 391 prime?"}]}],"thread":{"type":"create"}}"#
+    let lone = #"{"model":"m","messages":[{"role":"user","content":"Name this conversation: Is 391 prime?"}]}"#
+    let toolAnswer = #"{"model":"m","thread":{"id":"t"},"messages":[{"role":"user","content":"Is 391 prime?"},"#
+        + #"{"role":"assistant","content":[{"type":"tool_use","id":"u"}]},"#
+        + #"{"role":"user","content":[{"type":"tool_result","tool_use_id":"u","content":"17 x 23"}]}]}"#
+    let nextTurn = #"{"model":"m","thread":{"id":"t"},"messages":[{"role":"user","content":[{"type":"tool_result","tool_use_id":"u","content":"17 x 23"}]},"#
+        + #"{"role":"assistant","content":"No: 17 x 23."},{"role":"user","content":"And 397?"}]}"#
+    let aside = #"{"model":"m","messages":[{"role":"user","content":"Is 391 prime?"},"#
+        + #"{"role":"assistant","content":"No."},{"role":"user","content":"Name this conversation."}]}"#
+    check(PoolRequest.startsTurn(body: Data(typed.utf8)) && PoolRequest.startsTurn(body: Data(nextTurn.utf8)),
+          "a conversation's first message and a turn typed on its thread are a person typing")
+    check(!PoolRequest.startsTurn(body: Data(toolAnswer.utf8)),
+          "Claude Code carrying on with a tool's answer is not")
+    check(!PoolRequest.startsTurn(body: Data(aside.utf8)),
+          "nor is a short request made beside a conversation, which carries no thread")
+    check(!PoolRequest.startsTurn(body: Data(lone.utf8)),
+          "nor a lone message with no thread, as likely a title asked for as a first message")
+
+    let older = #"{"id":"s","from":"c2","lastAt":0,"requests":1,"passedOver":[]}"#
+    let read = try? JSONDecoder().decode(PoolSession.self, from: Data(older.utf8))
+    check(read != nil && read?.startedAt == nil && read?.promptedAt == nil,
+          "a relay from before conversations were marked new or typed into is still read")
+
+    // Two Claudes whose chats are shared, laid out as Claude keeps them.
+    let mainProfile = root.appending(path: "on-screen/Claude")
+    let otherProfile = root.appending(path: "on-screen/Claude-2")
+    func store(_ profile: URL) -> URL {
+        let dir = profile.appending(path: "claude-code-sessions/\(ownerAccount)/\(ownerOrg)")
+        try! fm.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }
+    func record(_ profile: URL, _ name: String, session: String, title: String? = nil,
+                archived: Bool = false, focused: TimeInterval? = nil) {
+        var json: [String: Any] = ["sessionId": "local_\(name)", "cliSessionId": session, "isArchived": archived]
+        if let title { json["title"] = title }
+        if let focused { json["lastFocusedAt"] = Int(now.addingTimeInterval(-focused).timeIntervalSince1970 * 1000) }
+        try! JSONSerialization.data(withJSONObject: json).write(to: store(profile).appending(path: "local_\(name).json"))
+    }
+    func gone(_ profile: URL, _ name: String) {
+        try? fm.removeItem(at: store(profile).appending(path: "local_\(name).json"))
+    }
+    record(mainProfile, "r-open", session: "s-open", title: "Is 391 prime?", focused: 60)
+    record(otherProfile, "r-open", session: "s-open", title: "Is 391 prime?", archived: true)
+    record(mainProfile, "r-earlier", session: "s-earlier", title: "Earlier", focused: 300)
+    record(mainProfile, "r-archived", session: "s-archived", title: "Old idea", archived: true, focused: 600)
+    record(mainProfile, "s-marked", session: "s-marked", title: "Filed by Graft")
+    try! Data("1762600000000".utf8).write(to: store(mainProfile).appending(path: "deleted_s-marked"))
+    record(mainProfile, "r-deleted", session: "s-deleted", title: "Throwaway")
+    record(mainProfile, "r-mirrored", session: "s-mirrored", title: "Mirrored")
+    record(otherProfile, "r-mirrored", session: "s-mirrored", title: "Mirrored")
+    let stash = mainProfile.appending(path: "claude-code-sessions/\(ownerAccount)/.\(ownerOrg)\(Graft.stashSuffix)")
+    try! fm.createDirectory(at: stash, withIntermediateDirectories: true)
+    try! JSONSerialization.data(withJSONObject: ["cliSessionId": "s-deleted", "title": "Stashed"])
+        .write(to: stash.appending(path: "local_r-stashed.json"))
+    let projects = Graft.claudeProjects.appending(path: "-Users-test-on-screen")
+    try! fm.createDirectory(at: projects, withIntermediateDirectories: true)
+    try! (#"{"type":"user","message":{"role":"user","content":"hi"},"sessionId":"s-untitled"}"# + "\n"
+          + #"{"type":"custom-title","customTitle":"Prime \"numbers\" — checked","sessionId":"s-untitled"}"#)
+        .write(to: projects.appending(path: "s-untitled.jsonl"), atomically: true, encoding: .utf8)
+
+    let sessions = ["s-open", "s-earlier", "s-archived", "s-marked", "s-deleted", "s-mirrored", "s-untitled"].map {
+        PoolSession(id: $0, from: "main", servedBy: "main", lastAt: now, requests: 1, model: nil,
+                    cachedUntil: nil, passedOver: [])
+    }
+    let profiles = [("main", mainProfile), ("c2", otherProfile)]
+    let first = pool.lookUpRecords(sessions, profiles: profiles, now: now)
+    let open = first.filed["s-open"]
+    check(open?.title == "Is 391 prime?" && open?.archived == false && open?.gone == false,
+          "a conversation is named by the record its Claude keeps")
+    check(open?.focusedAt.map { abs($0.timeIntervalSince(now.addingTimeInterval(-60))) < 0.01 } == true
+            && first.focused["main"] == UsagePoolController.Focus(session: "s-open", at: open!.focusedAt!,
+                                                                  title: "Is 391 prime?"),
+          "and the one Claude focused last is read from the milliseconds Claude writes, with its title")
+    check(first.filed["s-archived"]?.archived == true,
+          "a conversation archived in its sidebar is put away")
+    check(open?.archived == false,
+          "a copy archived in a Claude that shares the chats does not put away the one in its own")
+    check(first.filed["s-marked"]?.gone == true,
+          "a record of Graft's with a deletion marker beside it is gone at once")
+    check(first.filed["s-untitled"]?.title == "Prime \"numbers\" — checked",
+          "a conversation with no record yet takes its title from the transcript, quotes and dashes whole")
+    check(first.filed["s-deleted"]?.title == "Throwaway",
+          "a stash beside the store is not read as a record")
+
+    gone(mainProfile, "r-deleted")
+    gone(mainProfile, "r-mirrored")
+    let second = pool.lookUpRecords(sessions, profiles: profiles, now: now)
+    check(second.filed["s-deleted"]?.gone == false,
+          "a record caught missing once may be in the middle of being rewritten, so nothing is gone yet")
+    let third = pool.lookUpRecords(sessions, profiles: profiles, now: now)
+    check(third.filed["s-deleted"]?.gone == true,
+          "a record seen before and missing on two passes was deleted from its sidebar")
+    check(third.filed["s-mirrored"]?.gone == true,
+          "and a copy still in a Claude that shares the chats does not keep it")
+
+    gone(mainProfile, "r-open")
+    let afterDelete = pool.lookUpRecords(sessions, profiles: profiles, now: now)
+    check(afterDelete.focused["main"]?.session == "s-open"
+            && UsagePoolController.current([chat("s-earlier", focused: 300)],
+                                           focused: afterDelete.focused["main"], now: now) == nil,
+          "deleting the conversation on screen names nothing, never the one focused before it")
+
+    gone(mainProfile, "r-earlier")
+    let org = store(mainProfile)
+    try! fm.setAttributes([.posixPermissions: 0o000], ofItemAtPath: org.path)
+    _ = pool.lookUpRecords(sessions, profiles: profiles, now: now)
+    let unopened = pool.lookUpRecords(sessions, profiles: profiles, now: now)
+    try! fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: org.path)
+    check(unopened.filed["s-earlier"]?.gone == false && unopened.focused["main"]?.session == "s-open",
+          "a store that will not open hides nothing, and what it held last still stands")
+
+    // Two Claudes whose stores the mirror keeps alike, the second one used last.
+    let mirrorPool = UsagePoolController()
+    let here = root.appending(path: "mirror-focus/Claude"), there = root.appending(path: "mirror-focus/Claude-2")
+    let pair = [("main", here), ("c2", there)]
+    record(here, "m-a", session: "m-a", title: "Here", focused: 120)
+    record(there, "m-a", session: "m-a", title: "Here", focused: 120)
+    _ = mirrorPool.lookUpRecords([], profiles: pair, now: now)
+    record(there, "m-b", session: "m-b", title: "There", focused: 30)
+    let seenThere = mirrorPool.lookUpRecords([], profiles: pair, now: now)
+    record(here, "m-b", session: "m-b", title: "There", focused: 30)
+    let copiedHere = mirrorPool.lookUpRecords([], profiles: pair, now: now)
+    check(seenThere.focused["c2"]?.session == "m-b" && copiedHere.focused["c2"]?.session == "m-b"
+            && copiedHere.focused["main"]?.session == "m-a",
+          "a focus the mirror copies in from another Claude is that Claude's, and this one still shows its own")
+    record(there, "m-a", session: "m-a", title: "Here", focused: 20)
+    _ = mirrorPool.lookUpRecords([], profiles: pair, now: now)
+    record(here, "m-a", session: "m-a", title: "Here, renamed", focused: 20)
+    let overwritten = mirrorPool.lookUpRecords([], profiles: pair, now: now)
+    check(overwritten.focused["main"]?.session == "m-a" && overwritten.focused["main"]?.putAway == false
+            && overwritten.focused["main"]?.title == "Here, renamed",
+          "and keeps showing it when the mirror writes another Claude's focus over its record")
+    record(here, "m-c", session: "m-c", title: "Back here", focused: 1)
+    let back = mirrorPool.lookUpRecords([], profiles: pair, now: now)
+    check(back.focused["main"]?.session == "m-c" && back.focused["main"]?.title == "Back here",
+          "a conversation this Claude brings on screen afterwards is its own again")
+    gone(here, "m-c")
+    let missingOnce = mirrorPool.lookUpRecords([], profiles: pair, now: now)
+    let missingTwice = mirrorPool.lookUpRecords([], profiles: pair, now: now)
+    check(missingOnce.focused["main"]?.session == "m-c" && missingOnce.focused["main"]?.putAway == false
+            && missingTwice.focused["main"]?.session == "m-c" && missingTwice.focused["main"]?.putAway == true,
+          "the conversation on screen is deleted once its record is missing on two passes, not one caught mid-write")
+    record(here, "m-d", session: "s-untitled", focused: 0.5)
+    check(mirrorPool.lookUpRecords([], profiles: pair, now: now).focused["main"]?.title == "Prime \"numbers\" — checked",
+          "one on screen whose record has no title yet takes it from the transcript")
+
+    let stampFile = root.appending(path: "stamped.json"), stampLink = root.appending(path: "stamped-link.json")
+    try! Data("{}".utf8).write(to: stampFile)
+    try! fm.setAttributes([.modificationDate: Date(timeIntervalSince1970: 1_700_000_000.25)], ofItemAtPath: stampFile.path)
+    try? fm.removeItem(at: stampLink)
+    try! fm.createSymbolicLink(at: stampLink, withDestinationURL: stampFile)
+    let agrees = [stampFile, stampLink].allSatisfy { url in
+        guard let read = Graft.modificationDate(atPath: url.path),
+              let listed = (try? fm.attributesOfItem(atPath: url.path))?[.modificationDate] as? Date else { return false }
+        return abs(read.timeIntervalSince(listed)) < 0.000_001
+    }
+    check(agrees && Graft.modificationDate(atPath: stampLink.path) != Graft.modificationDate(atPath: stampFile.path)
+            && Graft.modificationDate(atPath: root.appending(path: "never-stamped.json").path) == nil,
+          "a record's date read with one lstat says what FileManager says, a link's own date and not its file's")
+
+    // FSEvents leaves out the process that wrote, so the write comes from another.
+    let watchedProfile = root.appending(path: "watched")
+    let watchedOrg = watchedProfile.appending(path: "claude-code-sessions/\(ownerAccount)/\(ownerOrg)")
+    try! fm.createDirectory(at: watchedOrg, withIntermediateDirectories: true)
+    var wakes = 0
+    let storeWatch = StoreWatch { wakes += 1 }
+    storeWatch.watch([UsagePoolController.recordStore(of: watchedProfile),
+                      UsagePoolController.recordStore(of: root.appending(path: "never-made"))])
+    RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+    let touch = Process()
+    touch.executableURL = URL(fileURLWithPath: "/usr/bin/touch")
+    touch.arguments = [watchedOrg.appending(path: "local_w.json").path]
+    try? touch.run()
+    touch.waitUntilExit()
+    let wakeBy = Date().addingTimeInterval(5)
+    while wakes == 0 && Date() < wakeBy { RunLoop.main.run(until: Date().addingTimeInterval(0.05)) }
+    check(wakes > 0, "a record written into a watched store is read when it lands, not on the next tick")
+    RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+    wakes = 0
+    try! Data("{}".utf8).write(to: watchedOrg.appending(path: "local_x.json"))
+    RunLoop.main.run(until: Date().addingTimeInterval(1))
+    check(wakes == 0, "while Graft's own writes, the sweep's and the mirror's, wake nothing")
+    storeWatch.watch([])
+
+    let plainIcon = NSImage(size: NSSize(width: 18, height: 18), flipped: false) { rect in
+        NSColor.systemBlue.setFill()
+        rect.fill()
+        return true
+    }
+    let ringed = PoolStrip.strip([plainIcon, plainIcon], lit: 0)
+    let stripPixels = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(ringed.size.width * 2),
+                                       pixelsHigh: Int(ringed.size.height * 2), bitsPerSample: 8,
+                                       samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+                                       colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
+    stripPixels.size = ringed.size
+    NSGraphicsContext.saveGraphicsState()
+    NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: stripPixels)
+    ringed.draw(in: NSRect(origin: .zero, size: ringed.size))
+    NSGraphicsContext.restoreGraphicsState()
+    func reddish(_ x: CGFloat) -> Bool {
+        guard let colour = stripPixels.colorAt(x: Int(x * 2), y: Int(ringed.size.height)) else { return false }
+        return colour.redComponent > 0.7 && colour.blueComponent < 0.5 && colour.alphaComponent > 0.5
+    }
+    let faintAt = FrontIcon.side + PoolStrip.gap
+    check(reddish(0.5) && !reddish(FrontIcon.side / 2) && !reddish(faintAt + 0.5),
+          "the account answering is ringed in red, and only that one")
+
+    let controllerSource = (try? String(contentsOf: URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        .deletingLastPathComponent().appending(path: "Sources/App/UsagePoolController.swift"),
+        encoding: .utf8)) ?? ""
+    let barSource = (try? String(contentsOf: URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        .deletingLastPathComponent().appending(path: "Sources/App/MenuBarController.swift"),
+        encoding: .utf8)) ?? ""
+    let removal = barSource.components(separatedBy: "func remove()").last?.components(separatedBy: "\n    }").first ?? ""
+    check(removal.contains("newChat = nil") && removal.contains("tickerText = nil")
+            && (barSource.components(separatedBy: "func install()").last?.components(separatedBy: "\n    }").first ?? "")
+                .contains("showNewChat()"),
+          "a status item taken out and put back starts the conversation's text moving again")
+    check(controllerSource.contains("now.timeIntervalSince(session.lastAt) < 30 * 60 && isShown(session)")
+            && controllerSource.contains("isShown(session) && profile(of: session.from).map(PoolEnvironment.key(for:)) == key"),
+          "a conversation put away leaves the dropdown and the bar alike")
+    let rowSource = (try? String(contentsOf: URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        .deletingLastPathComponent().appending(path: "Sources/App/SharedUsageSection.swift"),
+        encoding: .utf8)) ?? ""
+    check(rowSource.contains(".pickerStyle(.inline)") && rowSource.contains("Text(pool.automaticTitle(chat)).tag(\"\")"),
+          "the account menu in the dropdown marks the choice in force, Automatic included")
+
+    let font = NSFont.menuBarFont(ofSize: 0)
+    check(NewChatTicker.text(title: nil, account: "Claude") == "New chat · Claude",
+          "a conversation with no title yet reads as a new chat, with the account answering it")
+    let still = NewChatTicker.Picture("New chat · Claude", font: font)
+    check(still.cycle == nil && still.strip == nil && still.image.size.width < NewChatTicker.width,
+          "text short enough to fit stands still")
+    let long = "Work out which of 391, 397 and 403 are prime · Claude 2"
+    let moving = NewChatTicker.Picture(long, font: font)
+    check(moving.cycle.map { $0 > NewChatTicker.width } == true && moving.strip != nil
+            && moving.image.size.width == NewChatTicker.width,
+          "a long title scrolls inside a fixed width, so the items beside it do not move")
+
+    let bar = (try? String(contentsOf: URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        .deletingLastPathComponent().appending(path: "Sources/App/MenuBarController.swift"),
+        encoding: .utf8)) ?? ""
+    check(bar.contains("if wasShowing, let id = chat?.id { keepReachable(id) }")
+            && bar.contains("guard let self, self.newChat?.id == id, self.tickerText != nil, !self.isShowing")
+            && bar.contains("let text = chat?.id == tickerRefused ? nil : words"),
+          "text that pushes the item out of a full bar gives way, and stays out for that conversation")
+    check(bar.contains("item?.menu = menu\n        button.performClick(nil)\n        item?.menu = nil")
+            && !bar.contains("menu.popUp(positioning:"),
+          "the right-click menu opens under the item, where macOS puts menu-bar menus")
+
+    func drawn(_ image: NSImage) -> Data {
+        let size = image.size
+        let pixels = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(size.width * 2),
+                                      pixelsHigh: Int(size.height * 2), bitsPerSample: 8,
+                                      samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+                                      colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
+        pixels.size = size
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: pixels)
+        image.draw(in: NSRect(origin: .zero, size: size))
+        NSGraphicsContext.restoreGraphicsState()
+        return Data(bytes: pixels.bitmapData!, count: pixels.bytesPerRow * pixels.pixelsHigh)
+    }
+    check(drawn(still.image).contains { $0 != 0 } && !drawn(moving.image).contains { $0 != 0 },
+          "text that fits is drawn into the title, and text that moves leaves the title a blank of its width")
+    // Measured where the second copy begins, past anything a view would have
+    // drawn of a strip seen through 150 points.
+    let words = moving.strip?.words
+    let wordsDrawn = words.flatMap { layer -> CGImage? in
+        let size = layer.bounds.size
+        guard let context = CGContext(data: nil, width: Int(size.width), height: Int(size.height), bitsPerComponent: 8,
+                                      bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(),
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+        layer.render(in: context)
+        return context.makeImage()
+    }
+    let secondCopy = NSBitmapImageRep(cgImage: wordsDrawn ?? NSImage(size: NSSize(width: 1, height: 1))
+        .cgImage(forProposedRect: nil, context: nil, hints: nil)!)
+    let from = Int((words?.bounds.width ?? 0) - (moving.cycle ?? 0) + NewChatTicker.gap)
+    check(from > Int(NewChatTicker.width) && (from..<secondCopy.pixelsWide).contains { x in
+            (0..<secondCopy.pixelsHigh).contains { secondCopy.colorAt(x: x, y: $0)?.alphaComponent ?? 0 > 0 } }
+            && (words?.bounds.width ?? 0) >= (moving.cycle ?? 0) + NewChatTicker.width,
+          "the moving text is drawn whole, long enough that no step of a pass shows an empty end")
+    let pass = NewChatTicker.pass(cycle: moving.cycle ?? 0)
+    check(pass.prefix(NewChatTicker.pause + 1).allSatisfy { $0 == 0 } && pass[NewChatTicker.pause + 1] == NewChatTicker.step
+            && zip(pass.dropFirst(NewChatTicker.pause + 1), pass.dropFirst(NewChatTicker.pause + 2))
+                .allSatisfy { $1 - $0 == NewChatTicker.step }
+            && pass.last! < moving.cycle! && pass.last! + NewChatTicker.step >= moving.cycle!,
+          "a pass holds at the start, moves a step a tick, and ends a step short of where it began again")
+
+    let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 24), styleMask: .borderless,
+                          backing: .buffered, defer: true)
+    let button = NSButton(frame: NSRect(x: 0, y: 0, width: 360, height: 22))
+    button.isBordered = false
+    window.contentView?.addSubview(button)
+    // An icon makes the line taller than the text, which is the shape the
+    // strip once stood a pixel low in.
+    let icon = NSImage(size: NSSize(width: 18, height: 18), flipped: false) { rect in
+        NSColor.systemOrange.setFill()
+        rect.fill()
+        return true
+    }
+    let solid = NSImage(size: moving.image.size, flipped: false) { rect in
+        NSColor(srgbRed: 0, green: 1, blue: 0, alpha: 1).setFill()
+        rect.fill()
+        return true
+    }
+    button.attributedTitle = FrontTitle.make(icon: icon, tag: nil, figure: nil, font: font, ticker: solid)
+    let truth = button.bitmapImageRepForCachingDisplay(in: button.bounds)!
+    button.cacheDisplay(in: button.bounds, to: truth)
+    let scale = window.backingScaleFactor
+    let solidCorner = (0..<truth.pixelsHigh).lazy.compactMap { row -> NSPoint? in
+        let filled = (0..<truth.pixelsWide).filter { column in
+            truth.colorAt(x: column, y: row)?.usingColorSpace(.sRGB).map {
+                $0.greenComponent > 0.7 && $0.redComponent < 0.3 && $0.blueComponent < 0.3 } ?? false
+        }
+        return filled.count >= Int(moving.image.size.width * scale) - 2
+            ? NSPoint(x: CGFloat(filled[0]) / scale, y: CGFloat(row) / scale) : nil
+    }.first
+    button.attributedTitle = FrontTitle.make(icon: icon, tag: nil, figure: nil, font: font, ticker: moving.image)
+    moving.strip.map(button.addSubview)
+    MainActor.assumeIsolated { moving.place(in: button) }
+    let laid = moving.strip?.frame ?? .zero
+    let laidTop = button.isFlipped ? laid.minY : button.bounds.height - laid.maxY
+    check(moving.strip?.isHidden == false && laid.size == moving.image.size && solidCorner != nil
+            && laid.minX == solidCorner?.x && laidTop == solidCorner?.y,
+          "the moving text lies exactly where AppKit draws a picture of its size, in a title an icon makes taller")
+    button.attributedTitle = FrontTitle.make(icon: nil, tag: nil, figure: nil, font: font, ticker: still.image)
+    MainActor.assumeIsolated { moving.place(in: button) }
+    check(moving.strip?.isHidden == true, "moving text whose blank has left the title is not shown")
+
+    check(!bar.contains("Timer(") && !bar.contains("setNeedsDisplay") && !bar.contains("advanceTicker"),
+          "nothing in Graft wakes while the text moves: no timer, and the button is never asked to draw again")
+    check(bar.contains("tickerStarted = nil\n") && bar.contains("NewChatTicker.Picture(text, font: font, started: tickerStarted)"),
+          "a new conversation starts its pass from the beginning, and new words for the same one carry on")
+    let walk = controllerSource.components(separatedBy: "func lookUpRecords(").last?
+        .components(separatedBy: "/// Read again only when the transcript has grown").first ?? ""
+    check(walk.contains("Graft.modificationDate(atPath: path)") && !walk.contains("attributesOfItem"),
+          "the walk that runs every two seconds dates each record with one lstat")
+    let blue = Shortcut.IconPreset.next(besides: [.original])
+    check(blue == .blue && Shortcut.IconPreset.next(besides: [.original, .blue, .violet]) == .green,
+          "a new Claude takes the first colour nothing has, never Claude's own")
+    check(Shortcut.IconPreset.next(besides: [.original] + Shortcut.IconPreset.handedOut
+            + Shortcut.IconPreset.handedOut.filter { $0 != .teal }) == .teal,
+          "once every colour is in use, the least used comes round again")
+    check(!Shortcut.IconPreset.handedOut.contains(.original),
+          "Claude's own icon is never handed to another Claude")
+    let strip = PoolStrip.image([.original, .blue, .green], lit: 1)
+    let even = PoolStrip.image([.original, .blue, .green], lit: nil)
+    check(strip != nil && even != nil && strip!.size.width < even!.size.width
+            && strip!.size.height == FrontIcon.side,
+          "the pool's accounts share one picture, the answering one full size and the others smaller")
+    check(PoolStrip.image([.original], lit: 0) == nil,
+          "a Claude that draws on nobody keeps its single icon")
+    check(bar.contains("if let drawing { icon = drawing.strip }")
+            && bar.contains("DispatchQueue.main.async { self?.updateTitle() }"),
+          "the menu bar lights the account answering the conversation in front, and follows the relay's passes")
+    let poolSource = (try? String(contentsOf: URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        .deletingLastPathComponent().appending(path: "Sources/App/UsagePoolController.swift"),
+        encoding: .utf8)) ?? ""
+    check(poolSource.contains("if let claude = claude(sameAccountAs: key) { return preset(of: claude) }")
+            && poolSource.contains("stored.iconPreset = accounts[index].iconPreset"),
+          "an account that is also a Claude wears that Claude's colour, and a login renewed keeps its colour")
+    let contentSource = (try? String(contentsOf: URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        .deletingLastPathComponent().appending(path: "Sources/App/ContentView.swift"),
+        encoding: .utf8)) ?? ""
+    check(contentSource.contains("shortcut.iconPreset = Shortcut.IconPreset.next(besides: Shared.usagePool.coloursInUse)"),
+          "a new Claude is given its colour when it is made, and nothing recolours one that exists")
+    check(bar.contains("let symbol = alert ?? (front == nil ? StatusSymbol.idle : nil)")
+            && bar.contains("afterImage: button.image != nil"),
+          "Graft's own mark gives way to the Claude in front, and comes back for an update or when none is shown")
+}
+
+// MARK: - Artifacts across accounts
+
+/// A group as Graft read it before roles, to prove an older Graft can still
+/// read what this one writes.
+struct LegacyGroup: Decodable {
+    var id: UUID
+    var name: String
+    var emails: [String]
+}
+
+section("Artifacts")
+
+do {
+    let org = "8d22f6d4-6ac4-46cb-840d-3248ad76f2f7"
+    check(ArtifactAPI.headers["X-Frame-CP"] == "go",
+          "every artifact request carries the header without which the service answers 404")
+    check(ArtifactAPI.listPath(rel: "mine", org: org)
+            == "/api/frame/artifacts?rel=mine&empty=exclude&limit=48&org=\(org)&sort=last_viewed",
+          "a list is asked for exactly as claude.ai's own page asks for it")
+    check(ArtifactAPI.listPath(rel: "shared", org: org, after: "a+b=c").hasSuffix("&page_token=a%2Bb%3Dc"),
+          "a page token goes back encoded, so one with a plus sign is not read as a space")
+    check(ArtifactAPI.permPath("aadd31ed-02a0", org: org) == "/api/frame/perm/aadd31ed-02a0?org=\(org)"
+            && ArtifactAPI.invitePath("aadd31ed-02a0", org: org) == "/api/frame/invite/aadd31ed-02a0?org=\(org)",
+          "permissions and invitations are keyed by the artifact's UUID under its organization")
+    check(String(decoding: ArtifactAPI.inviteBody(email: "a@example.com"), as: UTF8.self)
+            == #"{"email":"a@example.com","role":"reader"}"#,
+          "an invitation from a group makes the person a viewer, never an editor")
+    check(String(decoding: ArtifactAPI.readModeBody(public: true, invited: ["u1"]), as: UTF8.self)
+            == #"{"read":{"mode":"public"}}"#,
+          "opening an artifact to anyone with the link")
+    check(String(decoding: ArtifactAPI.readModeBody(public: false, invited: ["u1"]), as: UTF8.self)
+            == #"{"read":{"mode":"users","users":["u1"]}}"#
+            && String(decoding: ArtifactAPI.readModeBody(public: false, invited: []), as: UTF8.self)
+            == #"{"read":{"mode":"owner"}}"#,
+          "closing it again keeps whoever was invited, and is private to the owner when nobody was")
+
+    let account = Data(#"""
+        {"uuid":"acc-1","email_address":"me@example.com","memberships":[
+          {"organization":{"uuid":"team-org","capabilities":["raven"]}},
+          {"organization":{"uuid":"chat-org","capabilities":["chat","claude_pro"]}}]}
+        """#.utf8)
+    check(ArtifactAPI.identity(from: account)
+            == ArtifactAPI.Identity(accountUuid: "acc-1", email: "me@example.com", org: "chat-org"),
+          "an account in a team as well is asked about under the organization that chats")
+    check(ArtifactAPI.identity(from: Data(#"{"error":"unauthorized"}"#.utf8)) == nil,
+          "an answer that names no account is no sign-in")
+
+    check(ArtifactAPI.meansSignedOut(401, at: ArtifactAPI.listPath(rel: "mine", org: org))
+            && ArtifactAPI.meansSignedOut(403, at: ArtifactAPI.accountPath)
+            && !ArtifactAPI.meansSignedOut(403, at: ArtifactAPI.permPath("aadd31ed", org: org))
+            && !ArtifactAPI.meansSignedOut(403, at: "/v1/code/sessions?limit=200"),
+          "a 401 anywhere is signed out, and a 403 is only from the account page")
+    check(ArtifactAPI.needsAccountCheck(403, at: ArtifactAPI.invitePath("aadd31ed", org: org))
+            && !ArtifactAPI.needsAccountCheck(403, at: ArtifactAPI.accountPath)
+            && !ArtifactAPI.needsAccountCheck(404, at: ArtifactAPI.invitePath("aadd31ed", org: org)),
+          "a 403 from anywhere else asks the account page once before it is taken for a sign-out")
+
+    let first = ArtifactAccount(id: UUID(), email: "a@example.com", accountUuid: "acc-a", org: "org-a")
+    let second = ArtifactAccount(id: UUID(), email: "b@example.com", accountUuid: "acc-b", org: "org-b")
+    let fresh = UUID()
+    let again = ArtifactAccounts.signedIn([first, second], store: fresh,
+                                          as: ArtifactAPI.Identity(accountUuid: "acc-a", email: "a@example.com",
+                                                                   org: "org-a"))
+    check(again.accounts.map(\.id) == [fresh, second.id] && again.accounts.first?.accountUuid == "acc-a"
+            && again.retired == [first.id],
+          "signing in again to a listed account keeps the new store, in the account's place, and lets the dead one go")
+    let added = ArtifactAccounts.signedIn([first], store: fresh,
+                                          as: ArtifactAPI.Identity(accountUuid: "acc-b", email: "b@example.com",
+                                                                   org: "org-b"))
+    check(added.accounts.map(\.id) == [first.id, fresh] && added.retired.isEmpty,
+          "a sign-in to an account not yet listed adds it and lets nothing go")
+    let crossed = ArtifactAccounts.signedIn([first, second], store: first.id,
+                                            as: ArtifactAPI.Identity(accountUuid: "acc-b", email: "b@example.com",
+                                                                     org: "org-b"))
+    check(crossed.accounts.map(\.id) == [first.id] && crossed.accounts.first?.accountUuid == "acc-b"
+            && crossed.retired == [second.id],
+          "signing in again to one account as another listed one leaves that one listed once, on the store now holding it")
+    let same = ArtifactAccounts.signedIn([first, second], store: second.id,
+                                         as: ArtifactAPI.Identity(accountUuid: "acc-b", email: "b@example.com",
+                                                                  org: "org-b2"))
+    check(same.accounts.map(\.id) == [first.id, second.id] && same.accounts.last?.org == "org-b2" && same.retired.isEmpty,
+          "signing in again to an account as itself keeps its store and its place")
+
+    let mine = UUID(), other = UUID()
+    let listing = Data(#"""
+        {"artifacts":[
+          {"kind":"page","id":"a1","rel":"mine","title":"Pool check","audience":"owner",
+           "open_url":"https://claude.ai/artifact/N6k75kB4","sort_time":"2026-11-07T10:00:00.000Z",
+           "owner_account":"acc-1"},
+          {"kind":"page","id":"a2","rel":"mine","title":"","audience":"public",
+           "sort_time":"2026-11-08T10:00:00Z"}],
+         "next_page_token":"next"}
+        """#.utf8)
+    let page = ArtifactAPI.page(from: listing, account: mine, org: org)
+    check(page?.artifacts.count == 2 && page?.next == "next"
+            && page?.artifacts.first?.openURL?.absoluteString == "https://claude.ai/artifact/N6k75kB4",
+          "a page of artifacts is read with the link claude.ai gave and the token for the next page")
+    check(page?.artifacts.last?.title == "Untitled" && page?.artifacts.last?.access == .anyoneWithLink,
+          "an artifact with no title is still listed, and a public one reads as open to anyone with the link")
+    check(ArtifactAccess(audience: "users") == .invited && ArtifactAccess(audience: "owner") == .onlyYou
+            && ArtifactAccess(audience: "org") == .organization,
+          "each audience the service names reads as who can open it")
+    check(ArtifactAccess.organization.menuChoice == .organization && ArtifactAccess.onlyYou.menuChoice == .invited
+            && ArtifactAccess.invited.menuChoice == .invited
+            && ArtifactAccess.anyoneWithLink.menuChoice == .anyoneWithLink,
+          "an artifact shared with its organization checks an entry of its own, never the invited one")
+    check(!ArtifactAccess.anyoneWithLink.changes(toPublic: true) && !ArtifactAccess.invited.changes(toPublic: false)
+            && !ArtifactAccess.onlyYou.changes(toPublic: false)
+            && ArtifactAccess.invited.changes(toPublic: true) && ArtifactAccess.anyoneWithLink.changes(toPublic: false)
+            && ArtifactAccess.organization.changes(toPublic: false),
+          "asking an artifact to be what it already is changes nothing, and leaving the organization is a change")
+    check(ArtifactAPI.permissions(from: Data(#"{"read":{"mode":"org"}}"#.utf8))?.mode == "org"
+            && ArtifactAPI.permissions(from: Data(#"{"version":"v1"}"#.utf8))?.mode == nil,
+          "who can open an artifact is read from its permissions as claude.ai has it now")
+    check(ArtifactAPI.page(from: Data("<html>".utf8), account: mine, org: org) == nil,
+          "a challenge page in place of a list is not taken for an empty one")
+
+    let owned = Artifact(id: "x", account: mine, org: org, title: "Plan", kind: "page", openURL: nil,
+                         audience: "users", rel: "mine", sortTime: Date(timeIntervalSince1970: 10),
+                         ownerAccount: "acc-1")
+    var sharedCopy = owned
+    sharedCopy.account = other
+    sharedCopy.rel = "shared"
+    var newer = owned
+    newer.id = "y"
+    newer.sortTime = Date(timeIntervalSince1970: 20)
+    let merged = ArtifactAPI.merge([[sharedCopy], [owned, newer]])
+    check(merged.map(\.id) == ["y", "x"] && merged.last?.account == mine,
+          "an artifact two of your accounts can see is listed once, under the one that owns it, newest first")
+
+    check(GroupAddresses.parse("Ana <ANA@example.com>, bo@example.org; ana@example.com\nnot-an-address\nx@y")
+            == ["ana@example.com", "bo@example.org"],
+          "addresses pasted from a mail header are read once each, and what is not an address is dropped")
+
+    let groups = [ArtifactGroup(id: UUID(), name: "Design", emails: ["a@example.com"])]
+    let savedGroups = ArtifactFiles.save(groups, to: ArtifactFiles.groups)
+    if case .read(let back) = ArtifactFiles.readEach(ArtifactGroup.self, from: ArtifactFiles.groups) {
+        check(savedGroups && back.values == groups && back.lost == 0
+                && ArtifactFiles.groups.path.hasPrefix(Graft.applicationSupport.path),
+              "groups are kept in Graft's own folder and read back as they were saved")
+    } else {
+        check(false, "groups are kept in Graft's own folder and read back as they were saved")
+    }
+
+    let filesFolder = root.appending(path: "artifact-files")
+    try? fm.createDirectory(at: filesFolder, withIntermediateDirectories: true)
+    let absent = filesFolder.appending(path: "absent.json")
+    let garbled = filesFolder.appending(path: "artifact-accounts.json")
+    try? Data("{not json".utf8).write(to: garbled)
+    func isMissing<T>(_ reading: ArtifactFiles.Reading<T>) -> Bool { if case .missing = reading { return true }; return false }
+    func isUnreadable<T>(_ reading: ArtifactFiles.Reading<T>) -> Bool { if case .unreadable = reading { return true }; return false }
+    check(isMissing(ArtifactFiles.read([ArtifactAccount].self, from: absent))
+            && isUnreadable(ArtifactFiles.read([ArtifactAccount].self, from: garbled)),
+          "a file that is not there is told apart from one that is there and will not decode")
+    let aside = ArtifactFiles.setAside(garbled, at: Date(timeIntervalSince1970: 1_700_000_000))
+    check(aside?.lastPathComponent == "artifact-accounts.unreadable-1700000000.json"
+            && !fm.fileExists(atPath: garbled.path)
+            && (try? Data(contentsOf: aside!)) == Data("{not json".utf8),
+          "an unreadable file is moved aside whole, beside where it was, rather than saved over")
+    let oneBad = filesFolder.appending(path: "groups.json")
+    try? Data(#"""
+        [{"id":"6E1F0F55-8C8B-4E64-8F73-6D3A50D3E5B1","name":"Design","emails":["a@example.com"]},
+         {"id":"not a uuid","name":"Broken","emails":["b@example.com"]},
+         {"id":"7E1F0F55-8C8B-4E64-8F73-6D3A50D3E5B1","name":"Review","emails":[]}]
+        """#.utf8).write(to: oneBad)
+    if case .read(let found) = ArtifactFiles.readEach(ArtifactGroup.self, from: oneBad) {
+        check(found.values.map(\.name) == ["Design", "Review"] && found.lost == 1,
+              "one group that will not decode costs that group, not every group in the file")
+    } else {
+        check(false, "one group that will not decode costs that group, not every group in the file")
+    }
+
+    let repo = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+    let center = (try? String(contentsOf: repo.appending(path: "Sources/App/ArtifactCenter.swift"),
+                              encoding: .utf8)) ?? ""
+    let app = ((try? FileManager.default.contentsOfDirectory(atPath: repo.appending(path: "Sources/App").path)) ?? [])
+        .compactMap { try? String(contentsOf: repo.appending(path: "Sources/App/\($0)"), encoding: .utf8) }
+        .joined()
+    check(!center.isEmpty && !app.contains("httpCookieStore") && !app.contains("HTTPCookieStorage"),
+          "the claude.ai sign-in is never read out of its web store")
+    check(center.contains(#"credentials: "same-origin""#) && !center.contains("URLSession"),
+          "artifact requests go from claude.ai's own page, never from a request Graft builds itself")
+    check(center.contains("WKWebsiteDataStore(forIdentifier: account)")
+            && center.contains("WKWebsiteDataStore.remove(forIdentifier: account)"),
+          "each account signs in to a store of its own, and signing out deletes it")
+    check(!center.contains("Timer") && !center.contains("onReceive"),
+          "artifacts are asked for when the list is shown or refreshed, never on a timer")
+    check(center.range(of: #"session\?\.close\(\)[\s\S]*await session\?\.released\(\)\s*await ClaudeWebSession\.forget\(id\)"#,
+                       options: .regularExpression) != nil
+            && center.contains("if closed { throw Failure.signedOut }")
+            && center.range(of: #"guard account\(id\) != nil else \{\s*session\.close\(\)"#, options: .regularExpression) != nil,
+          "a store is removed only once every page on it has let go, and nothing builds a new one on it meanwhile")
+    check(center.range(of: #"release\(\)\s*let done = self\.done\s*Task \{ done\(identity\) \}"#,
+                       options: .regularExpression) != nil
+            && center.range(of: #"if signIn\?\.account == id \{\s*signIn\?\.close\(\)"#, options: .regularExpression) != nil,
+          "a sign-in window lets go of its pages before its sign-in is acted on, and signing out closes it")
+    check(!center.contains("try? await WKWebsiteDataStore.remove")
+            && center.contains(#"Diagnostics.note("artifacts.store removal failed""#),
+          "a store that will not be removed is written down and tried again, never dropped in silence")
+    check(center.contains("if accountsWereRead, #available(macOS 14, *)")
+            && center.contains("await ClaudeWebSession.storeIdentifiers()"),
+          "stores no listed account is under are removed at launch, and only against an accounts file that was read")
+    check(center.contains("mayWriteAccounts = Self.setAside(ArtifactFiles.accounts)")
+            && center.contains("mayWriteGroups = Self.setAside(ArtifactFiles.groups)")
+            && center.contains("guard mayWriteAccounts else { return }")
+            && center.components(separatedBy: "ArtifactFiles.save(accounts").count == 2,
+          "an accounts or groups file that will not read is set aside before anything is saved where it was")
+    check(center.contains("observe(\\.url"),
+          "a sign-in that ends by moving inside claude.ai's page is noticed, not only one that loads a new page")
+    check(center.contains("configuration: configuration") && center.contains("func webViewDidClose"),
+          "a provider's sign-in gets a window of its own to answer from, and closing it asks again")
+
+    let scene = (try? String(contentsOf: repo.appending(path: "Sources/App/ClaudeGraftApp.swift"),
+                             encoding: .utf8)) ?? ""
+    check(scene.contains(".modifier(SmallestWindow())") && !scene.contains("minWidth: 720, minHeight: 460")
+            && scene.contains("CGSize(width: 820, height: 560)"),
+          "the window cannot be dragged smaller than the 820 by 560 every page is laid out for")
+}
+
+section("Artifact roles, actions and exports")
+
+do {
+    let org = "8d22f6d4-6ac4-46cb-840d-3248ad76f2f7"
+    func text(_ data: Data) -> String { String(decoding: data, as: UTF8.self) }
+    check(text(ArtifactAPI.inviteBody(email: "a@example.com", role: .commenter))
+            == #"{"email":"a@example.com","role":"commenter"}"#
+            && text(ArtifactAPI.inviteBody(email: "a@example.com", role: .editor))
+            == #"{"email":"a@example.com","role":"editor"}"#,
+          "a commenter and an editor are invited by the role names claude.ai's invitations use")
+
+    let both = ArtifactAPI.permissions(from: Data(#"""
+        {"version":"v7","read":{"mode":"users","users":["u1"]},"commentersEnabled":true,"editorsEnabled":true}
+        """#.utf8))
+    let none = ArtifactAPI.permissions(from: Data(#"{"version":"v7","read":{"mode":"owner"}}"#.utf8))
+    let older = ArtifactAPI.permissions(from: Data(#"{"version":3,"writersEnabled":true}"#.utf8))
+    check(both?.commenters == true && both?.editors == true && both?.version == "v7"
+            && none?.commenters == false && none?.editors == false && older?.editors == true,
+          "an artifact's permissions say whether it takes commenters and editors, and silence offers neither")
+    if let both, let none {
+        var commentsOnly = none
+        commentsOnly.commenters = true
+        check(ArtifactRole.editor.offered(by: both) == .editor
+                && ArtifactRole.editor.offered(by: commentsOnly) == .commenter
+                && ArtifactRole.editor.offered(by: none) == .reader
+                && ArtifactRole.commenter.offered(by: none) == .reader
+                && ArtifactRole.reader.offered(by: both) == .reader,
+              "where an artifact does not take a role, the person gets the most it does take and never more")
+    }
+
+    let id = UUID(uuidString: "6E1F0F55-8C8B-4E64-8F73-6D3A50D3E5B1")!
+    let old = Data(#"{"emails":["a@example.com","b@example.com"],"id":"6E1F0F55-8C8B-4E64-8F73-6D3A50D3E5B1","name":"Design"}"#.utf8)
+    let oldGroup = try? JSONDecoder().decode(ArtifactGroup.self, from: old)
+    check(oldGroup?.emails == ["a@example.com", "b@example.com"] && oldGroup?.role(of: "a@example.com") == .reader
+            && oldGroup?.commonRole == .reader,
+          "a group saved before roles existed reads back with everyone a viewer, as it was shared before")
+    let encoder = JSONEncoder()
+    encoder.outputFormatting = [.sortedKeys]
+    check(oldGroup.flatMap { try? encoder.encode($0) }.map(text) == text(old),
+          "a group of viewers is written exactly as before roles, so an older Graft reads it unchanged")
+    var mixed = ArtifactGroup(id: id, name: "Review", emails: ["a@example.com", "b@example.com", "c@example.com"])
+    mixed.setRole(.editor, for: "a@example.com")
+    mixed.setRole(.commenter, for: "b@example.com")
+    let saved = try? encoder.encode(mixed)
+    let back = saved.flatMap { try? JSONDecoder().decode(ArtifactGroup.self, from: $0) }
+    check(back == mixed && back?.role(of: "c@example.com") == .reader && back?.commonRole == nil,
+          "a mixed group keeps each person's role through a save")
+    check(saved.flatMap { try? JSONDecoder().decode(LegacyGroup.self, from: $0) }?.emails == mixed.emails,
+          "an older Graft can still read a group with roles, as viewers only")
+    var editors = mixed
+    editors.setRoleForEveryone(.editor)
+    var viewers = mixed
+    viewers.setRoleForEveryone(.reader)
+    check(editors.commonRole == .editor && viewers.commonRole == .reader && viewers.roles.isEmpty,
+          "a group can be made all editors, or all viewers again")
+    let unknown = Data(#"{"emails":["a@example.com","b@example.com"],"id":"6E1F0F55-8C8B-4E64-8F73-6D3A50D3E5B1","name":"X","roles":{"a@example.com":"manager","b@example.com":"editor"}}"#.utf8)
+    let fromNewer = try? JSONDecoder().decode(ArtifactGroup.self, from: unknown)
+    check(fromNewer?.role(of: "a@example.com") == .reader && fromNewer?.role(of: "b@example.com") == .editor,
+          "a role this Graft does not know costs that one person their role, not the group")
+
+    check(ArtifactAPI.retitlePath("aadd31ed", org: org) == "/api/frame/retitle/aadd31ed?org=\(org)"
+            && text(ArtifactAPI.retitleBody("New \"name\"")) == #"{"title":"New \"name\""}"#
+            && ArtifactAPI.duplicatePath("aadd31ed", org: org) == "/api/frame/duplicate/aadd31ed?org=\(org)"
+            && ArtifactAPI.artifactPath("aadd31ed", org: org) == "/api/frame/aadd31ed?org=\(org)",
+          "renaming, copying, deleting and reading an artifact go to the artifact service's own paths")
+    check(ArtifactAPI.reason(from: Data(#"{"reason":"title_invalid"}"#.utf8)) == "title_invalid"
+            && ArtifactAPI.reason(from: Data(#"{"error":{"reason":"org_mismatch"}}"#.utf8)) == "org_mismatch",
+          "claude.ai's reason for a refusal is read wherever it puts it")
+
+    let row = Data(#"""
+        {"artifacts":[
+          {"kind":"page","id":"a1","rel":"mine","title":"T","audience":"owner","renamable":true,
+           "duplicable":true,"duplicate_available":false},
+          {"kind":"page","id":"a2","rel":"shared","title":"U","audience":"users"}]}
+        """#.utf8)
+    let rows = ArtifactAPI.page(from: row, account: UUID(), org: org)?.artifacts
+    check(rows?.first?.renamable == true && rows?.first?.duplicable == true && rows?.first?.duplicateAvailable == false
+            && rows?.last?.renamable == false && rows?.last?.duplicable == false,
+          "only what the list says claude.ai allows is offered, and a list that says nothing offers nothing")
+
+    let bootstrap = Data(#"""
+        {"ver":"v12","assetToken":"a.b.c.1900000000","title":"Plan","files":[
+          {"path":"index.html"},{"path":"app.js"},{"path":"img/a b.png"},
+          {"path":"../escape.html"},{"path":"/etc/passwd"},{"path":"a//b"}]}
+        """#.utf8)
+    let files = ArtifactAPI.source(from: bootstrap)
+    check(files?.files == ["index.html", "app.js", "img/a b.png"] && files?.version == "v12",
+          "an artifact's files are read by the paths it lists, and none that could climb out of the folder")
+    check(ArtifactAPI.source(from: Data(#"{"ver":"v1"}"#.utf8)) == nil,
+          "an artifact that gives no token to read its files with is not read")
+    if let files {
+        let url = ArtifactAPI.fileURL("AADD31ED-02A0", source: files, path: "img/a b.png")?.absoluteString
+        check(url == "https://aadd31ed-02a0.frame.claudeusercontent.com/_f/v12/_src/img/a%20b.png?__frame_t=a.b.c.1900000000",
+              "a file is read from the artifact's own file host, as its viewer reads it")
+        check(ArtifactAPI.fileURL("x", source: files, path: "../a") == nil,
+              "no file is read from outside the artifact")
+    }
+    check(ArtifactExportFormat.fileName(for: "Q3 plan: draft/2", format: .markdown, singleFile: true) == "Q3 plan- draft-2.md"
+            && ArtifactExportFormat.fileName(for: "  ", format: .pdf, singleFile: true) == "Artifact.pdf"
+            && ArtifactExportFormat.fileName(for: "Site", format: .html, singleFile: false) == "Site.zip"
+            && ArtifactExportFormat.fileName(for: "Site", format: .word, singleFile: false) == "Site.docx",
+          "an export is named after the artifact, and a page of several files goes out zipped")
+
+    let repo = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+    func source(_ name: String) -> String {
+        (try? String(contentsOf: repo.appending(path: "Sources/App/\(name)"), encoding: .utf8)) ?? ""
+    }
+    let export = source("ArtifactExport.swift")
+    let center = source("ArtifactCenter.swift")
+    check(export.contains("websiteDataStore = .nonPersistent()") && !export.contains("dataStore(for")
+            && export.contains("decidePolicyFor") && center.contains(#"credentials: "omit""#),
+          "an export is drawn where no sign-in is, and its files are read with no cookie")
+    check(!export.contains("URLSession") && !export.contains("httpCookieStore"),
+          "an export reads nothing a page of claude.ai did not hand it")
+    check(!center.contains("status == 401 || status == 403")
+            && center.contains("if ArtifactAPI.meansSignedOut(status, at: path) { throw Failure.signedOut }")
+            && center.range(of: #"catch ClaudeWebSession\.Failure\.signedOut \{[^}]*return\s*\} catch \{\s*refusal = refusal \?\? "unanswered""#,
+                            options: .regularExpression) != nil,
+          "a refused invitation is counted and the rest still go out; only a sign-out stops them")
+    check(center.contains(#"response.headers.get("Content-Length")"#) && center.contains("if (size > limit)")
+            && center.contains("download(url, limit: ArtifactAPI.maximumExportBytes - total)"),
+          "an export file larger than what is left of the budget is refused in the page, before it is encoded there")
+    check(center.contains("func webViewWebContentProcessDidTerminate"),
+          "a page whose process died is dropped, so the account is not left answering nothing")
+    check(center.contains("if !loading.isEmpty, !closed { startLoading() }")
+            && center.contains("guard view === webView else { return }")
+            && center.contains("Task.sleep(nanoseconds: Self.loadLimit)"),
+          "a page dropped while it loads leaves its waiting requests to the next page, and none waits for good")
+    check(center.contains("guard loadGenerations[id] == generation, account(id) != nil else { return }")
+            && center.components(separatedBy: "load(id, again: true)").count >= 2,
+          "a list a sign-in has since superseded writes nothing over the one that followed it")
+    let view = source("ArtifactsView.swift")
+    check(view.contains("signInHint") && source("ProjectsView.swift").contains("ArtifactsView.signInHint")
+            && center.contains("ArtifactsView.signInHint"),
+          "every way into a sign-in says to use an emailed code")
+    check(view.contains("Circle()") && view.range(of: #"Circle\(\)[\s\S]*Menu \{"#, options: .regularExpression) != nil,
+          "an account's dot is drawn beside its menu, where a borderless menu cannot drop it")
+    check(view.contains("get: { current.menuChoice }")
+            && view.contains("guard choice != current.menuChoice, choice != .organization else { return }")
+            && view.contains(#"Text("Your Organization").tag(ArtifactAccess.organization)"#)
+            && center.contains("guard artifact.access.changes(toPublic: isPublic), !busy.contains(key) else { return }")
+            && center.contains("!ArtifactAccess(audience: mode).changes(toPublic: isPublic)"),
+          "choosing the entry already checked sends nothing, and an organization's access is never dropped unasked")
+
+    let content = source("ContentView.swift")
+    let model = source("Model.swift")
+    check(content.contains("Shortcut(name: store.uniqueName(), source: .own)"),
+          "a new Claude starts with chats of its own")
+    check(model.contains("var source: Source = .main")
+            && model.contains("decodeIfPresent(Source.self, forKey: .source) ?? .main")
+            && content.components(separatedBy: "store.shortcuts.append(").count == 2,
+          "a Claude saved before that keeps reading the chats it read, and nothing else makes a new one")
+    let saved1 = Data(#"[{"id":"6E1F0F55-8C8B-4E64-8F73-6D3A50D3E5B1","name":"Work","folder":"Claude-Work"}]"#.utf8)
+    check((try? JSONDecoder().decode([Shortcut].self, from: saved1))?.first?.source == .main,
+          "a saved Claude with no source written down still reads Claude's own chats")
+}
+
+// MARK: - Projects and search across accounts
+
+section("Projects and search")
+
+do {
+    let org = "11111111-2222-4333-8444-555555555555"
+    let mine = UUID()
+    let lent = UUID()
+    check(ClaudeAPI.projectsPath(org: org, offset: 30)
+            == "/api/organizations/\(org)/projects_v2?include_harmony_projects=true&limit=30&offset=30&order_by=latest_chat",
+          "projects are asked for as the Projects page asks, thirty at a time")
+    check(ClaudeAPI.searchPath(org: org) == "/api/organizations/\(org)/conversation/search/v2"
+            && String(decoding: ClaudeAPI.searchBody(query: "pi \"zero\""), as: UTF8.self)
+                == #"{"n":25,"query":"pi \"zero\"","target_snippet_size":100}"#,
+          "a search is posted with the query, the count and the snippet size the search box sends")
+    check(ClaudeAPI.codeSessionsPath() == "/v1/code/sessions?limit=200"
+            && ClaudeAPI.codeSessionsPath(after: "a|b=").hasSuffix("&cursor=a%7Cb%3D"),
+          "Code sessions are listed two hundred at a time, the cursor carried as given")
+    let headers = ClaudeAPI.codeHeaders(org: org)
+    check(headers["x-organization-uuid"] == org && headers["anthropic-beta"] == "ccr-byoc-2025-07-29"
+            && headers["X-Frame-CP"] == nil,
+          "the session list names the organization and its beta, and none of the artifact service's headers")
+    check(ClaudeAPI.codeSessionURL("cse_01WY8cUV").absoluteString == "https://claude.ai/code/session_01WY8cUV",
+          "a session listed as cse_ opens as session_ under the same name")
+
+    let projectPage = Data("""
+        {"data":[
+          {"uuid":"p-1","name":"Graft","description":"the app","is_private":true,"is_starred":false,
+           "is_starter_project":false,"archived_at":null,"updated_at":"2026-11-07T10:00:00.000Z",
+           "creator":{"uuid":"c","full_name":"Aaditya"}},
+          {"uuid":"p-2","name":"","is_private":false,"is_starred":true,"is_starter_project":true,
+           "archived_at":null,"updated_at":"2026-10-01T10:00:00Z"},
+          {"uuid":"p-3","name":"Old","archived_at":"2026-09-01T00:00:00Z"}],
+         "pagination":{"total":3,"limit":30,"offset":0,"has_more":true}}
+        """.utf8)
+    let listed = ClaudeAPI.projects(from: projectPage, account: mine)
+    check(listed?.projects.map(\.id) == ["p-1", "p-2"] && listed?.hasMore == true,
+          "an archived project is left off, as on the Projects page, and another page is followed")
+    check(listed?.projects.last?.name == "Untitled" && listed?.projects.last?.isExample == true
+            && listed?.projects.first?.creator == "Aaditya",
+          "a project with no name is still listed, and the example project says so")
+    check(ClaudeAPI.projects(from: Data("<html>".utf8), account: mine) == nil,
+          "a page that is not a project list is refused, not read as an empty one")
+    let merged = ClaudeAPI.merge([listed?.projects ?? []])
+    check(merged.first?.id == "p-2", "a starred project comes first, as it does on claude.ai")
+    check(merged.first?.openURL.absoluteString == "https://claude.ai/project/p-2",
+          "a project opens at its own page")
+
+    let searchPage = Data("""
+        {"data":[
+          {"conversation":{"uuid":"c-2","name":"Camera Pi","updated_at":"2026-11-06T10:00:00Z",
+                           "project_uuid":"p-1","is_archived":true,"is_starred":true},
+           "matched_snippet":{"text":"a raspberry camera","matches":[{"start":2,"end":11}]},
+           "title_matches":[],"semantic_rank":1},
+          {"conversation":{"uuid":"c-1","name":"Raspberry Pi Pico","updated_at":"2026-11-07T10:00:00Z",
+                           "project_uuid":null,"is_archived":false},
+           "matched_snippet":{"text":"","matches":[]},"title_matches":[{"start":0,"end":9}],"semantic_rank":0}],
+         "next_page_token":null,"executed_mode":"hybrid"}
+        """.utf8)
+    let chats = ClaudeAPI.chats(from: searchPage, account: mine) ?? []
+    check(chats.count == 2 && chats[0].isArchived && chats[0].isStarred && chats[0].project == "p-1"
+            && chats[1].titleMatches == [0..<9] && chats[0].snippetMatches == [2..<11],
+          "a found chat keeps its project, its archive and star, and where the query matched")
+    check(chats[1].openURL?.absoluteString == "https://claude.ai/chat/c-1", "a chat opens at its own page")
+
+    let sessionPage = Data("""
+        {"data":[
+          {"id":"cse_here","title":"Fix the graft build","status":"active","environment_kind":"bridge",
+           "last_event_at":"2026-11-07T09:00:00Z","config":{"sources":[]}},
+          {"id":"cse_cloud","title":"Graft release notes","status":"archived","environment_kind":"anthropic_cloud",
+           "updated_at":"2026-11-01T09:00:00Z","config":{"sources":[{"url":"https://github.com/a/claude-graft"}]}},
+          {"id":"cse_far","title":"Graft on the mini","status":"active","environment_kind":"bridge"},
+          {"id":"cse_carried","title":"Graft carried over","status":"active","environment_kind":"bridge"},
+          {"id":"cse_other","title":"Pico camera","status":"active","environment_kind":"bridge"}],
+         "next_cursor":"MTc5"}
+        """.utf8)
+    let sessions = ClaudeAPI.codeSessions(from: sessionPage)
+    check(sessions?.next == "MTc5" && sessions?.sessions.count == 5
+            && sessions?.sessions[1].inCloud == true && sessions?.sessions[1].isArchived == true
+            && sessions?.sessions[1].repository == "https://github.com/a/claude-graft",
+          "a session list is read with its cursor, where each ran, and its repository")
+    let transcriptHere = URL(fileURLWithPath: "/tmp/here.jsonl")
+    let listedAt = Date().addingTimeInterval(60)
+    let local = [
+        LocalCodeSession(bridgeIds: ["cse_here"], owner: "acct-mine", organization: "org-chat", title: "Fix the graft build",
+                         folder: "/Users/Shared/graft", transcript: transcriptHere,
+                         lastActive: Date(), folderIsHere: true),
+        LocalCodeSession(bridgeIds: ["cse_carried"], owner: "acct-mine", organization: "org-chat", title: "Graft carried over",
+                         folder: "/Users/someone-else/graft", transcript: URL(fileURLWithPath: "/tmp/c.jsonl"),
+                         lastActive: Date(), folderIsHere: false),
+        LocalCodeSession(bridgeIds: ["cse_deleted"], owner: "acct-mine", organization: "org-chat", title: "Graft notes, deleted",
+                         folder: "/Users/Shared/graft", transcript: URL(fileURLWithPath: "/tmp/d.jsonl"),
+                         lastActive: Date(), folderIsHere: true),
+        LocalCodeSession(bridgeIds: ["cse_someone"], owner: "acct-other", organization: "org-chat", title: "Graft, not this account",
+                         folder: "/Users/Shared/graft", transcript: URL(fileURLWithPath: "/tmp/o.jsonl"),
+                         lastActive: Date(), folderIsHere: true),
+    ]
+    let remote = sessions?.sessions ?? []
+    let hits = ClaudeAPI.codeHits("graft", account: mine, accountUuid: "acct-mine", organization: "org-chat",
+                                  remote: remote, complete: true, listedAt: listedAt, local: local)
+    func place(_ id: String) -> SearchHit.Place? { hits.first { $0.id == id }?.place }
+    check(place("cse_here") == .thisMac && place("cse_cloud") == .cloud && place("cse_far") == .otherMac
+            && place("cse_carried") == .otherMac,
+          "a Code session is placed on this Mac only when its transcript is here and its folder could be")
+    check(hits.first { $0.id == "cse_here" }?.folder == "/Users/Shared/graft"
+            && hits.first { $0.id == "cse_here" }?.titleMatches == [8..<13],
+          "a session found here carries its folder, and the word that matched its title")
+    check(!hits.contains { $0.id == "cse_other" },
+          "a session whose title and folder do not hold every word is left out")
+    let gone = hits.filter { $0.place == .goneFromClaude }
+    check(gone.count == 1 && gone.first?.title == "Graft notes, deleted" && gone.first?.openURL == nil
+            && gone.first?.transcript?.path == "/tmp/d.jsonl",
+          "a transcript of this account's that claude.ai no longer lists is found, and opens in Finder")
+    var continued = local[2]
+    continued.carriedOn = true
+    let carriedOn = ClaudeAPI.codeHits("graft", account: mine, accountUuid: "acct-mine", organization: "org-chat",
+                                       remote: remote, complete: true, listedAt: listedAt,
+                                       local: [local[0], local[1], continued, local[3]])
+    check(!carriedOn.contains { $0.place == .goneFromClaude },
+          "an earlier half of a conversation that goes on is not called gone from claude.ai")
+    let partial = ClaudeAPI.codeHits("graft", account: mine, accountUuid: "acct-mine", organization: "org-chat",
+                                     remote: remote, complete: false, listedAt: listedAt, local: local)
+    check(!partial.contains { $0.place == .goneFromClaude },
+          "nothing is called gone from claude.ai when the session list was not read to its end")
+    let otherOrg = ClaudeAPI.codeHits("graft", account: mine, accountUuid: "acct-mine", organization: "org-team",
+                                      remote: remote, complete: true, listedAt: listedAt, local: local)
+    let noOrg = ClaudeAPI.codeHits("graft", account: mine, accountUuid: "acct-mine", organization: nil,
+                                   remote: remote, complete: true, listedAt: listedAt, local: local)
+    check(!otherOrg.contains { $0.place == .goneFromClaude } && !noOrg.contains { $0.place == .goneFromClaude },
+          "a session owned under another organization than the list was read for is not called gone from claude.ai")
+    let stale = ClaudeAPI.codeHits("graft", account: mine, accountUuid: "acct-mine", organization: "org-chat",
+                                   remote: remote, complete: true, listedAt: Date().addingTimeInterval(-60),
+                                   local: local)
+    check(!stale.contains { $0.place == .goneFromClaude },
+          "a transcript that moved on after its session list was read is not called gone from claude.ai")
+    let listRead = Date()
+    check(ClaudeAPI.localReadServes(listRead.addingTimeInterval(1), list: listRead, now: listRead, lifetime: 120)
+            && !ClaudeAPI.localReadServes(listRead.addingTimeInterval(-1), list: listRead, now: listRead, lifetime: 120)
+            && !ClaudeAPI.localReadServes(listRead, list: listRead, now: listRead.addingTimeInterval(121), lifetime: 120),
+          "this Mac's transcripts are read again when a session list is newer than them, or they are two minutes old")
+    check(ClaudeAPI.codeMatch("mini graft", title: "Graft on the mini", also: []) != nil
+            && ClaudeAPI.codeMatch("graft cloud", title: "Graft release notes",
+                                   also: ["https://github.com/a/claude-graft"]) == nil,
+          "every word must be found, in any order, in the title or the folder")
+
+    let other = ClaudeAPI.chats(from: Data("""
+        {"data":[{"conversation":{"uuid":"o-1","name":"Lent pico"},"semantic_rank":0}]}
+        """.utf8), account: lent) ?? []
+    let order = ClaudeAPI.interleave([chats + hits, other]).map(\.id)
+    check(Array(order.prefix(3)) == ["c-1", "o-1", "c-2"],
+          "each account's best chat comes before any account's second")
+    check(order.dropFirst(3).first == "cse_here" || order.dropFirst(3).allSatisfy { $0.hasPrefix("cse_") || $0.hasPrefix("local:") },
+          "Code sessions follow the chats")
+
+    let bold = ClaudeAPI.highlighted("🙂 raspberry", [3..<12, 40..<50])
+    let strong = bold.runs.filter { $0.inlinePresentationIntent == .stronglyEmphasized }
+        .map { String(bold[$0.range].characters) }
+    check(strong == ["raspberry"],
+          "matches are counted in UTF-16 as the page counts them, and one past the end is dropped")
+
+    let now = Date()
+    let all = chats + hits
+    var filters = SearchFilters()
+    check(!all.filter { filters.admits($0, now: now) }.contains { $0.isArchived },
+          "a search starts with archived chats and sessions hidden, as claude.ai's box does")
+    filters.status = .archived
+    check(all.filter { filters.admits($0, now: now) }.map(\.id).sorted() == ["c-2", "cse_cloud"],
+          "archived alone shows only what was archived")
+    filters = SearchFilters(status: .any, place: .thisMac)
+    check(all.filter { filters.admits($0, now: now) }.map(\.id) == ["cse_here"],
+          "asking where a session ran leaves chats out")
+    filters = SearchFilters(status: .any, place: .goneFromClaude)
+    check(all.filter { filters.admits($0, now: now) }.count == 1, "gone from claude.ai can be asked for alone")
+    filters = SearchFilters(status: .any, project: .none)
+    check(all.filter { filters.admits($0, now: now) }.map(\.id) == ["c-1"],
+          "no project means a chat outside every project, not a Code session")
+    filters = SearchFilters(status: .any, project: .project("p-1"))
+    check(all.filter { filters.admits($0, now: now) }.map(\.id) == ["c-2"], "one project shows its chats")
+    filters = SearchFilters(status: .any, starredOnly: true)
+    check(all.filter { filters.admits($0, now: now) }.map(\.id) == ["c-2"], "starred only shows starred chats")
+    filters = SearchFilters(kind: .code, status: .any)
+    check(all.filter { filters.admits($0, now: now) }.allSatisfy { $0.kind == .code }, "Code sessions alone")
+    filters = SearchFilters(status: .any, age: .day)
+    let aged = [SearchHit(id: "x", account: mine, kind: .chat, title: "t", snippet: "", snippetMatches: [],
+                          titleMatches: [], project: nil, updated: now.addingTimeInterval(-2 * 86_400),
+                          isArchived: false, isStarred: false, place: nil, folder: nil, transcript: nil,
+                          rank: 0, openURL: nil)]
+    check(aged.filter { filters.admits($0, now: now) }.isEmpty, "the past day leaves out a chat two days old")
+    filters = SearchFilters(status: .any, account: lent)
+    check(([chats, other].joined()).filter { filters.admits($0, now: now) }.map(\.id) == ["o-1"],
+          "one account shows only what that account found")
+    check(!SearchFilters().isNarrowed && SearchFilters(starredOnly: true).isNarrowed,
+          "the filters know when they narrow anything")
+
+    // A sandbox of its own, so the transcripts the sweep checks above are not
+    // read here and these are not read there.
+    let saved = Graft.claudeProjectsOverride
+    Graft.claudeProjectsOverride = root.appending(path: "search-projects")
+    _ = makeTranscript(session: "aaaaaaaa-1111-4111-8111-111111111111", bridge: "cse_localone", title: "Graft here")
+    let elsewhere = Graft.claudeProjects.appending(path: "-Users-gone-work")
+    try! fm.createDirectory(at: elsewhere, withIntermediateDirectories: true)
+    try! """
+        {"type":"bridge-session","sessionId":"s","bridgeSessionId":"cse_carriedone","lastSequenceNum":0,"ownerAccountUuid":"\(ownerAccount)","ownerOrganizationUuid":"\(ownerOrg)"}
+        {"promptId":"p","cwd":"/Users/nobody-who-lives-here-\(UUID().uuidString)/work","type":"user","message":{"role":"user","content":"hi"},"uuid":"u","timestamp":"2026-08-29T17:00:00.000Z"}
+        """.write(to: elsewhere.appending(path: "bbbbbbbb-1111-4111-8111-111111111111.jsonl"), atomically: true, encoding: .utf8)
+    let read = LocalCodeSessions.read()
+    check(read.first { $0.bridgeIds == ["cse_localone"] }.map { $0.folderIsHere && $0.title == "Graft here" } == true,
+          "this Mac's transcripts are found by the ids claude.ai lists their sessions under")
+    check(read.first { $0.bridgeIds == ["cse_carriedone"] }?.folderIsHere == false,
+          "a transcript carried from a home this Mac does not have is known as another Mac's")
+    check(read.first { $0.bridgeIds == ["cse_carriedone"] }?.organization == ownerOrg,
+          "a transcript here carries the organization it was owned under, as the sweep read it")
+    Graft.claudeProjectsOverride = saved
+
+    let repo = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+    func source(_ name: String) -> String {
+        (try? String(contentsOf: repo.appending(path: "Sources/App/\(name)"), encoding: .utf8)) ?? ""
+    }
+    let center = source("ProjectCenter.swift")
+    let views = source("ProjectsView.swift")
+    let model = source("Projects.swift")
+    check(!center.isEmpty && !center.contains("Timer") && !center.contains("onReceive")
+            && !views.contains("Timer") && !views.contains("onReceive"),
+          "projects and searches are asked for when a person asks, never on a timer")
+    check(!center.contains("throw ClaudeWebSession.Failure.signedOut\n        } catch {\n            return (found, false)")
+            && center.contains("let code = await codeSessions(id, org: org, session: session)"),
+          "an account whose Code session list is refused still has its chats searched, and is not signed out for it")
+    check(center.contains("let local = await localSessions(readSince: code.read)")
+            && center.contains("organization: org, remote: code.sessions, complete: code.complete")
+            && center.contains("listedAt: code.read, local: local"),
+          "a search sets each account's session list beside a read of this Mac's transcripts made after it")
+    check(center.contains("askForProjectsNotYetAsked()") && !center.contains("if projects.isEmpty { refreshProjects() }")
+            && center.contains("filter { projectStates[$0] == nil }"),
+          "a search asks for projects only from accounts never asked, not from every account whenever none has any")
+    check(views.contains(".onSubmit { if !center.searching { center.search(query) } }"),
+          "Return held in the search field starts no second search while one is running, as the button starts none")
+    check(source("ArtifactExport.swift").contains("try await Task.detached(priority: .userInitiated) {")
+            && source("ArtifactExport.swift").contains("try await zip(folder"),
+          "a many-file export waits for its archive off the main thread")
+    // A note's text as Swift reads its literal: the closing delimiter's
+    // indentation off every line, and a line ending in a backslash joined to
+    // the next.
+    func notes(in text: String) -> [String] {
+        text.components(separatedBy: "static let note = L10n.text(\"\"\"\n").dropFirst().compactMap { rest in
+            guard let end = rest.range(of: "\"\"\")") else { return nil }
+            let lines = rest[..<end.lowerBound].components(separatedBy: "\n")
+            let indent = lines.last ?? ""
+            return lines.dropLast()
+                .map { $0.hasPrefix(indent) ? String($0.dropFirst(indent.count)) : "" }
+                .joined(separator: "\n").replacingOccurrences(of: "\\\n", with: "")
+        }
+    }
+    let pageNotes = notes(in: source("ArtifactsView.swift")) + notes(in: views)
+    func strings(_ language: String) -> [String: String] {
+        let file = repo.appending(path: "Resources/\(language).lproj/Localizable.strings")
+        return (try? Data(contentsOf: file)).flatMap {
+            try? PropertyListSerialization.propertyList(from: $0, format: nil) as? [String: String]
+        } ?? [:]
+    }
+    let russianNotes = strings("ru")
+    check(pageNotes.count == 3 && !source("ArtifactsView.swift").contains("static let note = \"\"\"")
+            && !views.contains("static let note = \"\"\""),
+          "the Artifacts, Projects and Search Chats notes are each looked up in the catalog")
+    check(pageNotes.allSatisfy { note in russianNotes[note].map { $0 != note } ?? false },
+          "each of those notes reads in Russian when macOS does")
+    check(views.contains(".onSubmit { if !center.searching { center.search(query) } }") && !views.contains("onChange(of: query"),
+          "a search goes out on Return or the button, never as the query is typed")
+    check(!center.contains("URLSession") && !model.contains("URLSession"),
+          "projects and searches go from claude.ai's own page, never from a request Graft builds")
+    check(!model.contains(".write(") && !model.contains("saveTranscriptCache"),
+          "a search reads the sweep's transcript cache and never writes it")
+    check(source("ArtifactCenter.swift").contains(#"path.hasPrefix("/api/frame/") ? ArtifactAPI.headers"#),
+          "the artifact service's headers go to the artifact service alone")
+    check(center.contains("accounts.$accounts") && center.contains("accounts.$lastSignIn")
+            && !views.contains("ArtifactSignInWindow") && !center.contains("ArtifactSignInWindow")
+            && views.contains("accounts.signInNewAccount()"),
+          "one sign-in serves every pane: an account added or signed out in one is added or gone in all")
+    check(source("ArtifactCenter.swift").contains("guard loadGenerations[id] == generation, account(id) != nil else { return }")
+            && source("ArtifactCenter.swift").contains("artifacts = ArtifactAPI.merge(accounts.compactMap { lists[$0.id] })")
+            && !source("ArtifactCenter.swift").contains("merge(Array(lists.values))")
+            && center.contains("guard generation == self.searchGeneration, accounts.account(id) != nil else { continue }")
+            && center.contains("results = ClaudeAPI.interleave(accounts.accounts.compactMap { lists[$0.id] })")
+            && center.contains("guard accounts.account(id) != nil else { return }\n            projectLists[id] = found"),
+          "an account signed out while its list or search was running does not come back with what it found")
+    check(source("ArtifactCenter.swift").components(separatedBy: "lastSignIn = SignIn(").count == 2
+            && source("ArtifactCenter.swift").contains("ArtifactAccounts.signedIn(accounts, store: id, as: identity)")
+            && source("ArtifactCenter.swift").contains("for earlier in change.retired { retire(earlier) }"),
+          "a sign-in is announced under the store it was made in, whether it adds an account or finds one already there")
+}
+
+section("A chat two Claudes both carried on becomes two")
+do {
+    // Two Claudes carrying one chat on from the same point each write a
+    // transcript of their own, and one record can point at only one of them.
+    try? fm.removeItem(at: Graft.mirrorStateFile)
+    let source = makeProfile("Claude-Split-Src", account: "SSRC", org: "SSRCORG")
+    let borrower = makeProfile("Claude-Split", account: "SOWN", org: "SOWNORG")
+    let srcOrg = source.appending(path: "claude-code-sessions/SSRC/SSRCORG")
+    let ownOrg = borrower.appending(path: "claude-code-sessions/SOWN/SOWNORG")
+    let name = "local_split.json"
+    let shared: [String: Any] = ["sessionId": "local_split", "isArchived": false, "lastActivityAt": 1000,
+                                 "lastAssistantUuid": "reply-0", "cliSessionId": "cli-0",
+                                 "title": "Plan the trip", "titleSource": "auto"]
+    writeChatRecord(shared, ownOrg, name)
+    writeChatRecord(shared, srcOrg, name)
+    Graft.mirrorChatFolders(ownOrg, srcOrg)
+    func chats(_ folder: URL) -> [String] {
+        ((try? fm.contentsOfDirectory(atPath: folder.path)) ?? []).filter(Graft.isRecordName).sorted()
+    }
+    func single(_ title: String = "Plan the trip") -> Bool {
+        chats(ownOrg) == [name] && chats(srcOrg) == [name]
+            && chatRecord(ownOrg, name)["title"] as? String == title
+            && chatRecord(srcOrg, name)["title"] as? String == title
+    }
+
+    editChatRecord(srcOrg, name) { $0["isArchived"] = true }
+    editChatRecord(ownOrg, name) { $0["lastFocusedAt"] = 2000 }
+    Graft.mirrorChatFolders(ownOrg, srcOrg)
+    check(single(), "an archive on one side and a look on the other leave one chat under its own title")
+    editChatRecord(ownOrg, name) { $0["isArchived"] = false; $0["resumedAt"] = 2500 }
+    Graft.mirrorChatFolders(ownOrg, srcOrg)
+    check(single() && chatRecord(srcOrg, name)["isArchived"] as? Bool == false,
+          "and so does bringing it back from the archive on the other side")
+    editChatRecord(srcOrg, name) { $0["lastActivityAt"] = 3000; $0["lastAssistantUuid"] = "reply-1"; $0["cliSessionId"] = "cli-1" }
+    Graft.mirrorChatFolders(ownOrg, srcOrg)
+    check(single() && chatRecord(ownOrg, name)["lastAssistantUuid"] as? String == "reply-1",
+          "a chat carried on in one Claude reaches the other as it is, with no mark")
+
+    editChatRecord(srcOrg, name) { $0["lastActivityAt"] = 4000; $0["lastAssistantUuid"] = "reply-src"; $0["cliSessionId"] = "cli-src" }
+    editChatRecord(ownOrg, name) { $0["lastActivityAt"] = 4100; $0["lastAssistantUuid"] = "reply-own"; $0["cliSessionId"] = "cli-own" }
+    Graft.runningClaudesOverride = { [borrower] }
+    Graft.mirrorChatFolders(ownOrg, srcOrg)
+    check(chats(ownOrg) == [name] && chats(srcOrg) == [name]
+            && chatRecord(ownOrg, name)["lastAssistantUuid"] as? String == "reply-own"
+            && chatRecord(srcOrg, name)["lastAssistantUuid"] as? String == "reply-src",
+          "a chat both Claudes carried on is left as each has it while either of them is open")
+    Graft.runningClaudesOverride = { [] }
+    Graft.mirrorChatFolders(ownOrg, srcOrg)
+    let halves = chats(ownOrg)
+    check(halves.count == 2 && chats(srcOrg) == halves, "and once both are closed it is two chats in both profiles")
+    let other = halves.first { $0 != name } ?? name
+    let srcName = Graft.claudeName(of: source), ownName = Graft.claudeName(of: borrower)
+    check([srcOrg, ownOrg].allSatisfy {
+            chatRecord($0, name)["lastAssistantUuid"] as? String == "reply-src"
+                && chatRecord($0, name)["title"] as? String == "Plan the trip (\(srcName))" },
+          "the source's half keeps the chat, titled with the name of the Claude that carried it on")
+    check([srcOrg, ownOrg].allSatisfy {
+            chatRecord($0, other)["lastAssistantUuid"] as? String == "reply-own"
+                && chatRecord($0, other)["cliSessionId"] as? String == "cli-own"
+                && chatRecord($0, other)["sessionId"] as? String == String(other.dropLast(5))
+                && chatRecord($0, other)["title"] as? String == "Plan the trip (\(ownName))" },
+          "and the borrower's half becomes a chat of its own, titled with its Claude's name")
+    check([name, other].allSatisfy { chatRecord(ownOrg, $0)["titleSource"] as? String == "user" },
+          "both titles are kept as given rather than giving way to Claude's next guess")
+    check(Graft.mirrorChatFolders(ownOrg, srcOrg) == 0, "after which a pass has nothing to carry")
+    editChatRecord(ownOrg, other) { $0["lastFocusedAt"] = 5000 }
+    editChatRecord(srcOrg, other) { $0["isArchived"] = true }
+    Graft.mirrorChatFolders(ownOrg, srcOrg)
+    check(chats(ownOrg).count == 2 && chatRecord(srcOrg, other)["title"] as? String == "Plan the trip (\(ownName))",
+          "and a half shown on one side and archived on the other stays one chat, its title marked once")
+    check(Graft.claudeName(of: Graft.mainProfile) == "Claude" && Graft.claudeName(of: borrower) == "Claude-Split",
+          "Claude's own profile is called Claude, and a profile with no shortcut by its folder")
+    for profile in [source, borrower] { try? fm.removeItem(at: profile) }
+}
+
+section("Going back hands an unfiled chat back too")
+do {
+    // A borrowed unfiled chat carries this profile's own origin, so its bytes
+    // never match the source's copy; what decides whether it was borrowed is
+    // the conversation, not the alias.
+    let main = makeProfile("Claude", account: "AAAA", org: "ORG-A", chats: ["shared"])
+    let work = makeProfile("Claude-Work", account: "BBBB", org: "ORG-B", chats: ["mine"])
+    let cwd = main.appending(path: "scratch-workspaces/AAAA/ORG-A/scratch-2026-10-03-abcdef")
+    try! fm.createDirectory(at: cwd, withIntermediateDirectories: true)
+    let record: [String: Any] = ["sessionId": "local_unfiled", "cliSessionId": "transcript",
+        "cwd": cwd.path, "originCwd": cwd.path, "title": "Unfiled", "lastActivityAt": 100]
+    try! JSONSerialization.data(withJSONObject: record)
+        .write(to: main.appending(path: "claude-code-sessions/AAAA/ORG-A/local_unfiled.json"))
+    Graft.graft(from: main, into: work)
+    check(chatsVisible(to: work).contains("local_unfiled.json"),
+          "a profile borrowing an unfiled chat is shown it")
+    Graft.ungraft(work)
+    check(chatsVisible(to: work) == ["local_mine.json"],
+          "and going back hands it back with the rest, though its copy names this profile's own folder")
+    check(Graft.exists(main.appending(path: "claude-code-sessions/AAAA/ORG-A/local_unfiled.json")),
+          "while the profile it came from keeps it")
+    for profile in [main, work] { try? fm.removeItem(at: profile) }
+}
+
+section("Scratch conversations keep their local sidebar classification")
+do {
+    let previous = Graft.applicationSupportOverride
+    let isolated = root.appending(path: "scratch-origin-support")
+    Graft.applicationSupportOverride = isolated
+    defer { Graft.applicationSupportOverride = previous }
+    let source = isolated.appending(path: "Claude")
+    let borrower = isolated.appending(path: "Claude-Second")
+    let one = borrower.appending(path: "claude-code-sessions/OWNACC/OWNORG")
+    let other = source.appending(path: "claude-code-sessions/SRCACC/SRCORG")
+    try! fm.createDirectory(at: one, withIntermediateDirectories: true)
+    try! fm.createDirectory(at: other, withIntermediateDirectories: true)
+    let cwd = source.appending(path: "scratch-workspaces/SRCACC/SRCORG/scratch-2026-10-03-abcdef")
+    try! fm.createDirectory(at: cwd, withIntermediateDirectories: true)
+    try! Data("working files".utf8).write(to: cwd.appending(path: "work.txt"))
+    let record: [String: Any] = ["sessionId": "local_scratch", "cliSessionId": "original-transcript",
+        "cwd": cwd.path, "originCwd": cwd.path, "title": "Unfiled chat", "lastActivityAt": 100,
+        "isArchived": false]
+    let name = "local_scratch.json"
+    try! JSONSerialization.data(withJSONObject: record).write(to: other.appending(path: name))
+    try! Data("{}".utf8).write(to: other.appending(path: "local_keep.json"))
+    Graft.mirrorChatFolders(one, other)
+    func read(_ folder: URL) -> [String: Any] {
+        try! JSONSerialization.jsonObject(with: Data(contentsOf: folder.appending(path: name))) as! [String: Any]
+    }
+    let alias = borrower.appending(path: "scratch-workspaces/SRCACC/SRCORG/scratch-2026-10-03-abcdef")
+    check(read(one)["originCwd"] as? String == alias.path,
+          "an imported unfiled chat is recognized under the receiving profile's scratch root")
+    check(read(one)["cwd"] as? String == cwd.path && read(one)["cliSessionId"] as? String == "original-transcript",
+          "the working directory and transcript identifier remain unchanged for resuming")
+    check(Graft.isSymlink(alias) && Graft.samePath(alias, cwd)
+          && (try? String(contentsOf: alias.appending(path: "work.txt"))) == "working files",
+          "the local origin points at the original working files without moving them")
+    check(Graft.mirrorChatFolders(one, other) == 0 && read(other)["originCwd"] as? String == cwd.path,
+          "a second synchronization preserves both profiles' classification without treating it as an edit")
+    var changed = read(one)
+    changed["title"] = "Renamed on second account"
+    changed["isArchived"] = true
+    changed["lastActivityAt"] = 200
+    try! JSONSerialization.data(withJSONObject: changed).write(to: one.appending(path: name))
+    Graft.mirrorChatFolders(one, other)
+    check(read(other)["title"] as? String == "Renamed on second account"
+          && read(other)["isArchived"] as? Bool == true && read(other)["originCwd"] as? String == cwd.path,
+          "renames and archive changes propagate while the source keeps its own scratch origin")
+    check(Graft.mirrorChatFolders(one, other) == 0 && read(one)["originCwd"] as? String == alias.path,
+          "subsequent launches retain the corrected no-folder classification")
+    var archived = read(other)
+    archived["isArchived"] = false
+    archived["resumedAt"] = 300
+    try! JSONSerialization.data(withJSONObject: archived).write(to: other.appending(path: name))
+    var glanced = read(one)
+    glanced["lastFocusedAt"] = 310
+    try! JSONSerialization.data(withJSONObject: glanced).write(to: one.appending(path: name))
+    Graft.mirrorChatFolders(one, other)
+    check(read(one)["isArchived"] as? Bool == false && read(one)["lastFocusedAt"] as? Int == 310
+          && read(other)["isArchived"] as? Bool == false && read(other)["lastFocusedAt"] as? Int == 310
+          && read(one)["originCwd"] as? String == alias.path && read(other)["originCwd"] as? String == cwd.path,
+          "an unfiled chat both sides changed is merged field by field, each side keeping its own origin")
+    check(Graft.mirrorChatFolders(one, other) == 0,
+          "and the merged unfiled chat is settled, not merged again on every pass")
+    try! fm.removeItem(at: one.appending(path: name))
+    Graft.mirrorChatFolders(one, other)
+    check(!Graft.exists(other.appending(path: name)),
+          "local scratch origins do not prevent an individual deletion from synchronizing")
+    let project: [String: Any] = ["sessionId": "local_project", "cwd": "/a/project", "originCwd": "/a/project"]
+    let projectData = try! JSONSerialization.data(withJSONObject: project)
+    try! projectData.write(to: other.appending(path: "local_project.json"))
+    Graft.mirrorChatFolders(one, other)
+    check((try! Data(contentsOf: one.appending(path: "local_project.json"))) == projectData,
+          "ordinary project records remain byte-for-byte unchanged")
+}
+
+section("Project order follows the most recently reordered account")
+do {
+    func value(_ order: [String], _ time: Int) -> String {
+        String(decoding: try! JSONSerialization.data(withJSONObject: ["value": order, "tabId": "", "timestamp": time]), as: UTF8.self)
+    }
+    func presets(_ list: [(String, String, String)]) -> String {
+        let items = list.map { ["id": $0.0, "name": $0.1, "target": ["kind": "local", "cwd": $0.2]] }
+        return String(decoding: try! JSONSerialization.data(withJSONObject: ["state": ["presets": items], "version": 0]), as: UTF8.self)
+    }
+    func order(_ text: String?) -> [String]? {
+        text.flatMap { try? JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: Any] }?["value"] as? [String]
+    }
+    func time(_ text: String?) -> Double? {
+        (text.flatMap { try? JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: Any] }?["timestamp"] as? NSNumber)?.doubleValue
+    }
+    let presetsA = presets([("a-nas", "NAS", "/Volumes/NAS"), ("a-cv", "CV", "/cv"), ("a-only", "Only A", "/only-a")])
+    let presetsB = presets([("b-cv", "CV", "/cv"), ("b-nas", "NAS", "/Volumes/NAS"), ("b-other", "Renamed", "/only-a-renamed")])
+    let newer = [SidebarSync.ProjectInput(path: "/A", order: value(["/b", "preset::a-cv", "/a", "preset::a-nas", "preset::a-only"], 200), presets: presetsA),
+                 SidebarSync.ProjectInput(path: "/B", order: value(["/a", "/b", "preset::b-nas"], 100), presets: presetsB)]
+    let plan = SidebarSync.planProjectOrders(newer)
+    check(plan["/A"] == nil && order(plan["/B"]) == ["/b", "preset::b-cv", "/a", "preset::b-nas"],
+          "the newer order reaches the other account with its saved environments matched by name and folder")
+    check(time(plan["/B"]) == 200, "the copied order keeps the time it was made, so the next pass has nothing to do")
+    let settled = [newer[0], SidebarSync.ProjectInput(path: "/B", order: plan["/B"], presets: presetsB)]
+    check(SidebarSync.planProjectOrders(settled).isEmpty, "two accounts already in step are left alone in both directions")
+    let tie = [SidebarSync.ProjectInput(path: "/A", order: value(["/a", "/b"], 300), presets: presetsA),
+               SidebarSync.ProjectInput(path: "/B", order: value(["/b", "/a"], 300), presets: presetsB)]
+    check(SidebarSync.planProjectOrders(tie).isEmpty, "orders saved at the same moment do not take turns overwriting each other")
+    let missing = [SidebarSync.ProjectInput(path: "/A", order: value(["/a", "/b"], 50), presets: presetsA),
+                   SidebarSync.ProjectInput(path: "/B", order: nil, presets: nil)]
+    check(order(SidebarSync.planProjectOrders(missing)["/B"]) == ["/a", "/b"],
+          "an account that never stored an order receives one, keeping folders and repositories as they are")
+    check(SidebarSync.planProjectOrders([SidebarSync.ProjectInput(path: "/A", order: nil, presets: nil),
+                                         SidebarSync.ProjectInput(path: "/B", order: "not json", presets: nil)]).isEmpty,
+          "nothing is written when no account has a readable order")
+    let ownEntries = [SidebarSync.ProjectInput(path: "/A", order: value(["/b", "/a"], 400), presets: presetsA),
+                      SidebarSync.ProjectInput(path: "/B", order: value(["preset::b-other", "/a", "/only-b", "/b"], 10), presets: presetsB)]
+    check(order(SidebarSync.planProjectOrders(ownEntries)["/B"]) == ["/b", "/a", "preset::b-other", "/only-b"],
+          "entries only the receiving account lists are kept after the copied order")
+    let huge = [SidebarSync.ProjectInput(path: "/A", order: #"{"value":["/a"],"tabId":"","timestamp":1e19}"#, presets: nil),
+                SidebarSync.ProjectInput(path: "/B", order: value(["/b"], 5), presets: nil)]
+    check(order(SidebarSync.planProjectOrders(huge)["/B"]) == ["/a", "/b"],
+          "a stored time too large for a whole number is copied as it is rather than stopping the pass")
+    let displayed = SidebarSync.effectiveProjectOrder(value(["/stored"], 700), desktop: ["/shown", "/also"])
+    check(order(displayed) == ["/shown", "/also"] && time(displayed) == 700,
+          "the order Claude displays from its preferences file replaces the stored copy, keeping its time")
+    check(order(SidebarSync.effectiveProjectOrder(nil, desktop: ["/only"])) == ["/only"]
+          && SidebarSync.effectiveProjectOrder(value(["/kept"], 1), desktop: nil) == value(["/kept"], 1),
+          "a missing preferences entry or stored copy leaves the other as it is")
+    let projectScript = SidebarStorage.script
+    check(projectScript.contains("atomicWrite(file, preferencesText(text, root), mode)")
+            && projectScript.contains("if (writing && profile.prefs) writeProjectPreference(profile.path, profile.prefs);"),
+          "the displayed order goes into the desktop settings file through the helper, keeping its layout and permissions")
+    check(SidebarSync.translateProjectOrder(["preset::shared-id", "/x", "/x"], from: [], to: [["id": "shared-id"]]) == ["preset::shared-id", "/x"],
+          "an environment both accounts share by identifier is kept and duplicates are dropped")
 }
 
 print("\n\(checks - failures)/\(checks) checks passed")

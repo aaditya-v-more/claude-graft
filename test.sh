@@ -16,6 +16,9 @@ swiftc -swift-version 5 \
     "$ROOT/Sources/Shared/Diagnostics.swift" \
     "$ROOT/Sources/Shared/ManualUpdates.swift" \
     "$ROOT/Sources/Shared/ClaudeUpdateGate.swift" \
+    "$ROOT/Sources/Shared/UsagePool.swift" \
+    "$ROOT/Sources/Shared/PoolEnvironment.swift" \
+    "$ROOT/Sources/Shared/PoolHTTP.swift" \
     "$ROOT/Sources/App/Model.swift" \
     "$ROOT/Sources/App/ChatConflict.swift" \
     "$ROOT/Sources/App/Installer.swift" \
@@ -29,6 +32,12 @@ swiftc -swift-version 5 \
     "$ROOT/Sources/App/ClaudeUpdateFlow.swift" \
     "$ROOT/Sources/App/ClaudeDesktopUpdater.swift" \
     "$ROOT/Sources/App/FrontClaude.swift" \
+    "$ROOT/Sources/App/UsagePoolController.swift" \
+    "$ROOT/Sources/App/ClaudeCodeEnvironment.swift" \
+    "$ROOT/Sources/App/AccountSignIn.swift" \
+    "$ROOT/Sources/App/Artifacts.swift" \
+    "$ROOT/Sources/App/Projects.swift" \
+    "$ROOT/Sources/App/Links.swift" \
     "$ROOT/Tests/main.swift" \
     -o "$BUILD/tests"
 
@@ -42,6 +51,8 @@ swiftc -swift-version 5 \
     "$ROOT/Sources/Shared/Diagnostics.swift" \
     "$ROOT/Sources/Shared/ManualUpdates.swift" \
     "$ROOT/Sources/Shared/ClaudeUpdateGate.swift" \
+    "$ROOT/Sources/Shared/UsagePool.swift" \
+    "$ROOT/Sources/Shared/PoolEnvironment.swift" \
     "$ROOT/Sources/Launcher/main.swift" \
     -o "$BUILD/graft-launch"
 

@@ -9,6 +9,7 @@ struct MenuBarContent: View {
     @EnvironmentObject private var usage: UsageMonitor
     @ObservedObject private var updater = Shared.updater
     @ObservedObject private var sessionRecords = Shared.sessionRecords
+    @ObservedObject private var pool = Shared.usagePool
 
     /// Passed in: this view is hosted by an NSPopover, outside any scene, so
     /// the openWindow environment action is not available here.
@@ -40,6 +41,7 @@ struct MenuBarContent: View {
                     }
                 }
             }
+            SharedChats()
 
             Divider().padding(.vertical, 6)
 
@@ -51,7 +53,11 @@ struct MenuBarContent: View {
                     .identified("problem")
                     .padding(.horizontal, 14)
                     .padding(.bottom, 8)
-            } else if usage.needsKeychainAccess {
+            }
+            LendingPausedNotice()
+            // One key opens both, so the notice that says lending stopped is
+            // the one shown, not two buttons for one dialog.
+            if problem == nil, usage.liveProblem == nil, usage.needsKeychainAccess, !pool.lendingPaused {
                 Button { usage.refresh(store, interactive: true) } label: {
                     Label("Turn on live usage", systemImage: "lock")
                         .font(.callout)
@@ -171,7 +177,10 @@ struct MenuBarContent: View {
             DispatchQueue.main.async {
                 starting = nil
                 problem = failure?.errorDescription
-                usage.refresh(store, interactive: true)
+                // Starting the session already asked the keychain for this
+                // press; asking here too was a second dialog after a Deny, and
+                // without a focus one for every signed-in Claude.
+                usage.refresh(store, interactive: true, prompting: .no, focus: profile)
             }
         }
     }
@@ -318,6 +327,10 @@ struct UsageBar: View {
     let percent: Int
     var resets: Date?
     var dimmed = false
+    /// The countdown beside the figure rather than under it, as the window
+    /// draws it: three bars with a line each under them were what pushed a
+    /// Claude's pane past the bottom of the smallest window.
+    var inline = false
 
     private var fraction: Double { min(max(Double(percent) / 100, 0), 1) }
 
@@ -327,6 +340,15 @@ struct UsageBar: View {
         case ..<90: return .orange
         default: return .red
         }
+    }
+
+    private func countdown(_ remaining: String?) -> some View {
+        Text(remaining ?? "")
+            .font(.caption2.monospacedDigit())
+            .foregroundStyle(.tertiary)
+            .lineLimit(1)
+            .frame(width: 76, alignment: .trailing)
+            .help(remaining.map { L10n.format("Resets in %@", $0) } ?? "")
     }
 
     var body: some View {
@@ -357,8 +379,9 @@ struct UsageBar: View {
                         .font(.caption.monospacedDigit())
                         .foregroundStyle(.secondary)
                         .frame(width: 36, alignment: .trailing)
+                    if inline { countdown(remaining) }
                 }
-                if let remaining {
+                if let remaining, !inline {
                     Text("Resets in \(remaining)")
                         .font(.caption2.monospacedDigit())
                         .foregroundStyle(.tertiary)
@@ -396,8 +419,9 @@ struct UsageFreshness: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            HStack(spacing: 4) {
+        // Time and reason share a line: under each other they were the line
+        // that pushed the main window past its height.
+        HStack(spacing: 4) {
                 // Ticks on its own, so "2 min ago" does not sit there for an
                 // hour between passes that changed nothing.
                 TimelineView(.periodic(from: .now, by: 30)) { context in
@@ -405,6 +429,18 @@ struct UsageFreshness: View {
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
                         .identified("freshness")
+                        .lineLimit(1)
+                        .layoutPriority(1)
+                }
+                if let note = entry.note {
+                    Text("·").font(.caption2).foregroundStyle(.tertiary)
+                    Text(note)
+                        .font(.caption2)
+                        .foregroundStyle(.orange)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .help(note)
+                        .identified("usage-note")
                 }
                 Spacer(minLength: 4)
                 Button(action: refresh) {
@@ -420,14 +456,6 @@ struct UsageFreshness: View {
                 .help("Ask Anthropic for this account's usage now")
                 .accessibilityLabel(L10n.format("Refresh usage for %@", entry.name))
                 .identified("refresh-usage")
-            }
-            if let note = entry.note {
-                Text(note)
-                    .font(.caption2)
-                    .foregroundStyle(.orange)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .identified("usage-note")
-            }
         }
     }
 

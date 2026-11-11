@@ -4,41 +4,58 @@ import SwiftUI
 struct ContentView: View {
     /// Stands for Claude's own profile in the sidebar, which has no shortcut.
     static let mainProfileID = UUID(uuidString: "00000000-0000-0000-0000-000000000001")!
+    /// Stands for the artifacts of every signed-in account, which belong to no
+    /// one profile.
+    static let artifactsID = UUID(uuidString: "00000000-0000-0000-0000-000000000002")!
+    /// Every signed-in account's projects, and one search across their chats.
+    static let projectsID = UUID(uuidString: "00000000-0000-0000-0000-000000000003")!
+    static let searchID = UUID(uuidString: "00000000-0000-0000-0000-000000000004")!
 
     @EnvironmentObject private var store: ShortcutStore
     @State private var selection: UUID? = ContentView.mainProfileID
     @State private var pendingDeletion: UUID?
     @State private var problem: String?
-    @State private var sidebarVisible = true
+    @State private var columns = NavigationSplitViewVisibility.all
 
-    init(selection: UUID? = ContentView.mainProfileID) {
+    /// Nil in the app, which shows `Shared.artifacts`; the layout suite hands
+    /// in sample rows, since the real list is asked of claude.ai.
+    private let artifacts: ArtifactCenter?
+    private let projects: ProjectCenter?
+
+    init(selection: UUID? = ContentView.mainProfileID, artifacts: ArtifactCenter? = nil,
+         projects: ProjectCenter? = nil) {
         _selection = State(initialValue: selection)
+        self.artifacts = artifacts
+        self.projects = projects
     }
 
     var body: some View {
-        // The split view's native scroll views can draw under a top safe-area
-        // inset. Give notices their own space so the first account and form
-        // fields remain visible, including when a notice grows or wraps.
-        VStack(spacing: 0) {
-            UpdateRecoveryNotice()
-            ClaudeUpdateStatus()
-            Divider()
-            profiles
+        // A real sidebar: full height under the titlebar, in the sidebar's
+        // own material, with the title and toolbar reading as one piece over
+        // the detail. A notice sits inside the detail column, never above the
+        // split view: below anything, the split view draws a second titlebar
+        // backdrop over the first section of the form.
+        NavigationSplitView(columnVisibility: $columns) {
+            sidebar
+                .listStyle(.sidebar)
+                .safeAreaInset(edge: .bottom, spacing: 0) { sidebarFooter }
+                .navigationSplitViewColumnWidth(min: 200, ideal: 220, max: 280)
+        } detail: {
+            VStack(spacing: 0) {
+                UpdateRecoveryNotice()
+                profileDetail
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
         }
+        .navigationSplitViewStyle(.balanced)
         .toolbar {
-            ToolbarItemGroup(placement: .navigation) {
+            ToolbarItem(placement: .primaryAction) {
                 Button(action: add) {
                     Label("New Shortcut", systemImage: "plus")
                 }
                 .keyboardShortcut("n", modifiers: .command)
                 .help("New shortcut")
                 .identified("new-shortcut")
-                Button { sidebarVisible.toggle() } label: {
-                    Label("Toggle Sidebar", systemImage: "sidebar.left")
-                }
-                .keyboardShortcut("s", modifiers: [.command, .option])
-                .help("Toggle Sidebar")
-                .identified("toggle-sidebar")
             }
         }
         .confirmationDialog(deletionTitle,
@@ -62,26 +79,16 @@ struct ContentView: View {
         .environment(\.controlSurface, ControlSurface.window)
     }
 
-    private var profiles: some View {
-        // This is a pane selector, not a navigation stack. NavigationSplitView
-        // installs a second titlebar backdrop below the notices on macOS 27,
-        // obscuring the first form section even with scroll effects hidden.
-        HSplitView {
-            if sidebarVisible {
-                sidebar
-                    .listStyle(.sidebar)
-                    .safeAreaInset(edge: .bottom, spacing: 0) { sidebarFooter }
-                    .frame(minWidth: 200, idealWidth: 220, maxWidth: 280)
-            }
-            profileDetail
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-        }
-    }
-
     @ViewBuilder
     private var profileDetail: some View {
         if selection == Self.mainProfileID {
             MainProfileDetail()
+        } else if selection == Self.artifactsID {
+            ArtifactsView(center: artifacts ?? Shared.artifacts)
+        } else if selection == Self.projectsID {
+            ProjectsView(center: projects ?? Shared.projects)
+        } else if selection == Self.searchID {
+            ChatSearchView(center: projects ?? Shared.projects)
         } else if let selection, let index = store.shortcuts.firstIndex(where: { $0.id == selection }) {
             ShortcutDetail(shortcut: $store.shortcuts[index],
                            requestDelete: { requestDeletion(of: selection) })
@@ -143,6 +150,51 @@ struct ContentView: View {
                 .spoken("Claude", value: L10n.text("Installed normally"))
                 .identified("sidebar.\(Graft.mainProfile.lastPathComponent)")
                 .tag(Self.mainProfileID)
+
+                Label {
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("Artifacts")
+                        Text("Every account")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                } icon: {
+                    Image(systemName: "square.on.square")
+                        .foregroundStyle(.secondary)
+                }
+                .spoken(L10n.text("Artifacts"), value: L10n.text("Every account"))
+                .identified("sidebar.artifacts")
+                .tag(Self.artifactsID)
+
+                Label {
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("Projects")
+                        Text("Every account")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                } icon: {
+                    Image(systemName: "folder")
+                        .foregroundStyle(.secondary)
+                }
+                .spoken(L10n.text("Projects"), value: L10n.text("Every account"))
+                .identified("sidebar.projects")
+                .tag(Self.projectsID)
+
+                Label {
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("Search Chats")
+                        Text("Every account")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                } icon: {
+                    Image(systemName: "magnifyingglass")
+                        .foregroundStyle(.secondary)
+                }
+                .spoken(L10n.text("Search Chats"), value: L10n.text("Every account"))
+                .identified("sidebar.search")
+                .tag(Self.searchID)
             }
 
             Section("Shortcuts") {
@@ -190,6 +242,10 @@ struct ContentView: View {
     private var sidebarFooter: some View {
         VStack(spacing: 0) {
             Divider()
+            // Here rather than across the top of the window, where one line
+            // about Claude's version took the full width above every profile.
+            ClaudeUpdateStatus(stacked: true)
+            Divider()
             HStack(spacing: 0) {
                 FooterLink("Support", icon: "heart", url: Links.support,
                            help: "Claude Graft is free. A tip on Ko-fi is what keeps it worked on.")
@@ -202,7 +258,6 @@ struct ContentView: View {
             .padding(.horizontal, 14)
             .padding(.vertical, 8)
         }
-        .background(.bar)
     }
 
     /// What the line under the name and the symbol beside it say between
@@ -213,8 +268,17 @@ struct ContentView: View {
         return L10n.format("Reads chats from %@", store.label(for: shortcut.source))
     }
 
+    /// A new Claude starts with chats of its own, since lending usage
+    /// belongs to the pool now and needs no shared history; borrowing another
+    /// Claude's chats is a choice made afterwards in its detail. Only here:
+    /// `Shortcut`'s own default stays `.main`, which is what every list saved
+    /// before this change means by a Claude with no source written down, so
+    /// none of those changes what it reads.
     private func add() {
-        let shortcut = Shortcut(name: store.uniqueName())
+        var shortcut = Shortcut(name: store.uniqueName(), source: .own)
+        // Set once, here: an existing Claude keeps the colour it has, so
+        // nobody's Dock changes under them when this rule arrived.
+        shortcut.iconPreset = Shortcut.IconPreset.next(besides: Shared.usagePool.coloursInUse)
         store.shortcuts.append(shortcut)
         selection = shortcut.id
     }
@@ -233,7 +297,7 @@ private struct EmptyState: View {
             Text(L10n.text(hasShortcuts ? "Select a shortcut" : "No shortcuts yet"))
                 .font(.title3)
                 .accessibilityAddTraits(.isHeader)
-            Text("Each shortcut opens Claude on its own account,\nand can borrow another account's Claude Code chats.")
+            Text("Each shortcut opens Claude on its own account with its own chats,\nand can borrow another account's Claude Code chats if you choose.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
