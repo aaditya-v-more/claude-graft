@@ -2309,6 +2309,33 @@ enum Graft {
         return x == y
     }
 
+    /// What a Claude is called where people see it: Claude's own profile by
+    /// Claude's name, a shortcut by the name it was given in the window. Read
+    /// from the list rather than `Shortcut`, which never reaches a launcher.
+    static func claudeName(of profile: URL) -> String {
+        if samePath(profile, mainProfile) { return "Claude" }
+        if let data = try? Data(contentsOf: shortcutsFile),
+           let list = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]],
+           let entry = list.first(where: { ($0["folder"] as? String) == profile.lastPathComponent }),
+           let name = entry["name"] as? String, !name.isEmpty {
+            return name
+        }
+        return profile.lastPathComponent
+    }
+
+    /// A chat store folder is `<profile>/<store>/<account>/<organization>`.
+    static func profile(ofChatFolder folder: URL) -> URL {
+        folder.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+    }
+
+    /// A split chat's title: what it was called, then the Claude that carried
+    /// this half on. A half split again keeps the one mark.
+    static func splitTitle(_ title: Any?, by claude: String) -> String {
+        let mark = " (\(claude))"
+        let base = (title as? String).flatMap { $0.trimmingCharacters(in: .whitespaces).isEmpty ? nil : $0 } ?? "Chat"
+        return base.hasSuffix(mark) ? base : base + mark
+    }
+
     struct FieldMerge {
         var record: [String: Any]
         /// Fields both sides changed, to different values.
@@ -2460,6 +2487,55 @@ enum Graft {
             }
         }
 
+        var running: [URL]?
+        /// Both sides had a reply land since they last agreed: two Claudes
+        /// carried the conversation on from one point, each into a transcript
+        /// of its own, and no record can point at both. So the chat becomes
+        /// two, the source's half under its name and the borrower's under a
+        /// new one, each titled with the Claude that carried it on. Waits while
+        /// either Claude is open: one never reads a record again once it holds
+        /// it, and would write its own half back over the split. Returns false
+        /// when the split is not this pass's to make.
+        func split(_ name: String, borrowed: [String: Any], source: [String: Any]) -> Bool {
+            running = running ?? runningClaudes()
+            let profiles = [profile(ofChatFolder: one), profile(ofChatFolder: other)]
+            if running!.contains(where: { open in profiles.contains { samePath($0, open) } }) {
+                Diagnostics.note("mirror.diverged", ["record": name, "status": "waiting"])
+                return true
+            }
+            let newName = "local_" + UUID().uuidString.lowercased()
+            var kept = source, carried = borrowed
+            kept["title"] = splitTitle(source["title"], by: claudeName(of: profiles[1]))
+            carried["title"] = splitTitle(borrowed["title"], by: claudeName(of: profiles[0]))
+            // An automatic title gives way to the next one Claude thinks of,
+            // and the mark with it.
+            kept["titleSource"] = "user"
+            carried["titleSource"] = "user"
+            carried["sessionId"] = newName
+            let encode = { (record: [String: Any]) in
+                try? JSONSerialization.data(withJSONObject: record, options: [.sortedKeys, .withoutEscapingSlashes])
+            }
+            guard let keptData = encode(kept), let carriedData = encode(carried) else { return false }
+            // The new half goes in first and comes out again if it cannot land
+            // on both sides, so a failure leaves the two halves as they were
+            // for the next pass rather than one side split and one not.
+            let file = newName + ".json"
+            let placed = [one, other].filter { put(carriedData, $0, file) }
+            guard placed.count == 2 else {
+                for folder in placed { _ = drop(folder, file) }
+                return true
+            }
+            moved += 2
+            settle(file, (carriedData, digest(mirrorData(carriedData))), known: nil)
+            var landed = true
+            for folder in [one, other] {
+                if put(keptData, folder, name) { moved += 1 } else { landed = false }
+            }
+            if landed { settle(name, (keptData, digest(mirrorData(keptData))), known: nil) }
+            Diagnostics.note("mirror.diverged", ["record": name, "split": file])
+            return true
+        }
+
         /// Both sides moved since they last agreed: keep what each changed.
         func merge(_ name: String, _ here: Copy, _ there: Copy, base known: RecordBaseline?) {
             // Read as `read` hashes them, a scratch chat's origin set back to
@@ -2476,6 +2552,19 @@ enum Graft {
                 guard let then = known?.activity,
                       let now = (record?["lastActivityAt"] as? NSNumber)?.doubleValue else { return false }
                 return now < then
+            }
+            func progressed(_ record: [String: Any]) -> Bool {
+                guard let then = known?.activity,
+                      let now = (record["lastActivityAt"] as? NSNumber)?.doubleValue, now > then,
+                      let reply = record["lastAssistantUuid"] else { return false }
+                return fieldDigest(reply) != known?.fields?["lastAssistantUuid"]
+            }
+            if isRecordName(name), let oneRecord, let otherRecord,
+               progressed(oneRecord), progressed(otherRecord),
+               let a = oneRecord["lastAssistantUuid"], let b = otherRecord["lastAssistantUuid"],
+               fieldDigest(a) != fieldDigest(b),
+               split(name, borrowed: oneRecord, source: otherRecord) {
+                return
             }
             let settled: Copy
             if let oneRecord, let otherRecord, let base = known?.fields,

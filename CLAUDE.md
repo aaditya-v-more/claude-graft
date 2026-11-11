@@ -97,6 +97,7 @@ any of these. The why is in [notes/updates-and-releases.md](notes/updates-and-re
 - **A folder that lost everything at once was moved, not cleared.** Forget the baseline; `forgetStalePairs` drops dead pairs.
 - **The baseline says what the filesystem did, never what a pass meant to do.**
 - **Two sides that both moved are merged field by field** against the fields at the baseline (`mergeRecordFields`, kept in `ClaudeGraft/mirror-fields/`), so an archive or an unarchive survives the other side merely showing the chat. A field both changed is settled as the whole record used to be, and so is a record whose `lastActivityAt` went back, except that an archive state both changed comes out unarchived; `isArchived` counts as decided where `resumedAt` moved.
+- **A chat both sides carried on is split, never merged:** both `lastAssistantUuid` moved to different values and both `lastActivityAt` forward, and only with neither Claude open. The borrower's half takes a new name; both are titled with their Claude's name (`claudeName(of:)`). An archive, a rename or a look never splits a chat.
 - **A readable record beats one that is not,** and a pass goes round its pairs until a round moves nothing.
 - **One pass at a time, across processes:** `Graft.withStateLock` holds `ClaudeGraft/state.lock` over every read-modify-write of `mirrored-chats.json` and `session-records.json`, and is let go before `launch` takes the launch lock.
 - **Nothing goes to the stash before the source has been read.**

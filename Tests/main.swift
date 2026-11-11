@@ -7808,6 +7808,81 @@ do {
           "a sign-in is announced under the store it was made in, whether it adds an account or finds one already there")
 }
 
+section("A chat two Claudes both carried on becomes two")
+do {
+    // Two Claudes carrying one chat on from the same point each write a
+    // transcript of their own, and one record can point at only one of them.
+    try? fm.removeItem(at: Graft.mirrorStateFile)
+    let source = makeProfile("Claude-Split-Src", account: "SSRC", org: "SSRCORG")
+    let borrower = makeProfile("Claude-Split", account: "SOWN", org: "SOWNORG")
+    let srcOrg = source.appending(path: "claude-code-sessions/SSRC/SSRCORG")
+    let ownOrg = borrower.appending(path: "claude-code-sessions/SOWN/SOWNORG")
+    let name = "local_split.json"
+    let shared: [String: Any] = ["sessionId": "local_split", "isArchived": false, "lastActivityAt": 1000,
+                                 "lastAssistantUuid": "reply-0", "cliSessionId": "cli-0",
+                                 "title": "Plan the trip", "titleSource": "auto"]
+    writeChatRecord(shared, ownOrg, name)
+    writeChatRecord(shared, srcOrg, name)
+    Graft.mirrorChatFolders(ownOrg, srcOrg)
+    func chats(_ folder: URL) -> [String] {
+        ((try? fm.contentsOfDirectory(atPath: folder.path)) ?? []).filter(Graft.isRecordName).sorted()
+    }
+    func single(_ title: String = "Plan the trip") -> Bool {
+        chats(ownOrg) == [name] && chats(srcOrg) == [name]
+            && chatRecord(ownOrg, name)["title"] as? String == title
+            && chatRecord(srcOrg, name)["title"] as? String == title
+    }
+
+    editChatRecord(srcOrg, name) { $0["isArchived"] = true }
+    editChatRecord(ownOrg, name) { $0["lastFocusedAt"] = 2000 }
+    Graft.mirrorChatFolders(ownOrg, srcOrg)
+    check(single(), "an archive on one side and a look on the other leave one chat under its own title")
+    editChatRecord(ownOrg, name) { $0["isArchived"] = false; $0["resumedAt"] = 2500 }
+    Graft.mirrorChatFolders(ownOrg, srcOrg)
+    check(single() && chatRecord(srcOrg, name)["isArchived"] as? Bool == false,
+          "and so does bringing it back from the archive on the other side")
+    editChatRecord(srcOrg, name) { $0["lastActivityAt"] = 3000; $0["lastAssistantUuid"] = "reply-1"; $0["cliSessionId"] = "cli-1" }
+    Graft.mirrorChatFolders(ownOrg, srcOrg)
+    check(single() && chatRecord(ownOrg, name)["lastAssistantUuid"] as? String == "reply-1",
+          "a chat carried on in one Claude reaches the other as it is, with no mark")
+
+    editChatRecord(srcOrg, name) { $0["lastActivityAt"] = 4000; $0["lastAssistantUuid"] = "reply-src"; $0["cliSessionId"] = "cli-src" }
+    editChatRecord(ownOrg, name) { $0["lastActivityAt"] = 4100; $0["lastAssistantUuid"] = "reply-own"; $0["cliSessionId"] = "cli-own" }
+    Graft.runningClaudesOverride = { [borrower] }
+    Graft.mirrorChatFolders(ownOrg, srcOrg)
+    check(chats(ownOrg) == [name] && chats(srcOrg) == [name]
+            && chatRecord(ownOrg, name)["lastAssistantUuid"] as? String == "reply-own"
+            && chatRecord(srcOrg, name)["lastAssistantUuid"] as? String == "reply-src",
+          "a chat both Claudes carried on is left as each has it while either of them is open")
+    Graft.runningClaudesOverride = { [] }
+    Graft.mirrorChatFolders(ownOrg, srcOrg)
+    let halves = chats(ownOrg)
+    check(halves.count == 2 && chats(srcOrg) == halves, "and once both are closed it is two chats in both profiles")
+    let other = halves.first { $0 != name } ?? name
+    let srcName = Graft.claudeName(of: source), ownName = Graft.claudeName(of: borrower)
+    check([srcOrg, ownOrg].allSatisfy {
+            chatRecord($0, name)["lastAssistantUuid"] as? String == "reply-src"
+                && chatRecord($0, name)["title"] as? String == "Plan the trip (\(srcName))" },
+          "the source's half keeps the chat, titled with the name of the Claude that carried it on")
+    check([srcOrg, ownOrg].allSatisfy {
+            chatRecord($0, other)["lastAssistantUuid"] as? String == "reply-own"
+                && chatRecord($0, other)["cliSessionId"] as? String == "cli-own"
+                && chatRecord($0, other)["sessionId"] as? String == String(other.dropLast(5))
+                && chatRecord($0, other)["title"] as? String == "Plan the trip (\(ownName))" },
+          "and the borrower's half becomes a chat of its own, titled with its Claude's name")
+    check([name, other].allSatisfy { chatRecord(ownOrg, $0)["titleSource"] as? String == "user" },
+          "both titles are kept as given rather than giving way to Claude's next guess")
+    check(Graft.mirrorChatFolders(ownOrg, srcOrg) == 0, "after which a pass has nothing to carry")
+    editChatRecord(ownOrg, other) { $0["lastFocusedAt"] = 5000 }
+    editChatRecord(srcOrg, other) { $0["isArchived"] = true }
+    Graft.mirrorChatFolders(ownOrg, srcOrg)
+    check(chats(ownOrg).count == 2 && chatRecord(srcOrg, other)["title"] as? String == "Plan the trip (\(ownName))",
+          "and a half shown on one side and archived on the other stays one chat, its title marked once")
+    check(Graft.claudeName(of: Graft.mainProfile) == "Claude" && Graft.claudeName(of: borrower) == "Claude-Split",
+          "Claude's own profile is called Claude, and a profile with no shortcut by its folder")
+    for profile in [source, borrower] { try? fm.removeItem(at: profile) }
+}
+
 section("Going back hands an unfiled chat back too")
 do {
     // A borrowed unfiled chat carries this profile's own origin, so its bytes

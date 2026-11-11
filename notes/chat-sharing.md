@@ -212,6 +212,26 @@ an out-of-date copy, Claude only ever moving it forward; every field it differs
 in is then as likely its old memory as its own doing, so the record is settled
 whole the way it always was, and the later activity wins.
 
+**A chat two Claudes both carried on becomes two.** A record points at one
+transcript, and two Claudes that each had a reply land in the same chat since
+the last pass wrote two: each resumed it into a command line session of its own
+from the point the two last agreed. A merge keeps only one, and the other half
+of the conversation stayed on disk with nothing in any sidebar naming it. So
+when both sides' `lastAssistantUuid` moved off the baseline to different values
+and both `lastActivityAt` moved past it, the source's half keeps the chat and
+the borrower's goes under a new `local_` name, each titled with the Claude that
+carried it on — Claude's own profile as Claude, a shortcut by the name it was
+given — and marked as titled by hand, since an automatic title gives way to the
+next one Claude thinks of. Nothing else splits a chat: an archive, an unarchive,
+a rename or a look moves no reply, and a side whose activity went back is a
+running Claude's old copy, not a second conversation. The split waits while
+either Claude is open, because one never reads a record again once it holds it
+and would write its own half back over the split; until both are closed each
+side keeps what it has. Where two borrowers of one source both carry a chat on,
+the first pair passes one borrower's half to the source and the second splits
+it there, so that half is titled with the source's name rather than the
+borrower that wrote it.
+
 **A readable record beats one that is not.** Claude skips a record it cannot
 read, so an empty or torn file carried over a whole one took the chat out of
 both sidebars. Whether the empty file arrives as a change of its own or in a
