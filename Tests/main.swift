@@ -4185,6 +4185,165 @@ do {
           "and a pass with nothing left to carry moves nothing")
 }
 
+func writeChatRecord(_ record: [String: Any], _ folder: URL, _ name: String) {
+    try! JSONSerialization.data(withJSONObject: record, options: [.sortedKeys])
+        .write(to: folder.appending(path: name))
+}
+
+func chatRecord(_ folder: URL, _ name: String) -> [String: Any] {
+    (try? Data(contentsOf: folder.appending(path: name)))
+        .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } ?? [:]
+}
+
+func editChatRecord(_ folder: URL, _ name: String, _ change: (inout [String: Any]) -> Void) {
+    var record = chatRecord(folder, name)
+    change(&record)
+    writeChatRecord(record, folder, name)
+}
+
+do {
+    // Claude writes a chat's whole record back every time it shows the chat,
+    // and archiving leaves lastActivityAt where it was. So two sides that both
+    // moved since the last pass are far more often an archive on one and a
+    // glance on the other than two edits of the same thing — and keeping one
+    // whole record, the borrower's on a tie, put the old isArchived straight
+    // back over the archive on both sides.
+    try? fm.removeItem(at: Graft.mirrorStateFile)
+    let source = makeProfile("Claude-Fields-Src", account: "FSRC", org: "FSRCORG")
+    let borrower = makeProfile("Claude-Fields", account: "FOWN", org: "FOWNORG")
+    let srcOrg = source.appending(path: "claude-code-sessions/FSRC/FSRCORG")
+    let ownOrg = borrower.appending(path: "claude-code-sessions/FOWN/FOWNORG")
+    let name = "local_fields.json"
+    let shared: [String: Any] = ["isArchived": false, "lastActivityAt": 1000,
+                                 "lastFocusedAt": 1000, "title": "A chat"]
+    writeChatRecord(shared, ownOrg, name)
+    writeChatRecord(shared, srcOrg, name)
+    Graft.mirrorChatFolders(ownOrg, srcOrg)
+
+    editChatRecord(srcOrg, name) { $0["isArchived"] = true }
+    editChatRecord(ownOrg, name) { $0["lastFocusedAt"] = 2000 }
+    Graft.mirrorChatFolders(ownOrg, srcOrg)
+    check(chatRecord(srcOrg, name)["isArchived"] as? Bool == true
+            && chatRecord(ownOrg, name)["isArchived"] as? Bool == true,
+          "a chat archived on one side stays archived when the other side has only shown it since")
+    check(chatRecord(srcOrg, name)["lastFocusedAt"] as? Int == 2000,
+          "and what the other side did is kept too, rather than one whole record standing in for both")
+    check(Graft.mirrorChatFolders(ownOrg, srcOrg) == 0,
+          "after which a pass has nothing left to carry")
+
+    editChatRecord(ownOrg, name) { $0["lastAssistantCliSessionId"] = "later" }
+    editChatRecord(srcOrg, name) { $0["isArchived"] = false; $0["autoArchiveExempt"] = true }
+    Graft.mirrorChatFolders(ownOrg, srcOrg)
+    check(chatRecord(ownOrg, name)["isArchived"] as? Bool == false
+            && chatRecord(ownOrg, name)["autoArchiveExempt"] as? Bool == true
+            && chatRecord(srcOrg, name)["lastAssistantCliSessionId"] as? String == "later",
+          "an unarchive survives the same way, which no rule about archived records winning could keep")
+
+    editChatRecord(srcOrg, name) { $0["keptDirtyWorktree"] = true }
+    Graft.mirrorChatFolders(ownOrg, srcOrg)
+    editChatRecord(srcOrg, name) { $0["keptDirtyWorktree"] = nil }
+    editChatRecord(ownOrg, name) { $0["lastFocusedAt"] = 3000 }
+    Graft.mirrorChatFolders(ownOrg, srcOrg)
+    check(chatRecord(ownOrg, name)["keptDirtyWorktree"] == nil
+            && chatRecord(srcOrg, name)["lastFocusedAt"] as? Int == 3000,
+          "a field one side took out is gone from both")
+
+    editChatRecord(ownOrg, name) { $0["lastFocusedAt"] = 4000 }
+    editChatRecord(srcOrg, name) { $0["lastFocusedAt"] = 5000 }
+    Graft.mirrorChatFolders(ownOrg, srcOrg)
+    check(chatRecord(ownOrg, name)["lastFocusedAt"] as? Int == 5000
+            && chatRecord(srcOrg, name)["lastFocusedAt"] as? Int == 5000,
+          "a time both sides changed takes the later of the two")
+
+    editChatRecord(ownOrg, name) { $0["title"] = "the borrower's" }
+    editChatRecord(srcOrg, name) { $0["title"] = "the source's" }
+    Graft.mirrorChatFolders(ownOrg, srcOrg)
+    check(chatRecord(srcOrg, name)["title"] as? String == "the borrower's",
+          "anything else both sides changed is settled as the whole record used to be: on a tie, the borrower's")
+    editChatRecord(ownOrg, name) { $0["title"] = "the borrower's again" }
+    editChatRecord(srcOrg, name) { $0["title"] = "the source's again"; $0["lastActivityAt"] = 9000 }
+    Graft.mirrorChatFolders(ownOrg, srcOrg)
+    check(chatRecord(ownOrg, name)["title"] as? String == "the source's again",
+          "and otherwise the side whose record says it moved last")
+
+    // A Claude still showing a chat as archived after a pass wrote the
+    // unarchive underneath it, unarchiving it there, writes the same false the
+    // pass did; what moved is resumedAt, which Claude sets when it unarchives.
+    editChatRecord(srcOrg, name) { $0["isArchived"] = false; $0["resumedAt"] = 200 }
+    Graft.mirrorChatFolders(ownOrg, srcOrg)
+    editChatRecord(ownOrg, name) { $0["isArchived"] = false; $0["resumedAt"] = 300 }
+    editChatRecord(srcOrg, name) { $0["isArchived"] = true }
+    Graft.mirrorChatFolders(ownOrg, srcOrg)
+    check(chatRecord(srcOrg, name)["isArchived"] as? Bool == false,
+          "an unarchive counts on the side that made it even when the flag comes back as it already was")
+
+    // Claude only moves lastActivityAt forward, so a side that comes back with
+    // an earlier one is a running Claude writing back a copy from before the
+    // other side's last turn reached it.
+    editChatRecord(srcOrg, name) { $0["isArchived"] = true; $0["lastActivityAt"] = 20000 }
+    Graft.mirrorChatFolders(ownOrg, srcOrg)
+    editChatRecord(ownOrg, name) { $0["isArchived"] = false; $0["lastActivityAt"] = 9000; $0["lastFocusedAt"] = 30000 }
+    editChatRecord(srcOrg, name) { $0["lastFocusedAt"] = 25000 }
+    Graft.mirrorChatFolders(ownOrg, srcOrg)
+    check(chatRecord(ownOrg, name)["isArchived"] as? Bool == true
+            && chatRecord(srcOrg, name)["isArchived"] as? Bool == true,
+          "a record that comes back with older activity than both sides agreed on is settled whole, and the later one keeps its archive")
+
+    // Claude skips a record it cannot read, so an empty file carried over a
+    // whole one takes the chat out of both sidebars.
+    try! Data().write(to: ownOrg.appending(path: name))
+    editChatRecord(srcOrg, name) { $0["isArchived"] = true }
+    Graft.mirrorChatFolders(ownOrg, srcOrg)
+    check(chatRecord(srcOrg, name)["isArchived"] as? Bool == true
+            && chatRecord(ownOrg, name)["isArchived"] as? Bool == true,
+          "an empty record never replaces a readable one, and its side gets the readable copy back")
+    try! Data().write(to: ownOrg.appending(path: name))
+    Graft.mirrorChatFolders(ownOrg, srcOrg)
+    check(!chatRecord(srcOrg, name).isEmpty && !chatRecord(ownOrg, name).isEmpty,
+          "even when the empty file is the only thing that changed since the last pass")
+
+    // What an upgrade finds: a pair and its baseline, and no fields yet.
+    let key = Graft.pairKey(ownOrg, srcOrg)
+    try? fm.removeItem(at: Graft.mirrorFieldsFolder)
+    Graft.mirrorChatFolders(ownOrg, srcOrg)
+    check(Graft.loadRecordBaselines(for: key)[name]?.fields?["isArchived"] != nil,
+          "a pair mirrored before fields were kept has them written down on its next pass")
+    var state = Graft.loadMirrorState()
+    state.pairs.removeValue(forKey: key)
+    Graft.saveMirrorState(state)
+    check(Graft.loadRecordBaselines(for: key).isEmpty,
+          "and a pair that stops being mirrored takes its fields with it")
+}
+
+do {
+    // Pairs that share a source pass a change along one pair at a time, in
+    // the order of their keys: a chat archived in the borrower that comes last
+    // reached the source on the first round and the borrower before it only on
+    // the next, so a launcher that stopped after one round opened its Claude a
+    // change behind.
+    try? fm.removeItem(at: Graft.mirrorStateFile)
+    let source = makeProfile("Claude-Hub", account: "HUB", org: "HUBORG")
+    let first = makeProfile("Claude-Hub-A", account: "HUBA", org: "HUBAORG")
+    let second = makeProfile("Claude-Hub-B", account: "HUBB", org: "HUBBORG")
+    let hub = source.appending(path: "claude-code-sessions/HUB/HUBORG")
+    let a = first.appending(path: "claude-code-sessions/HUBA/HUBAORG")
+    let b = second.appending(path: "claude-code-sessions/HUBB/HUBBORG")
+    let name = "local_hub.json"
+    let shared: [String: Any] = ["isArchived": false, "lastActivityAt": 1000, "lastFocusedAt": 1000]
+    for folder in [hub, a, b] { writeChatRecord(shared, folder, name) }
+    Graft.mirrorChatFolders(a, hub)
+    Graft.mirrorChatFolders(b, hub)
+
+    editChatRecord(b, name) { $0["isArchived"] = true }
+    editChatRecord(a, name) { $0["lastFocusedAt"] = 2000 }
+    Graft.mirrorKnownPairs()
+    check([hub, a, b].allSatisfy { chatRecord($0, name)["isArchived"] as? Bool == true },
+          "a chat archived in the borrower whose pair comes last is archived everywhere after one pass")
+    check([hub, a, b].allSatisfy { chatRecord($0, name)["lastFocusedAt"] as? Int == 2000 },
+          "and the other borrower's glance at it reaches all three as well")
+    check(Graft.mirrorKnownPairs() == 0, "with nothing left over for the pass after")
+}
+
 do {
     // Everything an earlier version can leave behind, converted.
     try? fm.removeItem(at: Graft.mirrorStateFile)

@@ -168,6 +168,76 @@ name gone from both sides is dropped too: the loop only visits what one of them
 holds, so such an entry sat there for good, growing the file and standing ready
 to read that name coming back on one side alone as a deletion to carry across.
 
+**Two sides that both moved were nearly always an archive and a glance.**
+Claude writes a chat's whole record back from memory every time it shows the
+chat, and archiving sets `isArchived` without touching `lastActivityAt` — both
+read out of Claude Desktop 4.23118.1, and both visible in the records of a
+machine with three profiles borrowing from one. So between two passes, an
+archive on one side and nothing more than a look at the same chat on the other
+was enough for both sides to have moved, and the pass kept one whole record:
+the one with the later `lastActivityAt`, which the archive had not changed, and
+on a tie the borrower's. Its `isArchived: false` went back over the archive on
+both sides. A newer file time picks no better: copies made by a pass move it
+too, and a glance made later still carries the old flag.
+
+So every record has its fields written down beside its baseline — each
+top-level key with a digest of its value, as both sides held it — and two sides
+that both moved are merged field by field. A field one side changed and the
+other did not takes the change, whichever side made it: an archive survives a
+glance, and so does an unarchive, which no rule about archived records winning
+could keep. Only a field both sides changed to different values is a contest.
+A time takes the later of the two; anything else is settled the way the whole
+record used to be, by the later `lastActivityAt` and on a tie the borrower's, so
+nothing two sides disagree about comes out differently from before. The fields
+live in `ClaudeGraft/mirror-fields/`, one file a pair, rather than in
+`mirrored-chats.json`: a history of a couple of thousand chats carries a couple
+of megabytes of them, and the state file is read and written by every pass over
+every pair. An entry belongs to the baseline digest it was taken from, so one
+left by a pass that kept no fields — a shortcut still on an older launcher — is
+not trusted, and that record is settled the old way until the two sides next
+agree.
+
+Two things are read past the fields themselves. `isArchived` counts as decided
+on a side whose `resumedAt` moved, since Claude sets it when it unarchives a
+chat or brings a stopped one back to work in, which unarchives it too: an
+unarchive made in a Claude still showing the chat archived, after a pass had
+already written the unarchive underneath it, comes back with the same `false`
+and would otherwise look like nothing at all. And a side whose
+`lastActivityAt` comes back earlier than both sides agreed on was written from
+an out-of-date copy, Claude only ever moving it forward; every field it differs
+in is then as likely its old memory as its own doing, so the record is settled
+whole the way it always was, and the later activity wins.
+
+**A readable record beats one that is not.** Claude skips a record it cannot
+read, so an empty or torn file carried over a whole one took the chat out of
+both sidebars. Whether the empty file arrives as a change of its own or in a
+conflict, the readable copy is kept and handed back to the side that lost it.
+
+**A pass goes round until nothing moves.** Pairs that share a source pass a
+change along one pair at a time, in the order of their keys. A chat archived in
+the borrower whose pair comes last reached the source in the first round and the
+borrowers listed before it only in the next, so a launcher that ran one round
+opened its Claude a change behind. `mirrorKnownPairs` goes round again until a
+round moves nothing; a change never needs more rounds than there are pairs. The
+sweep also runs a few seconds after any Claude quits: a Claude reads its records
+once, as it starts, so an archive made in one profile otherwise waited for
+somebody to open the dropdown or a shortcut before another profile opened from
+the Dock could see it.
+
+**A running Claude can still write an archive back over.** A Claude never
+re-reads a record it already holds — nothing watches the folder, and loading
+again skips every chat in memory — and every save writes the whole record from
+memory. So a record a pass writes under a running Claude is never seen by it,
+and the next time that Claude shows the chat it writes its old `isArchived`
+back; the pass after reads that as somebody unarchiving the chat on purpose and
+carries it to every profile. Holding the write back until that Claude has quit
+stops it, but a write held back from a source is held back from every other
+borrower of that source too, and a pass that reads one pair at a time then
+merges each borrower against a source that is out of date. Doing it properly
+means merging every folder that shares a source in one go, with what each one
+held when last read, rather than pair by pair. Until then, what is on screen in
+a Claude that is already open is what it read when it started.
+
 **One pass at a time, across processes.** `mirrored-chats.json` and
 `session-records.json` are each read, worked on and written back, by Graft's
 sweep and by every launcher, and those are separate processes. An atomic write
