@@ -3898,6 +3898,7 @@ enum Graft {
                 return processIdentifier(of: profile).map { reveal(pid: $0) } ?? false
             }
             SidebarSync.synchronize(beforeOpening: profile)
+            SidebarSync.synchronizeProjectOrder(beforeOpening: profile)
             PoolEnvironment.settle(beforeOpening: profile) {
                 PoolEnvironment.ensureRelay(PoolEnvironment.readJournal().relay)
             }
