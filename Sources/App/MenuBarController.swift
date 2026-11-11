@@ -14,8 +14,8 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
     private let popover = NSPopover()
     private var watches: Set<AnyCancellable> = []
 
-    /// What the title was last built from, kept so the ticker can move
-    /// without the usage figures being worked out again on every tick.
+    /// What the title was last built from, kept so the conversation's text
+    /// can change without the usage figures being worked out again.
     private var parts: (icon: NSImage?, tag: NSImage?, figure: Graft.Usage.Headline?)?
     private var spokenTitle = ""
     /// The conversation on screen, running across the bar.
@@ -26,10 +26,13 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
     private var tickerWords: String?
     /// The conversation whose text was taken out of the bar for lack of room.
     private var tickerRefused: String?
-    private var tickerOffset: CGFloat = 0
-    private var tickerHeld = 0
-    private var ticker: Timer?
-    private var tickerPicture: NewChatTicker.Picture?
+    /// When the text began to move, kept across the pictures one
+    /// conversation is shown with, so new words carry on where the old ones
+    /// were rather than starting their pass again.
+    private var tickerStarted: CFTimeInterval?
+    private var tickerPicture: NewChatTicker.Picture? {
+        didSet { if oldValue !== tickerPicture { oldValue?.strip?.removeFromSuperview() } }
+    }
 
     private let store: ShortcutStore
     private let settings: AppSettings
@@ -122,16 +125,13 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
     }
 
     func remove() {
-        ticker?.invalidate()
-        ticker = nil
-        // Forgotten with the timer, or the item put back would find the same
-        // conversation already named and never start the text moving again.
+        // Forgotten with the item, or the item put back would find the same
+        // conversation already named and never show its text again.
         newChat = nil
         tickerText = nil
         tickerWords = nil
         tickerRefused = nil
-        tickerOffset = 0
-        tickerHeld = 0
+        tickerStarted = nil
         tickerPicture = nil
         popover.performClose(nil)
         if let item { NSStatusBar.system.removeStatusItem(item) }
@@ -205,10 +205,19 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
         let font = button.font ?? NSFont.menuBarFont(ofSize: 0)
         let picture = tickerText.map { text in
             tickerPicture.flatMap { $0.text == text && $0.font == font ? $0 : nil }
-                ?? NewChatTicker.Picture(text, font: font)
+                ?? NewChatTicker.Picture(text, font: font, started: tickerStarted)
         }
-        picture?.offset = tickerOffset
+        // Only a pass under way is carried on; text that stood still and has
+        // grown too long starts its first pass from the beginning.
+        tickerStarted = picture?.cycle == nil ? nil : picture?.started
         tickerPicture = picture
+        if let picture, let strip = picture.strip {
+            if strip.superview !== button { button.addSubview(strip) }
+            picture.drawn = { [weak self, weak picture] in
+                guard let picture, picture === self?.tickerPicture, let button = self?.item?.button else { return }
+                picture.strip?.place(over: picture.image, in: button)
+            }
+        }
         if parts != nil || picture != nil {
             button.attributedTitle = FrontTitle.make(icon: parts?.icon, tag: parts?.tag,
                                                      figure: parts?.figure, font: font, ticker: picture?.image,
@@ -219,24 +228,6 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
         let chat = newChat.map { NewChatTicker.spoken(title: $0.title, account: answering($0)) }
         button.setAccessibilityTitle([spokenTitle, chat].compactMap { $0 }.filter { !$0.isEmpty }
             .joined(separator: ". "))
-        keepTickerMoving()
-    }
-
-    /// Only text too long for the bar moves, so only then is there anything to
-    /// draw again. Left running for text that stands still, the timer woke the
-    /// main thread twelve times a second to measure the text and do nothing.
-    private func keepTickerMoving() {
-        guard tickerPicture?.cycle != nil else {
-            ticker?.invalidate()
-            ticker = nil
-            return
-        }
-        guard ticker == nil else { return }
-        let timer = Timer(timeInterval: NewChatTicker.tick, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.advanceTicker() }
-        }
-        RunLoop.main.add(timer, forMode: .common)
-        ticker = timer
     }
 
     // MARK: - The conversation on screen
@@ -260,8 +251,7 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
         guard chat?.id != newChat?.id || words != tickerWords else { return }
         let text = chat?.id == tickerRefused ? nil : words
         if chat?.id != newChat?.id {
-            tickerOffset = 0
-            tickerHeld = 0
+            tickerStarted = nil
             // Which conversation the bar names, by the start of its id and never
             // its title, so a run can be checked against what was on screen.
             Diagnostics.note("menu.chat", ["session": chat.map { String($0.id.prefix(8)) } ?? "none",
@@ -295,25 +285,6 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
             self.applyTitle()
             Diagnostics.note("menu.ticker withdrawn", ["reason": "no room in the menu bar"])
         }
-    }
-
-    private func advanceTicker() {
-        guard let picture = tickerPicture, let cycle = picture.cycle, let button = item?.button else { return }
-        if tickerOffset == 0, tickerHeld < NewChatTicker.pause {
-            tickerHeld += 1
-            return
-        }
-        tickerHeld = 0
-        tickerOffset += NewChatTicker.step
-        if tickerOffset >= cycle { tickerOffset = 0 }
-        picture.offset = tickerOffset
-        // The text is the title's last run, so only the end of the button
-        // changes: the icons and the figure before it are left as drawn.
-        let span = button.userInterfaceLayoutDirection == .leftToRight
-            ? min(button.bounds.width, picture.image.size.width + NewChatTicker.redrawSlack)
-            : button.bounds.width
-        button.setNeedsDisplay(NSRect(x: button.bounds.maxX - span, y: 0,
-                                      width: span, height: button.bounds.height))
     }
 
     /// The same choices as the conversation's row in the dropdown, reached

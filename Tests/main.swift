@@ -6993,12 +6993,13 @@ do {
     let font = NSFont.menuBarFont(ofSize: 0)
     check(NewChatTicker.text(title: nil, account: "Claude") == "New chat · Claude",
           "a conversation with no title yet reads as a new chat, with the account answering it")
-    check(NewChatTicker.cycle("New chat · Claude", font: font) == nil
-            && NewChatTicker.image("New chat · Claude", offset: 0, font: font).size.width < NewChatTicker.width,
+    let still = NewChatTicker.Picture("New chat · Claude", font: font)
+    check(still.cycle == nil && still.strip == nil && still.image.size.width < NewChatTicker.width,
           "text short enough to fit stands still")
     let long = "Work out which of 391, 397 and 403 are prime · Claude 2"
-    check(NewChatTicker.cycle(long, font: font).map { $0 > NewChatTicker.width } == true
-            && NewChatTicker.image(long, offset: 40, font: font).size.width == NewChatTicker.width,
+    let moving = NewChatTicker.Picture(long, font: font)
+    check(moving.cycle.map { $0 > NewChatTicker.width } == true && moving.strip != nil
+            && moving.image.size.width == NewChatTicker.width,
           "a long title scrolls inside a fixed width, so the items beside it do not move")
 
     let bar = (try? String(contentsOf: URL(fileURLWithPath: #filePath).deletingLastPathComponent()
@@ -7012,9 +7013,8 @@ do {
             && !bar.contains("menu.popUp(positioning:"),
           "the right-click menu opens under the item, where macOS puts menu-bar menus")
 
-    let moving = NewChatTicker.Picture(long, font: font)
-    func drawn(_ picture: NewChatTicker.Picture) -> Data {
-        let size = picture.image.size
+    func drawn(_ image: NSImage) -> Data {
+        let size = image.size
         let pixels = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(size.width * 2),
                                       pixelsHigh: Int(size.height * 2), bitsPerSample: 8,
                                       samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
@@ -7022,25 +7022,57 @@ do {
         pixels.size = size
         NSGraphicsContext.saveGraphicsState()
         NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: pixels)
-        picture.image.draw(in: NSRect(origin: .zero, size: size))
+        image.draw(in: NSRect(origin: .zero, size: size))
         NSGraphicsContext.restoreGraphicsState()
         return Data(bytes: pixels.bitmapData!, count: pixels.bytesPerRow * pixels.pixelsHigh)
     }
-    let atStart = drawn(moving)
-    moving.offset = 40
-    let along = drawn(moving)
-    moving.offset = moving.cycle ?? 0
-    let roundAgain = drawn(moving)
-    moving.offset = 0
-    check(atStart.contains { $0 != 0 } && along != atStart && roundAgain == atStart && drawn(moving) == atStart,
-          "the bar's text moves within the one picture it is given, and a whole pass ends where it began")
-    let tick = bar.components(separatedBy: "private func advanceTicker()").last?
-        .components(separatedBy: "\n    }").first ?? ""
-    check(tick.contains("picture.offset = tickerOffset") && tick.contains("button.setNeedsDisplay(")
-            && !tick.contains("applyTitle()") && !tick.contains("attributedTitle"),
-          "a tick moves the text and has the item drawn again, never handing it a new title to measure")
-    check(bar.contains("guard tickerPicture?.cycle != nil else {") && !bar.contains("if chat == nil {\n            ticker?.invalidate()"),
-          "text short enough to stand still keeps no timer running")
+    check(drawn(still.image).contains { $0 != 0 } && !drawn(moving.image).contains { $0 != 0 },
+          "text that fits is drawn into the title, and text that moves leaves the title a blank of its width")
+    // Measured where the second copy begins, past anything a view would have
+    // drawn of a strip seen through 150 points.
+    let words = moving.strip?.words
+    let wordsDrawn = words.flatMap { layer -> CGImage? in
+        let size = layer.bounds.size
+        guard let context = CGContext(data: nil, width: Int(size.width), height: Int(size.height), bitsPerComponent: 8,
+                                      bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(),
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+        layer.render(in: context)
+        return context.makeImage()
+    }
+    let secondCopy = NSBitmapImageRep(cgImage: wordsDrawn ?? NSImage(size: NSSize(width: 1, height: 1))
+        .cgImage(forProposedRect: nil, context: nil, hints: nil)!)
+    let from = Int((words?.bounds.width ?? 0) - (moving.cycle ?? 0) + NewChatTicker.gap)
+    check(from > Int(NewChatTicker.width) && (from..<secondCopy.pixelsWide).contains { x in
+            (0..<secondCopy.pixelsHigh).contains { secondCopy.colorAt(x: x, y: $0)?.alphaComponent ?? 0 > 0 } }
+            && (words?.bounds.width ?? 0) >= (moving.cycle ?? 0) + NewChatTicker.width,
+          "the moving text is drawn whole, long enough that no step of a pass shows an empty end")
+    let pass = NewChatTicker.pass(cycle: moving.cycle ?? 0)
+    check(pass.prefix(NewChatTicker.pause + 1).allSatisfy { $0 == 0 } && pass[NewChatTicker.pause + 1] == NewChatTicker.step
+            && zip(pass.dropFirst(NewChatTicker.pause + 1), pass.dropFirst(NewChatTicker.pause + 2))
+                .allSatisfy { $1 - $0 == NewChatTicker.step }
+            && pass.last! < moving.cycle! && pass.last! + NewChatTicker.step >= moving.cycle!,
+          "a pass holds at the start, moves a step a tick, and ends a step short of where it began again")
+
+    let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 24), styleMask: .borderless,
+                          backing: .buffered, defer: true)
+    let button = NSButton(frame: NSRect(x: 0, y: 0, width: 360, height: 22))
+    window.contentView?.addSubview(button)
+    button.attributedTitle = FrontTitle.make(icon: nil, tag: nil, figure: nil, font: font, ticker: moving.image)
+    moving.strip.map(button.addSubview)
+    MainActor.assumeIsolated { moving.strip?.place(over: moving.image, in: button) }
+    let laid = moving.strip?.frame ?? .zero
+    let scale = window.backingScaleFactor
+    check(moving.strip?.isHidden == false && laid.size == moving.image.size && button.bounds.contains(laid)
+            && (laid.minX * scale).rounded() == laid.minX * scale && (laid.minY * scale).rounded() == laid.minY * scale,
+          "the moving text lies over the blank, on whole pixels as AppKit would have drawn it")
+    button.attributedTitle = FrontTitle.make(icon: nil, tag: nil, figure: nil, font: font, ticker: still.image)
+    MainActor.assumeIsolated { moving.strip?.place(over: moving.image, in: button) }
+    check(moving.strip?.isHidden == true, "moving text whose blank has left the title is not shown")
+
+    check(!bar.contains("Timer(") && !bar.contains("setNeedsDisplay") && !bar.contains("advanceTicker"),
+          "nothing in Graft wakes while the text moves: no timer, and the button is never asked to draw again")
+    check(bar.contains("tickerStarted = nil\n") && bar.contains("NewChatTicker.Picture(text, font: font, started: tickerStarted)"),
+          "a new conversation starts its pass from the beginning, and new words for the same one carry on")
     let walk = controllerSource.components(separatedBy: "func lookUpRecords(").last?
         .components(separatedBy: "/// Read again only when the transcript has grown").first ?? ""
     check(walk.contains("Graft.modificationDate(atPath: path)") && !walk.contains("attributesOfItem"),
