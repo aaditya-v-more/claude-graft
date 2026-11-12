@@ -6230,6 +6230,11 @@ do {
     let upload = Data(#"{"model":"claude-x","messages":[{"content":[{"type":"document","source":{"type":"file","file_id":"file_1"}}]}]}"#.utf8)
     check(PoolRequest.mustStayWithSender(body: upload, contentEncoding: nil),
           "a request naming an uploaded file stays with the account holding the file")
+    let artifact = Data(#"{"model":"claude-x","messages":[{"role":"assistant","content":[{"type":"tool_use","id":"t1","name":"artifact","input":{"container":"{\"kind\":\"project\",\"id\":\"p1\"}"}}]}]}"#.utf8)
+    check(!PoolRequest.mustStayWithSender(body: artifact, contentEncoding: nil),
+          "an artifact tool's container argument does not pin inference to its account")
+    check(PoolRequest.mustStayWithSender(body: Data(#"{"container":{"id":"c1"},"messages":[]}"#.utf8), contentEncoding: nil),
+          "the API's real container still stays with its account")
     let quoted = Data(#"{"messages":[{"content":"what is \"file_id\": for"}]}"#.utf8)
     check(!PoolRequest.mustStayWithSender(body: quoted, contentEncoding: nil),
           "the same key quoted inside a prompt pins nothing")

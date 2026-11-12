@@ -236,9 +236,14 @@ for path, method, body, what in [
 
 for marker in [b'"file_id":"f1"', b'"container":"c1"', b'"container":{"id":"c1","skills":[]}',
                b'"mcp_servers":[{"type":"url","url":"u"}]']:
-    response, payload, went = ask(conn, "tok-A", body=b'{"model":"x","messages":[' + marker + b']}', session=None)
+    response, payload, went = ask(conn, "tok-A", body=b'{"model":"x","messages":[],' + marker + b'}', session=None)
     check([w["token"] for w in went] == ["tok-A"],
           "a request naming %s stays with the account that owns it" % marker.split(b'"')[1].decode())
+artifact = {"model": "x", "messages": [{"role": "assistant", "content": [
+    {"type": "tool_use", "id": "t1", "name": "artifact", "input": {"container": "{\"kind\":\"project\",\"id\":\"p1\"}"}}]}]}
+response, payload, went = ask(conn, "tok-A", body=json.dumps(artifact, separators=(",", ":")).encode(), session=None)
+check([w["token"] for w in went] == ["tok-B"],
+      "an artifact tool's container argument leaves inference available to the other account")
 schema = (b'{"model":"x","messages":[],"tools":[{"name":"batch","input_schema":{"type":"object","properties":'
           b'{"container":{"type":"object"},"file_id":{"type":"string"},"mcp_servers":{"type":"array"}}}}]}')
 response, payload, went = ask(conn, "tok-A", body=schema, session=None)

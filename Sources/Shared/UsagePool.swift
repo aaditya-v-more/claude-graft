@@ -247,28 +247,22 @@ enum PoolRequest {
         method == "POST" && target.split(separator: "?", maxSplits: 1).first == "/v1/messages"
     }
 
-    /// Anything a request refers to by id lives in the organization that made
-    /// it — an uploaded file, a code container, a server-side MCP connection —
-    /// and another account asked for it answers that it does not exist. Keys are
-    /// matched with their closing quote and colon, which JSON never escapes, so
-    /// the same word inside a prompt does not count.
-    ///
-    /// Each is matched with the start of the value that makes it a reference,
-    /// not the key alone. A connector's tool schema may have a property of the
-    /// same name, `"container":{"type":"object",…}`, and every request that
-    /// lists its tools carries it: the third live run found every full request
-    /// pinned to its sender that way, so a conversation moved from the dropdown
-    /// went home each time Claude Code sent it whole. A tool call naming one of
-    /// these may still pin a request it need not, which costs only sharing.
+    /// File and server-side MCP references belong to their original account.
+    /// Containers are checked at the API envelope: artifact tools use the same
+    /// argument name inside conversation history without binding inference.
     static let accountBoundMarks = [
         "\"file_id\":\"",
-        "\"container\":\"", "\"container\":{\"id\":\"",
         "\"mcp_servers\":[{",
     ]
 
     static func mustStayWithSender(body: Data, contentEncoding: String?) -> Bool {
         if let contentEncoding, !contentEncoding.isEmpty,
            contentEncoding.lowercased() != "identity" { return true }
+        guard let request = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any] else { return true }
+        // Artifact tools also call their argument "container"; only the API's
+        // top-level container belongs to the account handling inference.
+        if let container = request["container"] as? String, !container.isEmpty { return true }
+        if let container = request["container"] as? [String: Any], container["id"] is String { return true }
         return accountBoundMarks.contains { body.range(of: Data($0.utf8)) != nil }
     }
 
