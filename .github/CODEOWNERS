@@ -1,0 +1,7 @@
+# The last matching line wins, so the order matters: everything is mine unless a
+# later line hands it over, and .github/ comes after windows/ so that this file
+# and the CI that guards main stay with the person who owns the rest.
+
+*               @aaditya-v-more
+/windows/       @snowtyler @jamesql
+/.github/       @aaditya-v-more
