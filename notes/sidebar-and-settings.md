@@ -166,3 +166,39 @@ stopped between the two then leaves an order shown with an old time, which the
 next pass carries nowhere, rather than an old order under a new time, which it
 would carry everywhere.
 
+A failed project pass restores earlier participants as well as the one that
+failed. A locked preferences file on the second Windows fixture exposed that
+the first participant had previously kept its new order after the helper
+reported failure. The helper now remembers the exact original settings text,
+mode and presence of each Local Storage key. It restores the timed value
+before the displayed preference, and only restores a value still equal to
+the one it wrote; an external change made while the pass runs is left alone.
+
+The Windows port uses these same helper operations, with directory junctions
+instead of privileged directory symlinks for the short-lived write profile.
+Project order has its own pass, so an unsupported pin database cannot prevent
+it from being read. The manager's last-quit pass spares Claude's default Local
+Storage, just as the Dock case above does; a stock Windows shortcut does not
+wait for Graft's launch lock either. Saved environments with a folder fallback
+compare that Windows folder without case.
+
+The Windows native fixture changes both accounts' real disposable Chromium
+stores, checks the displayed preferences, and holds the second preferences
+file open to force rollback after the first account has committed. The first
+account's original preferences bytes and file attributes must come back. It
+also compares the default-profile stand-in's database file names, sizes and
+timestamps around a preferences-only pass. The shared helper's Unix mode
+check uses the mode the platform actually supports: Windows writable/read-only
+attributes do not establish preservation of an independently customized NTFS
+access-control list.
+
+The Windows compatibility allowlist also includes Claude 4.23118.1. Its
+installed package was inspected without launching it or opening profile
+databases: the version marker and executable report Electron 44.9.3 and
+Chromium 152.0.7977.167, matching the pinned helper. Static renderer code
+still persists `dframe-store` at version 1 with `pinnedOrder` and
+`sortByByMode`, the `pin-state` store holds `starredIds`, and the legacy
+starred/local-slice keys remain. The helper still validates the actual store
+shape before any write. Uninspected Claude versions and mismatched engines
+remain disabled.
+

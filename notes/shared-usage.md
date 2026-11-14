@@ -622,3 +622,52 @@ be renamed and a conversation retitled while a script is still asking for it.
 
 What has run against real accounts, and what is still only a plan, is in
 [diagnostics-and-verification.md](diagnostics-and-verification.md).
+
+## Windows implementation
+
+`windows/ClaudeGraft.Core/UsagePool.cs` owns the matching policy and runtime
+state. `PoolWire.cs` and `PoolRelay.cs` implement raw HTTP framing, CONNECT,
+Schannel TLS, retries and duplex passthrough. `GraftRelay` is a separate
+self-contained process, reached by a named pipe restricted to the current
+Windows user; both ends verify the peer identity. Raw tokens exist only in
+the control request and relay memory. A restart starts unconfigured and
+passes sender traffic through unchanged.
+
+`PoolEnvironment` journals the exact Windows AES-GCM safe-storage strings
+before replacing an environment field. Unlike the Mac's deterministic
+sealing, a fresh Windows seal has a fresh nonce, so the observed on-disk
+value is retained for comparisons. Both `envVars` and the one encrypted
+nested `scopedEnvVars` document are read. Only exact owned values are
+removed; custom proxy/certificate values and unrelated outer/scoped fields
+remain intact. All closed-profile writes use the same `StateLock` as
+launching, and no asynchronous continuation crosses that mutex's lifetime.
+
+`PoolStorage` keeps account tokens and the relay leaf identity protected by
+current-user DPAPI in a private directory. The authority's critical DNS name
+constraint permits the API host, and its signing key is discarded. Schannel
+requires a temporary user key when loading the leaf; that key is removed
+when its certificate is disposed. Neither certificate trust store changes.
+Only Claude Code's `NODE_EXTRA_CA_CERTS` names the public authority.
+
+`UsagePoolController` and `SharedUsageView` manage per-Claude lenders,
+independent inference-only OAuth accounts, environment status, current
+limits and recent conversation choices. Settings are reread under the launch
+lock after credential I/O so a concurrent uninstall or disable cannot be
+undone by an older refresh. The manager can quit while the relay continues.
+Stable private relay bundles avoid Windows executable locks during an app
+update; `GraftLaunch --stop-sharing` and the relay's removal monitor restore
+closed profiles before ending the listener. A running or changed profile
+keeps it alive until recovery is possible.
+
+Windows fixtures are `UsagePoolTests`, `PoolEnvironmentTests`,
+`PoolRelayTests`, and `PoolAccountTests`. The native published executable is
+also exercised by `windows/test-relay.ps1`; this is distinct from real-account
+acceptance and from the WinUI browser fixtures.
+
+The Windows Claude Desktop 4.23118.1.0 application archive was checked
+read-only for the storage contract: both fields are base64 safe-storage
+strings, scoped values nest under account and scope, and Code's environment
+builder preserves user proxy and extra-CA variables while replacing OAuth
+and base-URL variables. No existing Code environment file was available in
+the local profiles, so this static check does not establish live Code routing
+or independent OAuth acceptance.

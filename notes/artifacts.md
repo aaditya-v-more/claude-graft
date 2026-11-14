@@ -298,3 +298,22 @@ reads the editor from outside to hold that.
 Not yet seen against claude.ai: commenter and editor invitations, a role
 lowered for an artifact that does not take it, renaming, duplicating,
 deleting, and the exports of a real artifact.
+
+## Windows port
+
+The Windows pane uses the shared `AccountCenter` browser sessions for the same
+list, permission and mutation requests. It never reads Desktop cookies or uses
+a model token for artifacts. List generations and the account generation both
+have to match before a reply is shown; changing a store's signed-in identity
+discards its previous list. Sharing groups keep the same viewer fallback and
+preserve an unreadable source file before saving recoverable entries.
+
+The file-path check also refuses Windows reserved device names, alternate data
+streams and trailing-dot aliases. Page-source exports contain the downloaded
+files; Markdown comes from the canonical rendered-page walker. Word exports
+are OOXML packages with an embedded rendered HTML part. Before that part is
+written, automatic external and local resource references, active elements and
+event handlers are removed; safe computed text/table styles and inline data
+images remain. Word does not need the temporary browser folder after export.
+The Word package structure is covered by fixtures, but opening it in Word and
+exporting an actual signed-in artifact have not yet been verified on Windows.

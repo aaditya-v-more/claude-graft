@@ -122,6 +122,11 @@ to move again would have left the setting there for good. The transcript cache
 is stamped with `transcriptReadingVersion` for the same reason, since an entry
 read the old way goes on saying `auto` for as long as its file sits still.
 
+Windows never wrote the browser-permission override, but its transcript parser
+also defaulted missing modes to `auto`. Reading version 2 reparses that cache,
+and the ordinary authored-record byte check updates an unchanged Graft record to
+`default`; a record Claude has rewritten is retained exactly as Claude left it.
+
 Four things hold the sweep in. A transcript written moments ago waits out a
 quiet window first, a minute of it — but only while a Claude signed into the
 owner's account is actually running, because that is the only thing the wait
@@ -351,6 +356,12 @@ else. Nothing is remembered about the refusal — the answer is `folderElsewhere
 and the next pass asks again — so a drive that was not mounted files once it
 is. A path outside every home and drive, or none at all, files as it always
 did.
+
+On Windows the equivalent checks the named `Users` home, drive root or UNC share,
+not the individual worktree. Recognizable imported Unix home and volume paths
+are held back from the native Windows sidebar. Relative or absent legacy paths
+remain inconclusive. A missing drive is checked again next pass rather than
+remembered as a permanent refusal.
 
 The rule only keeps a pass from filing. What was filed before it existed has
 long since been rewritten by Claude in its own shape and belongs to Claude, so

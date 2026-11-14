@@ -36,6 +36,8 @@
 Claude Graft runs every Claude account you have side by side, each signed in
 on its own profile, and lets them share their usage. It lives in the menu bar.
 
+For the Windows development build, installer, and current platform differences, see the [Windows guide](windows/README.md).
+
 ## Install
 
 ```sh

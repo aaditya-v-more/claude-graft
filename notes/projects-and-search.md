@@ -137,3 +137,29 @@ browser signed in to one account. The transcript reader was run read-only over
 the development Mac's own transcripts. Nothing has yet been run inside Graft
 against a real account; `handoff/projects-search/HANDOFF.md` is the plan for
 that, on a second Mac.
+
+## Windows
+
+The Windows Projects and Search Chats pages share the same account center and
+isolated WebView2 account stores as Artifacts. `ProjectCatalog` carries the
+request ordering, pagination and cache rules, while `ProjectApi` reads the
+responses and applies the filters. An account's generation accompanies every
+request, so removing an account or signing it in again invalidates pending
+responses even when the account's store identifier stays the same. A failed
+Code list leaves its chats available and is not cached as a complete list.
+
+`LocalCodeSessions` reads the Windows sweep cache only when its file stamp,
+size and parser version agree, and otherwise uses the same transcript parser
+without saving its result. The home-or-drive check is the Windows sweep's,
+including its recognition of imported Unix home paths. The labels say this
+computer and another computer; a locally corroborated session absent from a
+complete, older account-and-organization list opens its transcript in File
+Explorer. Browser links still open claude.ai in the person's browser, which
+has its own sign-in separate from the account used for the list.
+
+The Windows fixtures cover parsed metadata, filter combinations, UTF-16 match
+ranges, page limits, partial Code-list failure, cache freshness, account
+replacement while a request is pending and a read-only transcript fixture.
+They do not establish that a real account's currently deployed claude.ai
+client still accepts these undocumented requests; that remains a distinct
+signed-in acceptance check.
