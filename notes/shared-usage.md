@@ -622,3 +622,14 @@ be renamed and a conversation retitled while a script is still asking for it.
 
 What has run against real accounts, and what is still only a plan, is in
 [diagnostics-and-verification.md](diagnostics-and-verification.md).
+
+## Artifact tool arguments are not inference containers
+
+A historical artifact call can have a string-valued `input.container` containing
+a project reference. Scanning every byte for `"container":"` mistakes that local
+tool argument for a server-side inference container and keeps all subsequent
+turns on the sender, even after the user selects another account. Inspect the
+request envelope for `container`; keep real file and server-side MCP references
+pinned. The relay regression sends a historical artifact tool call through the
+stand-in and checks that the other account answers, while real containers stay
+on their owner.
