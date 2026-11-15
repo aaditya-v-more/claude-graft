@@ -330,9 +330,13 @@ final class ShortcutStore: ObservableObject {
     /// deleting it and adding another only offered the same name again. A
     /// folder still on disk from a shortcut that is gone is passed over too,
     /// since it holds whoever was signed in there last.
+    ///
+    /// Nor a name another shortcut was created as: its app is still called
+    /// that after a rename, and Create would be refused it.
     func uniqueName(base: String = "Claude") -> String {
         func taken(_ name: String) -> Bool {
-            shortcuts.contains { $0.name == name } || !folderIsFree(Shortcut.folderName(for: name))
+            shortcuts.contains { $0.name == name || $0.installedName.map { Graft.isNamed($0, name) } == true }
+                || !folderIsFree(Shortcut.folderName(for: name))
         }
         var n = 2
         var candidate = "\(base) \(n)"

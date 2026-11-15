@@ -289,11 +289,13 @@ final class UsageMonitor: ObservableObject {
         entries.first { $0.profile.path == profile.path }
     }
 
-    /// A shortcut's own figures. Only created shortcuts are asked, so one not
-    /// created has none, whatever folder it names: found by folder, a new
-    /// shortcut left on another's folder showed that account's usage as its own.
+    /// A shortcut's own figures, for the folder it has now. Only created
+    /// shortcuts are asked, so one not created has none, whatever folder it
+    /// names: found by folder, a new shortcut left on another's folder showed
+    /// that account's usage as its own. Found by shortcut alone, one just moved
+    /// to a new folder showed the old folder's until the next pass.
     func entry(for shortcut: Shortcut) -> Entry? {
-        entries.first { $0.shortcut == shortcut.id }
+        entries.first { $0.shortcut == shortcut.id && Graft.samePath($0.profile, shortcut.profileDir) }
     }
 
     /// Idempotent: the window and the menu bar item both ask for it, and only

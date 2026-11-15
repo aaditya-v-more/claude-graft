@@ -138,6 +138,7 @@
 "“%@” is not a usable folder name." = "“%@” is not a usable folder name.";
 "“%@” is the name of Claude itself. Pick something else." = "“%@” is the name of Claude itself. Pick something else.";
 "“%@” already uses the folder %@. Give this shortcut a folder of its own." = "“%@” already uses the folder %@. Give this shortcut a folder of its own.";
+"“%@” was created as %@. Give this shortcut another name." = "“%@” was created as %@. Give this shortcut another name.";
 "There is already an application at %@ that Claude Graft did not create. Rename this shortcut." = "There is already an application at %@ that Claude Graft did not create. Rename this shortcut.";
 "The shortcut could not be signed. Its existing app was kept." = "The shortcut could not be signed. Its existing app was kept.";
 "Check for Claude Updates" = "Check for Claude Updates";

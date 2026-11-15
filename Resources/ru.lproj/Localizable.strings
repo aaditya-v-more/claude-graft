@@ -138,6 +138,7 @@
 "“%@” is not a usable folder name." = "«%@» нельзя использовать как имя папки.";
 "“%@” is the name of Claude itself. Pick something else." = "«%@» — имя самого Claude. Выберите другое.";
 "“%@” already uses the folder %@. Give this shortcut a folder of its own." = "«%@» уже использует папку %@. Выберите для этого ярлыка свою папку.";
+"“%@” was created as %@. Give this shortcut another name." = "«%@» создан как %@. Выберите для этого ярлыка другое имя.";
 "There is already an application at %@ that Claude Graft did not create. Rename this shortcut." = "В %@ уже находится приложение, созданное не Claude Graft. Переименуйте этот ярлык.";
 "The shortcut could not be signed. Its existing app was kept." = "Не удалось подписать ярлык. Существующее приложение сохранено.";
 "Check for Claude Updates" = "Проверить обновления Claude";

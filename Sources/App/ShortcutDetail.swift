@@ -141,7 +141,14 @@ struct ShortcutDetail: View {
             // A folder other than the one the name gives was typed by hand on
             // an earlier visit, and renaming keeps it. One another shortcut
             // has is not kept: the next key gives it a folder of its own.
-            folderIsCustom = !isCreated && folderHolder == nil
+            // A number after the name's folder is one the name chose too, and
+            // stays the name's when the folder that forced it is gone. One on
+            // disk holds a login, so it was adopted by hand and is kept.
+            let given = Shortcut.folderName(for: shortcut.name)
+            let numbered = shortcut.folder.hasPrefix(given + "-")
+                && Int(shortcut.folder.dropFirst(given.count + 1)) != nil
+                && !Graft.exists(shortcut.profileDir)
+            folderIsCustom = !isCreated && folderHolder == nil && !numbered
                 && shortcut.folder != store.suggestedFolder(for: shortcut.name, of: shortcut.id)
             refresh()
             loadIconPreviews()
@@ -183,8 +190,12 @@ struct ShortcutDetail: View {
                     .identified("name")
                 // The field carries no title of its own, so without this
                 // VoiceOver reads only whatever has been typed.
+                // Its label hidden as the name's is: an empty one still had
+                // room kept for it, which dropped the box below the name's
+                // or took 20 points off its width.
                 TextField("", text: folderField)
                     .textFieldStyle(.roundedBorder)
+                    .labelsHidden()
                     .font(.body.monospaced())
                     .frame(width: 130)
                     .help("Profile folder")

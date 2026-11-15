@@ -872,7 +872,87 @@ do {
           "found by folder, its figures were the other account's")
     check(monitor.entry(for: stuck) == nil && monitor.entry(for: holder)?.shortcut == holder.id,
           "found by shortcut, it has none, and the other keeps its own")
+    var moved = holder
+    moved.folder = "Claude-Moved"
+    check(monitor.entry(for: moved) == nil,
+          "nor are the old folder's figures shown as a moved shortcut's own")
+
+    // Named like the app another shortcut was created as, and on its folder,
+    // a shortcut not created yet was handed that app by its name: Open,
+    // Start Session and Delete all reached the other account.
+    let namesake = Shortcut(name: holder.name, folder: holder.folder, source: .own)
+    store.shortcuts = [holder, namesake]
+    check(Installer.installedBundle(for: namesake, among: store.shortcuts) == nil,
+          "a new shortcut named like another's app, on its folder, is not handed that app")
+    check(store.isDraft(namesake), "so leaving it is Discard")
+    Installer.uninstall(namesake, among: store.shortcuts)
+    check(fm.fileExists(atPath: holderApp.path), "and discarding it leaves the other's app where it is")
+    // Only a created shortcut owns an app, so one not created yet on the
+    // folder does not hide the other's app once it is renamed in Finder.
+    let holderRenamed = Installer.searchDirectories[0].appending(path: "Renamed Holder.app")
+    try? fm.moveItem(at: holderApp, to: holderRenamed)
+    check(Installer.installedBundle(for: holder, among: store.shortcuts).map { Graft.samePath($0, holderRenamed) } == true,
+          "a created shortcut's app renamed in Finder is still found with a new shortcut on its folder")
+    try? fm.moveItem(at: holderRenamed, to: holderApp)
     for leftover in [holderApp, holder.profileDir, spareFolder, spareNext] { try? fm.removeItem(at: leftover) }
+
+    // Created as "Claude 2" on a folder of its own and renamed "Work"
+    // without Update, a shortcut's app is still Claude 2.app. A new shortcut
+    // called Claude 2 was written over it, and the first one lost its app.
+    var work = Shortcut(name: "Claude 2", folder: "Claude-Work-Own", source: .own)
+    let workApp = try? Installer.install(work, sourceDir: nil, among: [work])
+    work.installedName = work.name
+    work.name = "Work"
+    store.shortcuts = [work]
+    check(store.uniqueName() != "Claude 2", "a name another shortcut was created as is not offered")
+    let latecomer = Shortcut(name: "Claude 2", source: .own)
+    var nameRefusal: String?
+    do { _ = try Installer.install(latecomer, sourceDir: nil, among: [work, latecomer]) }
+    catch { nameRefusal = error.localizedDescription }
+    check(nameRefusal?.contains("Work") == true && nameRefusal?.contains("Claude 2.app") == true,
+          "and a new shortcut given it anyway is refused, told whose app it is")
+    check(workApp.flatMap(Installer.describedProfile(of:)).map { Graft.samePath($0, work.profileDir) } == true,
+          "so the first shortcut's app still opens its own folder")
+    Installer.uninstall(work, among: [work])
+    for leftover in [work.profileDir, latecomer.profileDir] { try? fm.removeItem(at: leftover) }
+
+    // That overwrite left two shortcuts with one installed name. The one
+    // whose app it is now can still be updated.
+    var stale = Shortcut(name: "Old Owner", folder: "Claude-Old-Owner", source: .own)
+    stale.installedName = "Claude 2"
+    var owner = Shortcut(name: "Claude 2", folder: "Claude-Owner-Two", source: .own)
+    let ownerApp = try? Installer.install(owner, sourceDir: nil, among: [stale, owner])
+    owner.installedName = owner.name
+    var recoloured = owner
+    recoloured.iconPreset = .green
+    var ownRefusal: String?
+    do { _ = try Installer.install(recoloured, sourceDir: nil, replacing: owner, among: [stale, recoloured]) }
+    catch { ownRefusal = error.localizedDescription }
+    check(ownerApp != nil && ownRefusal == nil,
+          "a shortcut sharing its installed name with a stale one can still update its own app (\(ownRefusal ?? ""))")
+    Installer.uninstall(recoloured, among: [recoloured])
+    for leftover in [owner.profileDir, stale.profileDir] { try? fm.removeItem(at: leftover) }
+
+    // An app found by its name or its folder alone is not proof it is this
+    // shortcut's. Here another shortcut's list entry has left the folder its
+    // app still opens, so nothing listed claims that folder.
+    var drifted = Shortcut(name: "Drift", folder: "Claude-Drift", source: .own)
+    let driftedApp = try? Installer.install(drifted, sourceDir: nil, among: [drifted])
+    drifted.installedName = drifted.name
+    drifted.folder = "Claude-Drift-New"
+    for (place, folder) in [("by its name", "Claude-Drift-2"), ("by the folder its app opens", "Claude-Drift")] {
+        let newcomer = Shortcut(name: "Drift", folder: folder, source: .own)
+        var refusal: String?
+        do { _ = try Installer.install(newcomer, sourceDir: nil, among: [drifted, newcomer]) }
+        catch { refusal = error.localizedDescription }
+        check(refusal?.contains("Drift.app") == true
+                && driftedApp.flatMap(Installer.describedProfile(of:)).map { $0.lastPathComponent == "Claude-Drift" } == true,
+              "a new shortcut finding another's app \(place) is refused it, and the app still opens its folder")
+    }
+    if let driftedApp { try? fm.removeItem(at: driftedApp) }
+    for folder in ["Claude-Drift", "Claude-Drift-New", "Claude-Drift-2"] {
+        try? fm.removeItem(at: Graft.applicationSupport.appending(path: folder))
+    }
 
     // A shortcut may not inherit from itself, directly or through a chain.
     var a = Shortcut(name: "A")

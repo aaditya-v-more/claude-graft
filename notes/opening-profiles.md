@@ -56,6 +56,21 @@ list and its figures by shortcut, so one an earlier version left on another's
 folder reads as not created, shows no figures, offers Discard, says whose
 folder it is, and takes a folder of its own at the next key.
 
+**A name an app was created as is that app's.** A shortcut's app is
+`<installedName>.app` until it is updated, whatever it is called now. Looked up
+by name, a shortcut not created yet and called the same, on the same folder,
+was handed that app, read as created, and Start Session, Open and Delete all
+reached the other account; created under that name, a new shortcut was written
+over it. `installedBundle` skips a name another shortcut was created as unless
+it is this shortcut's own, `uniqueName` does not offer one, and
+`Installer.install` refuses to write over another shortcut's app. The one
+exception is an app this shortcut was itself created as that opens its own
+folder, since an earlier overwrite could leave two shortcuts with one installed
+name; found by name or by folder alone is not enough, because another's app
+still opening a folder its list entry has left matches both. Only a created shortcut owns an app, so
+for a created shortcut whose folder is shared only with others not created
+yet, the app found by its folder is its own, renamed in Finder.
+
 ## Opening, revealing and the shortcut bundle
 
 **Every route that opens a profile asks first.** Two Claudes on one chat store
