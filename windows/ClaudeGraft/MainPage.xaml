@@ -369,7 +369,12 @@
                     </Flyout>
                 </Button.Flyout>
             </Button>
-            <Button Grid.Column="4" x:Name="OpenButton" Content="Open" Click="Open_Click" AutomationProperties.AutomationId="manager.open" />
+            <Button Grid.Column="4" x:Name="OpenButton" Click="Open_Click" AutomationProperties.Name="Open" AutomationProperties.AutomationId="manager.open">
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <ProgressRing x:Name="OpenRing" Width="16" Height="16" IsActive="False" Visibility="Collapsed" AutomationProperties.AccessibilityView="Raw" />
+                    <TextBlock x:Name="OpenText" Text="Open" />
+                </StackPanel>
+            </Button>
             <Button Grid.Column="5" x:Name="SaveButton" Click="Save_Click" Style="{StaticResource AccentButtonStyle}"
                     AutomationProperties.Name="Update Shortcut" AutomationProperties.AutomationId="manager.save">
                 <Grid>

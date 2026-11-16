@@ -62,14 +62,47 @@ public sealed class ShortcutRow : INotifyPropertyChanged
         foreach (var name in new[]
         {
             nameof(SignedIn), nameof(SignInVisibility), nameof(SignedInVisibility), nameof(OpenLabel),
-            nameof(BarsVisibility), nameof(NoUsageVisibility), nameof(DefaultAppsVisibility),
+            nameof(BarsVisibility), nameof(NoUsageVisibility), nameof(DefaultAppsVisibility), nameof(QuickOpenVisibility),
         }) Notify(name);
         NotifyStatus();
     }
 
+    /// The sidebar's open button: only for a Claude that can be opened as it is,
+    /// as the page's own Open is, so a shortcut not created yet or not signed in
+    /// gets none.
+    public Visibility QuickOpenVisibility =>
+        _signedIn && (Shortcut is null || Shortcut.InstalledName is not null) ? Visibility.Visible : Visibility.Collapsed;
+
     public Visibility SignInVisibility => _signedIn ? Visibility.Collapsed : Visibility.Visible;
     public Visibility SignedInVisibility => _signedIn ? Visibility.Visible : Visibility.Collapsed;
-    public string OpenLabel => _signedIn ? "Open" : "Sign In";
+    public string OpenLabel => _opening ? "Opening…" : _signedIn ? "Open" : "Sign In";
+
+    private bool _opening;
+
+    public ShortcutRow() => Flight.Changed += FlightChanged;
+
+    /// From the press until the Claude is up or the open has failed; ProfileRows owns it.
+    public bool Opening => _opening;
+    public OpenInFlight Flight { get; } = new();
+    public Visibility OpeningVisibility => _opening ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility NotOpeningVisibility => _opening ? Visibility.Collapsed : Visibility.Visible;
+    public bool CanPressOpen => !_opening;
+
+    /// The sidebar's line under the name.
+    public string SidebarCaption => _opening ? "Opening…"
+        : Shortcut is null ? "Installed normally"
+        : Shortcut.InstalledName is null ? "Not created yet" : SourceLabel;
+
+    private void FlightChanged()
+    {
+        if (Flight.Active == _opening) return;
+        _opening = Flight.Active;
+        foreach (var name in new[]
+        {
+            nameof(Opening), nameof(OpenLabel), nameof(OpeningVisibility), nameof(NotOpeningVisibility),
+            nameof(CanPressOpen), nameof(SidebarCaption),
+        }) Notify(name);
+    }
 
     /// Google and company sign-in come back through a claude:// link, which
     /// reaches the right profile only once Graft is the handler Windows picks.

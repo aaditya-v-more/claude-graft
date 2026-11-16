@@ -5,6 +5,7 @@ using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Data;
 using Microsoft.UI.Xaml.Media;
 using Windows.Graphics;
 
@@ -246,14 +247,46 @@ public sealed partial class MainWindow : Window
                     : row.Shortcut.InstalledName is null ? "Not created yet" : row.SourceLabel;
                 var words = new StackPanel { Spacing = 1, Margin = new Thickness(0, 6, 0, 6) };
                 words.Children.Add(new TextBlock { Text = row.Name, TextTrimming = TextTrimming.CharacterEllipsis });
-                words.Children.Add(new TextBlock
+                var caption = new TextBlock
                 {
-                    Text = line, TextTrimming = TextTrimming.CharacterEllipsis,
+                    TextTrimming = TextTrimming.CharacterEllipsis,
                     Style = (Style)Application.Current.Resources["CaptionTextBlockStyle"],
                     Foreground = Themed.Brush("TextFillColorSecondaryBrush"),
-                });
+                };
+                caption.SetBinding(TextBlock.TextProperty, new Binding { Source = row, Path = new PropertyPath(nameof(ShortcutRow.SidebarCaption)) });
+                words.Children.Add(caption);
                 var glyph = row.Shortcut is null ? "\uE80F" : row.Shortcut.Source.Kind == SourceKind.Own ? "\uEA3A" : "\uE71B";
-                var item = new NavigationViewItem { Content = words, Tag = "claude:" + row.Key, Icon = new FontIcon { Glyph = glyph } };
+                var openRow = row;
+                var open = new Button
+                {
+                    Content = new FontIcon { Glyph = "", FontSize = 14 },
+                    Width = 32, Height = 32, Padding = new Thickness(0), Margin = new Thickness(4, 0, -10, 0),
+                    Background = new SolidColorBrush(Colors.Transparent), BorderThickness = new Thickness(0),
+                    VerticalAlignment = VerticalAlignment.Center,
+                };
+                open.Content = WithOpeningRing((FontIcon)open.Content, row);
+                open.SetBinding(Control.IsEnabledProperty, new Binding { Source = row, Path = new PropertyPath(nameof(ShortcutRow.CanPressOpen)) });
+                ToolTipService.SetToolTip(open, $"Open {row.Name}");
+                AutomationProperties.SetName(open, Spoken.Act("Open", row.Name));
+                AutomationProperties.SetAutomationId(open, Spoken.Id("sidebar", row.Key, "open"));
+                open.SetBinding(UIElement.VisibilityProperty, new Binding { Source = row, Path = new PropertyPath(nameof(ShortcutRow.QuickOpenVisibility)) });
+                // A Button takes its own press, so opening a Claude leaves the page shown where it was.
+                open.Click += async (_, _) => { if (RootFrame.Content is MainPage current) await current.OpenAsync(openRow); };
+                var strip = new Grid
+                {
+                    HorizontalAlignment = HorizontalAlignment.Stretch,
+                    Visibility = Sections.IsPaneOpen ? Visibility.Visible : Visibility.Collapsed,
+                };
+                strip.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                strip.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                strip.Children.Add(words);
+                Grid.SetColumn(open, 1);
+                strip.Children.Add(open);
+                var item = new NavigationViewItem
+                {
+                    Content = strip, Tag = "claude:" + row.Key, Icon = new FontIcon { Glyph = glyph },
+                    HorizontalContentAlignment = HorizontalAlignment.Stretch,
+                };
                 AutomationProperties.SetName(item, $"{row.Name}, {line}");
                 AutomationProperties.SetAutomationId(item, "sidebar." + row.Key);
                 if (row.Shortcut is null)
@@ -265,6 +298,23 @@ public sealed partial class MainWindow : Window
                 if (showingClaude && row.Key == page.Focused) Sections.SelectedItem = item;
             }
         }        finally { _rebuilding = false; }
+    }
+
+    /// The glyph gives way to a ring while the row opens; the button keeps its size either way.
+    private static Grid WithOpeningRing(FontIcon glyph, ShortcutRow row)
+    {
+        var ring = new ProgressRing
+        {
+            Width = 16, Height = 16, IsActive = true,
+            HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center,
+        };
+        AutomationProperties.SetAccessibilityView(ring, Microsoft.UI.Xaml.Automation.Peers.AccessibilityView.Raw);
+        ring.SetBinding(UIElement.VisibilityProperty, new Binding { Source = row, Path = new PropertyPath(nameof(ShortcutRow.OpeningVisibility)) });
+        glyph.SetBinding(UIElement.VisibilityProperty, new Binding { Source = row, Path = new PropertyPath(nameof(ShortcutRow.NotOpeningVisibility)) });
+        var both = new Grid();
+        both.Children.Add(glyph);
+        both.Children.Add(ring);
+        return both;
     }
 
     private void SelectFocused(MainPage page)
@@ -292,6 +342,17 @@ public sealed partial class MainWindow : Window
     private async void ClaudeRestart_Requested()
     {
         if (RootFrame.Content is MainPage page) await page.ConfirmRestartClaudesAsync();
+    }
+
+    // A stretched row is not clipped to the compact rail, so its words would spill over the page.
+    private void Sections_PaneOpening(NavigationView sender, object args) => ShowClaudeRows(Visibility.Visible);
+
+    private void Sections_PaneClosing(NavigationView sender, NavigationViewPaneClosingEventArgs args) => ShowClaudeRows(Visibility.Collapsed);
+
+    private void ShowClaudeRows(Visibility visibility)
+    {
+        foreach (var item in Sections.MenuItems.OfType<NavigationViewItem>().Where(i => ((string?)i.Tag)?.StartsWith("claude:") == true))
+            if (item.Content is Grid strip) strip.Visibility = visibility;
     }
 
     private void Sections_SelectionChanged(Microsoft.UI.Xaml.Controls.NavigationView sender, Microsoft.UI.Xaml.Controls.NavigationViewSelectionChangedEventArgs args)

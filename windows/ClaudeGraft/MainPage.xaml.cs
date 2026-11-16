@@ -297,9 +297,11 @@ public sealed partial class MainPage : Page
         if (row is not null) ToolTipService.SetToolTip(StartButton, row.StartTooltip);
 
         OpenButton.Visibility = Drafting || row is null ? Visibility.Collapsed : Visibility.Visible;
-        OpenButton.Content = row?.OpenLabel ?? "Open";
+        OpenText.Text = row?.OpenLabel ?? "Open";
+        OpenRing.IsActive = row is { Opening: true };
+        OpenRing.Visibility = row is { Opening: true } ? Visibility.Visible : Visibility.Collapsed;
         AutomationProperties.SetName(OpenButton, row is null ? "Open" : Spoken.Act(row.OpenLabel, row.Name));
-        OpenButton.IsEnabled = !Editor.Busy && row?.Shortcut?.InstalledName is not null || row?.Shortcut is null;
+        OpenButton.IsEnabled = row is not { Opening: true } && (!Editor.Busy && row?.Shortcut?.InstalledName is not null || row?.Shortcut is null);
 
         SaveButton.Visibility = editing ? Visibility.Visible : Visibility.Collapsed;
         var title = Editor.IsNew ? "Create Shortcut" : "Update Shortcut";
@@ -707,7 +709,13 @@ public sealed partial class MainPage : Page
 
     private async void Open_Click(object sender, RoutedEventArgs e)
     {
-        if (sender is not FrameworkElement { Tag: ShortcutRow row }) return;
+        if (sender is FrameworkElement { Tag: ShortcutRow row }) await OpenAsync(row);
+    }
+
+    /// The one way into a profile from this window, the sidebar's button included.
+    public async Task OpenAsync(ShortcutRow row)
+    {
+        if (row.Opening) return;
         row.RecheckLinkHandler();
 
         // Before opening, never after: Claude builds its sidebar at launch, so the
@@ -717,10 +725,8 @@ public sealed partial class MainPage : Page
         {
             if (!await AskAboutChats(row, s, found)) return;
         }
-        OpenRow(row);
+        await ProfileRows.OpenAsync(row);
     }
-
-    private static void OpenRow(ShortcutRow row) => ProfileRows.Open(row);
 
     private async void DefaultApps_Click(object sender, RoutedEventArgs e)
     {

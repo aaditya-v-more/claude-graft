@@ -47,6 +47,7 @@
         <NavigationView x:Name="Sections" Grid.Row="1" PaneDisplayMode="Left"
                         IsBackButtonVisible="Collapsed" IsSettingsVisible="False"
                         IsPaneToggleButtonVisible="False" OpenPaneLength="240"
+                        PaneOpening="Sections_PaneOpening" PaneClosing="Sections_PaneClosing"
                         SelectionChanged="Sections_SelectionChanged" ItemInvoked="Sections_ItemInvoked">
             <NavigationView.MenuItems>
                 <NavigationViewItemHeader x:Name="ClaudesHeader" Content="Claude" />

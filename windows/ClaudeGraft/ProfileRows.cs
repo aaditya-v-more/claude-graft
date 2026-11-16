@@ -45,12 +45,41 @@ internal static class ProfileRows
         return held.Count > 0 && held.All(h => h is not null) ? held.Min() : null;
     }
 
-    public static void Open(ShortcutRow row)
+    public static void Open(ShortcutRow row) => _ = OpenAsync(row);
+
+    /// Claude's window comes up some seconds after Launcher.Open returns, so the
+    /// row stays opening until its process is there, but never for longer than this.
+    private static readonly TimeSpan WindowWait = TimeSpan.FromSeconds(10);
+
+    public static async Task OpenAsync(ShortcutRow row)
     {
         var config = row.Shortcut is Shortcut s
             ? App.Store.ConfigFor(s)
             : new GraftConfig { ProfileDir = row.ProfileDir, SourceDir = null };
-        Task.Run(() => Launcher.Open(config));
+        if (row.Opening) return;
+        row.Problem = null;
+        try
+        {
+            var started = false;
+            var ran = await row.Flight.RunAsync(() => Task.Run(async () =>
+            {
+                Launcher.Open(config);
+                var until = DateTime.UtcNow + WindowWait;
+                while (!(started = ClaudeProcesses.IsRunning(config.ProfileDir)) && DateTime.UtcNow < until)
+                    await Task.Delay(400);
+            }));
+            if (ran && !started) row.Problem = "Claude did not start. Try opening it again.";
+        }
+        catch (Exception e)
+        {
+            row.Problem = "Claude could not be opened: " + e.Message;
+            // The press has no caller to hand a throw to, so it is written down where the other passes are.
+            Diagnostics.Note("open.failed", new Dictionary<string, object?>
+            {
+                ["profile"] = Path.GetFileName(config.ProfileDir),
+                ["error"] = e.GetType().Name + ": " + e.Message,
+            });
+        }
     }
 
     /// The usage read as a fire-and-forget task wants: a throw here has nowhere
