@@ -281,6 +281,24 @@ public partial class App : Application
         return Store.Shortcuts.FirstOrDefault(s => s.Id.ToString() == key)?.Name ?? key;
     }
     private int _sharingBusy;
+    public static IReadOnlyDictionary<string, ModEnvironment.State> ModStates { get; private set; } = new Dictionary<string, ModEnvironment.State>();
+    /// Raised on the UI thread after each pass that settled mods.
+    public static event Action? ModsChanged;
+
+    // Ahead of the sharing pass, in the same turn, so that pass reads the field
+    // this one may have just rewritten.
+    private void SyncMods()
+    {
+        try
+        {
+            var profiles = new List<string> { GraftPaths.DefaultProfile };
+            profiles.AddRange(Store.Shortcuts.ToList().Select(s => s.ProfileDir));
+            ModStates = ModEnvironment.Settle(profiles, ClaudeCredentials.SafeStorageKey, ClaudeProcesses.IsRunning);
+            _ui?.TryEnqueue(() => ModsChanged?.Invoke());
+        }
+        catch (Exception e) { Record("mods.sync", e); }
+    }
+
     private string? _lastSharingProblem;
 
     /// Logins renew and Claudes open and close, so the relay is told again and
@@ -291,6 +309,7 @@ public partial class App : Application
         if (Interlocked.Exchange(ref _sharingBusy, 1) == 1) return;
         try
         {
+            SyncMods();
             if (UsageSharing.Load().Lenders.All(l => l.Value.Count == 0) && PoolEnvironment.ReadJournal().Profiles.Count == 0
                 && RelayKeeper.Send(new RelayRequest(), timeoutMs: 500) is null)
             {

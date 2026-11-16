@@ -172,6 +172,11 @@ any of these. The why is in [notes/updates-and-releases.md](notes/updates-and-re
 - **The two-second walk dates each record with one `lstat`** (`Graft.modificationDate`), never `attributesOfItem`.
 - **A conversation archived or deleted leaves the bar and the dropdown** (`lookUpRecords`): its own Claude's records decide, a record is gone only after missing twice, and deleting the one on screen keeps its focus.
 
+### Mods — [notes/mods.md](notes/mods.md)
+
+- **A per-Claude mod list replaces the one in settings, never joins it,** so the value Graft writes carries `~/.claude/settings.json`'s folders too. It goes into a closed Claude only, under the launch lock, ahead of the sharing pass, and a value Graft did not write is never replaced (`ModEnvironment`). An empty list is a list: it is how a settings mod is left out of one Claude.
+- **The mod list is read when Browse is shown or refreshed, never on a timer,** and a mod is installed at the commit its scan read, after asking and after Claude Code's validator passes it (`ModCatalog.Install`).
+
 ### Artifacts — [notes/artifacts.md](notes/artifacts.md)
 
 - **An artifact sign-in stays in its web store.** One `WKWebsiteDataStore` per account, loaded only with claude.ai; requests go out from a claude.ai page by `callAsyncJavaScript`, never from `URLSession`, and nothing reads `httpCookieStore`. Signing out removes the store. Claude profiles' cookies are never decrypted.

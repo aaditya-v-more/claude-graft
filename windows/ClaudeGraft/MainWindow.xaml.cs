@@ -107,6 +107,7 @@ public sealed partial class MainWindow : Window
             "artifacts" => ("Artifacts", "Every account"),
             "projects" => ("Projects", "Every account"),
             "search" => ("Search Chats", "Every account"),
+            "mods" => ("Mods", "Every Claude"),
             "settings" => ("Settings", "Claude Graft"),
             _ => RootFrame.Content is MainPage page ? page.Heading : ("Claude", ""),
         };
@@ -368,7 +369,7 @@ public sealed partial class MainWindow : Window
         SectionFrame.Visibility = claudes ? Visibility.Collapsed : Visibility.Visible;
         // Navigated every time, to pages the Frame keeps, so each visit plays the opening
         // transition and a page comes back as it was left; loading again refreshes it.
-        var section = tag switch { "artifacts" => typeof(ArtifactsPage), "projects" => typeof(ProjectsPage), "search" => typeof(SearchPage), "settings" => typeof(SettingsPage), _ => null };
+        var section = tag switch { "artifacts" => typeof(ArtifactsPage), "projects" => typeof(ProjectsPage), "search" => typeof(SearchPage), "mods" => typeof(ModsPage), "settings" => typeof(SettingsPage), _ => null };
         if (section is not null)
         {
             SectionFrame.Navigate(section, null, new Microsoft.UI.Xaml.Media.Animation.EntranceNavigationTransitionInfo());

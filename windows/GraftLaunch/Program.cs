@@ -28,6 +28,8 @@ if (args.Length == 1 && args[0] == "--stop-sharing")
     ChimeHook.Remove(ChimeHook.SettingsFile);
     foreach (var path in PoolEnvironment.TakeOutLines(null, ClaudeProcesses.IsRunning))
         Console.WriteLine($"still open, or changed since Graft read it: {path}");
+    foreach (var path in ModEnvironment.TakeOut(ClaudeCredentials.SafeStorageKey, ClaudeProcesses.IsRunning))
+        Console.WriteLine($"still open, or holding mods of its own: {path}");
     return 0;
 }
 
