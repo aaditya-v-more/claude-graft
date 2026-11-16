@@ -14,15 +14,21 @@ struct MenuBarContent: View {
     /// Passed in: this view is hosted by an NSPopover, outside any scene, so
     /// the openWindow environment action is not available here.
     let openMainWindow: () -> Void
+    /// The most the dropdown may stand: the screen under the menu bar, less
+    /// the arrow. Past it the account list scrolls, because a popover taller
+    /// than its screen runs off the bottom and takes the switches and Quit
+    /// with it.
+    var maxHeight: CGFloat = .infinity
 
     @State private var starting: String?
     @State private var problem: String?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        DropdownColumn(maxHeight: maxHeight) {
             UpdateRecoveryNotice()
             ClaudeUpdateStatus(compact: true)
             Divider()
+        } list: {
             if usage.entries.isEmpty {
                 Text("No Claude profiles yet")
                     .foregroundStyle(.secondary)
@@ -42,7 +48,7 @@ struct MenuBarContent: View {
                 }
             }
             SharedChats()
-
+        } foot: {
             Divider().padding(.vertical, 6)
 
             if let problem = problem ?? usage.liveProblem {
@@ -136,7 +142,6 @@ struct MenuBarContent: View {
             .padding(.horizontal, 8)
             .padding(.bottom, 8)
         }
-        .frame(width: 320)
         .onAppear {
             settings.refreshLoginItem()
             usage.refresh(store, prompting: .onceIfShut, freshness: .recent)
@@ -183,6 +188,68 @@ struct MenuBarContent: View {
                 usage.refresh(store, interactive: true, prompting: .no, focus: profile)
             }
         }
+    }
+}
+
+/// The dropdown's three parts stacked, with only the middle one ever
+/// scrolling. The list is what grows with every account added; the switches
+/// and Quit underneath are what someone opened the dropdown to reach, so they
+/// stay put and the list gives up the height instead.
+struct DropdownColumn<Head: View, Rows: View, Foot: View>: View {
+    let maxHeight: CGFloat
+    @ViewBuilder let head: Head
+    @ViewBuilder let list: Rows
+    @ViewBuilder let foot: Foot
+
+    @State private var heights: [DropdownPart: CGFloat] = [:]
+
+    /// However crowded the rest is, this much of the list stays in view, or a
+    /// long notice could leave no account showing at all.
+    static var leastList: CGFloat { 160 }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: 0) { head }.measured(.head)
+            // Unscrolled until it has to be: a list that fits keeps the height
+            // it asks for, which a scroll view never states for it.
+            if let room = Self.listHeight(list: heights[.list] ?? 0, head: heights[.head] ?? 0,
+                                          foot: heights[.foot] ?? 0, limit: maxHeight) {
+                ScrollView(.vertical) {
+                    VStack(alignment: .leading, spacing: 0) { list }.measured(.list)
+                }
+                .frame(height: room)
+            } else {
+                VStack(alignment: .leading, spacing: 0) { list }.measured(.list)
+            }
+            VStack(alignment: .leading, spacing: 0) { foot }.measured(.foot)
+        }
+        .frame(width: 320)
+        .onPreferenceChange(DropdownPartHeights.self) { heights = $0 }
+    }
+
+    /// The height the list is held to, or nil when the whole of it fits.
+    static func listHeight(list: CGFloat, head: CGFloat, foot: CGFloat, limit: CGFloat) -> CGFloat? {
+        let room = limit - head - foot
+        guard list > room else { return nil }
+        return max(room, min(list, leastList))
+    }
+
+}
+
+private enum DropdownPart: Hashable { case head, list, foot }
+
+private struct DropdownPartHeights: PreferenceKey {
+    static let defaultValue: [DropdownPart: CGFloat] = [:]
+    static func reduce(value: inout [DropdownPart: CGFloat], nextValue: () -> [DropdownPart: CGFloat]) {
+        value.merge(nextValue()) { $1 }
+    }
+}
+
+private extension View {
+    func measured(_ part: DropdownPart) -> some View {
+        background(GeometryReader { proxy in
+            Color.clear.preference(key: DropdownPartHeights.self, value: [part: proxy.size.height])
+        })
     }
 }
 

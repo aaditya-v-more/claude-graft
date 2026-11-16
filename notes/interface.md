@@ -237,6 +237,31 @@ A row with its own button never takes `.spoken` on the whole row: the
 button inherits the row's name, and VoiceOver reads the account twice and
 the action never. Name the label part, and let the button name itself.
 
+## Fitting the dropdown
+
+**The account list scrolls; nothing under it does.** The dropdown grew a row
+of three bars for every account, and someone with seven of them found it
+running past the bottom of the screen: an `NSPopover` taller than its screen
+is not shrunk, so the switches, Open Claude Graft and Quit were simply gone,
+and with them the only way into Settings. `DropdownColumn` stacks the dropdown
+in three parts and measures each; when the list needs more than the screen
+leaves after the other two, only the list is put in a `ScrollView`, held to
+what is left. The parts above and below are what people open the dropdown to
+reach, and the list is what grows.
+
+The limit is the status item's screen's `visibleFrame` less 40 points for the
+arrow and the popover's inset, passed in by `MenuBarController` when it opens
+the dropdown. The list keeps at least `leastList` whatever the rest takes, so
+a long notice cannot leave no account in view.
+
+A list that fits is never wrapped: a `ScrollView` states no height of its own
+to a popover, which sizes itself from what its content asks for, so wrapping
+it always would need the measured height before the first frame and open the
+dropdown at nothing for a moment. Nor does the scroll view carry an
+identifier; one on a container is inherited by every control inside it. The
+layout suite checks thirty accounts against a 400-point limit and a few against
+their own height.
+
 ## The Dock, the icon and the Claude in front
 
 **A running Claude shows the icon of the bundle it runs from, and nothing

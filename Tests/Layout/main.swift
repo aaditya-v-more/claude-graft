@@ -634,6 +634,37 @@ for control in ["open-at-login", "show-in-menu-bar", "front-icon", "front-name",
 }
 dropdown.orderOut(nil)
 
+// Someone with seven accounts found the dropdown running off the bottom of
+// the screen, taking the switches and Quit with it. The list scrolls instead.
+func column(accounts: Int) -> NSWindow {
+    hosted(DropdownColumn(maxHeight: 400) {
+        Text("Head").padding(10)
+    } list: {
+        ForEach(0..<accounts, id: \.self) { Text("Account \($0)").padding(.vertical, 20) }
+    } foot: {
+        Button("Quit") {}.identified("quit")
+    }
+    .environment(\.controlSurface, ControlSurface.dropdown), title: "Dropdown height check")
+}
+let crowded = column(accounts: 30)
+settle()
+let crowdedHeight = crowded.contentView?.fittingSize.height ?? 0
+check(crowdedHeight > 0 && crowdedHeight <= 400,
+      "a dropdown with more accounts than the screen holds stays within the screen (\(Int(crowdedHeight)))")
+check(element("dropdown.quit", in: checkAccessibility(crowded, surface: ControlSurface.dropdown,
+                                                      "a crowded dropdown")) != nil,
+      "and what sits under the accounts can still be reached")
+crowded.orderOut(nil)
+let few = column(accounts: 3)
+settle()
+let fewHeight = few.contentView?.fittingSize.height ?? 0
+check(fewHeight > 100 && fewHeight < 400,
+      "a dropdown with a few accounts keeps the height it asks for (\(Int(fewHeight)))")
+few.orderOut(nil)
+check(DropdownColumn<EmptyView, EmptyView, EmptyView>.listHeight(list: 900, head: 600, foot: 300, limit: 800)
+        == DropdownColumn<EmptyView, EmptyView, EmptyView>.leastList,
+      "however crowded the rest, some of the account list stays in view")
+
 let now = Date()
 func sample(_ name: String, _ profile: URL, _ id: UUID?) -> UsageMonitor.Entry {
     UsageMonitor.Entry(name: name, profile: profile,

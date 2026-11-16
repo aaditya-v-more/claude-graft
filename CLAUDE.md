@@ -195,6 +195,7 @@ any of these. The why is in [notes/updates-and-releases.md](notes/updates-and-re
 - **Every control is named and identified by hand** with `identified`, on the control, never on a stack. Never call `NSApp.setAccessibilityWindows`.
 - **No `MenuBarExtra`. Nothing blocking in a view body. Long-lived objects live in `enum Shared`.**
 - **The window fits at 820×560 without scrolling,** every page, and Settings fits its own: a note is one line (`OneLineNote`), its paragraph behind an `InfoButton`.
+- **The dropdown never runs past its screen:** only the account list scrolls (`DropdownColumn`), and only once it has to; the switches and Quit stay in view.
 - **A running Claude keeps its own Dock icon and name;** the menu bar says which one is in front instead.
 - **A colour is handed out once and never twice** (`IconPreset.next`): a new Claude or lent account takes the first free one; nothing recolours what exists, and an account that is a Claude here wears that Claude's.
 

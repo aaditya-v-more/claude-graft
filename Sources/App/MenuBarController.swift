@@ -375,10 +375,13 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
         // Cheap once the transcripts have been read once, and the dropdown is
         // where the line about what was recovered is shown.
         Shared.sessionRecords.sweep(store)
+        // The popover hangs from the bar, so the screen's visible height is
+        // all it has; the margin is the arrow and the popover's own inset.
+        let screen = button.window?.screen ?? NSScreen.main
         let content = MenuBarContent(openMainWindow: { [weak self] in
             self?.popover.performClose(nil)
             self?.openMainWindow()
-        })
+        }, maxHeight: screen.map { $0.visibleFrame.height - 40 } ?? .infinity)
         .environmentObject(store)
         .environmentObject(settings)
         .environmentObject(usage)
