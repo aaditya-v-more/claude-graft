@@ -114,7 +114,7 @@ internal sealed class DebugWindow : Window
     {
         if (index == 0) return;
         var main = new SignInTarget("Claude", GraftPaths.DefaultProfile, 1, 1);
-        IReadOnlyList<SignInTarget> targets = index switch
+        SignInTarget[] targets = index switch
         {
             1 => [main, new SignInTarget("Work", GraftPaths.Profile("Claude-Work"), 2, 2)],
             2 => [main, new SignInTarget("Work", GraftPaths.Profile("Claude-Work"), 2, 2), new SignInTarget("Work", GraftPaths.Profile("Claude-Work-2"), 3, 3)],
@@ -192,11 +192,11 @@ internal sealed class DebugWindow : Window
             Sharing = chosen.Sharing switch
             {
                 1 => new SharingStage("Draws on Work and Personal", null, false,
-                    [new("Work", "Lending", false, "5h 34% · Week 52%"), new("Personal", "Lending", false, "5h 8% · Week 19%")]),
+                    (LenderStage[])[new("Work", "Lending", false, "5h 34% · Week 52%"), new("Personal", "Lending", false, "5h 8% · Week 19%")]),
                 2 => new SharingStage("Draws on Work and Personal", "Personal's login was refused; it is skipped until it signs in again", true,
-                    [new("Work", "Lending", false, "5h 34% · Week 52%"), new("Personal", "Login refused", true, "")]),
+                    (LenderStage[])[new("Work", "Lending", false, "5h 34% · Week 52%"), new("Personal", "Login refused", true, "")]),
                 3 => new SharingStage("Draws on Work", "Lending is paused: this Graft cannot configure the relay that is running", true,
-                    [new("Work", "Paused", true, "5h 34% · Week 52%")]),
+                    (LenderStage[])[new("Work", "Paused", true, "5h 34% · Week 52%")]),
                 _ => null,
             },
         };
@@ -213,7 +213,7 @@ internal sealed class DebugWindow : Window
             Count = 3,
             Merging = merging,
             Chats =
-            [
+            (Graft.ChatsElsewhere.Chat[])[
                 new("Planning the move to the new office", now.AddHours(-2)),
                 new("Quarterly numbers, first pass", now.AddDays(-1)),
                 new("Why the build fails on ARM", now.AddDays(-6)),

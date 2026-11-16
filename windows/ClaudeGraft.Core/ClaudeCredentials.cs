@@ -121,7 +121,7 @@ public static class ClaudeCredentials
         // The document owns the memory its elements point into, so it is held
         // alive for the whole walk — a RootElement outliving its JsonDocument
         // reads freed buffers and finds nothing, nondeterministically.
-        using JsonDocument doc = Parse(plaintext);
+        using JsonDocument? doc = Parse(plaintext);
         if (doc is null || doc.RootElement.ValueKind != JsonValueKind.Object) return null;
 
         Token? best = null;
