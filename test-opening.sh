@@ -23,7 +23,8 @@ swiftc -swift-version 5 \
     "$ROOT"/Sources/Shared/*.swift \
     "$ROOT/Sources/App/Model.swift" "$ROOT/Sources/App/Installer.swift" \
     "$ROOT/Sources/App/ProfileOpener.swift" "$ROOT/Sources/App/SessionStarter.swift" \
-    "$ROOT/Sources/App/ClaudeCredentials.swift" "$ROOT/Tests/Opening/main.swift" \
+    "$ROOT/Sources/App/ClaudeCredentials.swift" "$ROOT/Sources/App/UsageAPI.swift" \
+    "$ROOT/Tests/Opening/main.swift" \
     -o "$APP/Contents/MacOS/OpeningChecks"
 cat > "$APP/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>

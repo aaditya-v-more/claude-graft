@@ -69,7 +69,8 @@ _ = try Installer.install(first, sourceDir: nil)
 let original = try Installer.install(second, sourceDir: nil)
 let renamed = original.deletingLastPathComponent().appending(path: "STORE Claude.app")
 try fm.moveItem(at: original, to: renamed)
-check(Installer.installedBundle(for: second) == nil, "the renamed bundle reproduces the old failed lookup")
+check(Installer.installedBundle(for: second)?.standardizedFileURL == renamed.standardizedFileURL,
+      "a renamed bundle is still found by the profile it opens")
 
 openProfile(first)
 check(until { pids(first.profileDir).count == 1 }, "the first selected profile launches its own Claude")
