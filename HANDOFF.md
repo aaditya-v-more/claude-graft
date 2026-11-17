@@ -22,13 +22,18 @@ Both community Windows ports are merged into `main` and GitHub shows both PRs as
 - `GRAFT_UPDATE_FEED` (a folder or URL) points an installed copy at a local feed. It exists for update tests only.
 
 **Plan agreed with the owner.**
-- **2.1.0 (now):** Windows only, installer only, tag `v2.1.0` on the commit it was built from.
+- **2.1.0 is released for Windows** (tag `v2.1.0` on `1a330cd`, 17 Nov). It is installer only and unsigned, and installs update from this repository.
+  - The release is not marked "latest", so the website and README still offer the Mac 2.0.1.
+  - The owner approved the five-page review PDF first.
 - **Mac in the meantime:** it stays on 2.0.1 in its Sparkle feed and Homebrew cask until it has passed in the macOS VM.
 - **2.1.1 (after the VM pass):** Mac and Windows together, and Windows gets 2.1.1 as an ordinary update.
 
-**Not released yet.** Two things hold the tag, which goes on `eee8fe2` or later:
-- the owner's approval of the before/after PDF;
-- the owner's sign-in pass on the second PC.
+**How the published 2.1.0 was checked.**
+- Its three files match GitHub's digests, and `releases.win.json` records the nupkg's real size and SHA-1.
+- The package holds 2.1.0 with the Settings fix, Donate, this repository as its feed, and Electron 44.9.3.
+- On the second PC, a 2.0.9 build with no feed override found 2.1.0 on GitHub, skipping the Mac-only releases, downloaded it and updated itself in about two minutes. The app it ended up with is identical to the published one.
+- The published `Setup.exe` run over that install left 2.1.0 in place, and its update check found nothing newer.
+- **A catch for update tests:** Velopack applies a package of the right name already sitting in `ClaudeGraftApp\packages` without downloading or checking it. Clear that folder before testing a real download.
 
 **Existing installs of Tyler's fork.** Installs of Tyler's 2.0.0 still check his fork for updates. They won't get ours until he publishes one bridging update that points them here; he was asked on #16. Until then, they move across by running our setup over their install, which was tested (see below).
 
