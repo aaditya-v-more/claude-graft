@@ -89,7 +89,11 @@ public sealed partial class MainWindow : Window
             Close();
         };
         RootFrame.Navigate(typeof(MainPage));
-        if (RootFrame.Content is MainPage page) page.ClaudesChanged += RebuildClaudes;
+        if (RootFrame.Content is MainPage page)
+        {
+            page.ClaudesChanged += RebuildClaudes;
+            page.HeadingChanged += ShowHeading;
+        }
         RebuildClaudes();
     }
 

@@ -54,7 +54,8 @@ public sealed partial class ProfileEditor : UserControl
     {
         _original = existing;
         _isNew = existing is null;
-        _shortcut = existing?.Copy() ?? Shortcut.New(App.Store.UniqueName());
+        // A new Claude reads its own chats, as on the Mac; borrowing is chosen afterwards.
+        _shortcut = existing?.Copy() ?? Shortcut.New(App.Store.UniqueName(), source: ShortcutSource.Own);
         if (_isNew) _shortcut.IconPreset = App.Store.NextIconPreset();
         _folderEdited = !_isNew;
         // Something outside Graft can take the link away; saving unchanged writes it back.
@@ -165,7 +166,9 @@ public sealed partial class ProfileEditor : UserControl
     private void FolderBox_TextChanged(object sender, TextChangedEventArgs e)
     {
         if (_filling) return;
-        _folderEdited = true;
+        // TextChanged arrives after the name's own rewrite has finished, so a flag set here stopped
+        // the folder following at once; only a folder unlike the name's counts as typed by hand.
+        if (_isNew) _folderEdited = FolderBox.Text.Trim() != Shortcut.FolderName(NameBox.Text);
         Changed();
     }
 

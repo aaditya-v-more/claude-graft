@@ -20,6 +20,8 @@ public sealed partial class MainPage : Page
 
     /// Raised whenever the Claudes or the chosen one change, for the sidebar.
     public event Action? ClaudesChanged;
+    /// The title bar copies Heading, so it hears each time the chosen Claude's state line moves.
+    public event Action? HeadingChanged;
     /// The title and state line, which the window shows in its title bar.
     public (string Title, string Subtitle) Heading => (ClaudeTitle.Text, ClaudeSubtitle.Text);
     /// The Claude on screen, which is the main one when the chosen one is gone.
@@ -281,7 +283,11 @@ public sealed partial class MainPage : Page
             _barRow = row;
             if (row is not null) row.PropertyChanged += BarRowChanged;
         }
-        if (!Drafting && row is not null) ClaudeSubtitle.Text = row.StateLine;
+        if (!Drafting && row is not null && ClaudeSubtitle.Text != row.StateLine)
+        {
+            ClaudeSubtitle.Text = row.StateLine;
+            HeadingChanged?.Invoke();
+        }
         var editing = Drafting || row?.Shortcut is not null;
         DeleteButton.Visibility = editing ? Visibility.Visible : Visibility.Collapsed;
         DeleteButton.Content = Drafting ? "Discard" : "Delete Shortcut…";

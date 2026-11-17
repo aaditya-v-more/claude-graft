@@ -423,3 +423,20 @@ window. `HorizontalScrollMode="Disabled"` made no difference. Giving the
 column a fixed `Width` of `min(cap, viewport)` on every resize makes the two
 widths agree (`SettingsPage.Scroller_SizeChanged`). Measured on the second PC
 with a probe build at 1100, 1360 and maximised, 18 Nov 2026.
+
+## Windows: TextChanged comes late
+
+A WinUI `TextBox` raises `TextChanged` after the change, not inside the setter,
+so a `_filling` flag set around a programmatic `Text =` is already clear when the
+event lands. The profile editor's folder field took its own refill for a hand
+edit and stopped following the name at once. It now counts the folder as typed
+only while it differs from the name's folder (`ProfileEditor.FolderBox_TextChanged`).
+Seen on the second PC making Test A and Test B, 18 Nov 2026.
+
+## Windows: the title bar copies the page's heading
+
+The Claude's name and its Running or Not running line live in `MainWindow`'s
+title bar, copied from `MainPage.Heading`. It was copied only when the selection
+or the list changed, so a Claude opening or quitting reached the row and its dot
+but not the line above it. `MainPage.HeadingChanged` now fires whenever the
+chosen row's state line moves.

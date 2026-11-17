@@ -121,7 +121,7 @@ any of these. The why is in [notes/updates-and-releases.md](notes/updates-and-re
 - **A source that moved is a re-pair, not a first pass:** `firstPass` is asked before any pair is dropped, and `repair` hands the old source its copies back first.
 - **Chats an account switch left behind are copied, never moved,** and nothing moves while any Claude is up.
 - **That offer is silenced at the door, never in the window.**
-- **A new Claude reads its own chats;** only `ContentView.add()` says so. `Shortcut`'s default and decoding stay `.main`, so no saved Claude changes what it reads.
+- **A new Claude reads its own chats;** only `ContentView.add()` says so, and on Windows `ProfileEditor.Edit` for a new draft. `Shortcut`'s default and decoding stay `.main`, so no saved Claude changes what it reads.
 - **A store may spell account and organization by their first eight characters** — `counterpartDirectory`. Every walk asks `isDirectory`; `skills-plugin` is not an account.
 - **An unfiled chat is unfiled only under the profile reading it.** Claude compares `originCwd` with its own `scratch-workspaces`, so a mirrored scratch record gets a local alias on each side and its `originCwd` stays out of the digest.
 
