@@ -103,7 +103,8 @@ jobs:
           -o windows/dist/velopack
 
       # Added to the release the Mac made if there is one, leaving its title
-      # and notes alone; made here, with the Windows notes, if not.
+      # and notes alone; made here, with the Windows notes, if not. One made here
+      # is never "latest": the website and README read the Mac download from that.
       - name: Publish to the version's release
         shell: bash
         env:
@@ -117,5 +118,5 @@ jobs:
             gh release upload "$GITHUB_REF_NAME" "${files[@]}" --clobber
           else
             gh release create "$GITHUB_REF_NAME" "${files[@]}" --verify-tag \
-              --title "Claude Graft $v" --notes-file "${{ steps.version.outputs.notes }}"
+              --title "Claude Graft $v" --notes-file "${{ steps.version.outputs.notes }}" --latest=false
           fi

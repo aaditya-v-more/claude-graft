@@ -348,7 +348,12 @@ and the release with the Mac's zip and disk image; the tag starts
 `windows-release.yml`, which tests, packs with Velopack and uploads the setup,
 the update packages and `releases.win.json` beside them, leaving the Mac's
 title and notes alone. A version can go out on Windows first, as 2.1.0 did:
-the workflow then makes the release itself with the Windows notes. Since
+the workflow then makes the release itself with the Windows notes. It does not mark that release
+"latest". The website takes the version it shows from GitHub's latest release, but
+its DMG link only from a release carrying one. A Windows-only latest would label
+the Mac download with a number whose disk image does not exist, and the README
+badge would point at a release with nothing for the Mac. Velopack's update check
+lists the releases itself, so Windows finds the update either way. Since
 `release.sh` refuses a tag that exists, the Mac then takes the next number
 rather than adding a build from a later commit to an older tag.
 
