@@ -39,6 +39,28 @@ page and its search box. None is documented.
   offset, which answers a bare array of at most thirty; `projects_v2` answers
   the same rows and pages. An archived project carries `archived_at` and is left
   off, as the page leaves it off. Five pages at most.
+
+  On 11 November the Windows build found `projects_v2` answering an empty
+  list for an account whose chat organization held one project, which the older
+  `/projects` listed. Windows now asks `/projects`, reads its bare array, and
+  stops at a page that adds nothing new in case `offset` is ignored there.
+
+  That one project had been moved into the Beta Projects, and the classic list
+  keeps it archived with `moved_to: {channel_tagged_id, moved_at}`. Beta
+  projects are channels of the Code service: the Projects page asks
+  `GET /v1/code/channels?scope=joined&include_members=true&include_archived=true&limit=200`
+  with the same `anthropic-beta`, `anthropic-version` and `x-organization-uuid`
+  as the Code session list, and is answered `{data: [{id, name, topic,
+  visibility, archived_at, disabled_at, last_activity_at, …}]}`. Windows lists
+  both, and a channel list that will not answer leaves the classic ones shown.
+  A Beta project opens at `/code/project/<id>`; at `/project/<id>` claude.ai
+  says it couldn't load it.
+
+  That page hands itself to the desktop app through `claude://`, which reaches
+  the main Claude, signed in as someone else. Windows opens a Beta project in a
+  window of Graft's on the account's own store instead (`ClaudePageWindow`): it
+  refuses every external scheme, sends any address off claude.ai to the browser,
+  and is closed before the store is removed at sign-out.
 - `POST /api/organizations/<org>/conversation/search/v2` with
   `{"query", "n": 25, "target_snippet_size": 100}` answers
   `{data: [{conversation, matched_snippet: {text, matches}, title_matches,

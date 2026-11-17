@@ -286,6 +286,19 @@ would never open its Claude, and going ahead is what every pass did before. The
 App's own callers on the main thread (saving a shortcut, deleting one) can now
 wait for a sweep in progress; that is the price of not losing its work.
 
+On Windows a pass that waits out `StateLock.Patience` runs nothing instead:
+`StateLock.Run` throws `StateBusyException`, and `Launcher` notes
+`launch.state-busy` or `sweep.state-busy` and opens the window anyway with
+whatever is already shared. Going ahead was only safe against a pass that had
+hung; one that was alive and slow still had its copies read back as deletions
+by whichever pass saved second. A profile first opened while busy keeps the
+chats Claude makes in its own folders, and the next pass stashes them as it
+would on any first pass. What a person asked for (a move, a delete, adopting
+chats, the manual-updates switch) is refused with a message rather than half
+done; a delete holds the lock across the whole of itself so the folder never
+goes without its pairs. `StateBusyAuditTests` fails on a caller in the app or
+a launcher with no catch for it.
+
 **Nothing goes to the stash before the source has been read.** The
 same-account branch opened the destination first and consulted the source
 second, so a source that turned out to hold nothing under this account — spelled

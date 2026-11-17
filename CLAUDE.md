@@ -11,6 +11,20 @@ Comments say **why**, never what. Delete a comment that restates the line under 
     // hour, which is how a client earns a rate limit rather than avoids one.
     failures += 1
 
+A comment is for the non-obvious: a workaround, an edge-case quirk, a knotty
+piece of regex or arithmetic, an external constraint. Never a narration of the
+line beside it — no `// loop through items`, `// initialize variable`, `// check
+if user exists`. Reach for a clearer name or shape before reaching for a
+comment. Never leave a mark that the code was generated or changed — no
+`// Added`, no `/* Updated logic */`, no changelog in the source. And leave the
+docs and docstrings already here alone unless the task is to rework them.
+
+And keep it short. A why-comment is a line, two at the outside; when it wants a
+paragraph the reason has become an invariant, and invariants live in this file
+or the README, not in a block beside the code. Porting from the mac build is
+where this slips — that source is commented at length on purpose, so carry the
+reason across, not the prose that surrounds it there.
+
 Prose in the README, not bullet lists. Tests read as sentences — `check(…, "a
 profile with no stored login has no token")`, not `"testTokenNil"`.
 
@@ -99,7 +113,7 @@ any of these. The why is in [notes/updates-and-releases.md](notes/updates-and-re
 - **Two sides that both moved are merged field by field** against the fields at the baseline (`mergeRecordFields`, kept in `ClaudeGraft/mirror-fields/`), so an archive or an unarchive survives the other side merely showing the chat. A field both changed is settled as the whole record used to be, and so is a record whose `lastActivityAt` went back, except that an archive state both changed comes out unarchived; `isArchived` counts as decided where `resumedAt` moved.
 - **A chat both sides carried on is split, never merged:** both `lastAssistantUuid` moved to different values and both `lastActivityAt` forward, and only with neither Claude open. The borrower's half takes a new name; both are titled with their Claude's name (`claudeName(of:)`). An archive, a rename or a look never splits a chat.
 - **A readable record beats one that is not,** and a pass goes round its pairs until a round moves nothing.
-- **One pass at a time, across processes:** `Graft.withStateLock` holds `ClaudeGraft/state.lock` over every read-modify-write of `mirrored-chats.json` and `session-records.json`, and is let go before `launch` takes the launch lock.
+- **One pass at a time, across processes:** `Graft.withStateLock` holds `ClaudeGraft/state.lock` over every read-modify-write of `mirrored-chats.json` and `session-records.json`, and is let go before `launch` takes the launch lock. On Windows a pass that cannot get it in time does not run (`StateBusyException`).
 - **Nothing goes to the stash before the source has been read.**
 - **A stash beside a folder blocks withdrawal as well as filing** (`mayFileRecords`, both directions).
 - **Every way out drops the pairs**, and a pair is read by its borrowing half: `mirrorPairs(borrowedBy:)`.

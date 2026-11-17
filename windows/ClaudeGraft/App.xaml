@@ -1,0 +1,181 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Application
+    x:Class="ClaudeGraft.App"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="using:ClaudeGraft">
+    <Application.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
+                <!-- After WinUI's own, so its theme brushes give way to these. -->
+                <ResourceDictionary>
+                    <ResourceDictionary.ThemeDictionaries>
+                        <ResourceDictionary x:Key="Default">
+                            <Color x:Key="GraftContent">#2B2927</Color>
+                            <Color x:Key="GraftSidebar">#2D2A27</Color>
+                            <Color x:Key="GraftSelection">#3B3835</Color>
+                            <Color x:Key="GraftHeader">#32302E</Color>
+                            <Color x:Key="GraftCard">#312F2D</Color>
+                            <Color x:Key="GraftDivider">#3B3937</Color>
+                            <Color x:Key="GraftButton">#454341</Color>
+                            <Color x:Key="GraftButtonHover">#4F4D4B</Color>
+                            <Color x:Key="GraftButtonPressed">#3D3B39</Color>
+                            <Color x:Key="GraftField">#1F1E1D</Color>
+                            <Color x:Key="GraftMeter">#68CE67</Color>
+                            <Color x:Key="GraftTrack">#484644</Color>
+                            <SolidColorBrush x:Key="GraftHeaderBrush" Color="{StaticResource GraftHeader}" />
+                            <SolidColorBrush x:Key="GraftSidebarBrush" Color="{StaticResource GraftSidebar}" />
+                            <SolidColorBrush x:Key="GraftMeterBrush" Color="{StaticResource GraftMeter}" />
+                            <SolidColorBrush x:Key="GraftTrackBrush" Color="{StaticResource GraftTrack}" />
+                            <SolidColorBrush x:Key="ApplicationPageBackgroundThemeBrush" Color="{StaticResource GraftContent}" />
+                            <SolidColorBrush x:Key="NavigationViewContentBackground" Color="{StaticResource GraftContent}" />
+                            <SolidColorBrush x:Key="NavigationViewContentGridBorderBrush" Color="{StaticResource GraftDivider}" />
+                            <SolidColorBrush x:Key="NavigationViewDefaultPaneBackground" Color="{StaticResource GraftSidebar}" />
+                            <SolidColorBrush x:Key="NavigationViewExpandedPaneBackground" Color="{StaticResource GraftSidebar}" />
+                            <!-- WinUI's own selection fill, held here so the icon rail can fade it without touching WinUI's brushes. -->
+                            <SolidColorBrush x:Key="NavigationViewItemBackgroundSelected" Color="#0FFFFFFF" />
+                            <SolidColorBrush x:Key="NavigationViewItemBackgroundSelectedPointerOver" Color="#0AFFFFFF" />
+                            <SolidColorBrush x:Key="NavigationViewItemBackgroundSelectedPressed" Color="#0FFFFFFF" />
+                            <SolidColorBrush x:Key="CardBackgroundFillColorDefaultBrush" Color="{StaticResource GraftCard}" />
+                            <SolidColorBrush x:Key="CardBackgroundFillColorSecondaryBrush" Color="{StaticResource GraftHeader}" />
+                            <SolidColorBrush x:Key="DividerStrokeColorDefaultBrush" Color="{StaticResource GraftDivider}" />
+                            <SolidColorBrush x:Key="LayerFillColorDefaultBrush" Color="{StaticResource GraftContent}" />
+                        </ResourceDictionary>
+                        <ResourceDictionary x:Key="Light">
+                            <Color x:Key="GraftContent">#F6F5F3</Color>
+                            <Color x:Key="GraftSidebar">#ECEAE6</Color>
+                            <Color x:Key="GraftSelection">#DCD9D4</Color>
+                            <Color x:Key="GraftHeader">#EFEDEA</Color>
+                            <Color x:Key="GraftCard">#FFFFFF</Color>
+                            <Color x:Key="GraftDivider">#E2DFDB</Color>
+                            <Color x:Key="GraftButton">#FFFFFF</Color>
+                            <Color x:Key="GraftButtonHover">#F2F0ED</Color>
+                            <Color x:Key="GraftButtonPressed">#E7E4E0</Color>
+                            <Color x:Key="GraftField">#FFFFFF</Color>
+                            <Color x:Key="GraftMeter">#34C759</Color>
+                            <Color x:Key="GraftTrack">#DDDAD6</Color>
+                            <SolidColorBrush x:Key="GraftHeaderBrush" Color="{StaticResource GraftHeader}" />
+                            <SolidColorBrush x:Key="GraftSidebarBrush" Color="{StaticResource GraftSidebar}" />
+                            <SolidColorBrush x:Key="GraftMeterBrush" Color="{StaticResource GraftMeter}" />
+                            <SolidColorBrush x:Key="GraftTrackBrush" Color="{StaticResource GraftTrack}" />
+                            <SolidColorBrush x:Key="ApplicationPageBackgroundThemeBrush" Color="{StaticResource GraftContent}" />
+                            <SolidColorBrush x:Key="NavigationViewContentBackground" Color="{StaticResource GraftContent}" />
+                            <SolidColorBrush x:Key="NavigationViewContentGridBorderBrush" Color="{StaticResource GraftDivider}" />
+                            <SolidColorBrush x:Key="NavigationViewDefaultPaneBackground" Color="{StaticResource GraftSidebar}" />
+                            <SolidColorBrush x:Key="NavigationViewExpandedPaneBackground" Color="{StaticResource GraftSidebar}" />
+                            <SolidColorBrush x:Key="NavigationViewItemBackgroundSelected" Color="#09000000" />
+                            <SolidColorBrush x:Key="NavigationViewItemBackgroundSelectedPointerOver" Color="#06000000" />
+                            <SolidColorBrush x:Key="NavigationViewItemBackgroundSelectedPressed" Color="#09000000" />
+                            <SolidColorBrush x:Key="CardBackgroundFillColorDefaultBrush" Color="{StaticResource GraftCard}" />
+                            <SolidColorBrush x:Key="CardBackgroundFillColorSecondaryBrush" Color="{StaticResource GraftHeader}" />
+                            <SolidColorBrush x:Key="DividerStrokeColorDefaultBrush" Color="{StaticResource GraftDivider}" />
+                            <SolidColorBrush x:Key="LayerFillColorDefaultBrush" Color="{StaticResource GraftContent}" />
+                        </ResourceDictionary>
+                    </ResourceDictionary.ThemeDictionaries>
+                </ResourceDictionary>
+            </ResourceDictionary.MergedDictionaries>
+
+            <!-- The Mac build's warm greys, measured off its window, in place of
+                 WinUI's cool ones. Light is the same warmth carried across. -->
+
+
+            <!-- Windows 11's framing of a page: one sheet ruled along its top and left, rounded where they meet. -->
+            <Thickness x:Key="NavigationViewContentGridBorderThickness">1,1,0,0</Thickness>
+            <CornerRadius x:Key="NavigationViewContentGridCornerRadius">8,0,0,0</CornerRadius>
+            <Thickness x:Key="NavigationViewContentMargin">0</Thickness>
+            <!-- The pane's toggle lives in the title bar, so its empty row in the pane goes. -->
+            <x:Double x:Key="NavigationViewPaneHeaderRowMinHeight">0</x:Double>
+
+            <!-- The ⓘ beside a label: no hover plate, as on the Mac, and set on the label's
+                 capitals rather than centred on its box. -->
+            <Style x:Key="InfoGlyphButton" TargetType="Button">
+                <Setter Property="Padding" Value="3" />
+                <Setter Property="Foreground" Value="{ThemeResource TextFillColorSecondaryBrush}" />
+                <Setter Property="VerticalAlignment" Value="Center" />
+                <Setter Property="local:InfoAlign.ToText" Value="True" />
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="Button">
+                            <ContentPresenter Background="Transparent" Padding="{TemplateBinding Padding}"
+                                              Foreground="{TemplateBinding Foreground}" Content="{TemplateBinding Content}" />
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+
+            <!-- The Community Toolkit's settings card, in its own measures. -->
+            <Style TargetType="local:SettingsCard">
+                <Setter Property="MinHeight" Value="68" />
+                <Setter Property="IsTabStop" Value="False" />
+                <Setter Property="Background" Value="{ThemeResource CardBackgroundFillColorDefaultBrush}" />
+                <Setter Property="BorderBrush" Value="{ThemeResource CardStrokeColorDefaultBrush}" />
+                <Setter Property="BorderThickness" Value="1" />
+                <Setter Property="Padding" Value="16" />
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="local:SettingsCard">
+                            <Grid Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}"
+                                  CornerRadius="{ThemeResource ControlCornerRadius}" Padding="{TemplateBinding Padding}" MinHeight="{TemplateBinding MinHeight}">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <FontIcon x:Name="GlyphIcon" Glyph="{TemplateBinding Glyph}" FontSize="20" Margin="2,0,20,0" VerticalAlignment="Center" />
+                                <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="0,0,24,0">
+                                    <TextBlock Text="{TemplateBinding Header}" TextWrapping="Wrap" />
+                                    <TextBlock x:Name="DescriptionText" Text="{TemplateBinding Description}" FontSize="12" TextWrapping="Wrap" />
+                                </StackPanel>
+                                <ContentPresenter Grid.Column="2" VerticalAlignment="Center" HorizontalAlignment="Right" />
+                            </Grid>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+            <!-- A switch without WinUI's words beside it, for a card that writes On or Off on its left
+                 as the Toolkit's does; the room the template keeps for the words hangs past it unclipped. -->
+            <x:Double x:Key="ToggleSwitchThemeMinWidth">0</x:Double>
+            <x:Double x:Key="ToggleSwitchPreContentMargin">0</x:Double>
+            <x:Double x:Key="ToggleSwitchPostContentMargin">0</x:Double>
+            <Style x:Key="CardSwitch" TargetType="ToggleSwitch">
+                <Setter Property="OnContent" Value="" />
+                <Setter Property="OffContent" Value="" />
+                <Setter Property="MinWidth" Value="0" />
+                <Setter Property="Margin" Value="0,0,-200,0" />
+                <Setter Property="HorizontalAlignment" Value="Left" />
+                <Setter Property="VerticalAlignment" Value="Center" />
+            </Style>
+
+            <!-- Claude's clay in place of the Windows accent, for switches and primary buttons. -->
+            <Color x:Key="SystemAccentColor">#D97757</Color>
+            <Color x:Key="SystemAccentColorLight1">#E08A6D</Color>
+            <Color x:Key="SystemAccentColorLight2">#E79E85</Color>
+            <Color x:Key="SystemAccentColorLight3">#EEB39F</Color>
+            <Color x:Key="SystemAccentColorDark1">#C6643F</Color>
+            <Color x:Key="SystemAccentColorDark2">#AB5333</Color>
+            <Color x:Key="SystemAccentColorDark3">#8E4428</Color>
+
+            <!-- The Mac's meters: a thicker green bar on a grey track, with rounded ends. -->
+            <Style x:Key="UsageMeter" TargetType="ProgressBar">
+                <Setter Property="Foreground" Value="{ThemeResource GraftMeterBrush}" />
+                <Setter Property="Background" Value="{ThemeResource GraftTrackBrush}" />
+                <Setter Property="MinHeight" Value="7" />
+                <Setter Property="Height" Value="7" />
+                <Setter Property="CornerRadius" Value="3.5" />
+                <Setter Property="VerticalAlignment" Value="Center" />
+            </Style>
+
+            <!-- Dialog buttons otherwise render as hard rectangles; these give
+                 them the app's standard rounding, with the primary wearing the
+                 accent. Defined at app scope so they resolve before any dialog
+                 that references them is built. -->
+            <Style x:Key="DialogPrimaryButtonStyle" TargetType="Button" BasedOn="{StaticResource AccentButtonStyle}">
+                <Setter Property="CornerRadius" Value="{ThemeResource ControlCornerRadius}" />
+            </Style>
+            <Style x:Key="DialogNeutralButtonStyle" TargetType="Button" BasedOn="{StaticResource DefaultButtonStyle}">
+                <Setter Property="CornerRadius" Value="{ThemeResource ControlCornerRadius}" />
+            </Style>
+        </ResourceDictionary>
+    </Application.Resources>
+</Application>

@@ -185,3 +185,14 @@ main profile is recognised by the absence of one. Profile paths are prefixes of
 each other, so every `pgrep` on `user-data-dir=` must be anchored with
 `([[:space:]]|$)` or one instance makes every shorter-named profile look like it
 is running.
+
+On Windows a packaged Claude (the website download, `Claude_pzs8sxrjxfjjc`, or
+the Microsoft Store's `AnthropicPBC.Claude_fnn82j28hfe8t`) does not keep its main
+profile in `%APPDATA%\Claude`. Claude 5.1231 moves it out of the package's
+redirected AppData to `%LOCALAPPDATA%\Claude-Data\<family, lower case>`, leaving
+only a `.user-data-left.<family>` marker in
+`Packages\<family>\LocalCache\Roaming\Claude`; measured in a VM with the Store
+build signed in. So the main profile's folder is not always named `Claude`:
+`ClaudeInstallation.MainProfile` says where it is, grafts sit beside it, and its
+own name is reserved as `Claude` is. A package still holding its profile in the
+redirected folder (one with a `Local State`) is read from there.

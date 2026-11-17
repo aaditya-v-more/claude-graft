@@ -38,3 +38,34 @@ A link request does not authorize new color palettes, theme controls, changes to
 the project's default appearance or appearance synchronization between sites.
 Keep this website's original appearance behavior unless the user separately asks
 to change it.
+
+# Windows development builds
+
+After any change to the Windows build, install it on the development machine
+before asking for it to be tested, so what is tested is what was changed. Run
+`windows/dev-install.ps1` from PowerShell. It publishes a Release build, packs
+it as a Velopack package numbered `<windows/VERSION>-dev.<timestamp>`, asks the
+running Graft to quit with `ClaudeGraft.exe --quit`, and has the installed
+`Update.exe` apply the package, which waits for Graft to go, swaps the install
+folder and starts the new build. A development number sorts below the release
+it leads to, so the real release still installs over it.
+
+Never stop Graft by killing it: its taskbar strip is a window inside Explorer's
+taskbar, and Explorer stalls until Windows notices its owner is gone.
+`--quit` runs Graft's own Quit, which takes the strip out first.
+
+Applying a package runs neither of Velopack's install or uninstall steps, so a
+change to `Program.Installed`, `Program.Uninstalling` or `LegacyInstall` is
+tested with the full setup instead: pack without `-dev`, as
+`windows-release.yml` does, and run `ClaudeGraftApp-win-Setup.exe`. The
+machine must already have Graft installed by that setup once for
+`dev-install.ps1` to have an `Update.exe` to apply with.
+
+`vpk` is the .NET tool at `%USERPROFILE%\.dotnet\tools\vpk.exe`, on the same
+version as the Velopack package the app references; a different `vpk` earlier
+on PATH is an unrelated program, which is why the script names it by path.
+
+Graft turns off Velopack's apply-on-startup. With it on, any launch of
+`ClaudeGraft.exe`, `--quit` included, applied whatever package lay newest in
+`%LOCALAPPDATA%\ClaudeGraftApp\packages`, which after a full setup is the
+release, ranked above every development build.

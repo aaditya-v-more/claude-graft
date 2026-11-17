@@ -1,0 +1,140 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <!-- The file description Windows shows for the exe, in Open With among other places. -->
+    <AssemblyTitle>Claude Graft</AssemblyTitle>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows10.0.26100.0</TargetFramework>
+    <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
+    <RootNamespace>ClaudeGraft</RootNamespace>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <Platforms>x86;x64;ARM64</Platforms>
+    <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == ''">win-$([System.Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture.ToString().ToLowerInvariant())</RuntimeIdentifier>
+    <PublishProfile Condition="Exists('Properties\PublishProfiles\win-$(Platform).pubxml')">win-$(Platform).pubxml</PublishProfile>
+    <UseWinUI>true</UseWinUI>
+    <WinUISDKReferences>false</WinUISDKReferences>
+    <EnableMsixTooling>true</EnableMsixTooling>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <!-- Embedded into the executable itself, which is where the taskbar button
+         and the Start-menu shortcut take their icon from — not from the window's
+         own SetIcon, so without this they fall back to the generic host icon. -->
+    <ApplicationIcon>Assets\AppIcon.ico</ApplicationIcon>
+    <!-- Program.Main runs Velopack's hooks before XAML starts. -->
+    <DefineConstants>$(DefineConstants);DISABLE_XAML_GENERATED_MAIN</DefineConstants>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Content Include="Assets\SplashScreen.scale-200.png" />
+    <Content Include="Assets\LockScreenLogo.scale-200.png" />
+    <Content Include="Assets\Square150x150Logo.scale-200.png" />
+    <Content Include="Assets\Square44x44Logo.scale-200.png" />
+    <Content Include="Assets\Square44x44Logo.targetsize-24_altform-unplated.png" />
+    <Content Include="Assets\Square44x44Logo.targetsize-48_altform-lightunplated.png" />
+    <Content Include="Assets\StoreLogo.png" />
+    <Content Include="Assets\AppIcon.ico" />
+    <Content Include="Assets\Wide310x150Logo.scale-200.png" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Manifest Include="$(ApplicationManifest)" />
+  </ItemGroup>
+
+  <!--
+    Microsoft.Windows.SDK.BuildTools.WinApp adds first-class support for
+    `dotnet run` on packaged WinUI apps: it hooks the .NET CLI Run target to
+    register a debug identity via the winapp CLI and launch the app with
+    package identity (AUMID).
+    Set <EnableWinAppRunSupport>false</EnableWinAppRunSupport> in a
+    <PropertyGroup> above to opt out.
+  -->
+  <ItemGroup>
+    <PackageReference Include="H.NotifyIcon.WinUI" Version="2.4.1" />
+    <!-- Draws the recoloured shortcut icons. -->
+    <PackageReference Include="System.Drawing.Common" Version="10.0.0" />
+    <!-- The classic toast API for update notifications. WinUI's own
+         AppNotificationManager needs a resource DLL the self-contained runtime
+         does not ship, and throws at registration; this path drives the same OS
+         notifications and registers its own activator for an unpackaged app. -->
+    <PackageReference Include="Microsoft.Toolkit.Uwp.Notifications" Version="7.1.3" />
+    <!-- Installs, updates and uninstalls Graft; vpk in windows-release.yml must stay on the same version. -->
+    <PackageReference Include="Velopack" Version="1.2.161" />
+    <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.28000.1839" />
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.4.0" />
+    <PackageReference Include="Microsoft.Windows.SDK.BuildTools.WinApp" Version="0.3.1">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\ClaudeGraft.Core\ClaudeGraft.Core.csproj" />
+  </ItemGroup>
+
+  <!-- Publish Properties -->
+  <PropertyGroup>
+    <!-- The installer is unpackaged and copies a plain folder into place, so the
+         app cannot lean on a Windows App SDK runtime framework package being
+         registered at the right version — the machine may carry a newer one or
+         none at all, and the deployment initializer throws REGDB_E_CLASSNOTREG
+         when its own version is missing. Carrying the runtime in the bundle
+         removes that dependency entirely. -->
+    <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+    <!-- Not left to the publish profile: a restore without the platform never
+         sees it, and a framework-dependent exe beside the launcher's runtime won't start. -->
+    <SelfContained>true</SelfContained>
+    <!-- Never trimmed. The trimmer cannot see through the WinRT interop the XAML
+         bindings marshal across (an ObservableCollection bound as ItemsSource
+         throws in GetInterfaceTableEntries) or the reflection System.Text.Json
+         uses, so a trimmed build comes up with an empty window and no profiles
+         while raising no error a build would catch. Size is the cheaper cost. -->
+    <PublishTrimmed>false</PublishTrimmed>
+    <!-- And no ahead-of-time interop either. The CsWinRT optimizer bakes a
+         vtable-lookup initializer that this SDK's generated code loads against a
+         ComInterfaceEntry type the runtime here does not carry, so an untrimmed
+         build faults at startup before the tray icon appears; ReadyToRun pulls
+         in the same path. Classic reflection-based marshaling is what works. -->
+    <PublishReadyToRun>false</PublishReadyToRun>
+  </PropertyGroup>
+
+  <!--
+    The launcher stub a desktop shortcut points at has to travel with the app.
+    A plain build keeps it under launcher\, apart from the app's build output;
+    a publish puts it beside ClaudeGraft.exe. Installer.LauncherExe looks in both.
+  -->
+  <!-- The window sets its taskbar icon from a loose file on disk, but the icon
+       otherwise ships only packed into the app's resources; copy it out beside
+       the binary so an unpackaged install has the real file to point at. -->
+  <Target Name="CopyLooseIcon" AfterTargets="Build;Publish">
+    <Copy SourceFiles="$(MSBuildThisFileDirectory)Assets\AppIcon.ico" DestinationFolder="$(OutDir)Assets" SkipUnchangedFiles="true" Condition="'$(PublishDir)' == ''" />
+    <Copy SourceFiles="$(MSBuildThisFileDirectory)Assets\AppIcon.ico" DestinationFolder="$(PublishDir)Assets" SkipUnchangedFiles="true" Condition="'$(PublishDir)' != ''" />
+    <!-- The header wordmark's logo is a scale-qualified asset, so it ships only
+         packed into resources.pri and an Image bound to it comes up blank in an
+         unpackaged install. Copy it out under a plain name the loose-file path
+         can reach, the same way the taskbar icon is copied above. -->
+    <Copy SourceFiles="$(MSBuildThisFileDirectory)Assets\Square150x150Logo.scale-200.png" DestinationFiles="$(OutDir)Assets\Logo.png" SkipUnchangedFiles="true" Condition="'$(PublishDir)' == ''" />
+    <Copy SourceFiles="$(MSBuildThisFileDirectory)Assets\Square150x150Logo.scale-200.png" DestinationFiles="$(PublishDir)Assets\Logo.png" SkipUnchangedFiles="true" Condition="'$(PublishDir)' != ''" />
+  </Target>
+
+  <!-- The self-contained Windows App SDK carries its on-device AI runtime, which
+       nothing here calls; it is a third of the app's own weight. -->
+  <Target Name="DropUnusedAIRuntime" AfterTargets="Publish">
+    <Delete Files="$(PublishDir)onnxruntime.dll;$(PublishDir)DirectML.dll" />
+  </Target>
+
+  <Target Name="BundleLauncher" AfterTargets="Build">
+    <Exec Command="dotnet publish &quot;$(MSBuildThisFileDirectory)..\GraftLaunch\GraftLaunch.csproj&quot; -c $(Configuration) -r $(RuntimeIdentifier) -p:GraftVersion=$(GraftVersion) -o &quot;$(OutDir)launcher&quot; --nologo -v q" />
+  </Target>
+
+  <!-- The publish output is what an install is copied from. The stub goes beside
+       ClaudeGraft.exe rather than in a subfolder so both run on the one bundled
+       runtime; the two are built from the same SDK and the same packages, so the
+       files they share are the same files. -->
+  <Target Name="BundleLauncherOnPublish" AfterTargets="Publish">
+    <Exec Command="dotnet publish &quot;$(MSBuildThisFileDirectory)..\GraftLaunch\GraftLaunch.csproj&quot; -c $(Configuration) -r $(RuntimeIdentifier) -p:GraftVersion=$(GraftVersion) -o &quot;$(PublishDir).&quot; --nologo -v q" />
+  </Target>
+
+  <!-- In a folder of its own, as one file: it runs from a copy elsewhere, so it
+       must not lean on the runtime files beside the app. -->
+  <Target Name="BundleRelayOnPublish" AfterTargets="Publish">
+    <Exec Command="dotnet publish &quot;$(MSBuildThisFileDirectory)..\GraftRelay\GraftRelay.csproj&quot; -c $(Configuration) -r $(RuntimeIdentifier) -p:GraftVersion=$(GraftVersion) -o &quot;$(PublishDir)relay&quot; --nologo -v q" />
+  </Target>
+</Project>

@@ -1,0 +1,108 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<Page
+    x:Class="ClaudeGraft.SettingsPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="using:ClaudeGraft"
+    Background="Transparent">
+    <!-- Laid out as Windows 11 settings pages are: a heading over each group, one card per
+         setting four apart, and every change taking effect as it is made. -->
+    <Page.Resources>
+        <Style x:Key="SectionHeading" TargetType="TextBlock" BasedOn="{StaticResource BodyStrongTextBlockStyle}">
+            <Setter Property="Margin" Value="1,30,0,6" />
+        </Style>
+    </Page.Resources>
+
+    <ScrollViewer>
+        <StackPanel Spacing="4" Padding="24,0,24,24" MaxWidth="1064">
+            <TextBlock Text="Appearance" Style="{StaticResource SectionHeading}" Margin="1,16,0,6" />
+            <!-- The card's own measures, with the tiles under its name where the Toolkit's expander puts its items. -->
+            <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                    BorderThickness="1" CornerRadius="{ThemeResource ControlCornerRadius}" Padding="16">
+                <StackPanel Spacing="12">
+                    <local:SettingsCard Header="Theme" Description="The window's colours and its accent" Glyph="&#xE790;"
+                                        MinHeight="0" Padding="0" BorderThickness="0" Background="Transparent" />
+                    <GridView x:Name="PaletteGrid" SelectionMode="Single" Padding="0" Margin="42,0,-6,-6"
+                              ScrollViewer.VerticalScrollBarVisibility="Disabled" SelectionChanged="Changed"
+                              AutomationProperties.Name="Theme" AutomationProperties.AutomationId="settings.theme" />
+                </StackPanel>
+            </Border>
+            <local:SettingsCard Header="Mode" Description="Light, dark, or as Windows is set" Glyph="&#xE706;">
+                <ComboBox x:Name="ThemeBox" MinWidth="170" SelectionChanged="ThemeBox_SelectionChanged"
+                          AutomationProperties.Name="Mode" AutomationProperties.AutomationId="settings.mode">
+                    <ComboBoxItem Content="Use system setting" />
+                    <ComboBoxItem Content="Light" />
+                    <ComboBoxItem Content="Dark" />
+                </ComboBox>
+            </local:SettingsCard>
+            <local:SettingsCard Header="Backdrop" Description="The material behind the sidebar and title bar" Glyph="&#xE8B9;">
+                <ComboBox x:Name="BackdropBox" MinWidth="170" SelectionChanged="Changed"
+                          AutomationProperties.Name="Backdrop" AutomationProperties.AutomationId="settings.backdrop">
+                    <ComboBoxItem Content="Mica" />
+                    <ComboBoxItem Content="Mica Alt" />
+                    <ComboBoxItem Content="Acrylic" />
+                    <ComboBoxItem Content="Solid" />
+                </ComboBox>
+            </local:SettingsCard>
+
+            <TextBlock Text="Starting up" Style="{StaticResource SectionHeading}" />
+            <local:SettingsCard Header="Start with Windows" Description="Open Graft when you sign in" Glyph="&#xE7E8;">
+                <StackPanel Orientation="Horizontal" Spacing="12">
+                    <TextBlock Text="{x:Bind local:SettingsCard.OnOff(AutoStartSwitch.IsOn), Mode=OneWay}" VerticalAlignment="Center" />
+                    <Grid Width="40"><ToggleSwitch x:Name="AutoStartSwitch" Style="{StaticResource CardSwitch}" Toggled="AutoStart_Toggled"
+                                                   AutomationProperties.Name="Start with Windows" AutomationProperties.AutomationId="settings.startWithWindows" /></Grid>
+                </StackPanel>
+            </local:SettingsCard>
+            <local:SettingsCard Header="Start hidden" Description="Open in the notification area, with no window" Glyph="&#xED1A;">
+                <StackPanel Orientation="Horizontal" Spacing="12">
+                    <TextBlock Text="{x:Bind local:SettingsCard.OnOff(StartHiddenSwitch.IsOn), Mode=OneWay}" VerticalAlignment="Center" />
+                    <Grid Width="40"><ToggleSwitch x:Name="StartHiddenSwitch" Style="{StaticResource CardSwitch}" Toggled="Changed"
+                                                   AutomationProperties.Name="Start hidden in the notification area" AutomationProperties.AutomationId="settings.startHidden" /></Grid>
+                </StackPanel>
+            </local:SettingsCard>
+
+            <TextBlock Text="Taskbar and sound" Style="{StaticResource SectionHeading}" />
+            <local:SettingsCard Header="Show usage on the taskbar" Glyph="&#xE7C4;"
+                                Description="The Claude in front, its usage and the conversation on screen, beside the notification area">
+                <StackPanel Orientation="Horizontal" Spacing="12">
+                    <TextBlock Text="{x:Bind local:SettingsCard.OnOff(TaskbarStripSwitch.IsOn), Mode=OneWay}" VerticalAlignment="Center" />
+                    <Grid Width="40"><ToggleSwitch x:Name="TaskbarStripSwitch" Style="{StaticResource CardSwitch}" Toggled="Changed"
+                                                   AutomationProperties.Name="Show usage on the taskbar" AutomationProperties.AutomationId="settings.taskbarStrip" /></Grid>
+                </StackPanel>
+            </local:SettingsCard>
+            <local:SettingsCard Header="Chime when a Claude is ready" Glyph="&#xE767;"
+                                Description="A sound when a Claude in the background finishes, and a stronger one when it waits on you">
+                <StackPanel Orientation="Horizontal" Spacing="12">
+                    <TextBlock Text="{x:Bind local:SettingsCard.OnOff(ChimeSwitch.IsOn), Mode=OneWay}" VerticalAlignment="Center" />
+                    <Grid Width="40"><ToggleSwitch x:Name="ChimeSwitch" Style="{StaticResource CardSwitch}" Toggled="Changed"
+                                                   AutomationProperties.Name="Chime when a Claude is ready" AutomationProperties.AutomationId="settings.chime" /></Grid>
+                </StackPanel>
+            </local:SettingsCard>
+
+            <TextBlock Text="Updates" Style="{StaticResource SectionHeading}" />
+            <local:SettingsCard x:Name="ManualClaudeCard" Header="Update Claude only when I ask" Glyph="&#xE895;"
+                                Description="Claude never quits mid-task to install an update; Claude Desktop's line in the sidebar installs them">
+                <StackPanel Orientation="Horizontal" Spacing="12">
+                    <TextBlock Text="{x:Bind local:SettingsCard.OnOff(ManualClaudeSwitch.IsOn), Mode=OneWay}" VerticalAlignment="Center" />
+                    <Grid Width="40"><ToggleSwitch x:Name="ManualClaudeSwitch" Style="{StaticResource CardSwitch}" Toggled="ManualClaude_Toggled"
+                                                   AutomationProperties.Name="Update Claude only when I ask" AutomationProperties.AutomationId="settings.manualClaudeUpdates" /></Grid>
+                </StackPanel>
+            </local:SettingsCard>
+            <local:SettingsCard Header="Hold Graft's updates until I install them" Glyph="&#xE777;"
+                                Description="Off, updates install on their own and Graft restarts itself">
+                <StackPanel Orientation="Horizontal" Spacing="12">
+                    <TextBlock Text="{x:Bind local:SettingsCard.OnOff(HoldUpdatesSwitch.IsOn), Mode=OneWay}" VerticalAlignment="Center" />
+                    <Grid Width="40"><ToggleSwitch x:Name="HoldUpdatesSwitch" Style="{StaticResource CardSwitch}" Toggled="Changed"
+                                                   AutomationProperties.Name="Hold Graft's updates until I install them" AutomationProperties.AutomationId="settings.holdUpdates" /></Grid>
+                </StackPanel>
+            </local:SettingsCard>
+
+            <TextBlock Text="About" Style="{StaticResource SectionHeading}" />
+            <local:SettingsCard x:Name="AboutCard" Header="Claude Graft" Glyph="&#xE946;"
+                                Description="Keeps reporting usage in the notification area after its window is closed; quit it from there">
+                <Button x:Name="CheckButton" Content="Check for Updates" Click="Check_Click"
+                        AutomationProperties.AutomationId="settings.checkUpdates" />
+            </local:SettingsCard>
+        </StackPanel>
+    </ScrollViewer>
+</Page>

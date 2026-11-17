@@ -1,0 +1,23 @@
+<Project>
+  <!--
+    windows/VERSION is the one place the number is written down. It is not the
+    repo-root VERSION: that one numbers the Mac releases, which ship on their
+    own schedule from upstream. Nothing here stamped a version at all at first,
+    so every build reported 1.0.0.0 no matter what VERSION said — which an update
+    check, comparing the running build against the latest release, cannot work
+    without. Stamped into every assembly so Assembly.GetName().Version is the
+    truth. The release workflow overrides GraftVersion from the tag, so the
+    binary and the release it came from always agree.
+  -->
+  <PropertyGroup>
+    <!-- Only the release workflow passes GraftVersion, so a build that reads VERSION is a development one. -->
+    <GraftVersionSuffix Condition="'$(GraftVersion)' == ''">-dev</GraftVersionSuffix>
+    <GraftVersionRaw Condition="'$(GraftVersion)' == ''">$([System.IO.File]::ReadAllText('$(MSBuildThisFileDirectory)VERSION'))</GraftVersionRaw>
+    <GraftVersion Condition="'$(GraftVersion)' == ''">$(GraftVersionRaw.Trim())</GraftVersion>
+    <Version>$(GraftVersion)</Version>
+    <AssemblyVersion>$(GraftVersion)</AssemblyVersion>
+    <FileVersion>$(GraftVersion)</FileVersion>
+    <InformationalVersion>$(GraftVersion)$(GraftVersionSuffix)</InformationalVersion>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+  </PropertyGroup>
+</Project>

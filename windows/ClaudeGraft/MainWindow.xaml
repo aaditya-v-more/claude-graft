@@ -1,0 +1,141 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<Window
+    x:Class="ClaudeGraft.MainWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:local="using:ClaudeGraft"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    Title="Claude Graft"
+    mc:Ignorable="d">
+    <!-- A control, not the Grid alone: plain text takes its colour from the nearest control,
+         and with none above it kept the mode the app launched in. -->
+    <UserControl x:Name="ThemeRoot" Foreground="{StaticResource GraftTextFillColorPrimaryBrush}">
+    <!-- Painted whatever the backdrop: the Mac's window is solid, and a material showing through tinted the sidebar and title bar cool. -->
+    <Grid x:Name="RootGrid" Background="{ThemeResource GraftSidebarBrush}">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <!-- The logo and wordmark live in the page header, so the title bar is
+             just a drag region: no icon, no title text, only the caption buttons. -->
+        <!-- The page's title and state sit in the title bar, as the Mac's do, rather
+             than in a header of their own under an empty one. -->
+        <TitleBar x:Name="AppTitleBar" Height="52" IsPaneToggleButtonVisible="True" PaneToggleRequested="AppTitleBar_PaneToggleRequested">
+            <!-- Empty slots put WinUI's bar in its compact row, too short for the button that sits over the rail. -->
+            <TitleBar.Resources>
+                <x:Double x:Key="TitleBarCompactHeight">52</x:Double>
+            </TitleBar.Resources>
+        </TitleBar>
+        <!-- Over the title bar rather than in it: anything in the bar's own slots is kept from
+             dragging the window, and the whole bar drags. Its left edge follows the page's. -->
+        <StackPanel x:Name="Heading" IsHitTestVisible="False" VerticalAlignment="Center" HorizontalAlignment="Left" Margin="262,0,140,0">
+            <TextBlock x:Name="HeadingTitle" Text="Claude" Style="{StaticResource BodyStrongTextBlockStyle}" FontSize="15"
+                       TextTrimming="CharacterEllipsis" AutomationProperties.HeadingLevel="Level1" />
+            <TextBlock x:Name="HeadingSubtitle" Style="{StaticResource CaptionTextBlockStyle}" TextTrimming="CharacterEllipsis"
+                       Foreground="{StaticResource GraftTextFillColorSecondaryBrush}" AutomationProperties.AutomationId="manager.state" />
+        </StackPanel>
+
+        <!--
+            The Frame hosts pages for your application content. Add your UI to
+            MainPage.xaml rather than here so you can use Page features such as
+            navigation events and the Loaded lifecycle.
+        -->
+        <!-- The Mac window's sidebar: the Claudes, then what belongs to every
+             account. The Claudes' page stays alive while another is shown. -->
+        <NavigationView x:Name="Sections" Grid.Row="1" PaneDisplayMode="Left"
+                        IsBackButtonVisible="Collapsed" IsSettingsVisible="False"
+                        IsPaneToggleButtonVisible="False" OpenPaneLength="240"
+                        SelectionChanged="Sections_SelectionChanged" ItemInvoked="Sections_ItemInvoked">
+            <NavigationView.MenuItems>
+                <NavigationViewItemHeader x:Name="ClaudesHeader" Content="Claude" />
+                <NavigationViewItem Tag="artifacts" AutomationProperties.Name="Artifacts, every account"
+                                    AutomationProperties.AutomationId="sidebar.artifacts">
+                    <NavigationViewItem.Icon><FontIcon Glyph="&#xF0E2;" /></NavigationViewItem.Icon>
+                    <StackPanel Spacing="1" Margin="0,6">
+                        <TextBlock Text="Artifacts" />
+                        <TextBlock Text="Every account" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{StaticResource GraftTextFillColorSecondaryBrush}" />
+                    </StackPanel>
+                </NavigationViewItem>
+                <NavigationViewItem Tag="projects" AutomationProperties.Name="Projects, every account"
+                                    AutomationProperties.AutomationId="sidebar.projects">
+                    <NavigationViewItem.Icon><FontIcon Glyph="&#xE8B7;" /></NavigationViewItem.Icon>
+                    <StackPanel Spacing="1" Margin="0,6">
+                        <TextBlock Text="Projects" />
+                        <TextBlock Text="Every account" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{StaticResource GraftTextFillColorSecondaryBrush}" />
+                    </StackPanel>
+                </NavigationViewItem>
+                <NavigationViewItem Tag="search" AutomationProperties.Name="Search Chats, every account"
+                                    AutomationProperties.AutomationId="sidebar.search">
+                    <NavigationViewItem.Icon><FontIcon Glyph="&#xE721;" /></NavigationViewItem.Icon>
+                    <StackPanel Spacing="1" Margin="0,6">
+                        <TextBlock Text="Search Chats" />
+                        <TextBlock Text="Every account" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{StaticResource GraftTextFillColorSecondaryBrush}" />
+                    </StackPanel>
+                </NavigationViewItem>
+                <NavigationViewItemHeader x:Name="ShortcutsHeader" Content="Shortcuts" />
+                <NavigationViewItem x:Name="NewClaudeItem" Content="New Shortcut" Tag="new" SelectsOnInvoked="False"
+                                    AutomationProperties.AutomationId="sidebar.newShortcut"
+                                    ToolTipService.ToolTip="Another Claude, with its own login and chats">
+                    <NavigationViewItem.Icon><FontIcon Glyph="&#xE710;" /></NavigationViewItem.Icon>
+                </NavigationViewItem>            </NavigationView.MenuItems>
+            <NavigationView.PaneFooter>
+                <!-- Claude's own version, here rather than across the top of a
+                     page, where one line took the full width above every Claude. -->
+                <!-- Its full width kept as the pane folds, so the lines fade rather than wrap. -->
+                <StackPanel>
+                <StackPanel x:Name="PaneFooterPanel" Width="240" HorizontalAlignment="Left">
+                    <Rectangle Height="1" Fill="{ThemeResource DividerStrokeColorDefaultBrush}" Margin="12,0" />
+                    <local:ClaudeUpdateLine x:Name="UpdateLine" Stacked="True" Margin="16,10,12,10"
+                                            RestartRequested="ClaudeRestart_Requested" />
+                    <Rectangle Height="1" Fill="{ThemeResource DividerStrokeColorDefaultBrush}" Margin="12,0" />
+                    <!-- Who made it and where it comes from, at the foot of the sidebar as on the Mac. -->
+                    <Grid Margin="8,6">
+                        <HyperlinkButton Click="Support_Click" Padding="8,4" Foreground="{StaticResource GraftTextFillColorSecondaryBrush}"
+                                         ToolTipService.ToolTip="Claude Graft is free. A tip on Ko-fi is what keeps it worked on."
+                                         AutomationProperties.Name="Support" AutomationProperties.AutomationId="support">
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <FontIcon Glyph="&#xEB51;" FontSize="12" />
+                                <TextBlock Text="Support" Style="{StaticResource CaptionTextBlockStyle}" />
+                            </StackPanel>
+                        </HyperlinkButton>
+                        <HyperlinkButton x:Name="SourceLink" Click="Source_Click" HorizontalAlignment="Right" Padding="8,4"
+                                         Foreground="{StaticResource GraftTextFillColorSecondaryBrush}"
+                                         AutomationProperties.Name="Source" AutomationProperties.AutomationId="source">
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <FontIcon Glyph="&#xE943;" FontSize="12" />
+                                <TextBlock Text="Source" Style="{StaticResource CaptionTextBlockStyle}" />
+                            </StackPanel>
+                        </HyperlinkButton>
+                    </Grid>
+                </StackPanel>
+                <!-- Settings at the foot, ruled off from the rest, where Windows 11 apps keep it. -->
+                <Rectangle x:Name="SettingsRule" Height="1" Fill="{ThemeResource DividerStrokeColorDefaultBrush}" Margin="12,0" />
+                </StackPanel>
+            </NavigationView.PaneFooter>
+            <NavigationView.FooterMenuItems>
+                <NavigationViewItem x:Name="SettingsItem" Content="Settings" Tag="settings"
+                                    AutomationProperties.AutomationId="sidebar.settings">
+                    <NavigationViewItem.Icon><FontIcon Glyph="&#xE713;" /></NavigationViewItem.Icon>
+                </NavigationViewItem>
+            </NavigationView.FooterMenuItems>
+            <Grid>
+                <Frame x:Name="RootFrame" />
+                <!-- The same transition the Claudes' frame names, so every page opens alike. -->
+                <Frame x:Name="SectionFrame" Visibility="Collapsed">
+                    <Frame.ContentTransitions>
+                        <TransitionCollection>
+                            <NavigationThemeTransition>
+                                <NavigationThemeTransition.DefaultNavigationTransitionInfo>
+                                    <EntranceNavigationTransitionInfo />
+                                </NavigationThemeTransition.DefaultNavigationTransitionInfo>
+                            </NavigationThemeTransition>
+                        </TransitionCollection>
+                    </Frame.ContentTransitions>
+                </Frame>
+            </Grid>
+        </NavigationView>
+    </Grid>
+    </UserControl>
+</Window>

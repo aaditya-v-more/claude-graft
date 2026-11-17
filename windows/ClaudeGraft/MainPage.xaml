@@ -1,0 +1,387 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<Page
+    x:Class="ClaudeGraft.MainPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="using:ClaudeGraft"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    Background="Transparent"
+    mc:Ignorable="d">
+
+    <Page.Resources>
+        <Style x:Key="SectionTitle" TargetType="TextBlock" BasedOn="{StaticResource BodyStrongTextBlockStyle}">
+            <Setter Property="VerticalAlignment" Value="Center" />
+        </Style>
+        <Style x:Key="Card" TargetType="Border">
+            <Setter Property="Background" Value="{ThemeResource CardBackgroundFillColorDefaultBrush}" />
+            <Setter Property="BorderBrush" Value="{ThemeResource CardStrokeColorDefaultBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="{ThemeResource ControlCornerRadius}" />
+            <Setter Property="Padding" Value="16,12" />
+        </Style>
+        <x:Double x:Key="ProgressBarTrackHeight">7</x:Double>
+        <x:Double x:Key="ProgressBarMinHeight">7</x:Double>
+        <!-- The default button keeps a minimum height that lifts its glyph off
+             the text beside it; with none, the two share a centre line. -->
+    </Page.Resources>
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <!-- The Mac's title and subtitle: which Claude, and whether it is made and running. -->
+        <Grid x:Name="PageHeader" Visibility="Collapsed" Padding="24,14,16,12" ColumnSpacing="12" BorderThickness="0,0,0,1" Background="{ThemeResource GraftHeaderBrush}"
+              BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <StackPanel Spacing="1" VerticalAlignment="Center">
+                <TextBlock x:Name="ClaudeTitle" Text="Claude" Style="{StaticResource SubtitleTextBlockStyle}"
+                           TextTrimming="CharacterEllipsis" AutomationProperties.HeadingLevel="Level1" />
+                <TextBlock x:Name="ClaudeSubtitle" Foreground="{StaticResource GraftTextFillColorSecondaryBrush}"
+                           TextTrimming="CharacterEllipsis" />
+            </StackPanel>
+
+        </Grid>
+
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollMode="Disabled">
+            <!-- Each Claude arrives through a Frame, so it plays the very transition the other sections' pages do. -->
+            <Frame x:Name="ClaudeFrame">
+                <!-- Named here, not left to the Frame's default: a Frame whose first content came from
+                     markup rather than a navigation never took on the page transition. -->
+                <Frame.ContentTransitions>
+                    <TransitionCollection>
+                        <NavigationThemeTransition>
+                            <NavigationThemeTransition.DefaultNavigationTransitionInfo>
+                                <EntranceNavigationTransitionInfo />
+                            </NavigationThemeTransition.DefaultNavigationTransitionInfo>
+                        </NavigationThemeTransition>
+                    </TransitionCollection>
+                </Frame.ContentTransitions>
+            <StackPanel x:Name="PageContent" Spacing="12" Padding="24,16,24,24">
+                <local:SetupPrompt x:Name="Setup" Visibility="Collapsed" />
+
+                <!-- Claude itself, which Graft did not make and never changes. -->
+                <Border x:Name="MainIdentity" Style="{StaticResource Card}" Visibility="Collapsed">
+                    <Grid ColumnSpacing="10">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <FontIcon Glyph="&#xE80F;" FontSize="20" Width="28" Foreground="{StaticResource GraftTextFillColorSecondaryBrush}"
+                                  AutomationProperties.AccessibilityView="Raw" />
+                        <TextBlock Grid.Column="1" Text="Claude" VerticalAlignment="Center" AutomationProperties.AutomationId="manager.main.name" />
+                        <Button Grid.Column="2" Style="{StaticResource InfoGlyphButton}"
+                                ToolTipService.ToolTip="About Claude" AutomationProperties.Name="About Claude"
+                                AutomationProperties.AutomationId="manager.main.info">
+                            <FontIcon Glyph="&#xE946;" FontSize="14" />
+                            <Button.Flyout>
+                                <Flyout>
+                                    <TextBlock MaxWidth="340" TextWrapping="Wrap"
+                                               Text="The Claude you installed, launched the ordinary way. Graft does not create or modify it: other Claudes borrow from it, and it can never be renamed, re-pointed or deleted from here." />
+                                </Flyout>
+                            </Button.Flyout>
+                        </Button>
+                        <TextBlock Grid.Column="4" x:Name="MainFolder" FontFamily="Cascadia Mono, Consolas" VerticalAlignment="Center"
+                                   Foreground="{StaticResource GraftTextFillColorSecondaryBrush}" ToolTipService.ToolTip="Profile folder"
+                                   AutomationProperties.AutomationId="manager.main.folder" />
+                        <Button Grid.Column="5" Click="ShowMainFolder_Click" Style="{StaticResource InfoGlyphButton}" Padding="6"
+                                ToolTipService.ToolTip="Show in File Explorer" AutomationProperties.Name="Show in File Explorer"
+                                AutomationProperties.AutomationId="manager.main.showFolder">
+                            <FontIcon Glyph="&#xE8B7;" FontSize="16" />
+                        </Button>
+                    </Grid>
+                </Border>
+
+                <local:ProfileEditor x:Name="Editor" Visibility="Collapsed" />
+
+                <ItemsControl x:Name="ProfileList" ItemsSource="{x:Bind Shown}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="local:ShortcutRow">
+                            <StackPanel Spacing="12">
+                                <!-- Chats an account switch left in another profile: an offer to
+                                     bring them over, standing for as long as any are still missing. -->
+                                <Border Visibility="{x:Bind ElsewhereVisibility, Mode=OneWay}" Style="{StaticResource Card}">
+                                    <Grid ColumnSpacing="12">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock VerticalAlignment="Center" Text="{x:Bind ElsewhereNote, Mode=OneWay}" TextWrapping="Wrap" />
+                                        <Button Grid.Column="1" VerticalAlignment="Center" Content="{x:Bind AdoptLabel, Mode=OneWay}"
+                                                Click="Adopt_Click" Tag="{x:Bind}"
+                                                AutomationProperties.AutomationId="{x:Bind local:Spoken.Id('manager', Key, 'adopt')}" />
+                                    </Grid>
+                                </Border>
+                                <TextBlock Text="{x:Bind CopiedNote, Mode=OneWay}" Visibility="{x:Bind CopiedNoteVisibility, Mode=OneWay}"
+                                           TextWrapping="Wrap" Style="{StaticResource CaptionTextBlockStyle}"
+                                           Foreground="{StaticResource GraftTextFillColorSecondaryBrush}" />
+                                <TextBlock Text="{x:Bind SidebarStatus, Mode=OneWay}" Visibility="{x:Bind SidebarStatusVisibility, Mode=OneWay}"
+                                           TextWrapping="Wrap" Style="{StaticResource CaptionTextBlockStyle}"
+                                           Foreground="{StaticResource GraftTextFillColorTertiaryBrush}" />
+                                <TextBlock Text="{x:Bind Problem, Mode=OneWay}" Visibility="{x:Bind ProblemVisibility, Mode=OneWay}"
+                                           TextWrapping="Wrap" Style="{StaticResource CaptionTextBlockStyle}"
+                                           Foreground="{StaticResource GraftSystemFillColorCautionBrush}" />
+
+                                <!-- Plan usage: its heading carries when the figure is from and the button that asks again. -->
+                                <Grid ColumnSpacing="8" Margin="0,8,0,0">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="Plan usage" Style="{StaticResource SectionTitle}" AutomationProperties.HeadingLevel="Level2" />
+                                    <Button Grid.Column="1" Style="{StaticResource InfoGlyphButton}"
+                                            ToolTipService.ToolTip="About plan usage" AutomationProperties.Name="About plan usage"
+                                            AutomationProperties.AutomationId="{x:Bind local:Spoken.Id('manager', Key, 'usageInfo')}">
+                                        <FontIcon Glyph="&#xE946;" FontSize="14" />
+                                        <Button.Flyout>
+                                            <Flyout>
+                                                <TextBlock MaxWidth="340" TextWrapping="Wrap"
+                                                           Text="Asked of this account directly, using the login it already holds: the same figure the tray shows. It stays current whether or not that Claude is running." />
+                                            </Flyout>
+                                        </Button.Flyout>
+                                    </Button>
+                                    <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6" Margin="8,0,0,0" VerticalAlignment="Center">
+                                        <ProgressRing IsActive="{x:Bind Fetching, Mode=OneWay}" Visibility="{x:Bind FetchingVisibility, Mode=OneWay}"
+                                                      Width="12" Height="12" MinWidth="0" MinHeight="0" />
+                                        <TextBlock Text="{x:Bind UsageStatusText, Mode=OneWay}" Visibility="{x:Bind UsageStatusVisibility, Mode=OneWay}"
+                                                   Foreground="{StaticResource GraftTextFillColorTertiaryBrush}" TextTrimming="CharacterEllipsis" />
+                                    </StackPanel>
+                                    <Button Grid.Column="3" Click="Refresh_Click" Padding="6" Style="{StaticResource SubtleButtonStyle}"
+                                            Foreground="{StaticResource GraftTextFillColorSecondaryBrush}" VerticalAlignment="Center"
+                                            ToolTipService.ToolTip="Refresh Usage" AutomationProperties.Name="Refresh Usage"
+                                            AutomationProperties.AutomationId="{x:Bind local:Spoken.Id('manager', Key, 'refresh')}">
+                                        <FontIcon Glyph="&#xE72C;" FontSize="14" />
+                                    </Button>
+                                </Grid>
+                                <Border Style="{StaticResource Card}">
+                                    <StackPanel Spacing="10">
+                                        <Grid ColumnSpacing="16" RowSpacing="14" Visibility="{x:Bind BarsVisibility, Mode=OneWay}" Opacity="{x:Bind BarsOpacity, Mode=OneWay}">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="80" />
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="48" />
+                                                <ColumnDefinition Width="90" />
+                                            </Grid.ColumnDefinitions>
+                                            <Grid.RowDefinitions>
+                                                <RowDefinition Height="Auto" />
+                                                <RowDefinition Height="Auto" />
+                                                <RowDefinition Height="Auto" />
+                                            </Grid.RowDefinitions>
+                                            <TextBlock Text="5 hours" />
+                                            <ProgressBar Grid.Column="1" Style="{StaticResource UsageMeter}" Maximum="100" Value="{x:Bind FiveHour, Mode=OneWay}"
+                                                         Visibility="{x:Bind FiveHourBarVisibility, Mode=OneWay}"
+                                                         AutomationProperties.Name="{x:Bind FiveHourText, Mode=OneWay}"
+                                                         AutomationProperties.AutomationId="{x:Bind local:Spoken.Id('manager', Key, 'fiveHour')}" />
+                                            <TextBlock Grid.Column="1" Text="No five-hour limit" Visibility="{x:Bind FiveHourNoLimitVisibility, Mode=OneWay}"
+                                                       Foreground="{StaticResource GraftTextFillColorSecondaryBrush}" />
+                                            <TextBlock Grid.Column="2" Text="{x:Bind FiveHourPercent, Mode=OneWay}" HorizontalAlignment="Right"
+                                                       Visibility="{x:Bind FiveHourBarVisibility, Mode=OneWay}" AutomationProperties.AccessibilityView="Raw" />
+                                            <TextBlock Grid.Column="3" Text="{x:Bind FiveHourLeft, Mode=OneWay}" HorizontalAlignment="Right"
+                                                       Foreground="{StaticResource GraftTextFillColorSecondaryBrush}" AutomationProperties.AccessibilityView="Raw" />
+
+                                            <TextBlock Grid.Row="1" Text="Week" />
+                                            <ProgressBar Grid.Row="1" Grid.Column="1" Style="{StaticResource UsageMeter}" Maximum="100" Value="{x:Bind Week, Mode=OneWay}"
+                                                         AutomationProperties.Name="{x:Bind WeekText, Mode=OneWay}"
+                                                         AutomationProperties.AutomationId="{x:Bind local:Spoken.Id('manager', Key, 'week')}" />
+                                            <TextBlock Grid.Row="1" Grid.Column="2" Text="{x:Bind WeekPercent, Mode=OneWay}" HorizontalAlignment="Right"
+                                                       AutomationProperties.AccessibilityView="Raw" />
+                                            <TextBlock Grid.Row="1" Grid.Column="3" Text="{x:Bind WeekLeft, Mode=OneWay}" HorizontalAlignment="Right"
+                                                       Foreground="{StaticResource GraftTextFillColorSecondaryBrush}" AutomationProperties.AccessibilityView="Raw" />
+
+                                            <TextBlock Grid.Row="2" Text="Fable" Visibility="{x:Bind FableVisibility, Mode=OneWay}" />
+                                            <ProgressBar Grid.Row="2" Grid.Column="1" Style="{StaticResource UsageMeter}" Maximum="100" Value="{x:Bind Fable, Mode=OneWay}"
+                                                         Visibility="{x:Bind FableVisibility, Mode=OneWay}"
+                                                         AutomationProperties.Name="{x:Bind FableText, Mode=OneWay}"
+                                                         AutomationProperties.AutomationId="{x:Bind local:Spoken.Id('manager', Key, 'fable')}" />
+                                            <TextBlock Grid.Row="2" Grid.Column="2" Text="{x:Bind FablePercent, Mode=OneWay}" HorizontalAlignment="Right"
+                                                       Visibility="{x:Bind FableVisibility, Mode=OneWay}" AutomationProperties.AccessibilityView="Raw" />
+                                            <TextBlock Grid.Row="2" Grid.Column="3" Text="{x:Bind FableLeft, Mode=OneWay}" HorizontalAlignment="Right"
+                                                       Visibility="{x:Bind FableVisibility, Mode=OneWay}"
+                                                       Foreground="{StaticResource GraftTextFillColorSecondaryBrush}" AutomationProperties.AccessibilityView="Raw" />
+                                        </Grid>
+                                        <TextBlock Text="{x:Bind UsageStatusText, Mode=OneWay}" Visibility="{x:Bind UsageWarningVisibility, Mode=OneWay}"
+                                                   TextWrapping="Wrap" Foreground="{StaticResource GraftSystemFillColorCautionBrush}" />
+                                        <TextBlock Text="{x:Bind SignInNote, Mode=OneWay}" Visibility="{x:Bind SignInVisibility, Mode=OneWay}"
+                                                   TextWrapping="Wrap" Foreground="{StaticResource GraftTextFillColorSecondaryBrush}" />
+                                        <HyperlinkButton Content="Choose Graft for Claude links" Click="DefaultApps_Click" Tag="{x:Bind}" Padding="0"
+                                                         Visibility="{x:Bind DefaultAppsVisibility, Mode=OneWay}"
+                                                         AutomationProperties.Name="Choose Graft for Claude links in Default apps"
+                                                         AutomationProperties.AutomationId="{x:Bind local:Spoken.Id('manager', Key, 'defaultApps')}" />
+                                        <TextBlock Text="No usage reported yet" Visibility="{x:Bind NoUsageVisibility, Mode=OneWay}"
+                                                   Foreground="{StaticResource GraftTextFillColorSecondaryBrush}" />
+                                        <Grid ColumnSpacing="12" Visibility="{x:Bind SignedInVisibility, Mode=OneWay}">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                                                <TextBlock Text="Keep the 5-hour window open" VerticalAlignment="Center" AutomationProperties.AccessibilityView="Raw" />
+                                                <Button Style="{StaticResource InfoGlyphButton}"
+                                                        ToolTipService.ToolTip="About keeping the window open" AutomationProperties.Name="About keeping the window open"
+                                                        AutomationProperties.AutomationId="{x:Bind local:Spoken.Id('manager', Key, 'keepWarmInfo')}">
+                                                    <FontIcon Glyph="&#xE946;" FontSize="14" />
+                                                    <Button.Flyout>
+                                                        <Flyout>
+                                                            <TextBlock MaxWidth="340" TextWrapping="Wrap"
+                                                                       Text="Sends one short message on its own whenever this account's five-hour window is found closed, so its five hours are always running. Nothing appears on screen." />
+                                                        </Flyout>
+                                                    </Button.Flyout>
+                                                </Button>
+                                            </StackPanel>
+                                            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="12">
+                                                <TextBlock Text="{x:Bind local:SettingsCard.OnOff(KeepWarm), Mode=OneWay}" VerticalAlignment="Center"
+                                                           AutomationProperties.AccessibilityView="Raw" />
+                                                <Grid Width="40">
+                                                    <ToggleSwitch Style="{StaticResource CardSwitch}"
+                                                                  AutomationProperties.AutomationId="{x:Bind local:Spoken.Id('manager', Key, 'keepWarm')}"
+                                                                  AutomationProperties.Name="{x:Bind local:Spoken.KeepWarm(Name)}"
+                                                                  IsOn="{x:Bind KeepWarm, Mode=OneWay}" Toggled="KeepWarm_Toggled" Tag="{x:Bind}" />
+                                                </Grid>
+                                            </StackPanel>
+                                        </Grid>
+                                    </StackPanel>
+                                </Border>
+
+                                <!-- Shared usage: adding sits in the heading, where it belongs to the whole list. -->
+                                <Grid ColumnSpacing="8" Margin="0,8,0,0">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="Shared usage" Style="{StaticResource SectionTitle}" AutomationProperties.HeadingLevel="Level2" />
+                                    <Button Grid.Column="1" Style="{StaticResource InfoGlyphButton}"
+                                            ToolTipService.ToolTip="About shared usage" AutomationProperties.Name="About shared usage"
+                                            AutomationProperties.AutomationId="{x:Bind local:Spoken.Id('manager', Key, 'sharing.about')}">
+                                        <FontIcon Glyph="&#xE946;" FontSize="14" />
+                                        <Button.Flyout>
+                                            <Flyout>
+                                                <TextBlock MaxWidth="360" TextWrapping="Wrap"
+                                                           Text="The Code tab in this Claude can be answered by the accounts added here. Each request goes to whichever has room and the soonest weekly reset, and a conversation stays on one account while its cache is still warm there. Chats, artifacts, connectors and Claude in Chrome stay with this Claude's own account, and the Chat tab is never shared.&#x0a;&#x0a;A request answered by another account carries the conversation to that account. Anthropic's terms for Claude plans may not allow one person to combine subscriptions this way, so read them before adding one." />
+                                            </Flyout>
+                                        </Button.Flyout>
+                                    </Button>
+                                    <DropDownButton Grid.Column="3" Tag="{x:Bind}" Background="{ThemeResource SubtleFillColorTransparentBrush}" BorderThickness="0"
+                                                    AutomationProperties.Name="{x:Bind AddLenderLabel, Mode=OneWay}"
+                                                    AutomationProperties.AutomationId="{x:Bind local:Spoken.Id('manager', Key, 'sharing')}">
+                                        <StackPanel Orientation="Horizontal" Spacing="8">
+                                            <FontIcon Glyph="&#xE710;" FontSize="12" />
+                                            <TextBlock Text="{x:Bind AddLenderLabel, Mode=OneWay}" />
+                                        </StackPanel>
+                                        <DropDownButton.Flyout>
+                                            <MenuFlyout Placement="BottomEdgeAlignedRight" Opening="SharingMenu_Opening" />
+                                        </DropDownButton.Flyout>
+                                    </DropDownButton>
+                                </Grid>
+                                <Border Style="{StaticResource Card}" Padding="16,4">
+                                    <StackPanel>
+                                        <ItemsControl ItemsSource="{x:Bind Lenders, Mode=OneWay}">
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate x:DataType="local:LenderLine">
+                                                    <Grid ColumnSpacing="10" Padding="0,10" BorderThickness="{x:Bind Rule}"
+                                                          BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
+                                                        <Grid.ColumnDefinitions>
+                                                            <ColumnDefinition Width="Auto" />
+                                                            <ColumnDefinition Width="*" />
+                                                            <ColumnDefinition Width="Auto" />
+                                                            <ColumnDefinition Width="Auto" />
+                                                        </Grid.ColumnDefinitions>
+                                                        <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center"
+                                                                    AutomationProperties.Name="{x:Bind Spoken}" AutomationProperties.AutomationId="{x:Bind Id}">
+                                                            <Image Source="{x:Bind Icon}" Visibility="{x:Bind IconVisibility}" Width="16" Height="16"
+                                                                   VerticalAlignment="Center" AutomationProperties.AccessibilityView="Raw" />
+                                                            <TextBlock Text="{x:Bind Name}" FontWeight="SemiBold" />
+                                                        </StackPanel>
+                                                        <TextBlock Grid.Column="1" Text="{x:Bind State}" Foreground="{x:Bind StateBrush}" Margin="10,0,0,0"
+                                                                   VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                                                                   Style="{StaticResource CaptionTextBlockStyle}" AutomationProperties.AccessibilityView="Raw" />
+                                                        <TextBlock Grid.Column="2" Text="{x:Bind Figures}" VerticalAlignment="Center"
+                                                                   Foreground="{StaticResource GraftTextFillColorSecondaryBrush}" />
+                                                        <Button Grid.Column="3" Click="RemoveLender_Click" Tag="{x:Bind}" Padding="4"
+                                                                Style="{StaticResource SubtleButtonStyle}"
+                                                                ToolTipService.ToolTip="Stop drawing on this account"
+                                                                AutomationProperties.Name="{x:Bind RemoveName}" AutomationProperties.AutomationId="{x:Bind RemoveId}">
+                                                            <FontIcon Glyph="&#xE738;" FontSize="14" />
+                                                        </Button>
+                                                    </Grid>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                        <TextBlock Text="No accounts added" Visibility="{x:Bind NoLendersVisibility, Mode=OneWay}" Margin="0,8"
+                                                   Foreground="{StaticResource GraftTextFillColorSecondaryBrush}" />
+                                        <TextBlock Text="{x:Bind SharingNote, Mode=OneWay}" Visibility="{x:Bind SharingNoteVisibility, Mode=OneWay}"
+                                                   Foreground="{x:Bind SharingNoteBrush, Mode=OneWay}" Margin="0,8" TextWrapping="Wrap" />
+                                    </StackPanel>
+                                </Border>
+                            </StackPanel>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+
+                <TextBlock x:Name="EmptyState" Visibility="Collapsed"
+                           Text="Add a Claude from the sidebar to run a second account alongside this one."
+                           Margin="16,8,16,0" Style="{StaticResource CaptionTextBlockStyle}"
+                           Foreground="{StaticResource GraftTextFillColorTertiaryBrush}" HorizontalAlignment="Center" />
+            </StackPanel>
+            </Frame>
+        </ScrollViewer>
+
+        <!-- Delete on the left, what the Claude is for on the right, as on the Mac. -->
+        <Grid Grid.Row="2" x:Name="BottomBar" Padding="16,10" ColumnSpacing="8" BorderThickness="0,1,0,0"
+              BorderBrush="{ThemeResource NavigationViewContentGridBorderBrush}" Background="Transparent">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <Button x:Name="DeleteButton" Content="Delete Shortcut…" Click="Delete_Click" AutomationProperties.AutomationId="manager.delete" />
+            <Button Grid.Column="2" x:Name="StartButton" Click="Start_Click" AutomationProperties.Name="Start Session"
+                    AutomationProperties.AutomationId="manager.start">
+                <Grid>
+                    <TextBlock x:Name="StartText" Text="Start Session" />
+                    <ProgressRing x:Name="StartRing" Width="16" Height="16" IsActive="False" Visibility="Collapsed" AutomationProperties.AccessibilityView="Raw" />
+                </Grid>
+            </Button>
+            <Button Grid.Column="3" x:Name="StartInfoButton" Style="{StaticResource InfoGlyphButton}"
+                    ToolTipService.ToolTip="About Start Session" AutomationProperties.Name="About Start Session"
+                    AutomationProperties.AutomationId="manager.startInfo">
+                <FontIcon Glyph="&#xE946;" FontSize="14" />
+                <Button.Flyout>
+                    <Flyout>
+                        <TextBlock MaxWidth="340" TextWrapping="Wrap"
+                                   Text="Sends one short message to this account so its five-hour window opens. Nothing appears on screen.&#x0a;&#x0a;It uses that profile's own login, borrowed the same way the usage figures are, so each account can be started separately." />
+                    </Flyout>
+                </Button.Flyout>
+            </Button>
+            <Button Grid.Column="4" x:Name="OpenButton" Click="Open_Click" AutomationProperties.Name="Open" AutomationProperties.AutomationId="manager.open">
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <ProgressRing x:Name="OpenRing" Width="16" Height="16" IsActive="False" Visibility="Collapsed" AutomationProperties.AccessibilityView="Raw" />
+                    <TextBlock x:Name="OpenText" Text="Open" />
+                </StackPanel>
+            </Button>
+            <Button Grid.Column="5" x:Name="SaveButton" Click="Save_Click" Style="{StaticResource AccentButtonStyle}"
+                    AutomationProperties.Name="Update Shortcut" AutomationProperties.AutomationId="manager.save">
+                <Grid>
+                    <TextBlock x:Name="SaveText" Text="Update Shortcut" HorizontalAlignment="Center" />
+                    <ProgressRing x:Name="SaveRing" Width="16" Height="16" IsActive="False" Visibility="Collapsed" AutomationProperties.AccessibilityView="Raw" />
+                </Grid>
+            </Button>
+        </Grid>
+    </Grid>
+</Page>

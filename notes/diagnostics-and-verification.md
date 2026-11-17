@@ -231,3 +231,16 @@ surfaces in the UI rather than being swallowed — read it rather than guessing.
 `~/Library/Application Support/ClaudeGraft/usage-status.json` records what each
 poll found, including whether the figures came from the API. Read it to check
 the state of live usage instead of reading numbers off the screen.
+
+On Windows, seven taps on the About card's icon in Settings, each within two
+seconds of the last, open a debug window that stages Claude's and Graft's update
+states, setup, the link handler, a busy or unreadable state pass, and each
+profile's sign-in, open dot, usage, Fable limit, usage refresh, sidebar
+sync line, shared-usage lenders and chats-elsewhere offer, the unreadable
+shortcut list, a Graft update mid-download, and the sign-in chooser with
+made-up Claudes. It is held in `Staging`, in memory only,
+so quitting Graft or Reset puts everything back, and a stage only ever makes Graft
+show more or do less: a Claude can be staged open but never closed, and a staged
+update is never fetched, installed or restarted onto. A staged offer copies
+nothing, a staged lender is never saved, and the staged chooser sends nothing. Sign In and Open still
+act for real on a staged card.

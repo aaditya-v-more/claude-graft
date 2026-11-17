@@ -4,3 +4,4 @@ dist/
 *.xcuserstate
 vendor/
 .firecrawl/
+windows/installer/vc_redist*.exe

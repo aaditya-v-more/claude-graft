@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<Page
+    x:Class="ClaudeGraft.SearchPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Background="Transparent">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <Grid Padding="16,10" ColumnSpacing="8" BorderThickness="0,0,0,1" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <FontIcon Glyph="&#xE721;" FontSize="16" Foreground="{StaticResource GraftTextFillColorSecondaryBrush}" AutomationProperties.AccessibilityView="Raw" />
+            <TextBlock Grid.Column="1" Text="Search Chats" Style="{StaticResource BodyStrongTextBlockStyle}" VerticalAlignment="Center" />
+            <Button Style="{StaticResource InfoGlyphButton}" Grid.Column="2"
+                    AutomationProperties.Name="About Search Chats" AutomationProperties.AutomationId="search.info"
+                    ToolTipService.ToolTip="About Search Chats">
+                <FontIcon Glyph="&#xE946;" FontSize="14" />
+                <Button.Flyout>
+                    <Flyout>
+                        <TextBlock x:Name="NoteText" MaxWidth="360" TextWrapping="Wrap" />
+                    </Flyout>
+                </Button.Flyout>
+            </Button>
+            <ScrollViewer Grid.Column="3" HorizontalScrollMode="Auto" HorizontalScrollBarVisibility="Hidden"
+                          VerticalScrollMode="Disabled" VerticalScrollBarVisibility="Disabled">
+                <StackPanel x:Name="AccountChips" Orientation="Horizontal" Spacing="6" />
+            </ScrollViewer>
+            <Button Grid.Column="4" x:Name="AddAccountButton" Click="AddAccount_Click"
+                    AutomationProperties.AutomationId="search.addAccount" AutomationProperties.Name="Add Account"
+                    ToolTipService.ToolTip="Sign in to another claude.ai account">
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <FontIcon Glyph="&#xE710;" FontSize="14" />
+                    <TextBlock x:Name="AddAccountText" Text="Add Account…" />
+                </StackPanel>
+            </Button>
+        </Grid>
+
+        <Grid Grid.Row="1" x:Name="QueryBar" Padding="16,8" ColumnSpacing="8">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <TextBox x:Name="QueryBox" PlaceholderText="Search every account's chats and Code sessions" KeyDown="Query_KeyDown"
+                     AutomationProperties.Name="Search Chats" AutomationProperties.AutomationId="search.query" />
+            <DropDownButton Grid.Column="1" x:Name="FilterButton" AutomationProperties.Name="Filters"
+                            AutomationProperties.AutomationId="search.filters" ToolTipService.ToolTip="Filter the results">
+                <FontIcon x:Name="FilterIcon" Glyph="&#xE71C;" FontSize="14" />
+            </DropDownButton>
+            <Button Grid.Column="2" x:Name="SearchButton" Click="Search_Click" Style="{StaticResource AccentButtonStyle}"
+                    AutomationProperties.Name="Search" AutomationProperties.AutomationId="search.go">
+                <Grid>
+                    <TextBlock x:Name="SearchText" Text="Search" />
+                    <ProgressRing x:Name="SearchRing" Width="16" Height="16" IsActive="False" Visibility="Collapsed"
+                                  AutomationProperties.Name="Asking claude.ai" />
+                </Grid>
+            </Button>
+            <TextBlock Grid.Column="3" x:Name="CountText" VerticalAlignment="Center" MinWidth="70" TextAlignment="Right"
+                       Style="{StaticResource CaptionTextBlockStyle}" Foreground="{StaticResource GraftTextFillColorSecondaryBrush}"
+                       AutomationProperties.AutomationId="search.count" />
+        </Grid>
+
+        <StackPanel Grid.Row="2" x:Name="SignedOutPanel" Spacing="10" HorizontalAlignment="Center" VerticalAlignment="Center" Visibility="Collapsed">
+            <FontIcon Glyph="&#xE721;" FontSize="34" Foreground="{StaticResource GraftTextFillColorTertiaryBrush}" AutomationProperties.AccessibilityView="Raw" />
+            <TextBlock Text="Sign in to search chats" HorizontalAlignment="Center" AutomationProperties.AutomationId="search.signInNote" />
+            <Button Content="Sign In…" HorizontalAlignment="Center" Click="AddAccount_Click" AutomationProperties.AutomationId="search.signIn" />
+            <TextBlock x:Name="SignInHint" HorizontalAlignment="Center" Style="{StaticResource CaptionTextBlockStyle}"
+                       Foreground="{StaticResource GraftTextFillColorSecondaryBrush}" AutomationProperties.AutomationId="search.signInHint" />
+        </StackPanel>
+        <TextBlock Grid.Row="2" x:Name="EmptyText" HorizontalAlignment="Center" VerticalAlignment="Center" Visibility="Collapsed"
+                   TextWrapping="Wrap" TextAlignment="Center" MaxWidth="420"
+                   Foreground="{StaticResource GraftTextFillColorSecondaryBrush}" AutomationProperties.AutomationId="search.empty" />
+        <ListView Grid.Row="2" x:Name="HitList" SelectionMode="None" Padding="8,0" />
+
+        <Grid Grid.Row="3" x:Name="TroubleBar" Padding="16,10" BorderThickness="0,1,0,0" Visibility="Collapsed"
+              BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" Background="{ThemeResource LayerFillColorDefaultBrush}">
+            <TextBlock x:Name="TroubleText" TextTrimming="CharacterEllipsis"
+                       Style="{StaticResource CaptionTextBlockStyle}" Foreground="{StaticResource GraftTextFillColorSecondaryBrush}"
+                       AutomationProperties.AutomationId="search.status" />
+        </Grid>
+    </Grid>
+</Page>

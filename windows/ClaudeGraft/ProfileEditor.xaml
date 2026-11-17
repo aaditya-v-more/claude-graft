@@ -1,0 +1,120 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<UserControl
+    x:Class="ClaudeGraft.ProfileEditor"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="using:ClaudeGraft">
+
+    <!-- What the Claude is and where its chats come from, as the Mac's first section:
+         icon, name and folder share one row, and the chats picker sits under a rule. -->
+    <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+            BorderThickness="1" CornerRadius="{ThemeResource ControlCornerRadius}" Padding="16,12">
+        <StackPanel Spacing="12">
+            <Grid ColumnSpacing="10">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="140" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <!-- Twelve icons laid out here took more room than the rest,
+                     so the one in use opens the others. -->
+                <Button x:Name="IconButton" AutomationProperties.AutomationId="profile.icon" Width="36" Height="32" Padding="2"
+                        Style="{StaticResource SubtleButtonStyle}"
+                        ToolTipService.ToolTip="Shortcut icon" AutomationProperties.Name="Shortcut icon">
+                    <Image x:Name="IconImage" Width="26" Height="26" />
+                    <Button.Flyout>
+                        <Flyout x:Name="IconFlyout" Placement="BottomEdgeAlignedLeft">
+                            <StackPanel Spacing="8" Width="324">
+                                <GridView x:Name="IconGrid" AutomationProperties.AutomationId="profile.iconGrid" SelectionMode="Single" IsItemClickEnabled="True"
+                                          ItemClick="IconGrid_ItemClick" AutomationProperties.Name="Shortcut icon">
+                                    <GridView.ItemsPanel>
+                                        <ItemsPanelTemplate>
+                                            <ItemsWrapGrid Orientation="Horizontal" MaximumRowsOrColumns="6" />
+                                        </ItemsPanelTemplate>
+                                    </GridView.ItemsPanel>
+                                    <GridView.ItemTemplate>
+                                        <DataTemplate x:DataType="local:IconChoice">
+                                            <Image Source="{x:Bind Preview}" Width="38" Height="38" Margin="2"
+                                                   ToolTipService.ToolTip="{x:Bind Title}" />
+                                        </DataTemplate>
+                                    </GridView.ItemTemplate>
+                                </GridView>
+                                <TextBlock Text="Used for the desktop shortcut and for this Claude's own button on the taskbar."
+                                           TextWrapping="Wrap" Style="{ThemeResource CaptionTextBlockStyle}"
+                                           Foreground="{StaticResource GraftTextFillColorSecondaryBrush}" />
+                            </StackPanel>
+                        </Flyout>
+                    </Button.Flyout>
+                </Button>
+                <TextBox x:Name="NameBox" Grid.Column="1" AutomationProperties.Name="Name" AutomationProperties.AutomationId="profile.name"
+                         PlaceholderText="Work Account" TextChanged="NameBox_TextChanged" VerticalAlignment="Center" />
+                <TextBox x:Name="FolderBox" Grid.Column="2" FontFamily="Cascadia Mono, Consolas" Padding="10,7,6,4" VerticalAlignment="Center"
+                         AutomationProperties.Name="Profile folder" AutomationProperties.AutomationId="profile.folder"
+                         TextChanged="FolderBox_TextChanged" ToolTipService.ToolTip="Profile folder" />
+                <Button Grid.Column="3" x:Name="ShowFolderButton" Click="ShowFolder_Click" Padding="6" Style="{StaticResource SubtleButtonStyle}"
+                        ToolTipService.ToolTip="Show in File Explorer" AutomationProperties.Name="Show in File Explorer"
+                        AutomationProperties.AutomationId="profile.showFolder">
+                    <FontIcon Glyph="&#xE8B7;" FontSize="16" />
+                </Button>
+                <Button Style="{StaticResource InfoGlyphButton}" Grid.Column="4"
+                        ToolTipService.ToolTip="About the name and folder" AutomationProperties.Name="About the name and folder"
+                        AutomationProperties.AutomationId="profile.info">
+                    <FontIcon Glyph="&#xE946;" FontSize="16" />
+                    <Button.Flyout>
+                        <Flyout>
+                            <TextBlock MaxWidth="340" TextWrapping="Wrap"
+                                       Text="The name is what the desktop shortcut is called. The profile folder is where this account's login, chats and settings are kept, inside %APPDATA%.&#x0a;&#x0a;Naming an existing folder adopts that profile instead of starting an empty one." />
+                        </Flyout>
+                    </Button.Flyout>
+                </Button>
+            </Grid>
+
+            <Rectangle Height="1" Fill="{ThemeResource DividerStrokeColorDefaultBrush}" />
+
+            <Grid ColumnSpacing="12">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <StackPanel Spacing="2" VerticalAlignment="Center">
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                        <TextBlock Text="Reads chats from" VerticalAlignment="Center" />
+                        <Button Style="{StaticResource InfoGlyphButton}" x:Name="SourceInfoButton"
+                                ToolTipService.ToolTip="About reading chats" AutomationProperties.Name="About reading chats"
+                                AutomationProperties.AutomationId="profile.sourceInfo">
+                            <FontIcon Glyph="&#xE946;" FontSize="14" />
+                            <Button.Flyout>
+                                <Flyout>
+                                    <TextBlock x:Name="SourceInfoText" MaxWidth="340" TextWrapping="Wrap" />
+                                </Flyout>
+                            </Button.Flyout>
+                        </Button>
+                    </StackPanel>
+                    <StackPanel x:Name="MergeNote" Orientation="Horizontal" Spacing="6" Visibility="Collapsed">
+                        <TextBlock x:Name="MergeText" Style="{ThemeResource CaptionTextBlockStyle}" VerticalAlignment="Center"
+                                   Foreground="{StaticResource GraftTextFillColorSecondaryBrush}" />
+                        <Button Style="{StaticResource InfoGlyphButton}"
+                                ToolTipService.ToolTip="About merging histories" AutomationProperties.Name="About merging histories"
+                                AutomationProperties.AutomationId="profile.mergeInfo">
+                            <FontIcon Glyph="&#xE946;" FontSize="12" />
+                            <Button.Flyout>
+                                <Flyout>
+                                    <TextBlock MaxWidth="340" TextWrapping="Wrap"
+                                               Text="The two histories are merged rather than swapped. This profile keeps the chats it already had and gains the source's, and both sidebars end up showing the combined set.&#x0a;&#x0a;Sharing goes both ways, so this profile's chats are copied into the source as well. Switching back returns this profile to exactly what it had, but the copies already in the source stay there; merging a history cannot be undone." />
+                                </Flyout>
+                            </Button.Flyout>
+                        </Button>
+                    </StackPanel>
+                </StackPanel>
+                <ComboBox x:Name="SourceBox" Grid.Column="1" MinWidth="170" VerticalAlignment="Center"
+                          AutomationProperties.Name="Reads chats from" AutomationProperties.AutomationId="profile.source"
+                          DisplayMemberPath="Label" SelectionChanged="SourceBox_SelectionChanged" />
+            </Grid>
+
+            <InfoBar x:Name="Problem" IsOpen="False" IsClosable="False" Severity="Error" />
+        </StackPanel>
+    </Border>
+</UserControl>
