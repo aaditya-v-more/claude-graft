@@ -20,7 +20,7 @@ check(Graft.runTool("/bin/cp", ["-cR", helper.path, seeder.path]) == 0, "a dispo
 let seedScript = #"""
 const {app, BrowserWindow, session} = require('electron');
 const fs = require('node:fs');
-const request = JSON.parse(fs.readFileSync(process.argv[1], 'utf8'));
+const request = JSON.parse(fs.readFileSync(process.argv.at(-1), 'utf8'));
 app.setPath('userData', request.scratch);
 app.commandLine.appendSwitch('disable-gpu');
 app.commandLine.appendSwitch('host-resolver-rules', 'MAP * ~NOTFOUND');

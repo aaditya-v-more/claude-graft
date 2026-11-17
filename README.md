@@ -39,6 +39,8 @@ on its own, so switching never means signing out. They share their usage too:
 when one account nears its five-hour or weekly limit, Claude Code carries on
 with another's. It lives in the menu bar, and it is free and open source.
 
+For the Windows development build, installer, and current platform differences, see the [Windows guide](windows/README.md).
+
 ## Install
 
 ```sh

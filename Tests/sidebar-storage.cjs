@@ -2,7 +2,7 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
-const source = fs.readFileSync('Sources/Shared/SidebarStorage.swift', 'utf8');
+const source = fs.readFileSync('Sources/Shared/SidebarStorage.swift', 'utf8').replace(/\r\n/g, '\n');
 const script = source.split('static let script = #"""\n')[1].split('\n"""#')[0];
 const context = {require, module: {exports: {}}, process: {versions: {}}, structuredClone, Date};
 vm.runInNewContext(script, context);
@@ -135,10 +135,22 @@ check('a settings file written back keeps its permissions', () => {
     try {
         const file = path.join(folder, 'claude_desktop_config.json');
         fs.writeFileSync(file, '{}'); fs.chmodSync(file, 0o664);
-        api.atomicWrite(file, '{ "kept": true }', fs.statSync(file).mode & 0o777);
-        assert.equal(fs.statSync(file).mode & 0o777, 0o664);
+        const mode = fs.statSync(file).mode & 0o777;
+        api.atomicWrite(file, '{ "kept": true }', mode);
+        assert.equal(fs.statSync(file).mode & 0o777, mode);
         assert.equal(fs.readFileSync(file, 'utf8'), '{ "kept": true }');
         assert.deepEqual(fs.readdirSync(folder), ['claude_desktop_config.json']);
     } finally { fs.rmSync(folder, {recursive: true, force: true}); }
+});
+check('project rollback removes a key that did not exist rather than storing the text null', () => {
+    const values = new Map([['existing', 'before'], ['unrelated', 'keep']]);
+    context.localStorage = {getItem: key => values.get(key) ?? null,
+        setItem: (key, value) => values.set(key, value), removeItem: key => values.delete(key)};
+    const before = api.projectsOperation(['existing', 'missing'], null);
+    api.projectsOperation(['existing', 'missing'], {existing: 'changed', missing: 'created'});
+    api.projectsOperation(['existing', 'missing'], before);
+    assert.deepEqual(plain(api.projectsOperation(['existing', 'missing'], null)), {existing: 'before', missing: null});
+    assert.equal(values.get('unrelated'), 'keep');
+    assert.equal(values.has('missing'), false);
 });
 console.log(`${checks}/${checks} sidebar storage checks passed`);
