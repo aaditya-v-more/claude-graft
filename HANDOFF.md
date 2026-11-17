@@ -37,6 +37,13 @@ Both community Windows ports are merged into `main` and GitHub shows both PRs as
 
 ## What was checked
 
+**macOS VMs (18 Nov, `main` at 5ceb0d2, macOS 27.2 guests).** No Mac app bug found.
+- `./test.sh` 1457/1457 (the text-position check that fails on the Mac mini passes there); `./test-layout.sh` 1836/1836 in English and in Russian; `./test-sidebar.sh` 25/25 and 23/23 against Claude Desktop 6.6395.0.
+- `./test-opening.sh` had gone stale: it no longer compiled once `SessionStarter` used `UsageAPI`, and one check still expected the old failed bundle lookup. Fixed in `2e75655`; 31/31 in the VM.
+- A smoke run of the built app: the window opens and fits, the menu-bar item and its dropdown work, Quit leaves nothing running.
+- Nothing signed in ran there: usage, Start Session, sharing, Artifacts and Projects need the owner to sign in to Claude in a VM.
+- Notes, logs and screenshots are in the session notes folder, not the repo. mac2's disk is nearly full (about 5 GB free).
+
 **Mac.** On the Mac only builds and suites run; nothing is launched, because extra Claude Desktop instances there can take down the sessions running on that Mac.
 - `./test.sh` passes 1456 of 1457 checks.
 - The one failure, "the moving text lies exactly where AppKit draws a picture of its size…", also fails on the old `main` with the macOS 26.5 SDK, so it is not caused by the merge.
@@ -101,6 +108,13 @@ The full table is `handoff/windows-parity/HANDOFF.md`. Gaps:
 **Policy, not a gap:** keep-warm auto-start exists only on Windows, and a Mac rule forbids an unprompted session.
 
 **Mac Donate.** The Mac still says "Support Claude Graft…" and "Support". Renaming it to Donate with the red heart is a visual change, so it waits for the VM, where its screenshots can be taken.
+
+## Signing in a test Claude on Windows
+
+Google and company sign-ins come back as a `claude://` link, and each Claude takes only a code for a sign-in it started itself. On the second PC Windows hands those links to Graft, which asks "Which Claude did you start this sign-in from?" and passes the link to that Claude. Checked on 18 Nov with a dummy link (no real code): the chooser comes to the front, lists every running Claude, and the one picked receives it.
+- The owner's first attempts for Test A and Test B left no trace: no link reached Graft, Test A or the main Claude. 2.1.1 logs what the chooser did (`link.signInAsked`, `link.signInSent` with the profile folder, `link.dismissed`, …), never the link.
+- To retry: start Continue with Google in that Claude, click Open when Chrome asks to open Claude Graft, choose that Claude in the box, Continue Sign-In. Email sign-in needs no link.
+- Claude Desktop logs per profile in `%LOCALAPPDATA%\<profile folder>\logs\main.log`; a delivered link shows as `second-instance` there.
 
 ## Known small problems
 
