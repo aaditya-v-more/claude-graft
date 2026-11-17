@@ -1,9 +1,13 @@
 name: Windows Release
 
+# Every release tag gets the Windows packages, added to that version's GitHub
+# release: one version, one release, both systems. The Mac's release.sh makes
+# the tag and, usually first, the release; a version that ships on Windows
+# alone gets its release made here.
 on:
   push:
     tags:
-      - 'win-v*'
+      - 'v*'
 
 permissions:
   contents: write
@@ -18,11 +22,20 @@ jobs:
       - name: Read version from tag
         id: version
         shell: bash
-        run: echo "version=${GITHUB_REF_NAME#win-v}" >> "$GITHUB_OUTPUT"
+        run: |
+          v="${GITHUB_REF_NAME#v}"
+          [ "$v" = "$(tr -d '[:space:]' < VERSION)" ] || { echo "tag $GITHUB_REF_NAME does not match VERSION"; exit 1; }
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          notes="windows/release-notes/$v.md"
+          [ -f "$notes" ] || { echo "$notes is missing"; exit 1; }
+          echo "notes=$notes" >> "$GITHUB_OUTPUT"
 
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
+
+      - name: Test
+        run: dotnet test windows/ClaudeGraft.Tests -nologo
 
       - name: Restore dependencies
         run: dotnet restore windows/ClaudeGraft/ClaudeGraft.csproj -r win-x64
@@ -69,6 +82,8 @@ jobs:
           --token ${{ secrets.GITHUB_TOKEN }}
           -o windows/dist/velopack
 
+      # Installer only: a portable copy cannot update itself, and Graft is
+      # meant to stay current.
       - name: Pack
         run: >
           vpk pack
@@ -79,20 +94,26 @@ jobs:
           --packTitle "Claude Graft"
           --packAuthors "Claude Graft"
           --icon windows/ClaudeGraft/Assets/AppIcon.ico
-          --releaseNotes windows/release-notes/${{ steps.version.outputs.version }}.md
+          --releaseNotes ${{ steps.version.outputs.notes }}
           --shortcuts StartMenuRoot
           --framework vcredist143-x64
+          --noPortable
           -o windows/dist/velopack
 
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          name: v${{ steps.version.outputs.version }}
-          draft: false
-          prerelease: false
-          body_path: windows/release-notes/${{ steps.version.outputs.version }}.md
-          # Only this version's packages: the feed names each against the release that carries it.
-          files: |
-            windows/dist/velopack/ClaudeGraftApp-win-Setup.exe
-            windows/dist/velopack/ClaudeGraftApp-${{ steps.version.outputs.version }}-*.nupkg
-            windows/dist/velopack/releases.win.json
+      # Added to the release the Mac made if there is one, leaving its title
+      # and notes alone; made here, with the Windows notes, if not.
+      - name: Publish to the version's release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          v="${{ steps.version.outputs.version }}"
+          files=(windows/dist/velopack/ClaudeGraftApp-win-Setup.exe
+                 windows/dist/velopack/ClaudeGraftApp-$v-*.nupkg
+                 windows/dist/velopack/releases.win.json)
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" "${files[@]}" --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" "${files[@]}" --verify-tag \
+              --title "Claude Graft $v" --notes-file "${{ steps.version.outputs.notes }}"
+          fi

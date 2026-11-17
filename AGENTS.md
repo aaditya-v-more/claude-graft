@@ -44,7 +44,7 @@ to change it.
 After any change to the Windows build, install it on the development machine
 before asking for it to be tested, so what is tested is what was changed. Run
 `windows/dev-install.ps1` from PowerShell. It publishes a Release build, packs
-it as a Velopack package numbered `<windows/VERSION>-dev.<timestamp>`, asks the
+it as a Velopack package numbered `<VERSION>-dev.<timestamp>` from the repository's `VERSION`, asks the
 running Graft to quit with `ClaudeGraft.exe --quit`, and has the installed
 `Update.exe` apply the package, which waits for Graft to go, swaps the install
 folder and starts the new build. A development number sorts below the release

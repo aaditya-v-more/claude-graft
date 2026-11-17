@@ -51,14 +51,26 @@ The icons under `ClaudeGraft/Assets` are scaled from the Mac's
 
 ## Releases
 
-A release is a Velopack package, built by `.github/workflows/windows-release.yml`
-on a `win-v*` tag and published to this repository's releases. It installs per
-user under `%LOCALAPPDATA%\ClaudeGraftApp`, kept apart from the `ClaudeGraft`
-folder that holds Graft's data because Velopack's uninstall deletes the folder
-it installed into. Graft checks for an update hourly and installs it quietly,
-waiting while a Graft window is open, unless Hold Graft's updates is on in
-Settings. A 1.x install is not offered 2.0; running the new setup over it moves
-it across.
+The Mac and Windows builds share one version, written in the repository's
+`VERSION`, and one GitHub release per version. Pushing a `v*` tag runs
+`.github/workflows/windows-release.yml`, which tests, publishes and packs the
+Windows build with Velopack and adds it to that version's release, making the
+release first if the Mac has not. Each version needs its notes in
+`windows/release-notes/<version>.md`; the workflow stops without them.
+
+The release carries an installer and the update packages, not a portable copy:
+only an installed Graft can update itself. It installs per user under
+`%LOCALAPPDATA%\ClaudeGraftApp`, kept apart from the `ClaudeGraft` folder that
+holds Graft's data because Velopack's uninstall deletes the folder it installed
+into. Graft checks this repository's releases hourly and installs an update
+quietly, waiting while a Graft window is open, unless Hold Graft's updates is on
+in Settings. A 1.x install is not offered 2.x; running the new setup over it
+moves it across.
+
+To watch an installed build update before a release is published, pack the new
+version into a folder and set `GRAFT_UPDATE_FEED` to that folder (or to a web
+address serving it) for the installed Graft; it then reads that feed instead of
+the releases.
 
 ## Still to do
 

@@ -12,7 +12,17 @@ namespace ClaudeGraft;
 /// </summary>
 internal static class GraftUpdates
 {
-    private static readonly UpdateManager Manager = new(new GithubSource(Updater.RepoUrl, null, false));
+    private static readonly UpdateManager Manager = new(Source());
+
+    /// GRAFT_UPDATE_FEED stands a folder or web address in for the releases, so
+    /// an installed older build can be shown updating to a new one before that
+    /// one is published. Anything able to set it can already run code as the person.
+    private static IUpdateSource Source() =>
+        Environment.GetEnvironmentVariable("GRAFT_UPDATE_FEED") is { Length: > 0 } feed
+            ? feed.StartsWith("http", StringComparison.OrdinalIgnoreCase)
+                ? new SimpleWebSource(feed)
+                : new SimpleFileSource(new DirectoryInfo(feed))
+            : new GithubSource(Updater.RepoUrl, null, false);
     private static UpdateInfo? _found;
 
     public static bool IsInstalled => Manager.IsInstalled;

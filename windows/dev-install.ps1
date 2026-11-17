@@ -33,7 +33,7 @@ if ($LASTEXITCODE -ne 0) { throw "publish failed" }
 if (-not (Test-Path (Join-Path $here 'dist\ClaudeGraft\electron\resources\default_app.asar'))) { throw "Electron was not staged" }
 
 # Below the release it leads to, so the real one still installs over a development build.
-$base = (Get-Content (Join-Path $here 'VERSION') -Raw).Trim()
+$base = (Get-Content (Join-Path $here '..\VERSION') -Raw).Trim()
 $version = "$base-dev.$(Get-Date -Format 'yyyyMMddHHmmss')"
 # A fresh folder each time: a virus scan of the last package can hold it for a moment.
 $out = Join-Path $here "dist\dev-packages\$version"

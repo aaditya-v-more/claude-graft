@@ -336,3 +336,29 @@ entitlements this app does not carry, and launchd refuses them for a
 non-sandboxed app. The signing key lives in the login keychain under
 `https://sparkle-project.org`; `vendor/bin/generate_keys -x` exports it if CI
 ever needs it.
+
+## One version line for the Mac and Windows
+
+Until the Windows port was merged, Windows had its own `windows/VERSION` and
+released from another repository under `win-v*` tags, so the same number named
+two different apps and a person could not tell from a version which Mac and
+which Windows build went together. Now the repository's `VERSION` stamps both,
+and each version has one GitHub release. The Mac's `release.sh` makes the tag
+and the release with the Mac's zip and disk image; the tag starts
+`windows-release.yml`, which tests, packs with Velopack and uploads the setup,
+the update packages and `releases.win.json` beside them, leaving the Mac's
+title and notes alone. A version can go out on Windows first, as 2.1.0 did:
+the workflow then makes the release itself with the Windows notes. Since
+`release.sh` refuses a tag that exists, the Mac then takes the next number
+rather than adding a build from a later commit to an older tag.
+
+The Mac's update feed and cask name their version explicitly, so a release
+that carries only Windows packages offers the Mac nothing, and Velopack passes
+over a release without `releases.win.json` in the same way.
+
+Windows ships an installer and no portable copy. A portable Graft cannot update
+itself, and an out-of-date Graft is what the hourly check exists to prevent.
+`GRAFT_UPDATE_FEED` points an installed copy at a folder or web feed instead of
+the releases, so an older build can be watched updating to a new one before the
+new one is published.
+

@@ -10,9 +10,10 @@ namespace ClaudeGraft.Core;
 /// </summary>
 public static class Updater
 {
-    /// The repository the Windows build is released from. windows-release.yml
-    /// publishes here, so this is where a machine that installed from it looks.
-    public const string Repo = "snowtyler/claude-graft";
+    /// The repository both builds are released from. windows-release.yml adds the
+    /// Windows packages to each version's release here, so this is where an
+    /// installed copy looks.
+    public const string Repo = "aaditya-v-more/claude-graft";
 
     public const string RepoUrl = "https://github.com/" + Repo;
 
@@ -35,7 +36,7 @@ public static class Updater
         public string? Notes { get; init; }
     }
 
-    /// The running build's version, stamped from windows/VERSION by Directory.Build.props.
+    /// The running build's version, stamped from the repository's VERSION by Directory.Build.props.
     public static Version Current =>
         typeof(Updater).Assembly.GetName().Version is { } v ? v : new Version(0, 0, 0);
 

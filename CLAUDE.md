@@ -216,6 +216,7 @@ any of these. The why is in [notes/updates-and-releases.md](notes/updates-and-re
 ### Updates and releases — [notes/updates-and-releases.md](notes/updates-and-releases.md), [notes/update-relaunch.md](notes/update-relaunch.md)
 
 - **The version is written down once,** in `VERSION`; `Resources/Info.plist` keeps `0.0.0`. `release.sh` refuses an existing tag and rewrites the Homebrew cask.
+- **One version, one release, both systems.** `VERSION` numbers the Windows build too; a `v*` tag runs `windows-release.yml`, which adds the Windows installer and feed to that version's release (making it if the Mac has not) and needs `windows/release-notes/<version>.md`. No portable copy: only an installed Graft updates itself.
 - **A release carries both architectures. The build directory is `build.noindex`** so Spotlight skips it.
 - **A local build is signed with the Mac's Apple Development certificate, a release never is** — `Tools/signing-identity.sh` for `build.sh` alone; `release.sh` always passes its own identity.
 - **An update restart is not permission to undo a quit** — `UpdateRecovery` needs a fresh `stealth-relaunch` marker.
