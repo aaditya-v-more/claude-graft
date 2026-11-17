@@ -26,6 +26,11 @@ public sealed partial class SettingsPage : Page
         Unloaded += (_, _) => App.UpdateProgressChanged -= ReflectDownload;
     }
 
+    // The scroller centres the column by the width it asks for, not the width it is given, so a
+    // column asking for less than its cap drifted right and off the window; fixed, the two agree.
+    private void Scroller_SizeChanged(object sender, SizeChangedEventArgs e) =>
+        Column.Width = Math.Min(Column.MaxWidth, e.NewSize.Width);
+
     // Read again on every visit: the tray, the main card and Windows itself change some of these.
     protected override void OnNavigatedTo(NavigationEventArgs e)
     {

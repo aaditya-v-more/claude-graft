@@ -13,8 +13,8 @@
         </Style>
     </Page.Resources>
 
-    <ScrollViewer>
-        <StackPanel Spacing="4" Padding="24,0,24,24" MaxWidth="1064">
+    <ScrollViewer SizeChanged="Scroller_SizeChanged">
+        <StackPanel x:Name="Column" Spacing="4" Padding="24,0,24,24" MaxWidth="1064">
             <TextBlock Text="Appearance" Style="{StaticResource SectionHeading}" Margin="1,16,0,6" />
             <!-- The card's own measures, with the tiles under its name where the Toolkit's expander puts its items. -->
             <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
