@@ -11,7 +11,8 @@ namespace ClaudeGraft;
 /// <summary>
 /// Asks which running Claude started a sign-in, in a process of its own that
 /// exits when this closes. The link may carry a one-time code, so it stays in
-/// this window: never in the manager, its diagnostics or its saved state.
+/// this window: never in the manager, its diagnostics or its saved state. The
+/// diagnostics log only what became of it, so a sign-in that never landed can be traced.
 /// </summary>
 internal sealed class ClaudeLinkWindow : Window
 {
@@ -59,10 +60,17 @@ internal sealed class ClaudeLinkWindow : Window
         Identify(_continue, "Continue Sign-In", "signIn.continue");
         Identify(_close, "Close", "signIn.close");
 
-        Closed += (_, _) => _link = null;
+        Closed += (_, _) => { if (_link is not null) Note("dismissed"); _link = null; };
         _close.Click += (_, _) => Close();
         _profiles.SelectionChanged += (_, _) => _continue.IsEnabled = _profiles.SelectedIndex >= 0;
         _continue.Click += async (_, _) => await ContinueAsync();
+    }
+
+    private void Note(string outcome, string? profile = null)
+    {
+        if (_staged is not null) return;
+        Diagnostics.Note("link." + outcome, profile is null ? null
+            : new Dictionary<string, object?> { ["to"] = Path.GetFileName(profile) });
     }
 
     private static void Identify(FrameworkElement control, string name, string id)
@@ -83,17 +91,20 @@ internal sealed class ClaudeLinkWindow : Window
                 var link = _link!;
                 _link = null;
                 await Task.Run(() => ClaudeLinks.Forward(link, null));
+                Note("opened");
                 Close();
                 return;
             }
             if (kind == ClaudeLinkKind.Invalid)
             {
+                Note("invalid");
                 Refuse("This Claude link could not be opened.");
                 return;
             }
             var targets = _staged ?? await Task.Run(ClaudeLinks.RunningTargets);
             if (targets.Count == 0)
             {
+                Note("noClaudeOpen");
                 Refuse("No Claude is open. Open the one you want to sign in to and start sign-in from its window.");
                 return;
             }
@@ -104,10 +115,12 @@ internal sealed class ClaudeLinkWindow : Window
                 .Select(t => names[t.Name].Count() == 1 ? t.Name : $"{t.Name} ({Path.GetFileName(t.Profile)})")
                 .ToArray();
             _profiles.SelectedIndex = -1;
+            Note("signInAsked");
             Activate();
         }
         catch (Exception)
         {
+            Note("unreadable");
             Refuse("Graft could not read which Claudes are open. Make sure Claude Desktop is installed and try again.");
         }
     }
@@ -127,10 +140,12 @@ internal sealed class ClaudeLinkWindow : Window
         try
         {
             await Task.Run(() => ClaudeLinks.Forward(link, target));
+            Note("signInSent", target.Profile);
             Close();
         }
         catch (Exception)
         {
+            Note("targetGone", target.Profile);
             Refuse("That Claude is no longer open. Go back to it and start sign-in again.");
         }
     }
