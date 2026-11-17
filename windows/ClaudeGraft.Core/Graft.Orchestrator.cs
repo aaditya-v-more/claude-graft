@@ -446,7 +446,7 @@ public static partial class Graft
                     ["session"] = facts.CliSessionId,
                     ["owner"] = facts.OwnerAccount,
                     ["into"] = Path.GetFileName(owner),
-                    ["title"] = facts.Title,
+                    // No title: the session id names it, and this log is what a bug report pastes in.
                     ["cwd"] = facts.Cwd,
                 });
                 filed.Add(facts);

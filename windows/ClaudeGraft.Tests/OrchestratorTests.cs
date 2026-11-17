@@ -91,6 +91,19 @@ public sealed class OrchestratorTests : IDisposable
         Assert.Contains("\"model\":\"claude-opus-5\"", File.ReadAllText(RecordPath(profile, "sess1")));
     }
 
+    [Fact(DisplayName = "filing a record leaves the chat's title out of diagnostics.log")]
+    public void FilingLogsNoTitle()
+    {
+        var profile = MakeProfile("Claude");
+        MakeTranscript("sess-quiet", title: "Plans nobody should read");
+
+        Assert.Single(Graft.FileMissingSessionRecords(new[] { profile }, NothingRunning));
+
+        var log = File.ReadAllText(Diagnostics.LogFile);
+        Assert.Contains("\"session\":\"sess-quiet\"", log);
+        Assert.DoesNotContain("Plans nobody should read", log);
+    }
+
     [Fact(DisplayName = "an open-and-close with nothing said is never filed")]
     public void SkipsEmpty()
     {
