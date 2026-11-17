@@ -27,10 +27,11 @@ Both community Windows ports are merged into `main` and GitHub shows both PRs as
 - **Mac:** stays on 2.0.1 in its Sparkle feed and Homebrew cask. It passed in the macOS VMs except for the signed-in parts, and takes the next number after 2.1.1.
 
 **How 2.1.1 was checked (second PC).**
-- Built from the release tree: `dotnet test` passes 561/561.
+- `dotnet test` passed 561/561 on `56f71e4`'s tree on the second PC, and the release workflow's tests passed on the tag.
 - New Shortcut drafts with "Its own chats"; typing the name "Test C" made the folder `Claude-Test-C`; the state line went from Running to Not running live when that Claude quit; Donate opens the tip dialog with both Ko-fi links.
 - The published release, with the packages folder cleared first: an installed 2.1.0 found 2.1.1 on GitHub, downloaded it and was running it 81 s after start, with the published DLL. The published setup then ran over it cleanly (`dist/tests/scripts/release-check-211.ps1`).
-- Delete Shortcut with "Also delete its chats and login" ticked, while that Claude was open: the shortcut left the list and Graft said the folder was kept because Claude was still running. That is by design.
+- The published 2.1.1 logs a dismissed sign-in chooser as `link.signInAsked` then `link.dismissed`, and an earlier run logged `link.signInSent`; the log holds no link text.
+- Delete Shortcut with "Also delete its chats and login" ticked, while that Claude was open: the shortcut left the list and Graft warned "Claude is still running on this profile. Quit it first." The folder stayed and nothing in Graft can delete it any more; Test C's was removed by hand. The Mac's `Model.delete` does the same.
 - **A catch for update tests:** Velopack applies a package of the right name already sitting in `ClaudeGraftApp\packages` without downloading or checking it. Clear that folder before testing a real download.
 
 **Existing installs of Tyler's fork.** Installs of Tyler's 2.0.0 still check his fork for updates. They won't get ours until he publishes one bridging update that points them here; he was asked on #16. Until then, they move across by running our setup over their install, which was tested (see below).
@@ -118,6 +119,7 @@ Google and company sign-ins come back as a `claude://` link, and each Claude tak
 
 ## Known small problems
 
+- Deleting a shortcut whose Claude is open, with its data ticked, drops the shortcut but keeps the folder, on both systems. Asking before the shortcut goes (or offering to quit that Claude) would leave nothing stranded.
 - Velopack's stub is called `Claude Graft.exe` (from `--packTitle`); the app itself is `current\ClaudeGraft.exe`.
 
 ## Rig
