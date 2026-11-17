@@ -347,7 +347,7 @@ and each version has one GitHub release. The Mac's `release.sh` makes the tag
 and the release with the Mac's zip and disk image; the tag starts
 `windows-release.yml`, which tests, packs with Velopack and uploads the setup,
 the update packages and `releases.win.json` beside them, leaving the Mac's
-title and notes alone. A version can go out on Windows first, as 2.1.0 did:
+title and notes alone. A version can go out on Windows first, as 2.1.1 did:
 the workflow then makes the release itself with the Windows notes. It does not mark that release
 "latest". The website takes the version it shows from GitHub's latest release, but
 its DMG link only from a release carrying one. A Windows-only latest would label
@@ -356,6 +356,13 @@ badge would point at a release with nothing for the Mac. Velopack's update check
 lists the releases itself, so Windows finds the update either way. Since
 `release.sh` refuses a tag that exists, the Mac then takes the next number
 rather than adding a build from a later commit to an older tag.
+
+**A deleted release keeps its tag name.** Releases here are immutable, and
+GitHub will not let the tag of a deleted immutable release be made again: the
+push is refused as a restricted creation, even for the owner. The 2.1.0 release
+was withdrawn on 18 Nov 2026 and its number can never carry a build, so Windows
+went out as 2.1.1. A release is for keeps; withdraw one only when a new number is
+acceptable.
 
 The Mac's update feed and cask name their version explicitly, so a release
 that carries only Windows packages offers the Mac nothing, and Velopack passes
