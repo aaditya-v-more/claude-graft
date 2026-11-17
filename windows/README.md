@@ -1,121 +1,68 @@
 # Claude Graft for Windows
 
-This is the Windows port of Claude Graft. It does what the macOS app does — runs
-extra Claude Desktop profiles side by side, each with its own login, and lets
-one profile borrow another's Claude Code chats — from a notification-area icon
-rather than the menu bar.
+This is the Windows port of Claude Graft. It does what the macOS app does from a
+notification-area icon rather than the menu bar: it runs extra Claude Desktop
+profiles side by side, each with its own login, and shares Code history, pins,
+usage and accounts between them.
 
-Claude Desktop lays a profile out the same way on both systems, folder for
-folder, so the reasoning the macOS app is built on carries across unchanged. The
-store is `claude-code-sessions/<account>/<org>` and `local-agent-mode-sessions`,
-keyed the same way, with the same `skills-plugin` and shortened-uuid quirks; the
-port reads it under `%APPDATA%\Claude` where the Mac reads it under Application
-Support. Two things differ underneath, and only two. A graft links a profile's
-chat directory onto the source's, and where the Mac makes a symlink Windows
-makes a directory junction — measured here holding every property the graft
-depends on, made without administrator rights. And where the Mac borrows the
-usage token out of the keychain behind a per-build ACL, Windows keeps the same
-Chromium safe-storage key in the profile's own `Local State`, wrapped with DPAPI
-to the logged-in user, which unwraps with no dialog — so the whole keychain
-prompting dance has no counterpart here.
+Claude Desktop lays a profile out the same way on both systems, so the reasoning
+the macOS app is built on carries across. Where the Mac makes a symlink, Windows
+makes a directory junction, which needs no administrator rights. Where the Mac
+reads the usage token out of the keychain, Windows unwraps the same key from the
+profile's `Local State` with DPAPI, which raises no dialog. A packaged Claude
+keeps its data somewhere other than `%APPDATA%\Claude`, and a `claude://` link
+reaches the main Claude whichever profile asked for it; `notes/opening-profiles.md`
+says how Graft finds the one and routes the other.
 
 James ([@jamesql](https://github.com/jamesql)) built a second Windows port from
-an earlier copy of this one, and several of its pieces were carried over here
-from that work, among them the rollback of a project order write that fails
-partway through. That port is
+an earlier copy of this one, and several of its pieces were carried over here,
+among them the sign-in routing and the rollback of a project order write that
+fails partway. That port is
 [aaditya-v-more/claude-graft#9](https://github.com/aaditya-v-more/claude-graft/pull/9).
 
 ## Layout
 
-The core is a plain library with no UI in it, so both the app and the launcher
-stub reach the same graft, and the tests read the same logic:
-
-- `ClaudeGraft.Core` — the graft itself. Profile identity, the stash that makes
-  a graft reversible, the record sweep that recovers sessions whose transcripts
-  outlived their sidebar records, the chat-history mirror that merges two
-  histories and carries changes both ways, which Claude is running and where,
-  the borrowed usage token, and the plan-usage figures. This is where every
-  invariant the macOS `GraftCore` documents lives, translated with the reasoning
-  intact.
-- `ClaudeGraft` — the WinUI 3 app: the tray icon and its menu, and the manager
-  window that lists each profile as a card, adds and edits and removes them, and
-  shows each account's five-hour and weekly usage.
-- `GraftLaunch` — a standalone launcher stub a desktop shortcut points at. Given
-  a profile folder it brings the storage in line, files any missing records, and
-  opens Claude on the profile, without the tray app running — the Windows echo
-  of the copy of the launcher each macOS bundle carries.
-- `ClaudeGraft.Tests` — the checks, which read as sentences the way the macOS
-  suite does. They cover the parts where getting a decision backwards loses a
-  chat: the mirror's whole decision table, both shapes of a stash, the record
-  sweep end to end, the usage parsers, the crypto round trip.
+- `ClaudeGraft.Core` — the graft itself, with no UI: profiles, the stash, the
+  record sweep, the chat-history mirror, credentials and usage.
+- `ClaudeGraft` — the WinUI 3 app: the tray icon and the manager window.
+- `GraftLaunch` — the launcher a desktop shortcut points at. It squares a
+  profile up and opens Claude on it without the app running.
+- `GraftRelay` — the Shared Usage relay, which outlives the app.
+- `ClaudeGraft.Tests` — the suite, written as sentences the way the macOS one is.
 
 ## Building and running
 
-The core and the tests are plain `net10.0` and build and run anywhere:
+The core and the tests build and run anywhere `net10.0` does:
 
     dotnet test windows/ClaudeGraft.Tests
 
-The app is WinUI 3 and needs the Windows App SDK toolchain — the .NET 10 SDK,
-Developer Mode, and the WinApp CLI. To build and run it:
+The app needs the .NET 10 SDK, Developer Mode and the WinApp CLI:
 
     winapp run windows/ClaudeGraft --arch x64
 
-Opening a profile from the app copies the launcher stub into a stable per-user
-folder and writes a desktop shortcut pointing at it, so the profile goes on
-opening after the app updates.
+To try a build the way an update arrives, over an installed copy, run
+`windows/dev-install.ps1` from a terminal outside any Claude Graft manages,
+since it quits and restarts Graft.
 
-The icon under `ClaudeGraft/Assets` is not drawn here; it is scaled from the
-same `Resources/AppIcon.icns` the Mac build draws in code, so both wear the one
-mark. When that icon changes, regenerate the Windows sizes with:
+The icons under `ClaudeGraft/Assets` are scaled from the Mac's
+`Resources/AppIcon.icns`. When that changes, regenerate them with:
 
     python windows/Tools/make-icons.py
 
-## Left to the maintainer
+## Releases
 
-The port is the code, not a decision about how it ships. Distribution and
-signing belong to whoever owns this repository, since they turn on keys and
-channels a contributor does not have, so the port leaves them alone:
+A release is a Velopack package, built by `.github/workflows/windows-release.yml`
+on a `win-v*` tag and published to this repository's releases. It installs per
+user under `%LOCALAPPDATA%\ClaudeGraftApp`, kept apart from the `ClaudeGraft`
+folder that holds Graft's data because Velopack's uninstall deletes the folder
+it installed into. Graft checks for an update hourly and installs it quietly,
+waiting while a Graft window is open, unless Hold Graft's updates is on in
+Settings. A 1.x install is not offered 2.0; running the new setup over it moves
+it across.
 
-- **Distribution and updates.** A full-trust utility that reaches across profile
-  directories and reads another app's credentials fits an unpackaged installer
-  better than a sandboxed package — the same shape Claude Desktop itself uses on
-  Windows. So a release is a Velopack package, built and published to the
-  repository's GitHub releases by the tag-driven workflow, and the app updates
-  itself from that feed: it reads the `releases.win.json` each Windows release
-  carries, checked hourly, and fetches a delta where one is published. It
-  installs per user, without administrator rights, under
-  `%LOCALAPPDATA%\ClaudeGraftApp` — not `ClaudeGraft`, the folder that holds the
-  relay and the artifact sign-ins, since Velopack's uninstall deletes the
-  folder it installed into. As on the Mac, a found update installs itself
-  without a word, waiting only while a Graft window is open, since applying it
-  closes Graft and starts it again. A 1.x install, whose updater only knows
-  Inno Setup, is not offered 2.0; its owner runs the new setup over it, and
-  the new app then points the old folder's links at itself, leaves a junction where the folder stood, and
-  removes its uninstall entry, without running the old uninstaller, which
-  would have taken every Claude's sharing lines out. Turning on Hold Graft's updates in
-  Settings makes it wait instead: the version lights the icon and the button, and
-  nothing is downloaded until the person presses Install. Whether a
-  release is signed at all is still the maintainer's call; the feed is the
-  repository the build was published from and nothing else is contacted.
-- **The manifest identity** is still the scaffold's placeholder name and
-  publisher. A real release sets its own.
-- **Signing in a second account** has to be done with an email address, not
-  Google. Google sign-in finishes by handing Claude a `claude://` link, and
-  Windows gives that link to the main Claude whichever profile asked for it. A
-  relay that pointed the per-user handler at Graft for the length of a sign-in
-  was tried and does nothing on the packaged install, whose own registration
-  wins over the per-user one, so each extra profile's card says to use email.
-- **Two smaller parity items** remain against the Mac: carrying each shortcut's
-  own config the way a bundle carries `graft.json`, so the bundle wins where it
-  and the list disagree; and writing the state report the Mac leaves for
-  diagnosing an incident after the fact.
+## Still to do
 
-## What has not been proven
-
-One behavioural question is open. On macOS, Claude refuses to write a session
-record into a folder that resolves outside the profile, which is the whole
-reason the record sweep exists. Whether Windows Claude does the same through a
-junction has not been tested, because it needs Claude Desktop fully quit and a
-signed-in throwaway profile at once. The port assumes it behaves as macOS does
-and ports the sweep in full; if Windows turns out more lenient, the sweep is
-simply doing no harm.
+The state report the Mac writes after each pass is not ported yet. Nor has
+anyone checked whether Windows Claude, like the Mac's, refuses to write a
+session record into a folder that resolves outside the profile; the record
+sweep is ported in full either way, and does no harm if it is not needed.
