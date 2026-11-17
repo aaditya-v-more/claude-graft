@@ -4,16 +4,12 @@ using System.Text.Json.Nodes;
 
 namespace ClaudeGraft.Core;
 
-/// <summary>
-/// The chat stores on this machine as they stand after a pass, written to
-/// <see cref="Diagnostics.ReportFile"/> in full each time. The log says what
-/// happened; this says what is true now, which is the question asked first.
-/// </summary>
+/// The chat stores as they stand after a pass, rewritten in full each time:
+/// the log says what happened, this says what is true now.
 public static partial class Graft
 {
-    /// One organization folder as it sits on disk, against what this app believes about it.
-    /// <param name="Stashed">Records in the hidden sibling, or null where there is none.</param>
-    /// <param name="Remembered">Records this app remembers seeing filed here.</param>
+    /// One organization folder on disk against what this app believes: Stashed is
+    /// null where no stash sits beside it, Remembered counts records seen filed there.
     public sealed record FolderReport(
         string Store, string Pair, int Records, bool Linked, int? Stashed, int Remembered);
 

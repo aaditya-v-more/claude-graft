@@ -121,9 +121,8 @@ public static class Launcher
         });
     }
 
-    /// Mirror every known pair back into line, file the records for any session
-    /// whose transcript survived without one, then write down what the pass left.
-    /// Always called under the state lock, so the report reads what the pass wrote.
+    /// Mirror, file, then write down what the pass left; always under the state
+    /// lock, so the report reads what the pass wrote.
     private static void SquareUp(IReadOnlyList<string> filingInto)
     {
         try
