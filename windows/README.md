@@ -75,7 +75,8 @@ the releases.
 
 ## Still to do
 
-The state report the Mac writes after each pass is not ported yet. Nor has
-anyone checked whether Windows Claude, like the Mac's, refuses to write a
+Nobody has checked whether Windows Claude, like the Mac's, refuses to write a
 session record into a folder that resolves outside the profile; the record
-sweep is ported in full either way, and does no harm if it is not needed.
+sweep is ported in full either way, and does no harm if it is not needed. The
+state report is written after every pass, but so far only the suite has read
+one; it has not yet been seen from a Graft running on a real machine.

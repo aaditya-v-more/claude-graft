@@ -17,7 +17,20 @@ namespace ClaudeGraft.Core;
 /// </summary>
 public static class Diagnostics
 {
-    public static string LogFile => Path.Combine(GraftPaths.OwnData, "diagnostics.log");
+    /// Set by the test suite for its whole run: most tests leave the profiles
+    /// root alone, and every pass they drive would note itself into the real one.
+    public static string? FolderOverride { get; set; }
+
+    private static string Folder =>
+        GraftPaths.ProfilesRootOverride is null && FolderOverride is { } folder ? folder : GraftPaths.OwnData;
+
+    public static string LogFile => Path.Combine(Folder, "diagnostics.log");
+
+    /// What is true now, beside the log of what happened, so a copy of one is a copy of the other.
+    public static string ReportFile => Path.Combine(Folder, "state-report.txt");
+
+    /// Which process wrote it: a launcher and the app run the same pass over the same stores.
+    public static string Who => Path.GetFileNameWithoutExtension(Environment.ProcessPath) ?? "unknown";
 
     public static void Note(string @event, IReadOnlyDictionary<string, object?>? fields = null)
     {

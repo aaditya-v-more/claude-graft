@@ -44,6 +44,24 @@ where none are. Every one of those has been reported as something else.
 The report is built into a string so the suite can drive it, and the login and
 the device file are read through overrides for the same reason.
 
+Windows writes both files into `%APPDATA%\ClaudeGraft`, the same folder whichever
+Claude is installed. The report is rewritten at the end of every pass, the one
+an open runs and the one after a Claude quits, under the state lock that pass
+holds, so it describes what that pass left. It has the Mac's sections and findings, read from the same
+places: the command line login in `%USERPROFILE%\.claude.json`, each profile's
+`config.json` and `ant-did`, every organization folder in both chat stores with
+its stash, and the pairs in `mirrored-chats.json`. Whether a Claude is running is
+asked of the processes once for all the profiles, since each question is a WMI
+query and the pass stands in front of a window opening. The report is written
+even when the pass stopped at an unreadable `session-records.json` or
+`mirrored-chats.json`, and then says which file stopped it, because that is when
+somebody reads the report. Like the Mac's, it never holds a title, a chat's
+contents or the login's email address; account, organization and device ids
+stay, and so do the folder paths in the mirrored pairs. The suite runs its
+notes into a temporary folder of its own, so no test reaches the real one.
+So far only the suite has read a Windows report; none has yet been seen from a
+Graft running on a real machine.
+
 ## Verification state
 
 

@@ -73,7 +73,7 @@ public static class Launcher
             // A profile already open is the one case nothing else covers: no
             // launch to file records on the way to, and no timer behind it. So
             // the sweep runs on the way past instead, after the window is up.
-            try { SquareUp(filing); }
+            try { StateLock.Run(() => SquareUp(filing)); }
             catch (IOException e) when (Skipped(e, "launch")) { }
             return;
         }
@@ -121,14 +121,18 @@ public static class Launcher
         });
     }
 
-    /// Mirror every known pair back into line, then file the records for any
-    /// session whose transcript survived without one. The state report the Mac
-    /// writes here is not ported yet; the mirror and the record sweep are what a
-    /// launch has to do before a sidebar is built.
+    /// Mirror every known pair back into line, file the records for any session
+    /// whose transcript survived without one, then write down what the pass left.
+    /// Always called under the state lock, so the report reads what the pass wrote.
     private static void SquareUp(IReadOnlyList<string> filingInto)
     {
-        Graft.MirrorKnownPairs();
-        Graft.FileMissingSessionRecords(filingInto, ClaudeProcesses.AnyDesktopRunning);
+        try
+        {
+            Graft.MirrorKnownPairs();
+            Graft.FileMissingSessionRecords(filingInto, ClaudeProcesses.AnyDesktopRunning);
+        }
+        // Even after a pass stopped at an unreadable state file, which is when somebody reads it.
+        finally { Graft.WriteStateReport(); }
     }
 
     /// The pass a Claude quitting calls for: whatever the mirror could not land

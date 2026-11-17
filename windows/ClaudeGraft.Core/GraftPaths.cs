@@ -50,6 +50,14 @@ public static class GraftPaths
         ?? Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".claude", "projects");
 
+    /// Redirected by the test suite, like <see cref="ClaudeProjectsOverride"/>.
+    public static string? ClaudeConfigFileOverride { get; set; }
+
+    /// Where the command line keeps its one login for the whole machine.
+    public static string ClaudeConfigFile =>
+        ClaudeConfigFileOverride
+        ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".claude.json");
+
     /// Chat history is <store>/<accountUuid>/<orgUuid>/ in both of these, the
     /// same nesting the Mac build depends on. A profile reads only the account
     /// it is signed into, so a graft is made one level deep — mapping this
