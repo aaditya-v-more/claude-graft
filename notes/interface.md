@@ -411,3 +411,15 @@ and a body ending in the Graft and macOS versions. The first reply to a
 problem report is otherwise always a question asking for exactly those. The
 address and the LinkedIn handle are spelled out in `Links`, not derived from
 the GitHub or Ko-fi names, and the suite reads them back.
+
+## Windows: a capped column inside a ScrollViewer
+
+WinUI's `ScrollViewer` places its content by the width the content asked for
+in measure, not the width it was arranged at. Settings' column is capped at
+1064 and asked for only what its widest card needed (846 at 100%), so once the
+window was wide enough for the cap to apply (about 1300 DIPs), the column was
+centred as if it were 846 wide: 109 px right of centre, its right side past the
+window. `HorizontalScrollMode="Disabled"` made no difference. Giving the
+column a fixed `Width` of `min(cap, viewport)` on every resize makes the two
+widths agree (`SettingsPage.Scroller_SizeChanged`). Measured on the second PC
+with a probe build at 1100, 1360 and maximised, 18 Nov 2026.

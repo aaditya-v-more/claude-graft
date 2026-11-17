@@ -26,8 +26,7 @@ Both community Windows ports are merged into `main` and GitHub shows both PRs as
 - **Mac in the meantime:** it stays on 2.0.1 in its Sparkle feed and Homebrew cask until it has passed in the macOS VM.
 - **2.1.1 (after the VM pass):** Mac and Windows together, and Windows gets 2.1.1 as an ordinary update.
 
-**Not released yet.** Three things hold the tag:
-- the Settings clipping below, which a maximised window on an ordinary 1080p screen would hit;
+**Not released yet.** Two things hold the tag, which goes on `eee8fe2` or later:
 - the owner's approval of the before/after PDF;
 - the owner's sign-in pass on the second PC.
 
@@ -54,26 +53,11 @@ Both community Windows ports are merged into `main` and GitHub shows both PRs as
 
 **Mac, the Windows suite.** `dotnet test windows/ClaudeGraft.Tests` runs on the Mac (SDK in `~/.dotnet`): 509 of 561 pass. The other 52 call Windows APIs or assume Windows paths, so the full suite still runs on a Windows machine.
 
-## Settings is clipped in a wide window (blocks the release)
+## Settings in a wide window (fixed)
 
-Once the window is wider than about 1300 px (in DIPs), everything on the Settings page below the title moves right and runs past the window's edge:
-- the dropdowns are cut off;
-- the switches leave the window;
-- the About buttons can't be reached.
+Settings ran off the right edge once the window was wider than about 1300 DIPs. The cause is in `notes/interface.md` (WinUI centres a scroller's content by its asked-for width). The fix is `eee8fe2`.
 
-At 1086 (the default at 100%) and at 1000 it is fine.
-
-What is known so far:
-- The cards keep their 1064 px cap, but they are centred as if the scroll area were about 220 px wider than the window.
-- The cause is not known.
-- The same `MaxWidth` layout was there before the merge, but no wide shot of the old build exists, so whether it is older is unconfirmed.
-
-The suspects:
-- `CardSwitch`'s `-200` right margin;
-- `PaletteGrid`'s negative margin and its nested scroller;
-- the page's `ScrollViewer` lacking the `HorizontalScrollMode="Disabled"` that `MainPage.xaml` sets.
-
-The next step is a dev build with `dist/tests/scripts/layout-probe.patch` (not committed), run with `GRAFT_LAYOUT_PROBE=1` and resized to 1360. It logs each element's width and position to `%TEMP%\graft-layout-probe.txt`. After the fix, `dist/tests/scripts/probe.ps1` must say `RESULT PASS` at the default size, at 1360 and maximised.
+The 2.1.0 package on the second PC was rebuilt from that commit. `dist/tests/scripts/probe.ps1` gives `RESULT PASS` at the default size, at 1360 and maximised. The probe build's patch stays uncommitted in `dist/tests/scripts/`.
 
 ## Visual changes waiting for approval
 
