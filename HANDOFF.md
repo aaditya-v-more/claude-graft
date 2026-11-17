@@ -66,9 +66,11 @@ These are committed but not released.
 - **Windows credit.** A "Windows port" card in Settings › About credits Tyler and links to his GitHub profile. Both READMEs credit him and James.
 - **Settings in a wide window** now stays centred and inside the window (`eee8fe2`).
 
-The review PDF is in the owner's Drive, under "Tinkerfold UI review" › Claude Graft, as `claude-graft-windows-2.1.0-review.pdf`. It has three pages: sidebar foot, Settings › About, and wide Settings.
+The review PDF is in the owner's Drive, under "Tinkerfold UI review" › Claude Graft, as `claude-graft-windows-2.1.0-review.pdf`. It has four pages: sidebar foot, tray flyout, Settings › About, and wide Settings.
 
-The tray flyout page is still missing. Testers may not click in the tray, so its shots come from `dist/tests/scripts/flyout.ps1`, which opens the flyout through Graft's own taskbar strip with a posted mouse-up. That needs "Show usage on the taskbar" on for the shot, and off again afterwards.
+The flyout shots come from `dist/tests/scripts/flyout.ps1`, without touching the tray:
+- It posts a mouse-up to Graft's own taskbar strip, a child window of the taskbar, which opens the flyout.
+- "Show usage on the taskbar" has to be on for the shot, and is turned off again afterwards.
 
 The PDF is built by `dist/tests/scripts/mkpdf.py` from `dist/tests/review-before/` and `dist/tests/review-after/`, into `/Volumes/SSD_enclosure_2/Developer_2/review/`.
 - The before shots are mostly the default window on the laptop at 125%, about 1087 DIPs wide; the wide-Settings before shots are from the second PC at 1360.
