@@ -106,6 +106,11 @@ The full table is `handoff/windows-parity/HANDOFF.md`. Gaps:
 
 ## Known small problems
 
+Seen on the second PC while making Test A and Test B (not yet fixed or checked on the Mac):
+- A new Windows shortcut reads the main Claude's chats (source "Main Claude"). On the Mac a new Claude reads its own.
+- Setting the name through UI Automation left the folder as it was, so the folder had to be set too. Typing may behave differently; untried.
+- The manager showed Test A as "Created · Not running" while its Claude window was open. Maybe it updates late; unconfirmed.
+
 - Velopack's stub is called `Claude Graft.exe` (from `--packTitle`); the app itself is `current\ClaudeGraft.exe`.
 
 ## Rig
@@ -115,10 +120,8 @@ The full table is `handoff/windows-parity/HANDOFF.md`. Gaps:
   - The scripts beside them are `pack.ps1`, `upgrade.ps1` and `fresh.ps1`.
   - Scheduled tasks are named `GR…`.
 - **Second PC (lock `win2`, PowerShell over ssh):** Graft's own test machine.
-  - Graft 2.1.0 is installed, with one Claude window left at its sign-in screen.
-  - The layout and tray helpers in `dist/tests/scripts/` run in the desktop session through `run-desktop.ps1`.
-  - Nothing touches the tray, Quick Settings, or network or Tailscale controls: no clicks, no keys, no UI Automation presses.
-  - The PC dropped off the network twice, both times while something was being done in the notification area:
-    - once while a tester was sending blind keys and had opened Quick Settings;
-    - once while I was clicking in the hidden-icons overflow, where Tailscale's icon sits beside Graft's.
+  - Graft 2.1.0 is installed and the main Claude is signed in (the owner did it, 18 Nov).
+  - Test A and Test B were made through Graft (folders `Claude-Test-A`, `Claude-Test-B`) and opened once. Both stopped at Claude's welcome screen, cookie banner up, for the owner to sign in with `<account 2>`.
+  - The layout and tray helpers in `dist/tests/scripts/` run in the desktop session through `run-desktop.ps1`. `ui.ps1` drives Graft's own controls by automation id; pass text with spaces through `-ValueFile`.
+  - Nothing touches the tray, Quick Settings, or network or Tailscale controls: no clicks, no keys, no UI Automation presses. The two drop-offs that led to this rule turned out to be power cuts, but the rule stays.
 - **Testing:** Claude Desktop is installed on both machines for testing. Test profiles are `Test A` and `Test B`. Signing in is the owner's job. Testers never type emails or codes.
