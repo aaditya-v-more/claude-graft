@@ -384,7 +384,7 @@ public sealed partial class MainWindow : Window
     private bool _leftClaudes;
 
     // Graft is one author's app carried to Windows by another; a tip can go to either.
-    private void Support_Click(object sender, RoutedEventArgs e) => ShowSupport();
+    private void Donate_Click(object sender, RoutedEventArgs e) => ShowSupport();
 
     public async void ShowSupport()
     {

@@ -14,7 +14,8 @@ keeps its data somewhere other than `%APPDATA%\Claude`, and a `claude://` link
 reaches the main Claude whichever profile asked for it; `notes/opening-profiles.md`
 says how Graft finds the one and routes the other.
 
-James ([@jamesql](https://github.com/jamesql)) built a second Windows port from
+The port is the work of Tyler ([snowtyler](https://github.com/snowtyler)).
+James ([jamesql](https://github.com/jamesql)) built a second Windows port from
 an earlier copy of this one, and several of its pieces were carried over here,
 among them the sign-in routing and the rollback of a project order write that
 fails partway. That port is

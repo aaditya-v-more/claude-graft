@@ -92,12 +92,12 @@
                     <Rectangle Height="1" Fill="{ThemeResource DividerStrokeColorDefaultBrush}" Margin="12,0" />
                     <!-- Who made it and where it comes from, at the foot of the sidebar as on the Mac. -->
                     <Grid Margin="8,6">
-                        <HyperlinkButton Click="Support_Click" Padding="8,4" Foreground="{StaticResource GraftTextFillColorSecondaryBrush}"
+                        <HyperlinkButton Click="Donate_Click" Padding="8,4" Foreground="{StaticResource GraftTextFillColorSecondaryBrush}"
                                          ToolTipService.ToolTip="Claude Graft is free. A tip on Ko-fi is what keeps it worked on."
-                                         AutomationProperties.Name="Support" AutomationProperties.AutomationId="support">
+                                         AutomationProperties.Name="Donate" AutomationProperties.AutomationId="donate">
                             <StackPanel Orientation="Horizontal" Spacing="6">
-                                <FontIcon Glyph="&#xEB51;" FontSize="12" />
-                                <TextBlock Text="Support" Style="{StaticResource CaptionTextBlockStyle}" />
+                                <FontIcon Glyph="&#xEB52;" FontSize="12" Foreground="{StaticResource GraftDonateHeartBrush}" />
+                                <TextBlock Text="Donate" Style="{StaticResource CaptionTextBlockStyle}" />
                             </StackPanel>
                         </HyperlinkButton>
                         <HyperlinkButton x:Name="SourceLink" Click="Source_Click" HorizontalAlignment="Right" Padding="8,4"

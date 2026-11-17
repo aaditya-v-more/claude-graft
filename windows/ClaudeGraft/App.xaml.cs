@@ -234,7 +234,7 @@ public partial class App : Application
 
         // Built now, hidden, so the first left click shows it rather than paying
         // to construct a window and its backdrop before anything appears.
-        _flyout = new FlyoutWindow(ShowManager, ShowSupport, Quit);
+        _flyout = new FlyoutWindow(ShowManager, Donate, Quit);
         SessionEnd.Watch(_flyout, Quit);
 
         // A tray app comes up hidden by default — the notification-area icon is
@@ -604,7 +604,7 @@ public partial class App : Application
         var priorForeground = GetForegroundWindow();
         OnUi(() =>
         {
-            _flyout ??= new FlyoutWindow(ShowManager, ShowSupport, Quit);
+            _flyout ??= new FlyoutWindow(ShowManager, Donate, Quit);
             _flyout.Toggle(anchor, priorForeground, centred: from is not null);
         });
     }
@@ -683,7 +683,7 @@ public partial class App : Application
         Manager().ShowSettings();
     });
 
-    private void ShowSupport() => OnUi(() =>
+    private void Donate() => OnUi(() =>
     {
         Manager().ShowSupport();
     });

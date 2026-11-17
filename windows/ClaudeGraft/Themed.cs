@@ -20,7 +20,7 @@ internal static class Themed
     // XAML reaches the same brushes as Graft<key>: a {ThemeResource} inside an item template
     // kept the mode it was drawn in when the mode changed from Settings.
     private static readonly string[] Published =
-        ["TextFillColorPrimaryBrush", "TextFillColorSecondaryBrush", "TextFillColorTertiaryBrush", "SystemFillColorCautionBrush"];
+        ["TextFillColorPrimaryBrush", "TextFillColorSecondaryBrush", "TextFillColorTertiaryBrush", "SystemFillColorCautionBrush", "DonateHeartBrush"];
 
     public static void Publish()
     {

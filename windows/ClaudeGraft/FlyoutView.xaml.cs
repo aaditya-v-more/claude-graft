@@ -20,7 +20,7 @@ public sealed partial class FlyoutView : UserControl
     /// wants them, not how the app carries them out.
     public event Action? OpenManagerRequested;
     public event Action? QuitRequested;
-    public event Action? SupportRequested;
+    public event Action? DonateRequested;
     public event Action? DismissRequested;
 
     /// The content changed size — a row added, an account's bars arriving — so
@@ -375,9 +375,9 @@ public sealed partial class FlyoutView : UserControl
 
     private void Quit_Click(object sender, RoutedEventArgs e) => QuitRequested?.Invoke();
 
-    private void Support_Click(object sender, RoutedEventArgs e)
+    private void Donate_Click(object sender, RoutedEventArgs e)
     {
-        SupportRequested?.Invoke();
+        DonateRequested?.Invoke();
         DismissRequested?.Invoke();
     }
 

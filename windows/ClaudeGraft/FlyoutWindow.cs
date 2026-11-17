@@ -31,14 +31,14 @@ public sealed class FlyoutWindow : Window
     private ISystemBackdropControllerWithTargets? _backdrop;
     private SystemBackdropConfiguration? _backdropConfig;
 
-    public FlyoutWindow(Action openManager, Action support, Action quit)
+    public FlyoutWindow(Action openManager, Action donate, Action quit)
     {
         Content = _view;
         // What a screen reader announces it as; WinUI's own placeholder otherwise.
         Title = "Claude Graft";
         _view.OpenManagerRequested += openManager;
         _view.QuitRequested += quit;
-        _view.SupportRequested += support;
+        _view.DonateRequested += donate;
         _view.DismissRequested += Hide;
 
         // Borderless, always-on-top, out of the taskbar and the switcher. Not

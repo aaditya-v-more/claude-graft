@@ -103,6 +103,12 @@
                 <Button x:Name="CheckButton" Content="Check for Updates" Click="Check_Click"
                         AutomationProperties.AutomationId="settings.checkUpdates" />
             </local:SettingsCard>
+            <!-- The owner's wish: the Windows port's author is credited here and in the README. -->
+            <local:SettingsCard Header="Windows port" Glyph="&#xE716;"
+                                Description="Brought to Windows by Tyler, with parts of James's port">
+                <HyperlinkButton Content="snowtyler on GitHub" NavigateUri="https://github.com/snowtyler"
+                                 AutomationProperties.AutomationId="settings.windowsPort" />
+            </local:SettingsCard>
         </StackPanel>
     </ScrollViewer>
 </Page>

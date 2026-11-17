@@ -233,8 +233,13 @@
                         Style="{StaticResource MenuRow}" Content="Refresh Usage" />
                 <Button Click="Manager_Click" AutomationProperties.AutomationId="flyout.openManager"
                         Style="{StaticResource MenuRow}" Content="Open Claude Graft" />
-                <Button Click="Support_Click" AutomationProperties.AutomationId="flyout.support"
-                        Style="{StaticResource MenuRow}" Content="Support Claude Graft…" />
+                <Button Click="Donate_Click" AutomationProperties.AutomationId="flyout.donate"
+                        AutomationProperties.Name="Donate" Style="{StaticResource MenuRow}">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <FontIcon Glyph="&#xEB52;" FontSize="12" Foreground="{StaticResource GraftDonateHeartBrush}" />
+                        <TextBlock Text="Donate" />
+                    </StackPanel>
+                </Button>
                 <Button Click="Quit_Click" AutomationProperties.AutomationId="flyout.quit"
                         Style="{StaticResource MenuRow}" Content="Quit Claude Graft" />
             </StackPanel>
