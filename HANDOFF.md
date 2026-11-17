@@ -64,11 +64,15 @@ The 2.1.0 package on the second PC was rebuilt from that commit. `dist/tests/scr
 These are committed but not released.
 - **Windows Donate entry.** The sidebar's "Support" link and the tray's "Support Claude Graft…" now read "Donate", with a heart in Tinkerfold's red (#E0492B light, #EE5A3A dark). They still open the support dialog, with the author's Ko-fi and Tyler's.
 - **Windows credit.** A "Windows port" card in Settings › About credits Tyler and links to his GitHub profile. Both READMEs credit him and James.
+- **Settings in a wide window** now stays centred and inside the window (`eee8fe2`).
 
-The PDF goes to `/Volumes/SSD_enclosure_2/Developer_2/review/`, built by `dist/tests/scripts/mkpdf.py`.
-- The before shots are in `dist/tests/win-donate-before/`. They are the default window on the laptop at 125%, about 1087 DIPs wide.
-- The after shots are therefore taken at the default size on the second PC at 100%, which is the same layout.
-- One wide pair (`settings-wide-*`) shows the clipping fix.
+The review PDF is in the owner's Drive, under "Tinkerfold UI review" › Claude Graft, as `claude-graft-windows-2.1.0-review.pdf`. It has three pages: sidebar foot, Settings › About, and wide Settings.
+
+The tray flyout page is still missing. Testers may not click in the tray, so its shots come from `dist/tests/scripts/flyout.ps1`, which opens the flyout through Graft's own taskbar strip with a posted mouse-up. That needs "Show usage on the taskbar" on for the shot, and off again afterwards.
+
+The PDF is built by `dist/tests/scripts/mkpdf.py` from `dist/tests/review-before/` and `dist/tests/review-after/`, into `/Volumes/SSD_enclosure_2/Developer_2/review/`.
+- The before shots are mostly the default window on the laptop at 125%, about 1087 DIPs wide; the wide-Settings before shots are from the second PC at 1360.
+- The after shots are the default window on the second PC at 100%, which is the same layout, plus the wide pair.
 
 ## Parity: what's left
 
@@ -106,5 +110,8 @@ The full table is `handoff/windows-parity/HANDOFF.md`. Gaps:
 - **Second PC (lock `win2`, PowerShell over ssh):** Graft's own test machine.
   - Graft 2.1.0 is installed, with one Claude window left at its sign-in screen.
   - The layout and tray helpers in `dist/tests/scripts/` run in the desktop session through `run-desktop.ps1`.
-  - Testers reach the tray only through UI Automation (`tray.ps1`), never by clicking at a screen position or by blind keys: blind keys once opened Quick Settings and the PC dropped off the network.
+  - Nothing touches the tray, Quick Settings, or network or Tailscale controls: no clicks, no keys, no UI Automation presses.
+  - The PC dropped off the network twice, both times while something was being done in the notification area:
+    - once while a tester was sending blind keys and had opened Quick Settings;
+    - once while I was clicking in the hidden-icons overflow, where Tailscale's icon sits beside Graft's.
 - **Testing:** Claude Desktop is installed on both machines for testing. Test profiles are `Test A` and `Test B`. Signing in is the owner's job. Testers never type emails or codes.
