@@ -21,16 +21,16 @@ Both community Windows ports are merged into `main` and GitHub shows both PRs as
 - Installed Windows copies look for updates in this repository (`Updater.Repo`).
 - `GRAFT_UPDATE_FEED` (a folder or URL) points an installed copy at a local feed. It exists for update tests only.
 
-**Plan agreed with the owner.**
-- **Windows ships as 2.1.1.** The 2.1.0 release was withdrawn on 18 Nov, and GitHub won't let a deleted immutable release's tag be made again (`notes/updates-and-releases.md`). `VERSION` is 2.1.1, with `windows/release-notes/2.1.1.md` and `docs/release-notes/2.1.1.html`.
-  - The tag `v2.1.1` is not pushed yet. It waits on two checks on the second PC: Donate opening the tip dialog, and the state line changing live when a Claude quits. Both wait until the owner is done signing in there.
-  - The release is not marked "latest", so the website and README still offer the Mac 2.0.1.
-- **Mac:** stays on 2.0.1 in its Sparkle feed and Homebrew cask until it passes in the macOS VMs, then takes the next number after 2.1.1.
-- **No Windows build is on GitHub until v2.1.1 is pushed.** Installs of 2.1.0 (the second PC and a handful of downloads) update to 2.1.1 as an ordinary update.
+**Windows 2.1.1 is released** (tag `v2.1.1`, 18 Nov). It is the first Windows release.
+- The 2.1.0 release was withdrawn on 18 Nov, and GitHub won't let a deleted immutable release's tag be made again (`notes/updates-and-releases.md`), so Windows went out as 2.1.1.
+- The release is not marked "latest", so the website and README still offer the Mac 2.0.1. Installed Windows copies find it anyway.
+- **Mac:** stays on 2.0.1 in its Sparkle feed and Homebrew cask. It passed in the macOS VMs except for the signed-in parts, and takes the next number after 2.1.1.
 
-**How the 2.1.1 candidate was checked (second PC).**
-- Built from `56f71e4`'s tree: `dotnet test` passes 561/561; the package installs over 2.1.0 and runs as 2.1.1.
-- New Shortcut drafts with "Its own chats"; typing the name "Test C" made the folder `Claude-Test-C`.
+**How 2.1.1 was checked (second PC).**
+- Built from the release tree: `dotnet test` passes 561/561.
+- New Shortcut drafts with "Its own chats"; typing the name "Test C" made the folder `Claude-Test-C`; the state line went from Running to Not running live when that Claude quit; Donate opens the tip dialog with both Ko-fi links.
+- The published release, with the packages folder cleared first: an installed 2.1.0 found 2.1.1 on GitHub, downloaded it and was running it 81 s after start, with the published DLL. The published setup then ran over it cleanly (`dist/tests/scripts/release-check-211.ps1`).
+- Delete Shortcut with "Also delete its chats and login" ticked, while that Claude was open: the shortcut left the list and Graft said the folder was kept because Claude was still running. That is by design.
 - **A catch for update tests:** Velopack applies a package of the right name already sitting in `ClaudeGraftApp\packages` without downloading or checking it. Clear that folder before testing a real download.
 
 **Existing installs of Tyler's fork.** Installs of Tyler's 2.0.0 still check his fork for updates. They won't get ours until he publishes one bridging update that points them here; he was asked on #16. Until then, they move across by running our setup over their install, which was tested (see below).
@@ -127,8 +127,7 @@ Google and company sign-ins come back as a `claude://` link, and each Claude tak
   - The scripts beside them are `pack.ps1`, `upgrade.ps1` and `fresh.ps1`.
   - Scheduled tasks are named `GR…`.
 - **Second PC (lock `win2`, PowerShell over ssh):** Graft's own test machine.
-  - Graft 2.1.0 is installed and the main Claude is signed in (the owner did it, 18 Nov).
-  - Test C (folder `Claude-Test-C`, its own chats) is a leftover from checking 2.1.1; delete it with Graft's Delete Shortcut once the owner is done there.
+  - Graft 2.1.1 from the published release is installed, and the main Claude is signed in (the owner did it, 18 Nov). Test C is deleted.
   - Test A and Test B were made through Graft (folders `Claude-Test-A`, `Claude-Test-B`) and opened once for the owner to sign in with `<account 2>`. Made before 2.1.1, they read the main Claude's chats; switch them to their own in their details if the owner wants them apart.
   - The layout and tray helpers in `dist/tests/scripts/` run in the desktop session through `run-desktop.ps1`. `ui.ps1` drives Graft's own controls by automation id; pass text with spaces through `-ValueFile`.
   - Nothing touches the tray, Quick Settings, or network or Tailscale controls: no clicks, no keys, no UI Automation presses. The two drop-offs that led to this rule turned out to be power cuts, but the rule stays.
