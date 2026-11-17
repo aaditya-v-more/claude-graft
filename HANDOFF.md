@@ -22,17 +22,15 @@ Both community Windows ports are merged into `main` and GitHub shows both PRs as
 - `GRAFT_UPDATE_FEED` (a folder or URL) points an installed copy at a local feed. It exists for update tests only.
 
 **Plan agreed with the owner.**
-- **2.1.0 is released for Windows** (tag `v2.1.0` on `1a330cd`, 17 Nov). It is installer only and unsigned, and installs update from this repository.
+- **Windows ships as 2.1.1.** The 2.1.0 release was withdrawn on 18 Nov, and GitHub won't let a deleted immutable release's tag be made again (`notes/updates-and-releases.md`). `VERSION` is 2.1.1, with `windows/release-notes/2.1.1.md` and `docs/release-notes/2.1.1.html`.
+  - The tag `v2.1.1` is not pushed yet. It waits on two checks on the second PC: Donate opening the tip dialog, and the state line changing live when a Claude quits. Both wait until the owner is done signing in there.
   - The release is not marked "latest", so the website and README still offer the Mac 2.0.1.
-  - The owner approved the five-page review PDF first.
-- **Mac in the meantime:** it stays on 2.0.1 in its Sparkle feed and Homebrew cask until it has passed in the macOS VM.
-- **2.1.1 (after the VM pass):** Mac and Windows together, and Windows gets 2.1.1 as an ordinary update.
+- **Mac:** stays on 2.0.1 in its Sparkle feed and Homebrew cask until it passes in the macOS VMs, then takes the next number after 2.1.1.
+- **No Windows build is on GitHub until v2.1.1 is pushed.** Installs of 2.1.0 (the second PC and a handful of downloads) update to 2.1.1 as an ordinary update.
 
-**How the published 2.1.0 was checked.**
-- Its three files match GitHub's digests, and `releases.win.json` records the nupkg's real size and SHA-1.
-- The package holds 2.1.0 with the Settings fix, Donate, this repository as its feed, and Electron 44.9.3.
-- On the second PC, a 2.0.9 build with no feed override found 2.1.0 on GitHub, skipping the Mac-only releases, downloaded it and updated itself in about two minutes. The app it ended up with is identical to the published one.
-- The published `Setup.exe` run over that install left 2.1.0 in place, and its update check found nothing newer.
+**How the 2.1.1 candidate was checked (second PC).**
+- Built from `56f71e4`'s tree: `dotnet test` passes 561/561; the package installs over 2.1.0 and runs as 2.1.1.
+- New Shortcut drafts with "Its own chats"; typing the name "Test C" made the folder `Claude-Test-C`.
 - **A catch for update tests:** Velopack applies a package of the right name already sitting in `ClaudeGraftApp\packages` without downloading or checking it. Clear that folder before testing a real download.
 
 **Existing installs of Tyler's fork.** Installs of Tyler's 2.0.0 still check his fork for updates. They won't get ours until he publishes one bridging update that points them here; he was asked on #16. Until then, they move across by running our setup over their install, which was tested (see below).
@@ -53,7 +51,7 @@ Both community Windows ports are merged into `main` and GitHub shows both PRs as
   4. With no override, 2.1.0's check of this repository's releases logged no error.
 
 **Second PC (100% scale).**
-- 2.1.0 with Donate installs, and its version, settings, Check for Updates and state report pass.
+- 2.1.0 installed, and its version, settings, Check for Updates and state report passed.
 - New Shortcut stays hidden until a Claude is signed in (the first-run gate), so Test A and Test B can only be made after the owner signs in the main Claude.
 
 **Mac, the Windows suite.** `dotnet test windows/ClaudeGraft.Tests` runs on the Mac (SDK in `~/.dotnet`): 509 of 561 pass. The other 52 call Windows APIs or assume Windows paths, so the full suite still runs on a Windows machine.
@@ -66,12 +64,12 @@ The 2.1.0 package on the second PC was rebuilt from that commit. `dist/tests/scr
 
 ## Visual changes waiting for approval
 
-These are committed but not released.
+These are committed; they ship in 2.1.1.
 - **Windows Donate entry.** The sidebar's "Support" link and the tray's "Support Claude Graft…" now read "Donate", with a heart in Tinkerfold's red (#E0492B light, #EE5A3A dark). They still open the support dialog, with the author's Ko-fi and Tyler's.
 - **Windows credit.** A "Windows port" card in Settings › About credits Tyler and links to his GitHub profile. Both READMEs credit him and James.
 - **Settings in a wide window** now stays centred and inside the window (`eee8fe2`).
 
-The review PDF is in the owner's Drive, under "Tinkerfold UI review" › Claude Graft, as `claude-graft-windows-2.1.0-review.pdf`. It has four pages: sidebar foot, tray flyout, Settings › About, and wide Settings.
+The review PDF is in the owner's Drive, under "Tinkerfold UI review" › Claude Graft, as `claude-graft-windows-2.1.1-review.pdf`. It has four pages: sidebar foot, tray flyout, Settings › About, and wide Settings.
 
 The flyout shots come from `dist/tests/scripts/flyout.ps1`, without touching the tray:
 - It posts a mouse-up to Graft's own taskbar strip, a child window of the taskbar, which opens the flyout.
@@ -106,11 +104,6 @@ The full table is `handoff/windows-parity/HANDOFF.md`. Gaps:
 
 ## Known small problems
 
-Seen on the second PC while making Test A and Test B (not yet fixed or checked on the Mac):
-- A new Windows shortcut reads the main Claude's chats (source "Main Claude"). On the Mac a new Claude reads its own.
-- Setting the name through UI Automation left the folder as it was, so the folder had to be set too. Typing may behave differently; untried.
-- The manager showed Test A as "Created · Not running" while its Claude window was open. Maybe it updates late; unconfirmed.
-
 - Velopack's stub is called `Claude Graft.exe` (from `--packTitle`); the app itself is `current\ClaudeGraft.exe`.
 
 ## Rig
@@ -121,7 +114,8 @@ Seen on the second PC while making Test A and Test B (not yet fixed or checked o
   - Scheduled tasks are named `GR…`.
 - **Second PC (lock `win2`, PowerShell over ssh):** Graft's own test machine.
   - Graft 2.1.0 is installed and the main Claude is signed in (the owner did it, 18 Nov).
-  - Test A and Test B were made through Graft (folders `Claude-Test-A`, `Claude-Test-B`) and opened once. Both stopped at Claude's welcome screen, cookie banner up, for the owner to sign in with `<account 2>`.
+  - Test C (folder `Claude-Test-C`, its own chats) is a leftover from checking 2.1.1; delete it with Graft's Delete Shortcut once the owner is done there.
+  - Test A and Test B were made through Graft (folders `Claude-Test-A`, `Claude-Test-B`) and opened once for the owner to sign in with `<account 2>`. Made before 2.1.1, they read the main Claude's chats; switch them to their own in their details if the owner wants them apart.
   - The layout and tray helpers in `dist/tests/scripts/` run in the desktop session through `run-desktop.ps1`. `ui.ps1` drives Graft's own controls by automation id; pass text with spaces through `-ValueFile`.
   - Nothing touches the tray, Quick Settings, or network or Tailscale controls: no clicks, no keys, no UI Automation presses. The two drop-offs that led to this rule turned out to be power cuts, but the rule stays.
 - **Testing:** Claude Desktop is installed on both machines for testing. Test profiles are `Test A` and `Test B`. Signing in is the owner's job. Testers never type emails or codes.
