@@ -157,13 +157,21 @@ public sealed partial class MainWindow : Window
         // their headings and second lines fold away so the icons close up toward the top.
         if (_paneItems is not null) _paneItems.Width = width;
         if (_headerHeight == 0) _headerHeight = ClaudesHeader.ActualHeight;
-        ClaudesHeader.MaxHeight = ShortcutsHeader.MaxHeight = _headerHeight * shown;
-        foreach (var item in Sections.MenuItems.Concat(Sections.FooterMenuItems).OfType<NavigationViewItem>())
+        ClaudesHeader.MaxHeight = ShortcutsHeader.MaxHeight = _headerHeight * shown;        foreach (var item in Sections.MenuItems.Concat(Sections.FooterMenuItems).OfType<NavigationViewItem>())
         {
             // WinUI's own fold drops the item's right-hand margin so the icon fills the highlight;
             // this fold never changes its state, so the margin goes with the width instead.
             if (Named<Grid>(item, "ContentGrid", _ => true) is { } inner) inner.Margin = new Thickness(0, 0, 14 * shown, 0);
-            if (item.Content is StackPanel { Children.Count: > 1 } words)
+            // A Claude row's words sit in a strip beside its Open button, so the strip fades
+            // too, and goes only at the rail, where its words would wrap the row tall.
+            var words = item.Content as StackPanel;
+            if (item.Content is Grid strip)
+            {
+                strip.Opacity = shown;
+                strip.Visibility = shown > 0 ? Visibility.Visible : Visibility.Collapsed;
+                words = strip.Children.OfType<StackPanel>().FirstOrDefault();
+            }
+            if (words is { Children.Count: > 1 })
             {
                 words.Margin = new Thickness(0, 6 * shown, 0, 6 * shown);
                 foreach (var line in words.Children.OfType<TextBlock>())
@@ -272,11 +280,7 @@ public sealed partial class MainWindow : Window
                 open.SetBinding(UIElement.VisibilityProperty, new Binding { Source = row, Path = new PropertyPath(nameof(ShortcutRow.QuickOpenVisibility)) });
                 // A Button takes its own press, so opening a Claude leaves the page shown where it was.
                 open.Click += async (_, _) => { if (RootFrame.Content is MainPage current) await current.OpenAsync(openRow); };
-                var strip = new Grid
-                {
-                    HorizontalAlignment = HorizontalAlignment.Stretch,
-                    Visibility = Sections.IsPaneOpen ? Visibility.Visible : Visibility.Collapsed,
-                };
+                var strip = new Grid { HorizontalAlignment = HorizontalAlignment.Stretch };
                 strip.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
                 strip.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
                 strip.Children.Add(words);
@@ -287,6 +291,7 @@ public sealed partial class MainWindow : Window
                     Content = strip, Tag = "claude:" + row.Key, Icon = new FontIcon { Glyph = glyph },
                     HorizontalContentAlignment = HorizontalAlignment.Stretch,
                 };
+                if (!_paneOpen) strip.Visibility = Visibility.Collapsed;
                 AutomationProperties.SetName(item, $"{row.Name}, {line}");
                 AutomationProperties.SetAutomationId(item, "sidebar." + row.Key);
                 if (row.Shortcut is null)
@@ -345,16 +350,6 @@ public sealed partial class MainWindow : Window
     }
 
     // A stretched row is not clipped to the compact rail, so its words would spill over the page.
-    private void Sections_PaneOpening(NavigationView sender, object args) => ShowClaudeRows(Visibility.Visible);
-
-    private void Sections_PaneClosing(NavigationView sender, NavigationViewPaneClosingEventArgs args) => ShowClaudeRows(Visibility.Collapsed);
-
-    private void ShowClaudeRows(Visibility visibility)
-    {
-        foreach (var item in Sections.MenuItems.OfType<NavigationViewItem>().Where(i => ((string?)i.Tag)?.StartsWith("claude:") == true))
-            if (item.Content is Grid strip) strip.Visibility = visibility;
-    }
-
     private void Sections_SelectionChanged(Microsoft.UI.Xaml.Controls.NavigationView sender, Microsoft.UI.Xaml.Controls.NavigationViewSelectionChangedEventArgs args)
     {
         var tag = (args.SelectedItem as Microsoft.UI.Xaml.Controls.NavigationViewItem)?.Tag as string;
