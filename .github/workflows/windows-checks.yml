@@ -1,0 +1,67 @@
+# The Windows suite and a release-shaped publish on every change that can touch
+# them, so a break is found on the push that made it rather than on the tag
+# that was meant to ship it.
+name: Windows Checks
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'windows/**'
+      - 'VERSION'
+      - '.github/workflows/windows-checks.yml'
+  pull_request:
+    paths:
+      - 'windows/**'
+      - 'VERSION'
+      - '.github/workflows/windows-checks.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-checks-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows:
+    name: windows
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # The release workflow refuses a tag without them, which is late to learn it.
+      - name: Release notes for this version
+        shell: bash
+        run: |
+          v="$(tr -d '[:space:]' < VERSION)"
+          [ -f "windows/release-notes/$v.md" ] || { echo "windows/release-notes/$v.md is missing"; exit 1; }
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Test
+        run: dotnet test windows/ClaudeGraft.Tests -nologo
+
+      # The suite builds only the core and the relay; the WinUI app and the
+      # launcher compile here alone before a release.
+      - name: Restore dependencies
+        run: dotnet restore windows/ClaudeGraft/ClaudeGraft.csproj -r win-x64
+
+      - name: Publish
+        run: >
+          dotnet publish windows/ClaudeGraft/ClaudeGraft.csproj
+          -c Release
+          -p:Platform=x64
+          -o windows/dist/ClaudeGraft
+          --no-restore
+
+      - name: Check both executables carry their runtime
+        shell: pwsh
+        run: |
+          foreach ($name in 'ClaudeGraft', 'GraftLaunch') {
+            $config = Get-Content "windows/dist/ClaudeGraft/$name.runtimeconfig.json" -Raw
+            if ($config -notmatch 'includedFrameworks') { throw "$name was published framework-dependent" }
+          }
