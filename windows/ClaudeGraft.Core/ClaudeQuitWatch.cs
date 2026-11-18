@@ -11,15 +11,20 @@ public sealed class ClaudeQuitWatch : IDisposable
 {
     private readonly Func<IReadOnlyList<string>> _filing;
     private readonly ManagementEventWatcher? _watcher;
-    private readonly Timer _settle;
-    private int _inFlight, _askedAgain;
+    private readonly Timer _settle, _look;
+    // A quit owes the project order a pass once its helpers are gone; a look owes it nothing.
+    private int _inFlight, _askedAgain, _quitOwed;
+
+    /// The titles each pass filed, for a line in the flyout; empty when it filed none.
+    public event Action<IReadOnlyList<string>>? Swept;
 
     public ClaudeQuitWatch(Func<IReadOnlyList<string>> filing)
     {
         _filing = filing;
         // A moment's grace for the last of its writes, and for its helpers to follow
         // it out: a profile with any of them left still reads as running.
-        _settle = new Timer(_ => Sweep(), null, Timeout.Infinite, Timeout.Infinite);
+        _settle = new Timer(_ => { Volatile.Write(ref _quitOwed, 1); Sweep(); }, null, Timeout.Infinite, Timeout.Infinite);
+        _look = new Timer(_ => Sweep(), null, Timeout.Infinite, Timeout.Infinite);
         try
         {
             _watcher = new ManagementEventWatcher(new WqlEventQuery(
@@ -43,7 +48,9 @@ public sealed class ClaudeQuitWatch : IDisposable
             do
             {
                 Volatile.Write(ref _askedAgain, 0);
-                Launcher.Sweep(_filing());
+                var filed = Launcher.Sweep(_filing());
+                Swept?.Invoke(filed.Select(f => f.Title).ToList());
+                if (Interlocked.Exchange(ref _quitOwed, 0) == 0) continue;
                 // Under the launch lock, so a shortcut opened meanwhile waits and opens on
                 // the order this leaves.
                 SidebarSync.WithLaunchLock(() =>
@@ -60,10 +67,15 @@ public sealed class ClaudeQuitWatch : IDisposable
         if (Volatile.Read(ref _askedAgain) == 1) Sweep();
     }
 
+    /// A pass now, off the caller's thread: at Graft's start and when the flyout
+    /// opens, as the Mac runs one at its start and when its dropdown opens.
+    public void Request() => _look.Change(TimeSpan.Zero, Timeout.InfiniteTimeSpan);
+
     public void Dispose()
     {
         try { _watcher?.Stop(); } catch { }
         _watcher?.Dispose();
         _settle.Dispose();
+        _look.Dispose();
     }
 }

@@ -188,6 +188,13 @@ public partial class App : Application
         _quitWatch = new ClaudeQuitWatch(() => new ShortcutStore().Shortcuts
             .Where(s => s.InstalledName is not null).Select(s => s.ProfileDir)
             .Prepend(GraftPaths.DefaultProfile).ToList());
+        _quitWatch.Swept += titles => OnUi(() =>
+        {
+            if (Recovered.SequenceEqual(titles)) return;
+            Recovered = titles;
+            RecoveredChanged?.Invoke();
+        });
+        _quitWatch.Request();
         System.Threading.Tasks.Task.Run(() =>
         {
             try { ManualUpdates.Synchronize(); }
@@ -399,6 +406,11 @@ public partial class App : Application
     private Task<bool>? _installing;
     private ClaudeQuitWatch? _quitWatch;
 
+    /// What the last pass Graft ran filed, by title. Empty the rest of the time:
+    /// the session list is the history, and the line only says what just happened.
+    internal static IReadOnlyList<string> Recovered { get; private set; } = [];
+    internal static event Action? RecoveredChanged;
+
     /// Fetches the package and hands off to Velopack, then quits — the folder
     /// cannot be swapped while this process holds it open.
     /// A second press while one is under way joins it rather than starting
@@ -606,6 +618,7 @@ public partial class App : Application
         {
             _flyout ??= new FlyoutWindow(ShowManager, Donate, Quit);
             _flyout.Toggle(anchor, priorForeground, centred: from is not null);
+            _quitWatch?.Request();
         });
     }
 
