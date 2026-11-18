@@ -4,11 +4,22 @@ Rewritten in place; it describes the current state, not a history.
 
 ## Next
 
+**This round ends** when each of these is merged and its manual cases have passed on real machines:
+- #14/#15 with their Windows ports;
+- the Windows parity gaps, Russian included;
+- the Mac Donate rename;
+- the signed-in pass.
+
+Then the Mac release (both systems take the next number after 2.1.1), this file brought up to date, and a report. No other work until a new request or bug report.
+
 - **Signed-in passes are with the testers (19 Nov).** Sign-in is by emailed code, now allowed. Windows: `test-profiles`, `smoke` and `usage-and-start-session` on the second PC, against the installed 2.1.1. Mac, in a macOS VM: all seven signed-in cases against a universal build of `e689ecf`, zipped in `dist/test-builds/`. The Mac release, the next number after 2.1.1, follows a pass there.
 - **PR #17** (Tyler, "Windows: Mods page") is a draft he is still working on; nothing to do until he marks it ready.
-- **PRs #14 and #15 wait on the owner's decision to merge.** Both were merged locally onto `main` (`62dbbad`) and passed, on the development Mac before builds and tests moved off it: `./test.sh` 1458/1459 and 1485/1486, failing only the known text-position check, and #14's `./test-relay.sh` 99/99.
-  - **#14** (Juulsn) stops an artifact tool's `container` argument in the history from pinning a conversation to its sender. It now reads the top-level `container` by parsing the body, where the old code did a byte scan, so every inference request is parsed once. Windows has the same scan in `PoolPolicy.cs` and needs the same fix.
-  - **#15** (PvtLight) stops a new shortcut from landing on a folder another shortcut uses, which signed it in to that shortcut's account. Every caller passes the list. Windows has the same bug: `ShortcutStore.UniqueName` checks names only, and `ApplyEdit` adds a new shortcut on a folder in use without a word.
+- **PRs #14 and #15 are merged (19 Nov)**, with their Windows ports and extra checks (`main` 92ea788). Each PR got a thank-you and a post-merge review. Real-machine runs are queued: `new-shortcut-folder` and `shared-usage-artifact` on a Mac and on Windows.
+- **Approved and in draft PRs, waiting on real-machine runs:**
+  - #19 `mac-donate`: Support becomes Donate with the red heart. Screenshots in Light, Dark and Russian are asked for.
+  - #20 `windows-parity`: the chat question before opening, help links in Settings, the recovered-sessions line and the icon and name switches for the Claude in front.
+  - Russian for Windows is on `windows-russian`, a draft PR based on #20.
+  - Merge each into `main` once its run passes.
 - **Real-device runs** use the cases in `Tests/manual/`.
 
 ## The Windows port is merged
@@ -82,11 +93,11 @@ The 2.1.0 package on the second PC was rebuilt from that commit. `dist/tests/scr
 ## Visual changes waiting for approval
 
 These are committed; they ship in 2.1.1.
-- **Windows Donate entry.** The sidebar's "Support" link and the tray's "Support Claude Graft…" now read "Donate", with a heart in Tinkerfold's red (#E0492B light, #EE5A3A dark). They still open the support dialog, with the author's Ko-fi and Tyler's.
+- **Windows Donate entry.** The sidebar's "Support" link and the tray's "Support Claude Graft…" now read "Donate", with a red heart (#E0492B light, #EE5A3A dark). They still open the support dialog, with the author's Ko-fi and Tyler's.
 - **Windows credit.** A "Windows port" card in Settings › About credits Tyler and links to his GitHub profile. Both READMEs credit him and James.
 - **Settings in a wide window** now stays centred and inside the window (`eee8fe2`).
 
-The review PDF is in the owner's Drive, under "Tinkerfold UI review" › Claude Graft, as `claude-graft-windows-2.1.1-review.pdf`. It has four pages: sidebar foot, tray flyout, Settings › About, and wide Settings.
+The review PDF is in the owner's Drive, in the UI review folder under Claude Graft, as `claude-graft-windows-2.1.1-review.pdf`. It has four pages: sidebar foot, tray flyout, Settings › About, and wide Settings.
 
 The flyout shots come from `dist/tests/scripts/flyout.ps1`, without touching the tray:
 - It posts a mouse-up to Graft's own taskbar strip, a child window of the taskbar, which opens the flyout.
@@ -102,7 +113,7 @@ The full table is `handoff/windows-parity/HANDOFF.md`. Gaps:
 
 **Windows lacks:**
 - The chat-conflict prompt before opening a profile another Claude shares (S).
-- Help, Report a Problem and email links (S). The address should be support@tinkerfold.com, per the owner's rule; the Mac's "Email the Developer" still uses a personal address.
+- Help, Report a Problem and email links (S). Email goes to the owner's own address on both systems.
 - The "Recovered N sessions" notice (S).
 - Separate front icon and name switches (S).
 - Russian (L).
