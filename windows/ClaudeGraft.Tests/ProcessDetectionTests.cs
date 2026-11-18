@@ -3,6 +3,8 @@ using Xunit;
 
 namespace ClaudeGraft.Tests;
 
+// Profile paths come from GraftPaths, which other tests point elsewhere while they run.
+[Collection("GlobalState")]
 public class ProcessDetectionTests
 {
     private const string App = @"C:\Users\T\AppData\Local\AnthropicClaude\app-1.40609.1\claude.exe";
