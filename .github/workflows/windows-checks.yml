@@ -1,20 +1,13 @@
-# The Windows suite and a release-shaped publish on every change that can touch
-# them, so a break is found on the push that made it rather than on the tag
-# that was meant to ship it.
+# The Windows suite and a release-shaped publish on every change, so a break is
+# found on the push that made it rather than on the tag that was meant to ship it.
 name: Windows Checks
 
+# On every push and pull request, not only Windows ones: main requires this
+# check by name, and a filtered workflow never reports on the rest.
 on:
   push:
     branches: [main]
-    paths:
-      - 'windows/**'
-      - 'VERSION'
-      - '.github/workflows/windows-checks.yml'
   pull_request:
-    paths:
-      - 'windows/**'
-      - 'VERSION'
-      - '.github/workflows/windows-checks.yml'
 
 permissions:
   contents: read
