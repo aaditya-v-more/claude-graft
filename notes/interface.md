@@ -404,7 +404,12 @@ which reads as an app nobody looks after, so `GraftHelpCommands` replaces it.
 It leads to the site, the release list, a new issue, an email, the
 developer's LinkedIn profile, the source and the tip jar. The menu is only on
 screen while the window is, since the app is an accessory the rest of the
-time; the dropdown keeps its own Support item for that reason.
+time; the dropdown keeps its own Donate item for that reason.
+
+The tip jar is called Donate on both systems, with a filled heart in the same
+red: #E0492B on a light background and #EE5A3A on a dark one, where the deeper
+red loses its weight. The heart is coloured and the word is not, so it reads
+as the link beside Source rather than a warning.
 
 The email opens already addressed, with a subject naming the Graft version
 and a body ending in the Graft and macOS versions. The first reply to a

@@ -247,7 +247,7 @@ struct ContentView: View {
             ClaudeUpdateStatus(stacked: true)
             Divider()
             HStack(spacing: 0) {
-                FooterLink("Support", icon: "heart", url: Links.support,
+                FooterLink("Donate", icon: "heart.fill", iconTint: .donateHeart, url: Links.support,
                            help: "Claude Graft is free. A tip on Ko-fi is what keeps it worked on.")
                     .identified("support")
                 Spacer(minLength: 8)

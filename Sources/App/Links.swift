@@ -52,26 +52,43 @@ enum Links {
 /// A quiet text link for the sidebar's footer. Underlined only under the
 /// pointer, because two permanently underlined words at the foot of a sidebar
 /// read as an error message rather than an invitation.
+/// The Donate heart, in the same red as the Windows build: deeper on a light
+/// background, lighter on a dark one so it keeps its weight.
+extension Color {
+    static let donateHeart = Color(nsColor: NSColor(name: nil) { appearance in
+        appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            ? NSColor(srgbRed: 0xEE / 255, green: 0x5A / 255, blue: 0x3A / 255, alpha: 1)
+            : NSColor(srgbRed: 0xE0 / 255, green: 0x49 / 255, blue: 0x2B / 255, alpha: 1)
+    })
+}
+
 struct FooterLink: View {
     let title: String
     let icon: String
+    let iconTint: Color?
     let url: URL
     let help: String
 
     @State private var hovering = false
 
-    init(_ title: String, icon: String, url: URL, help: String) {
+    init(_ title: String, icon: String, iconTint: Color? = nil, url: URL, help: String) {
         self.title = L10n.text(title)
         self.icon = icon
+        self.iconTint = iconTint
         self.url = url
         self.help = L10n.text(help)
     }
 
     var body: some View {
+        let text = hovering ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary)
         Button { Links.open(url) } label: {
-            Label(title, systemImage: icon)
+            Label {
+                Text(title)
+            } icon: {
+                Image(systemName: icon).foregroundStyle(iconTint.map { AnyShapeStyle($0) } ?? text)
+            }
                 .font(.callout)
-                .foregroundStyle(hovering ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))
+                .foregroundStyle(text)
                 .underline(hovering)
                 .contentShape(Rectangle())
         }
@@ -94,7 +111,7 @@ struct GraftHelpCommands: Commands {
             Button(L10n.text("Aaditya More on LinkedIn")) { Links.open(Links.linkedIn) }
             Divider()
             Button(L10n.text("View Source on GitHub")) { Links.open(Links.source) }
-            Button(L10n.text("Support Claude Graft…")) { Links.open(Links.support) }
+            Button(L10n.text("Donate…")) { Links.open(Links.support) }
         }
     }
 }

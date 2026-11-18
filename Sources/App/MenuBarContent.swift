@@ -136,7 +136,7 @@ struct MenuBarContent: View {
                 }
                 .disabled(!updater.canCheck)
                 MenuButton("Open Claude Graft", id: "open-window", action: openMainWindow)
-                MenuButton("Support Claude Graft…", id: "support") { Links.open(Links.support) }
+                MenuButton("Donate…", id: "support", icon: "heart.fill", iconTint: .donateHeart) { Links.open(Links.support) }
                 MenuButton("Quit Claude Graft", id: "quit") { AppDelegate.quit() }
             }
             .padding(.horizontal, 8)
@@ -258,18 +258,29 @@ struct MenuButton: View {
     let title: String
     /// Asked for apart from the title, which changes while the action runs.
     let id: String
+    let icon: String?
+    let iconTint: Color?
     let action: () -> Void
     @State private var hovering = false
 
-    init(_ title: String, id: String, action: @escaping () -> Void) {
+    init(_ title: String, id: String, icon: String? = nil, iconTint: Color? = nil,
+         action: @escaping () -> Void) {
         self.title = L10n.text(title)
         self.id = id
+        self.icon = icon
+        self.iconTint = iconTint
         self.action = action
     }
 
     var body: some View {
         Button(action: action) {
-            Text(title)
+            HStack(spacing: 6) {
+                if let icon {
+                    Image(systemName: icon)
+                        .foregroundStyle(iconTint.map { AnyShapeStyle($0) } ?? AnyShapeStyle(.primary))
+                }
+                Text(title)
+            }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 6)
                 .padding(.vertical, 4)

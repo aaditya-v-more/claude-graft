@@ -1729,7 +1729,7 @@ do {
             && mailParts?.queryItems?.first { $0.name == "body" }?.value?.contains("macOS Version 26.1") == true,
           "and already says which Graft and which macOS it comes from")
     for item in ["Claude Graft Help", "Report a Problem…", "Email the Developer…",
-                 "Aaditya More on LinkedIn", "View Source on GitHub", "Support Claude Graft…"] {
+                 "Aaditya More on LinkedIn", "View Source on GitHub", "Donate…"] {
         check(links.contains("L10n.text(\"\(item)\")"), "the Help menu offers \(item)")
     }
     check(read("Sources/App/ClaudeGraftApp.swift").contains("GraftHelpCommands()"),
@@ -1740,6 +1740,13 @@ do {
     // that the money has nowhere to go.
     check(![links, site, readme].contains(where: { $0.contains("github.com/sponsors") }),
           "and nothing still offers the sponsor page that cannot take the money")
+    check(read("Sources/App/ContentView.swift").contains(#"FooterLink("Donate", icon: "heart.fill", iconTint: .donateHeart"#)
+            && read("Sources/App/MenuBarContent.swift").contains(#"MenuButton("Donate…", id: "support", icon: "heart.fill", iconTint: .donateHeart)"#),
+          "the sidebar and the dropdown both say Donate beside a red heart")
+    let windowsTheme = read("windows/ClaudeGraft/App.xaml")
+    check(links.contains("0xE0 / 255, green: 0x49 / 255, blue: 0x2B / 255") && windowsTheme.contains("#E0492B")
+            && links.contains("0xEE / 255, green: 0x5A / 255, blue: 0x3A / 255") && windowsTheme.contains("#EE5A3A"),
+          "and the heart is the same red as on Windows, light and dark")
 
     // An enclosure without a signature is one every client refuses, and
     // generate_appcast omits it silently when the key does not match.

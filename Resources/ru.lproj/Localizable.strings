@@ -101,8 +101,8 @@
 "Start Session" = "Запустить сессию";
 "Status" = "Статус";
 "Stops automatic updates for Claude and every shortcut from their next launch. Graft checks for new versions; use Update Claude when your work is finished." = "Отключает автоматические обновления Claude и всех ярлыков при их следующем запуске. Graft проверяет новые версии; установите обновление Claude после завершения работы.";
-"Support" = "Поддержать";
-"Support Claude Graft…" = "Поддержать Claude Graft…";
+"Donate" = "Пожертвовать";
+"Donate…" = "Пожертвовать…";
 "That account is rate-limited right now." = "Сейчас для этой учётной записи действует ограничение частоты запросов.";
 "That folder belongs to Claude Graft itself. Pick another name." = "Эта папка принадлежит самому Claude Graft. Выберите другое имя.";
 "That folder belongs to Claude Graft itself and will not be deleted." = "Эта папка принадлежит самому Claude Graft и не будет удалена.";
