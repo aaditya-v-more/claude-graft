@@ -93,11 +93,11 @@ The 2.1.0 package on the second PC was rebuilt from that commit. `dist/tests/scr
 ## Visual changes waiting for approval
 
 These are committed; they ship in 2.1.1.
-- **Windows Donate entry.** The sidebar's "Support" link and the tray's "Support Claude Graft…" now read "Donate", with a heart in Tinkerfold's red (#E0492B light, #EE5A3A dark). They still open the support dialog, with the author's Ko-fi and Tyler's.
+- **Windows Donate entry.** The sidebar's "Support" link and the tray's "Support Claude Graft…" now read "Donate", with a red heart (#E0492B light, #EE5A3A dark). They still open the support dialog, with the author's Ko-fi and Tyler's.
 - **Windows credit.** A "Windows port" card in Settings › About credits Tyler and links to his GitHub profile. Both READMEs credit him and James.
 - **Settings in a wide window** now stays centred and inside the window (`eee8fe2`).
 
-The review PDF is in the owner's Drive, under "Tinkerfold UI review" › Claude Graft, as `claude-graft-windows-2.1.1-review.pdf`. It has four pages: sidebar foot, tray flyout, Settings › About, and wide Settings.
+The review PDF is in the owner's Drive, in the UI review folder under Claude Graft, as `claude-graft-windows-2.1.1-review.pdf`. It has four pages: sidebar foot, tray flyout, Settings › About, and wide Settings.
 
 The flyout shots come from `dist/tests/scripts/flyout.ps1`, without touching the tray:
 - It posts a mouse-up to Graft's own taskbar strip, a child window of the taskbar, which opens the flyout.
@@ -113,7 +113,7 @@ The full table is `handoff/windows-parity/HANDOFF.md`. Gaps:
 
 **Windows lacks:**
 - The chat-conflict prompt before opening a profile another Claude shares (S).
-- Help, Report a Problem and email links (S). The address should be support@tinkerfold.com, per the owner's rule; the Mac's "Email the Developer" still uses a personal address.
+- Help, Report a Problem and email links (S). Email goes to the owner's own address on both systems.
 - The "Recovered N sessions" notice (S).
 - Separate front icon and name switches (S).
 - Russian (L).
