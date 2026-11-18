@@ -39,6 +39,12 @@ the project's default appearance or appearance synchronization between sites.
 Keep this website's original appearance behavior unless the user separately asks
 to change it.
 
+# Testing
+
+The suites are listed in [CLAUDE.md](CLAUDE.md). Cases a person runs on a real
+Mac or Windows machine, signed in, are in `Tests/manual/`, one per file, as
+steps and what each should show.
+
 # Windows development builds
 
 After any change to the Windows build, install it on the development machine
