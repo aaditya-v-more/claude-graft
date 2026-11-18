@@ -16,12 +16,11 @@ public sealed class ProfileException : Exception
 
     private static string Describe(ProfileError reason) => reason switch
     {
-        ProfileError.MainProfile => "That folder belongs to Claude itself and will not be deleted.",
-        ProfileError.OutsideProfilesRoot => "Only folders directly inside the Claude data folder can be deleted.",
-        ProfileError.Running => "Claude is still running on this profile. Quit it first.",
-        ProfileError.InUse => "Some of its files are still in use, so not all of it could be deleted. "
-                              + "Close every Claude window, wait a moment and delete it again.",
-        _ => "This profile cannot be deleted.",
+        ProfileError.MainProfile => L10n.Text("That folder belongs to Claude itself and will not be deleted."),
+        ProfileError.OutsideProfilesRoot => L10n.Text("Only folders directly inside the Claude data folder can be deleted."),
+        ProfileError.Running => L10n.Text("Claude is still running on this profile. Quit it first."),
+        ProfileError.InUse => L10n.Text("Some of its files are still in use, so not all of it could be deleted. Close every Claude window, wait a moment and delete it again."),
+        _ => L10n.Text("This profile cannot be deleted."),
     };
 }
 

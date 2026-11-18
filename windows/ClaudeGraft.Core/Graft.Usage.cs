@@ -137,8 +137,8 @@ public static partial class Graft
         var days = remaining / 86_400;
         var hours = remaining % 86_400 / 3_600;
         var minutes = remaining % 3_600 / 60;
-        if (days > 0) return $"{days}d {hours}h {minutes}m";
-        if (hours > 0) return $"{hours}h {minutes}m";
-        return $"{Math.Max(minutes, 1)}m";
+        if (days > 0) return L10n.Format("{0}d {1}h {2}m", days, hours, minutes);
+        if (hours > 0) return L10n.Format("{0}h {1}m", hours, minutes);
+        return L10n.Format("{0}m", Math.Max(minutes, 1));
     }
 }

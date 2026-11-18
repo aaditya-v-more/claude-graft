@@ -171,19 +171,19 @@ public sealed class SharedUsage
             if (RelayKeeper.Send(new RelayRequest(), timeoutMs: 1500) is not null) RelayKeeper.Send(new RelayRequest { Quit = true });
             return (null, null);
         }
-        if (!File.Exists(relaySource)) return (null, "This copy of Claude Graft has no relay in it.");
+        if (!File.Exists(relaySource)) return (null, L10n.Text("This copy of Claude Graft has no relay in it."));
         var running = RelayKeeper.Send(command, timeoutMs: 2000);
         if (running is not null && running.Binary == RelayKeeper.Digest(relaySource)) return (running, null);
         // A relay that will not stay up is not started again every pass.
-        if (DateTimeOffset.UtcNow - _lastSpawn < TimeSpan.FromSeconds(20)) return (running, running is null ? "The relay is not running. Diagnostics has the reason." : null);
+        if (DateTimeOffset.UtcNow - _lastSpawn < TimeSpan.FromSeconds(20)) return (running, running is null ? L10n.Text("The relay is not running. Diagnostics has the reason.") : null);
         _lastSpawn = DateTimeOffset.UtcNow;
-        if (RelayKeeper.EnsureRunning(relaySource) == RelayKeeper.Step.Failed) return (null, "The relay could not be started.");
+        if (RelayKeeper.EnsureRunning(relaySource) == RelayKeeper.Step.Failed) return (null, L10n.Text("The relay could not be started."));
         // The first start makes the certificate, which takes a moment.
         for (var i = 0; i < 60; i++)
         {
             Thread.Sleep(250);
             if (RelayKeeper.Send(command, timeoutMs: 1000) is { } status) return (status, null);
         }
-        return (null, "The relay is not running. Diagnostics has the reason.");
+        return (null, L10n.Text("The relay is not running. Diagnostics has the reason."));
     }
 }

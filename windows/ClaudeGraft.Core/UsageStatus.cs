@@ -11,39 +11,39 @@ public static class UsageStatus
 
     public static Line? Describe(UsageEntry? entry, bool fetching, DateTimeOffset now)
     {
-        if (fetching) return new Line("Refreshing usage…", false);
+        if (fetching) return new Line(L10n.Text("Refreshing usage…"), false);
         if (entry is null) return null;
 
-        var from = entry.UpdatedAt is { } at ? $"Showing figures from {Ago(at, now)}" : null;
-        var next = entry.Refusal?.RetryAt is { } retry && Graft.Countdown(retry, now) is { } wait
-            ? $", next try in {wait}"
-            : "";
+        var from = entry.UpdatedAt is { } at ? L10n.Format("Showing figures from {0}", Ago(at, now)) : null;
+        var wait = entry.Refusal?.RetryAt is { } retry ? Graft.Countdown(retry, now) : null;
 
         if (entry.Refusal is { } refusal)
         {
             var why = refusal.Kind switch
             {
-                RefusalKind.RateLimited => "Anthropic is limiting usage checks right now.",
-                RefusalKind.LoginRefused => "This profile's login was refused. Open it once so Claude can renew it.",
-                RefusalKind.NoLogin => "This profile's login could not be read, so usage cannot be checked.",
-                RefusalKind.Unreachable => "Could not reach Anthropic to check usage.",
+                RefusalKind.RateLimited => L10n.Text("Anthropic is limiting usage checks right now."),
+                RefusalKind.LoginRefused => L10n.Text("This profile's login was refused. Open it once so Claude can renew it."),
+                RefusalKind.NoLogin => L10n.Text("This profile's login could not be read, so usage cannot be checked."),
+                RefusalKind.Unreachable => L10n.Text("Could not reach Anthropic to check usage."),
                 _ => refusal.Status is int status
-                    ? $"Usage could not be refreshed (Anthropic answered {status})."
-                    : "Usage could not be refreshed.",
+                    ? L10n.Format("Usage could not be refreshed (Anthropic answered {0}).", status)
+                    : L10n.Text("Usage could not be refreshed."),
             };
-            return new Line(from is null ? why : $"{why} {from}{next}.", true);
+            return new Line(from is null ? why
+                : wait is null ? L10n.Format("{0} {1}.", why, from)
+                : L10n.Format("{0} {1}, next try in {2}.", why, from, wait), true);
         }
 
         if (entry.UpdatedAt is not { } updated) return null;
         return entry.IsLive
-            ? new Line($"Updated {Ago(updated, now)} from Anthropic", false)
-            : new Line($"Updated {Ago(updated, now)} from this profile's own record", false);
+            ? new Line(L10n.Format("Updated {0} from Anthropic", Ago(updated, now)), false)
+            : new Line(L10n.Format("Updated {0} from this profile's own record", Ago(updated, now)), false);
     }
 
     public static string Ago(DateTimeOffset then, DateTimeOffset now) =>
         Graft.Countdown(now, then) is { } span && now - then >= TimeSpan.FromMinutes(1)
-            ? span + " ago"
-            : "just now";
+            ? L10n.Format("{0} ago", span)
+            : L10n.Text("just now");
 
     /// A window whose reset time has passed has closed, and a closed window has
     /// spent nothing yet. The reset is known exactly, so this needs no request.
@@ -70,15 +70,15 @@ public static class UsageStatus
     /// nothing: every account held off by a rate limit, or a refresh already out.
     public static Button RefreshButton(bool busy, DateTimeOffset? heldUntil, DateTimeOffset now)
     {
-        if (busy) return new Button("Refreshing…", false);
+        if (busy) return new Button(L10n.Text("Refreshing…"), false);
         if (heldUntil is { } until && until > now)
         {
             var left = until - now;
             var wait = left < TimeSpan.FromMinutes(1)
-                ? $"{(int)Math.Ceiling(left.TotalSeconds)}s"
-                : Graft.Countdown(until, now) ?? "1m";
-            return new Button($"Available in {wait}", false);
+                ? L10n.Format("{0}s", (int)Math.Ceiling(left.TotalSeconds))
+                : Graft.Countdown(until, now) ?? L10n.Format("{0}m", 1);
+            return new Button(L10n.Format("Available in {0}", wait), false);
         }
-        return new Button("Refresh Usage", true);
+        return new Button(L10n.Text("Refresh Usage"), true);
     }
 }

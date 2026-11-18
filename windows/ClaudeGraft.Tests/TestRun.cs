@@ -12,6 +12,8 @@ internal static class TestRun
     {
         var folder = Path.Combine(Path.GetTempPath(), "claude-graft-tests-notes-" + Guid.NewGuid().ToString("N"));
         Diagnostics.FolderOverride = folder;
+        // The suite reads English whatever language the machine running it is set to.
+        L10n.Choose(L10n.English);
         AppDomain.CurrentDomain.ProcessExit += (_, _) =>
         {
             try { Directory.Delete(folder, recursive: true); } catch { }

@@ -102,10 +102,10 @@ public sealed class ShortcutStore
 
     public string Label(ShortcutSource source) => source.Kind switch
     {
-        SourceKind.Own => "Its own chats",
-        SourceKind.Main => "Main Claude",
-        SourceKind.Shortcut => source.ShortcutId is Guid id ? Get(id)?.Name ?? "Removed shortcut" : "Removed shortcut",
-        _ => "Main Claude",
+        SourceKind.Own => L10n.Text("Its own chats"),
+        SourceKind.Main => L10n.Text("Main Claude"),
+        SourceKind.Shortcut => source.ShortcutId is Guid id ? Get(id)?.Name ?? L10n.Text("Removed shortcut") : L10n.Text("Removed shortcut"),
+        _ => L10n.Text("Main Claude"),
     };
 
     /// What to call a profile on screen. Claude's own has no shortcut standing
@@ -177,7 +177,7 @@ public sealed class ShortcutStore
         if (deletingProfile)
         {
             if (sharedWithAnother)
-                problem = "The profile folder was kept: another shortcut still uses it.";
+                problem = L10n.Text("The profile folder was kept: another shortcut still uses it.");
             else
                 try { Graft.DeleteProfile(shortcut.ProfileDir, ClaudeProcesses.IsRunning); }
                 catch (ProfileException e) { problem = e.Message; }
