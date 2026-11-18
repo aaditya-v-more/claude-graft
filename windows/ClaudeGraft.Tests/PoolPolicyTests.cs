@@ -153,6 +153,18 @@ public class PoolPolicyTests
         Assert.False(PoolRequest.MustStayWithSender(Quoted, "identity"));
     }
 
+    [Fact(DisplayName = "an artifact tool's container argument in the history pins nothing, while the request's own container does")]
+    public void Containers()
+    {
+        Assert.False(PoolRequest.MustStayWithSender(B("""{"model":"claude-x","messages":[{"role":"assistant","content":[{"type":"tool_use","id":"t1","name":"artifact","input":{"container":"{\"kind\":\"project\",\"id\":\"p1\"}"}}]}]}"""), null));
+        Assert.False(PoolRequest.MustStayWithSender(B("""{"model":"claude-x","messages":[{"role":"assistant","content":[{"type":"tool_use","id":"t1","name":"artifact","input":{"container":{"id":"p1","kind":"project"}}}]}]}"""), null));
+        Assert.True(PoolRequest.MustStayWithSender(B("""{"container":"c1","messages":[]}"""), null));
+        Assert.True(PoolRequest.MustStayWithSender(B("""{"container":{"id":"c1","skills":[]},"messages":[]}"""), null));
+    }
+
+    [Fact(DisplayName = "a body that cannot be read stays with its sender")]
+    public void Unreadable() => Assert.True(PoolRequest.MustStayWithSender(B("""{"model":"claude-x","messages":["""), null));
+
     [Fact(DisplayName = "reasoning carried back holds a conversation to its account, unless the model is known to travel")]
     public void Reasoning()
     {

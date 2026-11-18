@@ -117,13 +117,55 @@ public sealed class ShortcutStore
                ?? Path.GetFileName(profile.TrimEnd(Path.DirectorySeparatorChar));
     }
 
-    /// Numbering starts at two, since the stock app is the first one.
+    /// Numbering starts at two, since the stock app is the first one. A name is
+    /// passed over when its folder is not free: a renamed "Claude 2" keeps
+    /// Claude-2, and a new "Claude 2" opened on it signed in to that account.
     public string UniqueName(string @base = "Claude")
     {
+        bool Taken(string name) =>
+            Shortcuts.Any(s => s.Name.Trim().Equals(name, StringComparison.OrdinalIgnoreCase))
+            || !FolderIsFree(Shortcut.FolderName(name));
         var n = 2;
         var candidate = $"{@base} {n}";
-        while (Shortcuts.Any(s => s.Name == candidate)) candidate = $"{@base} {++n}";
+        while (Taken(candidate)) candidate = $"{@base} {++n}";
         return candidate;
+    }
+
+    /// Whether a folder can go to a new shortcut without signing it in to
+    /// somebody: no other shortcut has it, and no profile is on disk there.
+    public bool FolderIsFree(string folder, Guid? id = null) =>
+        !Shortcuts.Any(s => s.Id != id && s.Folder.Equals(folder, StringComparison.OrdinalIgnoreCase))
+        && !Directory.Exists(GraftPaths.Profile(folder));
+
+    /// The folder a name gives a shortcut not yet created, numbered past any
+    /// that is not free. An emptied name gives Claude-Profile, which may be
+    /// somebody's; a folder typed by hand is still taken as typed.
+    public string SuggestedFolder(string name, Guid id)
+    {
+        var folder = Shortcut.FolderName(name);
+        if (FolderIsFree(folder, id)) return folder;
+        var n = 2;
+        while (!FolderIsFree($"{folder}-{n}", id)) n++;
+        return $"{folder}-{n}";
+    }
+
+    /// Why saving a shortcut would put it where another one is, or null. Only
+    /// a new shortcut, or one whose folder is changing, is refused a folder in
+    /// use, so a pair an older version left sharing one can still be untangled.
+    public string? Conflict(Shortcut shortcut, Shortcut? existing)
+    {
+        var others = Shortcuts.Where(s => s.Id != shortcut.Id).ToList();
+        var movesHere = existing is null
+            || !existing.Folder.Equals(shortcut.Folder, StringComparison.OrdinalIgnoreCase);
+        if (movesHere && others.FirstOrDefault(s =>
+                s.Folder.Equals(shortcut.Folder, StringComparison.OrdinalIgnoreCase)
+                || Fs.SamePath(s.ProfileDir, shortcut.ProfileDir)) is { } holder)
+            return L10n.Format("“{0}” already uses the folder {1}. Give this Claude a folder of its own.", holder.Name.Trim(), shortcut.Folder);
+        // Both would write the same .lnk, and the second would open the first's profile.
+        var renamed = existing is null || !existing.Name.Trim().Equals(shortcut.Name.Trim(), StringComparison.OrdinalIgnoreCase);
+        if (renamed && others.FirstOrDefault(s => s.Name.Trim().Equals(shortcut.Name.Trim(), StringComparison.OrdinalIgnoreCase)) is { } namesake)
+            return L10n.Format("Another Claude is already called “{0}”. Give this one another name.", namesake.Name.Trim());
+        return null;
     }
 
     /// The colour a shortcut added now is handed: one no other shortcut wears.
@@ -156,6 +198,17 @@ public sealed class ShortcutStore
         var i = Shortcuts.FindIndex(s => s.Id == shortcut.Id);
         if (i >= 0) Shortcuts[i] = shortcut; else Shortcuts.Add(shortcut);
         Save();
+    }
+
+    /// Why a delete must not start at all. Deleting the profile of a Claude that
+    /// is open used to remove the shortcut and then refuse the folder, leaving a
+    /// login and a history nothing in Graft could reach again.
+    public string? DeletionRefusal(Shortcut shortcut, bool deletingProfile, bool isOpen)
+    {
+        var sharedWithAnother = Shortcuts.Any(s => s.Id != shortcut.Id
+            && s.Folder.Equals(shortcut.Folder, StringComparison.OrdinalIgnoreCase));
+        if (!deletingProfile || !isOpen || sharedWithAnother) return null;
+        return L10n.Format("“{0}” is still open, so nothing was removed. Quit it, then remove it again.", shortcut.Name.Trim());
     }
 
     /// Removes the shortcut. The profile folder — a login and a chat history —

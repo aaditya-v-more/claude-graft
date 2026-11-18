@@ -148,7 +148,7 @@ public class LocalizationTests
             """));
     }
 
-    private static readonly string[] ProductNames = ["Claude", "Claude Graft", "Claude Code", "support@tinkerfold.com"];
+    private static readonly string[] ProductNames = ["Claude", "Claude Graft", "Claude Code", "aadityavmore@gmail.com"];
 
     private static readonly Regex BareAttribute = new(
         @"\s(?:Text|Content|Header|Description|PlaceholderText|ToolTipService\.ToolTip|AutomationProperties\.Name|Title|OnContent|OffContent)=""([^""]*)""");

@@ -198,7 +198,7 @@
   "Donate": "Поддержать",
   "Downloading the update": "Загрузка обновления",
   "Email": "Эл. почта",
-  "Email support": "Написать в поддержку",
+  "Email the developer": "Написать разработчику",
   "Every account": "Все аккаунты",
   "Fable": "Fable",
   "Filter": "Фильтр",
@@ -636,5 +636,11 @@
   "Remove {0}": "Убрать {0}",
   "Remove from the group": "Убрать из группы",
   "claude.ai wouldn't hand over its files ({0})": "claude.ai не отдал его файлы ({0})",
-  "claude.ai no longer has that artifact": "У claude.ai больше нет этого артефакта"
+  "claude.ai no longer has that artifact": "У claude.ai больше нет этого артефакта",
+
+  // Removing and naming a Claude
+  "“{0}” is open, so its chats and login cannot be deleted now. Quit it first to delete them too.": "«{0}» открыт, поэтому его чаты и данные входа сейчас нельзя удалить. Чтобы удалить и их, сначала закройте его.",
+  "“{0}” is still open, so nothing was removed. Quit it, then remove it again.": "«{0}» всё ещё открыт, поэтому ничего не удалено. Закройте его и удалите снова.",
+  "“{0}” already uses the folder {1}. Give this Claude a folder of its own.": "«{0}» уже использует папку {1}. Укажите для этого Claude собственную папку.",
+  "Another Claude is already called “{0}”. Give this one another name.": "Другой Claude уже называется «{0}». Дайте этому другое имя."
 }
