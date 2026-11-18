@@ -4,6 +4,14 @@ Rewritten in place; it describes the current state, not a history.
 
 ## Next
 
+**This round ends** when each of these is merged and its manual cases have passed on real machines:
+- #14/#15 with their Windows ports;
+- the Windows parity gaps, Russian included;
+- the Mac Donate rename;
+- the signed-in pass.
+
+Then the Mac release (both systems take the next number after 2.1.1), this file brought up to date, and a report. No other work until a new request or bug report.
+
 - **Signed-in passes are with the testers (19 Nov).** Sign-in is by emailed code, now allowed. Windows: `test-profiles`, `smoke` and `usage-and-start-session` on the second PC, against the installed 2.1.1. Mac, in a macOS VM: all seven signed-in cases against a universal build of `e689ecf`, zipped in `dist/test-builds/`. The Mac release, the next number after 2.1.1, follows a pass there.
 - **PR #17** (Tyler, "Windows: Mods page") is a draft he is still working on; nothing to do until he marks it ready.
 - **PRs #14 and #15 are merged (19 Nov)**, with their Windows ports and extra checks (`main` 92ea788). Each PR got a thank-you and a post-merge review. Real-machine runs are queued: `new-shortcut-folder` and `shared-usage-artifact` on a Mac and on Windows.
