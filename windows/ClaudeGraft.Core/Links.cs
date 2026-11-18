@@ -13,7 +13,8 @@ public static class Links
     public const string Site = "https://graft.aadityamore.com/";
     public const string Releases = "https://github.com/" + Updater.Repo + "/releases";
     public const string NewIssue = "https://github.com/" + Updater.Repo + "/issues/new";
-    public const string Email = "support@tinkerfold.com";
+    /// The developer's own address, as on the Mac.
+    public const string Email = "aadityavmore@gmail.com";
 
     /// Already says which Graft and which Windows it comes from, since the
     /// first reply to a problem report otherwise asks for exactly that.

@@ -13,7 +13,7 @@ Setup: Graft running, Claude open, Test A closed.
    page and a new-issue page, in turn.
 3. Press Email.
    Expect: the mail app (or the "choose an app" box if none is set) opens a
-   message to support@tinkerfold.com, subject "Claude Graft <version>", whose
+   message to aadityavmore@gmail.com, subject "Claude Graft <version>", whose
    body ends with the Graft version and the Windows version. Close it unsent.
 4. Under "Taskbar and sound", turn on "Show usage on the taskbar". Bring
    Claude forward.

@@ -131,8 +131,8 @@
                     <HyperlinkButton Content="Report a Problem" NavigateUri="https://github.com/aaditya-v-more/claude-graft/issues/new"
                                      AutomationProperties.AutomationId="settings.reportProblem" />
                     <HyperlinkButton Content="Email" Click="Email_Click"
-                                     ToolTipService.ToolTip="support@tinkerfold.com"
-                                     AutomationProperties.Name="Email support" AutomationProperties.AutomationId="settings.email" />
+                                     ToolTipService.ToolTip="aadityavmore@gmail.com"
+                                     AutomationProperties.Name="Email the developer" AutomationProperties.AutomationId="settings.email" />
                 </StackPanel>
             </local:SettingsCard>
             <!-- The owner's wish: the Windows port's author is credited here and in the README. -->

@@ -6,12 +6,12 @@ namespace ClaudeGraft.Tests;
 
 public class LinksTests
 {
-    [Fact(DisplayName = "an email from Settings goes to the support address and says which Graft and which Windows it comes from")]
+    [Fact(DisplayName = "an email from Settings goes to the developer's own address, as on the Mac, and says which Graft and which Windows it comes from")]
     public void Mail()
     {
         var mail = new Uri(Links.Mail("2.1.2", "Microsoft Windows NT 10.0.26100.0"));
         Assert.Equal("mailto", mail.Scheme);
-        Assert.StartsWith("mailto:support@tinkerfold.com?", mail.OriginalString);
+        Assert.StartsWith("mailto:aadityavmore@gmail.com?", mail.OriginalString);
         Assert.Contains("subject=Claude%20Graft%202.1.2", mail.OriginalString);
         Assert.Contains(Uri.EscapeDataString("Claude Graft 2.1.2, Microsoft Windows NT 10.0.26100.0"), mail.OriginalString);
     }

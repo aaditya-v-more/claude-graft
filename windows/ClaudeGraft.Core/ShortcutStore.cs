@@ -200,6 +200,17 @@ public sealed class ShortcutStore
         Save();
     }
 
+    /// Why a delete must not start at all. Deleting the profile of a Claude that
+    /// is open used to remove the shortcut and then refuse the folder, leaving a
+    /// login and a history nothing in Graft could reach again.
+    public string? DeletionRefusal(Shortcut shortcut, bool deletingProfile, bool isOpen)
+    {
+        var sharedWithAnother = Shortcuts.Any(s => s.Id != shortcut.Id
+            && s.Folder.Equals(shortcut.Folder, StringComparison.OrdinalIgnoreCase));
+        if (!deletingProfile || !isOpen || sharedWithAnother) return null;
+        return $"“{shortcut.Name.Trim()}” is still open, so nothing was removed. Quit it, then remove it again.";
+    }
+
     /// Removes the shortcut. The profile folder — a login and a chat history —
     /// only goes when explicitly asked for, and never while another shortcut
     /// still points at it. Returns a message when the profile could not be
