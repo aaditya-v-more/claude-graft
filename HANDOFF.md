@@ -2,6 +2,12 @@
 
 Rewritten in place; it describes the current state, not a history.
 
+## Next
+
+- **Test A and Test B sign-ins on the second PC wait on the owner.** Stay off that PC until they say the sign-ins are done; the retry steps are under "Signing in a test Claude on Windows".
+- **The Mac release** follows a signed-in pass in a macOS VM (usage, Start Session, sharing, Artifacts, Projects), and takes the next number after 2.1.1.
+- **PR #17** (Tyler, "Windows: Mods page") is a draft he is still working on; nothing to do until he marks it ready.
+
 ## The Windows port is merged
 
 Both community Windows ports are merged into `main` and GitHub shows both PRs as merged.
