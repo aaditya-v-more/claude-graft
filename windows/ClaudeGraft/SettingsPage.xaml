@@ -70,6 +70,24 @@
                                                    AutomationProperties.Name="Show usage on the taskbar" AutomationProperties.AutomationId="settings.taskbarStrip" /></Grid>
                 </StackPanel>
             </local:SettingsCard>
+            <local:SettingsCard Header="Show the icon of the Claude in front" Glyph="&#xE8B9;"
+                                Description="On the taskbar, beside its usage"
+                                IsEnabled="{x:Bind TaskbarStripSwitch.IsOn, Mode=OneWay}">
+                <StackPanel Orientation="Horizontal" Spacing="12">
+                    <TextBlock Text="{x:Bind local:SettingsCard.OnOff(FrontIconSwitch.IsOn), Mode=OneWay}" VerticalAlignment="Center" />
+                    <Grid Width="40"><ToggleSwitch x:Name="FrontIconSwitch" Style="{StaticResource CardSwitch}" Toggled="Changed"
+                                                   AutomationProperties.Name="Show the icon of the Claude in front" AutomationProperties.AutomationId="settings.frontIcon" /></Grid>
+                </StackPanel>
+            </local:SettingsCard>
+            <local:SettingsCard Header="Show the name of the Claude in front" Glyph="&#xE8AC;"
+                                Description="On the taskbar, beside its usage"
+                                IsEnabled="{x:Bind TaskbarStripSwitch.IsOn, Mode=OneWay}">
+                <StackPanel Orientation="Horizontal" Spacing="12">
+                    <TextBlock Text="{x:Bind local:SettingsCard.OnOff(FrontNameSwitch.IsOn), Mode=OneWay}" VerticalAlignment="Center" />
+                    <Grid Width="40"><ToggleSwitch x:Name="FrontNameSwitch" Style="{StaticResource CardSwitch}" Toggled="Changed"
+                                                   AutomationProperties.Name="Show the name of the Claude in front" AutomationProperties.AutomationId="settings.frontName" /></Grid>
+                </StackPanel>
+            </local:SettingsCard>
             <local:SettingsCard Header="Chime when a Claude is ready" Glyph="&#xE767;"
                                 Description="A sound when a Claude in the background finishes, and a stronger one when it waits on you">
                 <StackPanel Orientation="Horizontal" Spacing="12">

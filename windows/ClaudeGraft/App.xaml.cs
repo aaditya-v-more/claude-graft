@@ -66,6 +66,8 @@ public partial class App : Application
             && updated.StartHidden == Settings.StartHidden
             && updated.HoldUpdates == Settings.HoldUpdates
             && updated.TaskbarStrip == Settings.TaskbarStrip
+            && updated.FrontIcon == Settings.FrontIcon
+            && updated.FrontName == Settings.FrontName
             && updated.Chime == Settings.Chime) return;
 
         // Only a change of look redraws the windows; a redraw resets the backdrop, which flashes.
@@ -536,7 +538,8 @@ public partial class App : Application
             ChatFocus.Turn.Done when _turnSeen.GetValueOrDefault(front) != ended => TaskbarStrip.Signal.Done,
             _ => TaskbarStrip.Signal.None,
         };
-        _strip.Show(new TaskbarStrip.Face(marks, figure, ChatOnScreen.TitleFor(front), signal));
+        var name = Settings.FrontName ? shortcut?.Name ?? "Claude" : null;
+        _strip.Show(new TaskbarStrip.Face(Settings.FrontIcon ? marks : new List<TaskbarStrip.Mark>(), figure, ChatOnScreen.TitleFor(front), signal, name));
     }
 
     /// The tray says which Claude is in front and what its account has spent,
