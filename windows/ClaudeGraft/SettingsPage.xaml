@@ -103,6 +103,20 @@
                 <Button x:Name="CheckButton" Content="Check for Updates" Click="Check_Click"
                         AutomationProperties.AutomationId="settings.checkUpdates" />
             </local:SettingsCard>
+            <local:SettingsCard Header="Help and feedback" Glyph="&#xE897;"
+                                Description="How Graft works, what changed, and where to say what went wrong">
+                <StackPanel Orientation="Horizontal" Spacing="4">
+                    <HyperlinkButton Content="Help" NavigateUri="https://graft.aadityamore.com/"
+                                     AutomationProperties.AutomationId="settings.help" />
+                    <HyperlinkButton Content="What’s New" NavigateUri="https://github.com/aaditya-v-more/claude-graft/releases"
+                                     AutomationProperties.AutomationId="settings.whatsNew" />
+                    <HyperlinkButton Content="Report a Problem" NavigateUri="https://github.com/aaditya-v-more/claude-graft/issues/new"
+                                     AutomationProperties.AutomationId="settings.reportProblem" />
+                    <HyperlinkButton Content="Email" Click="Email_Click"
+                                     ToolTipService.ToolTip="support@tinkerfold.com"
+                                     AutomationProperties.Name="Email support" AutomationProperties.AutomationId="settings.email" />
+                </StackPanel>
+            </local:SettingsCard>
             <!-- The owner's wish: the Windows port's author is credited here and in the README. -->
             <local:SettingsCard Header="Windows port" Glyph="&#xE716;"
                                 Description="Brought to Windows by Tyler, with parts of James's port">

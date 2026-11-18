@@ -142,6 +142,9 @@ public sealed partial class SettingsPage : Page
 
     // Unlike the flyout, which stays quiet like the Mac dropdown, this page reports the
     // outcome in words: a person who pressed is owed an answer.
+    private void Email_Click(object sender, RoutedEventArgs e) =>
+        _ = Windows.System.Launcher.LaunchUriAsync(new Uri(Links.Mail()));
+
     private async void Check_Click(object sender, RoutedEventArgs e)
     {
         if (_update is not null)
