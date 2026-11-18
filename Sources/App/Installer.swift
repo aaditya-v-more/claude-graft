@@ -66,16 +66,28 @@ enum Installer {
     /// an app each describing it, and only the name says which is whose, so
     /// for those the scan is not made: guessing would hand one shortcut's app
     /// to the other's Delete.
+    ///
+    /// A name another shortcut was installed under is that shortcut's app,
+    /// even for one called the same on the same folder: a new shortcut named
+    /// like it was handed it, read as created, and Open, Start Session and
+    /// Delete all acted on the other account. Only a created shortcut can own
+    /// an app, so for a created one whose folder is shared only with others
+    /// not created yet, the app found by its folder is its own, renamed in
+    /// Finder; any other sharing is still not guessed at.
     static func installedBundle(for shortcut: Shortcut, among shortcuts: [Shortcut] = []) -> URL? {
+        let others = shortcuts.filter { $0.id != shortcut.id }
+        let theirs = others.compactMap(\.installedName)
         for directory in searchDirectories {
-            for name in names(of: shortcut) {
+            for name in names(of: shortcut) where name == shortcut.installedName
+                || !theirs.contains(where: { Graft.isNamed($0, name) }) {
                 let candidate = directory.appending(path: "\(name).app")
                 if describes(candidate, shortcut.profileDir) { return candidate }
             }
         }
-        guard !shortcuts.contains(where: {
-            $0.id != shortcut.id && Graft.samePath($0.profileDir, shortcut.profileDir)
-        }) else { return nil }
+        let sharers = others.filter { Graft.samePath($0.profileDir, shortcut.profileDir) }
+        guard sharers.isEmpty
+            || (shortcut.installedName != nil && sharers.allSatisfy { $0.installedName == nil })
+        else { return nil }
         for directory in searchDirectories {
             let candidates = (try? fm.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil,
                                                           options: [.skipsHiddenFiles])) ?? []
@@ -132,6 +144,8 @@ enum Installer {
         case reservedName(String)
         case nameTaken(String)
         case badFolder(String)
+        case folderInUse(holder: String, folder: String)
+        case nameInUse(holder: String, app: String)
         case selfSource
         case missingIcon
         case iconCreationFailed
@@ -147,6 +161,11 @@ enum Installer {
                 return L10n.format("There is already an application at %@ that Claude Graft did not create. Rename this shortcut.", path)
             case .badFolder(let reason):
                 return reason
+            case .folderInUse(let holder, let folder):
+                return L10n.format("“%@” already uses the folder %@. Give this shortcut a folder of its own.",
+                                   holder, folder)
+            case .nameInUse(let holder, let app):
+                return L10n.format("“%@” was created as %@. Give this shortcut another name.", holder, app)
             case .selfSource:
                 return L10n.text("This shortcut is set to borrow chats from its own profile. Choose a different source.")
             case .missingIcon:
@@ -181,6 +200,23 @@ enum Installer {
             throw InstallError.selfSource
         }
 
+        // One profile folder is one login and one history, so a second
+        // shortcut on it opens the same account under another name — which is
+        // how a new shortcut came up already signed in to somebody else's.
+        // Refused only when this press would put it there: a new shortcut, or
+        // one whose folder is changing. One already on its folder stays
+        // updatable whatever else an older list holds.
+        let movesHere = shortcut.installedName == nil
+            || previous.map { !Graft.isNamed($0.folder, shortcut.folder) } == true
+        if movesHere, let holder = shortcuts.first(where: {
+            $0.id != shortcut.id && (Graft.isNamed($0.folder, shortcut.folder)
+                                     || Graft.samePath($0.profileDir, shortcut.profileDir))
+        }) {
+            throw InstallError.folderInUse(
+                holder: holder.name.trimmingCharacters(in: .whitespacesAndNewlines),
+                folder: shortcut.folder)
+        }
+
         // Written under the name asked for, beside the app it replaces. That
         // app may be under an older name or one given it in Finder, and it is
         // removed only once its replacement is in place.
@@ -192,6 +228,24 @@ enum Installer {
         // before anything is removed, so a refused rename leaves both intact.
         if fm.fileExists(atPath: bundle.path), !isGraftBundle(bundle) {
             throw InstallError.nameTaken(bundle.path)
+        }
+        // One of ours, but another shortcut's: the app it was created as,
+        // whatever folder that opens. Written over, that shortcut lost its
+        // app to this one. Not when the app is this shortcut's too: it was
+        // created under that name itself and the app opens its folder. Two
+        // shortcuts left with one installed name by that overwrite could
+        // otherwise never update the one that has it. Found by name or folder
+        // alone it is not proof: another's app still opening a folder its list
+        // entry has since left matches both.
+        let appName = bundle.deletingPathExtension().lastPathComponent
+        let ownApp = [previous?.installedName, shortcut.installedName].contains {
+            $0.map { Graft.isNamed($0, appName) } == true
+        } && [previous?.profileDir, shortcut.profileDir].contains { $0.map { describes(bundle, $0) } == true }
+        if !ownApp, fm.fileExists(atPath: bundle.path), let owner = shortcuts.first(where: {
+            $0.id != shortcut.id && $0.installedName.map { Graft.isNamed($0, appName) } == true
+        }) {
+            throw InstallError.nameInUse(holder: owner.name.trimmingCharacters(in: .whitespacesAndNewlines),
+                                         app: bundle.lastPathComponent)
         }
         let config = GraftConfig(profileDir: shortcut.profileDir.path,
                                  sourceDir: sourceDir?.path)

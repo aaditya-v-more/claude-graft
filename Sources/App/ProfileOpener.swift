@@ -24,12 +24,18 @@ enum ProfileOpener {
 
     /// The same lookup the repairs and Delete use, so what Open reaches is
     /// the app they keep up to date.
-    static func bundle(for shortcut: Shortcut) -> URL? {
-        Installer.installedBundle(for: shortcut)
+    ///
+    /// `shortcuts` is the whole list, as they pass it: without it, a shortcut
+    /// not yet created on another's folder was handed that one's app, read as
+    /// created, and Open started the other account's Claude.
+    static func bundle(for shortcut: Shortcut, among shortcuts: [Shortcut] = []) -> URL? {
+        Installer.installedBundle(for: shortcut, among: shortcuts)
     }
 
-    static func destination(profile: URL, shortcut: Shortcut?) throws -> Destination {
-        if let shortcut, Graft.samePath(shortcut.profileDir, profile), let bundle = bundle(for: shortcut) {
+    static func destination(profile: URL, shortcut: Shortcut?,
+                            among shortcuts: [Shortcut] = []) throws -> Destination {
+        if let shortcut, Graft.samePath(shortcut.profileDir, profile),
+           let bundle = bundle(for: shortcut, among: shortcuts) {
             return .shortcut(bundle)
         }
         guard shortcut == nil, Graft.samePath(profile, Graft.mainProfile) else {
@@ -40,7 +46,8 @@ enum ProfileOpener {
 
     /// The launcher checks for an existing Claude on this exact profile. Letting
     /// LaunchServices reuse an instance can skip that check and the graft itself.
-    static func open(profile: URL, shortcut: Shortcut?, completion: @escaping (Error?) -> Void) {
+    static func open(profile: URL, shortcut: Shortcut?, among shortcuts: [Shortcut] = [],
+                     completion: @escaping (Error?) -> Void) {
         DispatchQueue.global(qos: .userInitiated).async {
             func finish(_ error: Error?) {
                 if let error {
@@ -50,7 +57,7 @@ enum ProfileOpener {
                 DispatchQueue.main.async { completion(error) }
             }
             do {
-                switch try destination(profile: profile, shortcut: shortcut) {
+                switch try destination(profile: profile, shortcut: shortcut, among: shortcuts) {
                 case .main:
                     finish(Graft.open(profile: profile) ? nil : Failure.couldNotOpen)
                 case .shortcut(let bundle):

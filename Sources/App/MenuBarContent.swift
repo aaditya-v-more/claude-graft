@@ -162,7 +162,8 @@ struct MenuBarContent: View {
             let openNow = ChatConflict.openSharers(of: entry.profile, among: neighbours)
             DispatchQueue.main.async {
                 guard openNow.isEmpty || ChatConflict.askInPopover(sharers: openNow) else { return }
-                ProfileOpener.open(profile: entry.profile, shortcut: shortcut) { error in
+                ProfileOpener.open(profile: entry.profile, shortcut: shortcut,
+                                   among: store.shortcuts) { error in
                     problem = error?.localizedDescription
                 }
             }

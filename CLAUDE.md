@@ -82,6 +82,7 @@ any of these. The why is in [notes/updates-and-releases.md](notes/updates-and-re
 
 - **Never touch an app Graft did not create.** Bundles are known by the `graft.json` they carry, never by name; `Claude` and `Claude Graft` are reserved.
 - **Profile folders are validated:** one plain component inside Application Support, never `Claude`, never a path. Reserved names and shared folders are compared as the disk compares them, ignoring case (`Graft.isNamed`), and `deleteProfile` refuses Graft's own folder.
+- **One profile folder, one shortcut.** A new shortcut is never offered a name whose folder another shortcut kept through a rename or that is still on disk (`uniqueName`), typing its name never gives it such a folder (`suggestedFolder`), and `Installer.install` refuses to put a new or moved shortcut on a folder another one uses. A shortcut's app is looked up with the whole list (`among:`) and its figures by shortcut, never by folder alone; a name another shortcut was created as is that shortcut's app, never looked up or written over for another.
 - **Every route that opens a profile asks first** through `ChatConflict`; the suite fails if one of the three views stops naming it.
 - **A missing shortcut is never permission to open another profile.** `ProfileOpener` reports an error instead.
 - **Opening a profile that is already open shows the Claude that is there.** Nothing in `Sources/App` calls `Graft.launch` directly.
