@@ -6,9 +6,11 @@ accounts, a real Claude Desktop, the menu bar and tray, installs and updates.
 
 The machines a case runs on have Claude Desktop installed, its own profile
 signed in to one account, and a shortcut called **Test A** made in Graft and
-signed in to a different account (**Test B** where a third is needed). Only the
-machine's owner types an email, password or sign-in code. A step that needs one
-is marked **Owner:**; whoever runs the case waits for it and goes on.
+signed in to a different account (**Test B** where a third is needed;
+`test-profiles.md` makes them). Sign-ins are by emailed code. Only the owner,
+or someone they have trusted with it, supplies a code or a password; a step
+that needs one is marked **Owner:**, and whoever runs the case waits for it and
+goes on.
 
 Graft writes `diagnostics.log` and `state-report.txt` in its own folder:
 `~/Library/Application Support/ClaudeGraft` on a Mac, `%APPDATA%\ClaudeGraft`
