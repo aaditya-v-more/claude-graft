@@ -724,6 +724,10 @@ public sealed partial class MainPage : Page
         if (row.Opening) return;
         row.RecheckLinkHandler();
 
+        var neighbours = App.Store.ChatStoreNeighbours(row.Shortcut);
+        var sharers = await Task.Run(() => ChatConflict.OpenSharers(row.ProfileDir, neighbours));
+        if (sharers.Count > 0 && !await AskOpenAnyway(sharers)) return;
+
         // Before opening, never after: Claude builds its sidebar at launch, so the
         // copy has to happen first to land in the window about to open.
         if (row.Shortcut is { } s && row.Elsewhere is { } found
@@ -1055,6 +1059,22 @@ public sealed partial class MainPage : Page
     private Task WarnListUnreadable() => Warn("The profile list could not be read",
         "shortcuts.json in %APPDATA%\\ClaudeGraft would not read, so nothing is saved over it "
         + "until it does. Your profiles and their chats are untouched.");
+
+    /// Whether to open a Claude while others on the same chats are open.
+    private async Task<bool> AskOpenAnyway(IReadOnlyList<string> sharers)
+    {
+        var dialog = new ContentDialog
+        {
+            Title = ChatConflict.Title,
+            Content = new TextBlock { Text = ChatConflict.Message(sharers), TextWrapping = TextWrapping.Wrap },
+            PrimaryButtonText = "Open Anyway",
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Close,
+        };
+        PrepareDialog(dialog);
+        AutomationProperties.SetAutomationId(dialog, "chatConflict");
+        return await dialog.ShowAsync() == ContentDialogResult.Primary;
+    }
 
     private async Task Warn(string title, string message)
     {

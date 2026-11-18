@@ -632,8 +632,8 @@ public partial class App : Application
         {
             foreach (var shortcut in Store.Shortcuts)
             {
-                var config = Store.ConfigFor(shortcut);
-                items.Add(("Open " + shortcut.Name, true, () => Task.Run(() => Launcher.Open(config))));
+                var row = ShortcutRow.ForShortcut(shortcut);
+                items.Add(("Open " + shortcut.Name, true, () => _ = OpenFromTray(row)));
             }
         }
         items.Add((TrayMenu.Separator, false, null));
@@ -647,6 +647,16 @@ public partial class App : Application
         items.Add(("Quit", true, Quit));
 
         TrayMenu.Show(items);
+    }
+
+    /// Opens a Claude from the flyout or the tray menu, asking first in the
+    /// manager when another Claude on the same chats is open.
+    internal static async Task OpenFromTray(ShortcutRow row)
+    {
+        var neighbours = Store.ChatStoreNeighbours(row.Shortcut);
+        var sharers = await Task.Run(() => ChatConflict.OpenSharers(row.ProfileDir, neighbours));
+        if (sharers.Count == 0) { ProfileRows.Open(row); return; }
+        (Current as App)?.OnUi(() => ((App)Current).Manager().OpenAsking(row));
     }
 
     /// The warning before closing Claudes needs a window to sit in, and the

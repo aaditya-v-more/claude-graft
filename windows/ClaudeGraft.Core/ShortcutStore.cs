@@ -86,6 +86,20 @@ public sealed class ShortcutStore
         }
     }
 
+    /// The other profiles reading the same chat store as this one, Claude's own
+    /// included; null stands for Claude's own.
+    public IReadOnlyList<(string Name, string Profile)> ChatStoreNeighbours(Shortcut? shortcut)
+    {
+        var root = shortcut is null ? GraftPaths.DefaultProfile : ChatRoot(shortcut);
+        var found = new List<(string Name, string Profile)>();
+        if (shortcut is not null && Fs.SamePath(root, GraftPaths.DefaultProfile))
+            found.Add(("Claude", GraftPaths.DefaultProfile));
+        foreach (var other in Shortcuts.ToList())
+            if (other.Id != shortcut?.Id && Fs.SamePath(ChatRoot(other), root))
+                found.Add((other.Name, other.ProfileDir));
+        return found;
+    }
+
     public string Label(ShortcutSource source) => source.Kind switch
     {
         SourceKind.Own => "Its own chats",

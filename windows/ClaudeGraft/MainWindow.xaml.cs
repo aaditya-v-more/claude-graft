@@ -473,6 +473,15 @@ public sealed partial class MainWindow : Window
         if (RootFrame.Content is MainPage page) page.OnShown();
     }
 
+    /// An open from the flyout or the tray menu that has a question to ask
+    /// first: the flyout closes as soon as a dialog takes the focus.
+    public void OpenAsking(ShortcutRow row)
+    {
+        Show();
+        ShowClaudes();
+        if (RootFrame.Content is MainPage page) _ = page.OpenAsync(row);
+    }
+
     public void ConfirmRestartClaudes()
     {
         Show();
