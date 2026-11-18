@@ -4,8 +4,7 @@ Rewritten in place; it describes the current state, not a history.
 
 ## Next
 
-- **Test A and Test B sign-ins on the second PC wait on the owner.** Stay off that PC until they say the sign-ins are done; the retry steps are under "Signing in a test Claude on Windows".
-- **The Mac release** follows a signed-in pass in a macOS VM (usage, Start Session, sharing, Artifacts, Projects), and takes the next number after 2.1.1.
+- **Signed-in passes are with the testers (19 Nov).** Sign-in is by emailed code, now allowed. Windows: `test-profiles`, `smoke` and `usage-and-start-session` on the second PC, against the installed 2.1.1. Mac, in a macOS VM: all seven signed-in cases against a universal build of `e689ecf`, zipped in `dist/test-builds/`. The Mac release, the next number after 2.1.1, follows a pass there.
 - **PR #17** (Tyler, "Windows: Mods page") is a draft he is still working on; nothing to do until he marks it ready.
 - **PRs #14 and #15 wait on the owner's decision to merge.** Both were merged locally onto `main` (`62dbbad`) and pass: `./test.sh` 1458/1459 and 1485/1486, failing only the known text-position check, and #14's `./test-relay.sh` 99/99.
   - **#14** (Juulsn) stops an artifact tool's `container` argument in the history from pinning a conversation to its sender. It now reads the top-level `container` by parsing the body, where the old code did a byte scan, so every inference request is parsed once. Windows has the same scan in `PoolPolicy.cs` and needs the same fix.
