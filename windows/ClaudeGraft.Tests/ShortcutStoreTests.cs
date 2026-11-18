@@ -91,4 +91,62 @@ public sealed class ShortcutStoreTests : IDisposable
         store.Add(Shortcut.New("Claude 2"));
         Assert.Equal("Claude 3", store.UniqueName());
     }
+
+    [Fact(DisplayName = "a name whose folder a renamed Claude kept, or a profile still on disk holds, is not offered to a new one")]
+    public void NamesPassOverFoldersInUse()
+    {
+        var store = new ShortcutStore();
+        var renamed = Shortcut.New("Claude 2");
+        store.Add(renamed);
+        renamed.Name = "Work";
+        store.Update(renamed);
+        Assert.Equal("Claude 3", store.UniqueName());
+
+        Directory.CreateDirectory(GraftPaths.Profile("Claude-3"));
+        Assert.Equal("Claude 4", store.UniqueName());
+
+        store.Add(Shortcut.New("claude 4", folder: "Elsewhere"));
+        Assert.Equal("Claude 5", store.UniqueName());
+    }
+
+    [Fact(DisplayName = "the folder a name suggests steps past one another Claude has or one on disk, but keeps a Claude's own")]
+    public void SuggestedFolders()
+    {
+        var store = new ShortcutStore();
+        var holder = Shortcut.New("Holder", folder: "Claude-Profile");
+        store.Add(holder);
+        var draft = Guid.NewGuid();
+        Assert.Equal("Claude-Work", store.SuggestedFolder("Work", draft));
+        Assert.Equal("Claude-Profile-2", store.SuggestedFolder("", draft));
+        Assert.Equal("Claude-profile-2", store.SuggestedFolder("profile", draft));
+        Directory.CreateDirectory(GraftPaths.Profile("Claude-Profile-2"));
+        Assert.Equal("Claude-Profile-3", store.SuggestedFolder("", draft));
+        Assert.Equal("Claude-Profile", store.SuggestedFolder("", holder.Id));
+    }
+
+    [Fact(DisplayName = "a new Claude is refused a folder or a name another Claude has, while one already sharing can still be saved")]
+    public void Conflicts()
+    {
+        var store = new ShortcutStore();
+        var holder = Shortcut.New("Claude 2");
+        store.Add(holder);
+
+        var onItsFolder = Shortcut.New("Fresh", folder: "claude-2");
+        Assert.Contains("“Claude 2” already uses the folder", store.Conflict(onItsFolder, null));
+        Assert.Contains("already called “Claude 2”", store.Conflict(Shortcut.New("claude 2 ", folder: "Claude-Other"), null));
+        Assert.Null(store.Conflict(Shortcut.New("Fresh"), null));
+
+        var mover = Shortcut.New("Mover");
+        store.Add(mover);
+        var moved = mover.Copy();
+        moved.Folder = "Claude-2";
+        Assert.NotNull(store.Conflict(moved, mover));
+
+        // An older version could leave two on one folder; the one there stays editable.
+        var stale = Shortcut.New("Stale", folder: "Claude-2");
+        store.Add(stale);
+        var renamed = stale.Copy();
+        renamed.Name = "Stale renamed";
+        Assert.Null(store.Conflict(renamed, stale));
+    }
 }

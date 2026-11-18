@@ -157,7 +157,7 @@ public sealed partial class ProfileEditor : UserControl
         if (_isNew && !_folderEdited)
         {
             _filling = true;
-            FolderBox.Text = Shortcut.FolderName(NameBox.Text);
+            FolderBox.Text = App.Store.SuggestedFolder(NameBox.Text, _shortcut.Id);
             _filling = false;
         }
         Changed();
@@ -168,7 +168,7 @@ public sealed partial class ProfileEditor : UserControl
         if (_filling) return;
         // TextChanged arrives after the name's own rewrite has finished, so a flag set here stopped
         // the folder following at once; only a folder unlike the name's counts as typed by hand.
-        if (_isNew) _folderEdited = FolderBox.Text.Trim() != Shortcut.FolderName(NameBox.Text);
+        if (_isNew) _folderEdited = FolderBox.Text.Trim() != App.Store.SuggestedFolder(NameBox.Text, _shortcut.Id);
         Changed();
     }
 
@@ -194,10 +194,11 @@ public sealed partial class ProfileEditor : UserControl
         var folder = FolderBox.Text.Trim();
         if (name.Length == 0) { Reject("The Claude needs a name."); return; }
         if (Graft.ValidateFolder(folder) is string problem) { Reject(problem); return; }
-        Problem.IsOpen = false;
         var result = _shortcut.Copy();
         result.Name = name;
         result.Folder = folder;
+        if (App.Store.Conflict(result, _original) is string conflict) { Reject(conflict); return; }
+        Problem.IsOpen = false;
         Saved?.Invoke(_original ?? result, result, _isNew);
     }
 
