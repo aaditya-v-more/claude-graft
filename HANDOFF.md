@@ -7,6 +7,10 @@ Rewritten in place; it describes the current state, not a history.
 - **Test A and Test B sign-ins on the second PC wait on the owner.** Stay off that PC until they say the sign-ins are done; the retry steps are under "Signing in a test Claude on Windows".
 - **The Mac release** follows a signed-in pass in a macOS VM (usage, Start Session, sharing, Artifacts, Projects), and takes the next number after 2.1.1.
 - **PR #17** (Tyler, "Windows: Mods page") is a draft he is still working on; nothing to do until he marks it ready.
+- **PRs #14 and #15 wait on the owner's decision to merge.** Both were merged locally onto `main` (`62dbbad`) and pass: `./test.sh` 1458/1459 and 1485/1486, failing only the known text-position check, and #14's `./test-relay.sh` 99/99.
+  - **#14** (Juulsn) stops an artifact tool's `container` argument in the history from pinning a conversation to its sender. It now reads the top-level `container` by parsing the body, where the old code did a byte scan, so every inference request is parsed once. Windows has the same scan in `PoolPolicy.cs` and needs the same fix.
+  - **#15** (PvtLight) stops a new shortcut from landing on a folder another shortcut uses, which signed it in to that shortcut's account. Every caller passes the list. Windows has the same bug: `ShortcutStore.UniqueName` checks names only, and `ApplyEdit` adds a new shortcut on a folder in use without a word.
+- **Real-device runs** use the cases in `Tests/manual/`.
 
 ## The Windows port is merged
 
@@ -14,7 +18,7 @@ Both community Windows ports are merged into `main` and GitHub shows both PRs as
 - **#16 (Tyler, `snowtyler`)** is the base. It is WinUI 3 on .NET 10 with Velopack installs and updates, everything under `windows/`.
 - **#9 (James, `jamesql`)** is merged on top. `windows/` keeps #16's tree, which already carried James's sign-in routing, Store Claude discovery, the state-lock skip and the project-order rollback, each credited to him as co-author.
   - From #9's own changes, only these landed: the Mac half of the rollback (`Sources/Shared/SidebarStorage.swift` and its tests) and a README link.
-  - #9's Windows CI workflow was left out, because it calls build scripts that the merged tree doesn't have. A Windows CI workflow written for the current layout is still wanted.
+  - #9's Windows CI workflow was left out, because it calls build scripts that the merged tree doesn't have. `.github/workflows/windows-checks.yml` replaces it. It runs on every push and PR touching `windows/` or `VERSION`: it checks the version's release notes exist, runs `dotnet test` (561/561 on its first run) and does a release-shaped publish. It is not a required check.
 - Both PRs have a thank-you comment saying what was merged and how.
 - The owner made both authors code owners of `windows/`. The owner has said `windows/` changes go straight to `main`, without PRs.
 
