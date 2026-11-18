@@ -1021,5 +1021,345 @@ MainActor.assumeIsolated {
           "export: the Word document opens and holds the page's text \(failed[.word] ?? "")")
 }
 
+// MARK: - Naming a new shortcut
+
+// A shortcut's page typed into the way a person types, a key at a time. The
+// folder follows the name until one is typed by hand, never lands on another
+// shortcut's folder or a profile still on disk, and never moves once the
+// shortcut is created. Backspacing the 2 of "Claude 2" passes through an
+// empty name, whose folder is Claude-Profile. On a Mac with one, the new
+// shortcut stopped there, showed that account's figures and offered its
+// Start Session, and once its app was looked up by the folder alone, it read
+// as that shortcut and Open started the other account's Claude.
+struct NamingPage: View {
+    @EnvironmentObject var store: ShortcutStore
+    let id: UUID
+    var body: some View {
+        if let index = store.shortcuts.firstIndex(where: { $0.id == id }) {
+            ShortcutDetail(shortcut: $store.shortcuts[index], requestDelete: {}).id(id)
+                .environment(\.controlSurface, ControlSurface.window)
+        }
+    }
+}
+do {
+    let saved = Shared.store.shortcuts
+    var holder = Shortcut(name: "Holder", folder: "Claude-Profile", source: .own)
+    holder.installedName = holder.name
+    let holderResources = Installer.installDirectoryOverride!.appending(path: "Holder.app/Contents/Resources")
+    try fm.createDirectory(at: holderResources, withIntermediateDirectories: true)
+    try JSONEncoder().encode(GraftConfig(profileDir: holder.profileDir.path, sourceDir: nil))
+        .write(to: holderResources.appending(path: "graft.json"))
+    try fm.createDirectory(at: holder.profileDir, withIntermediateDirectories: true)
+    let leftover = Graft.applicationSupport.appending(path: "Claude-Old")
+    try fm.createDirectory(at: leftover, withIntermediateDirectories: true)
+    // Added after the pages above, which still hold places in the list.
+    Shared.store.shortcuts.append(holder)
+    let taken = Date()
+    let holderFigures = UsageMonitor.Entry(
+        name: holder.name, profile: holder.profileDir,
+        usage: Graft.Usage(fiveHour: 37, week: 61, organization: nil, sampled: taken,
+                           fiveHourReset: taken.addingTimeInterval(3 * 3600),
+                           weekReset: taken.addingTimeInterval(4 * 86400)),
+        isRunning: false, shortcut: holder.id, isLive: true, plan: "Max", refreshed: taken)
+
+    let keys: [Character: UInt16] = ["a": 0, "s": 1, "d": 2, "e": 14, "t": 17, "o": 31, "i": 34,
+                                     "p": 35, "l": 37, "k": 40, "n": 45, "m": 46, "w": 13, "r": 15,
+                                     "f": 3, "c": 8, "u": 32, " ": 49, "-": 27]
+    var trail: [String] = []
+    var pages = 0
+    func send(_ characters: String, to window: NSWindow) {
+        let code = characters == "\u{7F}" ? 51 : keys[Character(characters.lowercased())] ?? 0
+        for type in [NSEvent.EventType.keyDown, .keyUp] {
+            guard let event = NSEvent.keyEvent(with: type, location: .zero, modifierFlags: [],
+                                               timestamp: ProcessInfo.processInfo.systemUptime,
+                                               windowNumber: window.windowNumber, context: nil,
+                                               characters: characters,
+                                               charactersIgnoringModifiers: characters.lowercased(),
+                                               isARepeat: false, keyCode: code) else { continue }
+            window.sendEvent(event)
+        }
+    }
+    /// Each key followed by a turn of the run loop, as between two keystrokes,
+    /// and the folder written down after it.
+    func type(_ text: String, in window: NSWindow, id: UUID) {
+        for character in text {
+            send(String(character), to: window)
+            RunLoop.main.run(until: Date().addingTimeInterval(0.08))
+            trail.append(Shared.store.shortcut(id)?.folder ?? "?")
+        }
+    }
+    func focus(_ showing: String, in window: NSWindow, selectAll: Bool) {
+        let field = descendants(window.contentView!).compactMap { $0 as? NSTextField }
+            .first { $0.isEditable && $0.stringValue == showing }
+        if let field, window.makeFirstResponder(field), let editor = window.firstResponder as? NSTextView {
+            if selectAll { editor.selectAll(nil) }
+            else { editor.setSelectedRange(NSRange(location: (editor.string as NSString).length, length: 0)) }
+        }
+        trail = []
+    }
+    func page(_ id: UUID) -> NSWindow {
+        pages += 1
+        let window = hosted(AnyView(NamingPage(id: id).environmentObject(Shared.store)
+            .environmentObject(Shared.usage)), title: "Naming check \(pages)")
+        RunLoop.main.run(until: Date().addingTimeInterval(0.7))
+        return window
+    }
+    /// The page as VoiceOver reads it, with Holder's figures on hand for it
+    /// to borrow if it took Holder's folder for its own.
+    func read(_ window: NSWindow, _ place: String) -> [Seen] {
+        for _ in 0..<2 { Shared.usage.setEntriesForTesting([holderFigures]); settle() }
+        // Asked again when a read comes back empty: one run in six here lost
+        // the answer for one window, and every check after it then failed on
+        // nothing at all.
+        var tries = 0
+        while (seen(window)?.count ?? 0) <= 1 && tries < 3 { tries += 1; settle() }
+        return checkAccessibility(window, surface: ControlSurface.window, place)
+    }
+    /// The page goes before its shortcut does: it holds a binding into the list.
+    func close(_ window: NSWindow) {
+        window.makeFirstResponder(nil)
+        (window.contentView as? NSHostingView<AnyView>)?.rootView = AnyView(EmptyView())
+        settle()
+        window.orderOut(nil)
+    }
+    func newShortcut() -> UUID {
+        let shortcut = Shortcut(name: Shared.store.uniqueName(), source: .own)
+        Shared.store.shortcuts.append(shortcut)
+        return shortcut.id
+    }
+    func someoneElses(_ folder: String, besides id: UUID) -> Bool {
+        Shared.store.shortcuts.contains { $0.id != id && Graft.isNamed($0.folder, folder) }
+            || Graft.isNamed(folder, leftover.lastPathComponent)
+    }
+
+    /// The name and folder boxes on one line, the folder box at its full
+    /// width. With an empty label kept, the folder box sat 11 points below
+    /// the name on a created shortcut's page and lost 20 points of width on
+    /// a new one's.
+    func boxesInLine(_ window: NSWindow, _ shortcut: Shortcut?, _ place: String) {
+        let fields = descendants(window.contentView!).compactMap { $0 as? NSTextField }.filter(\.isEditable)
+        let name = fields.first { $0.stringValue == shortcut?.name }.map { $0.convert($0.bounds, to: nil) }
+        let folder = fields.first { $0.stringValue == shortcut?.folder }.map { $0.convert($0.bounds, to: nil) }
+        check(name != nil && folder != nil && abs(name!.minY - folder!.minY) <= 1 && abs(folder!.width - 130) <= 1,
+              "naming, \(place): the folder box sits level with the name, 130 points wide (name \(name.map { "\($0)" } ?? "?"), folder \(folder.map { "\($0)" } ?? "?"))")
+    }
+    do {
+        var long = Shortcut(name: "CRM-Kai-Longname@example.com", folder: "Claude-Longname-example-com", source: .own)
+        long.installedName = long.name
+        let resources = Installer.installDirectoryOverride!.appending(path: "\(long.name).app/Contents/Resources")
+        try fm.createDirectory(at: resources, withIntermediateDirectories: true)
+        try JSONEncoder().encode(GraftConfig(profileDir: long.profileDir.path, sourceDir: nil))
+            .write(to: resources.appending(path: "graft.json"))
+        try fm.createDirectory(at: long.profileDir, withIntermediateDirectories: true)
+        Shared.store.shortcuts.append(long)
+        let window = page(long.id)
+        for width in [420.0, 790.0] {
+            window.setContentSize(NSSize(width: width, height: 700))
+            settle()
+            boxesInLine(window, Shared.store.shortcut(long.id), "a created shortcut's page \(Int(width)) wide")
+        }
+        close(window)
+        Shared.store.shortcuts.removeAll { $0.id == long.id }
+    }
+
+    // What a new shortcut's page offers, read before anything is typed, so
+    // the checks below that something is missing are known to be looking in
+    // the right place.
+    do {
+        let id = newShortcut()
+        let window = page(id)
+        boxesInLine(window, Shared.store.shortcut(id), "a new shortcut's page")
+        let scope = "\(ControlSurface.window).\(Shared.store.shortcut(id)?.folder ?? "")."
+        let tree = read(window, "naming, a new shortcut's page")
+        check(element(scope + "start-session", in: tree) != nil
+                && element(scope + "install", in: tree)?.name == L10n.text("Create Shortcut")
+                && element(scope + "delete", in: tree)?.name == L10n.text("Discard")
+                && element(scope + "no-usage", in: tree) != nil
+                && element(scope + "folder-taken-note", in: tree) == nil,
+              "naming: a new shortcut's page offers Start Session, Create Shortcut and Discard, with no figures and no note")
+        close(window)
+        Shared.store.shortcuts.removeAll { $0.id == id }
+    }
+
+    let typings: [(name: String, selectAll: Bool, erase: Bool, typed: String, folder: String)] = [
+        ("backspacing the number and typing", false, true, "Tas", "Claude-Tas"),
+        ("typing over the name", true, false, "Tas", "Claude-Tas"),
+        ("clearing the name and typing", true, true, "Tas", "Claude-Tas"),
+        ("typing a name whose folder another shortcut has", true, false, "Profile", "Claude-Profile-2"),
+        ("typing a name whose folder is a profile on disk", true, false, "Old", "Claude-Old-2"),
+    ]
+    for typing in typings {
+        let id = newShortcut()
+        let window = page(id)
+        focus(Shared.store.shortcut(id)?.name ?? "", in: window, selectAll: typing.selectAll)
+        if typing.erase { type("\u{7F}", in: window, id: id) }
+        type(typing.typed, in: window, id: id)
+        let typedName = Shared.store.shortcut(id)?.name ?? ""
+        check(typedName.hasSuffix(typing.typed), "naming, \(typing.name): the keys reach the name (\(typedName))")
+        check(Shared.store.shortcut(id)?.folder == typing.folder,
+              "naming, \(typing.name): the folder follows the name to \(typing.folder) (\(trail))")
+        check(!trail.contains { someoneElses($0, besides: id) },
+              "naming, \(typing.name): no key puts it on another shortcut's folder or a profile on disk (\(trail))")
+        close(window)
+        Shared.store.shortcuts.removeAll { $0.id == id }
+    }
+
+    do {
+        let id = newShortcut()
+        var window = page(id)
+        focus(Shared.store.shortcut(id)?.folder ?? "", in: window, selectAll: true)
+        type("Claude-Mine", in: window, id: id)
+        focus(Shared.store.shortcut(id)?.name ?? "", in: window, selectAll: true)
+        type("Tas", in: window, id: id)
+        check(Shared.store.shortcut(id)?.folder == "Claude-Mine",
+              "naming: a folder typed by hand stays when the name changes (\(trail))")
+        close(window)
+        window = page(id)
+        focus(Shared.store.shortcut(id)?.name ?? "", in: window, selectAll: true)
+        type("Work", in: window, id: id)
+        check(Shared.store.shortcut(id)?.folder == "Claude-Mine",
+              "naming: and when it changes after the page is opened again (\(trail))")
+        close(window)
+        Shared.store.shortcuts.removeAll { $0.id == id }
+    }
+
+    // Created ones: one whose app is not where Graft looks, and one typed
+    // into before its page has looked its app up at all.
+    for (name, withApp) in [("Made", false), ("Fresh", true)] {
+        var made = Shortcut(name: name, folder: "Claude-\(name)", source: .own)
+        made.installedName = name
+        try fm.createDirectory(at: made.profileDir, withIntermediateDirectories: true)
+        if withApp {
+            let resources = Installer.installDirectoryOverride!.appending(path: "\(name).app/Contents/Resources")
+            try fm.createDirectory(at: resources, withIntermediateDirectories: true)
+            try JSONEncoder().encode(GraftConfig(profileDir: made.profileDir.path, sourceDir: nil))
+                .write(to: resources.appending(path: "graft.json"))
+        }
+        Shared.store.shortcuts.append(made)
+        let place = withApp ? "created and typed into as its page opens" : "created with its app not found"
+        let window: NSWindow
+        if withApp {
+            pages += 1
+            let hosting = NSHostingView(rootView: AnyView(NamingPage(id: made.id).environmentObject(Shared.store)
+                .environmentObject(Shared.usage)))
+            window = LayoutWindow(contentRect: NSRect(x: 0, y: 0, width: 420, height: 700),
+                                  styleMask: [.titled], backing: .buffered, defer: false)
+            window.title = "Naming check \(pages)"
+            window.contentView = hosting
+            window.setFrameOrigin(NSPoint(x: -10000, y: -10000))
+            window.orderBack(nil)
+            hosting.layoutSubtreeIfNeeded()
+            focus(name, in: window, selectAll: false)
+            for character in " Two" { send(String(character), to: window) }
+            RunLoop.main.run(until: Date().addingTimeInterval(1))
+        } else {
+            window = page(made.id)
+            focus(name, in: window, selectAll: false)
+            type(" Two", in: window, id: made.id)
+        }
+        check(Shared.store.shortcut(made.id)?.name == "\(name) Two", "naming, \(place): the keys reach the name")
+        check(Shared.store.shortcut(made.id)?.folder == made.folder,
+              "naming, \(place): renaming keeps its folder (\(Shared.store.shortcut(made.id)?.folder ?? ""))")
+        close(window)
+        Shared.store.shortcuts.removeAll { $0.id == made.id }
+    }
+
+    // On Holder's folder, left there by an earlier version or typed there by
+    // hand: nothing on the page is Holder's, and it says whose folder it is.
+    func onHoldersFolder(_ tree: [Seen], _ place: String) {
+        let scope = "\(ControlSurface.window).\(holder.folder)."
+        check(element(scope + "start-session", in: tree) == nil,
+              "naming, \(place): no Start Session, which would be Holder's account")
+        check(element(scope + "five-hour", in: tree) == nil && element(scope + "no-usage", in: tree) != nil,
+              "naming, \(place): none of Holder's figures")
+        check(element(scope + "install", in: tree)?.name == L10n.text("Create Shortcut"),
+              "naming, \(place): not taken for Holder's app, so Create Shortcut, and Open stays off")
+        check(element(scope + "delete", in: tree)?.name == L10n.text("Discard"),
+              "naming, \(place): Discard, since what is in the folder is Holder's")
+        let note = element(scope + "folder-taken-note", in: tree)
+        check(note.map { [$0.value, $0.label, $0.title].contains { $0.contains(holder.name) && $0.contains(holder.folder) } } == true,
+              "naming, \(place): says whose folder it is, by name (\(note.map { [$0.value, $0.label, $0.title] } ?? []))")
+    }
+    do {
+        let stuck = Shortcut(name: "Tas", folder: holder.folder, source: .own)
+        Shared.store.shortcuts.append(stuck)
+        let window = page(stuck.id)
+        onHoldersFolder(read(window, "naming, one left on Holder's folder"), "one left on Holder's folder")
+        focus("Tas", in: window, selectAll: false)
+        type("k", in: window, id: stuck.id)
+        check(Shared.store.shortcut(stuck.id)?.folder == "Claude-Task",
+              "naming: one left on Holder's folder gets its own at the next key (\(trail))")
+        close(window)
+        Shared.store.shortcuts.removeAll { $0.id == stuck.id }
+    }
+    do {
+        let id = newShortcut()
+        let window = page(id)
+        focus(Shared.store.shortcut(id)?.folder ?? "", in: window, selectAll: true)
+        type(holder.folder, in: window, id: id)
+        check(Shared.store.shortcut(id)?.folder == holder.folder,
+              "naming: a folder typed by hand is taken as typed, Holder's included")
+        // The page looks its app and folder up every 5 seconds; read before
+        // that, it still describes the folder it had.
+        RunLoop.main.run(until: Date().addingTimeInterval(5.5))
+        onHoldersFolder(read(window, "naming, typed onto Holder's folder"), "typed onto Holder's folder")
+        close(window)
+        Shared.store.shortcuts.removeAll { $0.id == id }
+    }
+    do {
+        // Named like the app Holder was created as: found by that name, it
+        // was taken for Holder's own.
+        let namesake = Shortcut(name: holder.name, folder: holder.folder, source: .own)
+        Shared.store.shortcuts.append(namesake)
+        let window = page(namesake.id)
+        onHoldersFolder(read(window, "naming, one named like Holder's app"), "one named like Holder's app")
+        close(window)
+        Shared.store.shortcuts.removeAll { $0.id == namesake.id }
+    }
+    do {
+        // A number after the name's folder is the name's choice too, and
+        // goes on following the name once the folder that forced it is gone.
+        let second = Shortcut(name: "Second", folder: "Claude-Second", source: .own)
+        Shared.store.shortcuts.append(second)
+        let id = newShortcut()
+        var window = page(id)
+        focus(Shared.store.shortcut(id)?.name ?? "", in: window, selectAll: true)
+        type("Second", in: window, id: id)
+        check(Shared.store.shortcut(id)?.folder == "Claude-Second-2",
+              "naming: a name whose folder another shortcut has is numbered (\(trail))")
+        close(window)
+        Shared.store.shortcuts.removeAll { $0.id == second.id }
+        window = page(id)
+        focus("Second", in: window, selectAll: false)
+        type("s", in: window, id: id)
+        check(Shared.store.shortcut(id)?.folder == "Claude-Seconds",
+              "naming: and once that shortcut is gone, the numbered folder still follows the name (\(trail))")
+        close(window)
+        Shared.store.shortcuts.removeAll { $0.id == id }
+    }
+    do {
+        // A numbered folder still on disk, adopted by typing it: it holds a
+        // login, and the name never takes the shortcut off it.
+        let adopted = Graft.applicationSupport.appending(path: "Claude-Adopt-2")
+        try fm.createDirectory(at: adopted, withIntermediateDirectories: true)
+        let id = newShortcut()
+        var window = page(id)
+        focus(Shared.store.shortcut(id)?.name ?? "", in: window, selectAll: true)
+        type("Adopt", in: window, id: id)
+        focus(Shared.store.shortcut(id)?.folder ?? "", in: window, selectAll: true)
+        type("Claude-Adopt-2", in: window, id: id)
+        close(window)
+        window = page(id)
+        focus("Adopt", in: window, selectAll: false)
+        type(" Mac", in: window, id: id)
+        check(Shared.store.shortcut(id)?.name == "Adopt Mac" && Shared.store.shortcut(id)?.folder == "Claude-Adopt-2",
+              "naming: a numbered folder adopted by hand stays when the name changes after the page is opened again (\(trail))")
+        close(window)
+        Shared.store.shortcuts.removeAll { $0.id == id }
+        try? fm.removeItem(at: adopted)
+    }
+    Shared.store.shortcuts = saved
+}
+
 print("\(checks - failures)/\(checks) layout checks passed (\(Bundle.main.preferredLocalizations.joined(separator: ",")))")
 exit(failures == 0 ? 0 : 1)

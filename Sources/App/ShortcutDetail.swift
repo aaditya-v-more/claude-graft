@@ -37,6 +37,11 @@ struct ShortcutDetail: View {
     @State private var sidebarNote: String?
 
     /// Set once the folder is typed by hand, so renaming stops rewriting it.
+    ///
+    /// Only the folder field sets it, and the page as it opens. An `onChange`
+    /// of the folder also saw the folder the name had just chosen, so the
+    /// folder followed the first keystroke and no other: backspacing
+    /// "Claude 2" left it on Claude-Profile, the folder an empty name gives.
     @State private var folderIsCustom = false
     /// A created shortcut's folder as typed, kept here until Update applies
     /// it. Written straight into the list, every keystroke was a profile
@@ -133,6 +138,18 @@ struct ShortcutDetail: View {
             Text(elsewhere.map(openNote) ?? "")
         }
         .onAppear {
+            // A folder other than the one the name gives was typed by hand on
+            // an earlier visit, and renaming keeps it. One another shortcut
+            // has is not kept: the next key gives it a folder of its own.
+            // A number after the name's folder is one the name chose too, and
+            // stays the name's when the folder that forced it is gone. One on
+            // disk holds a login, so it was adopted by hand and is kept.
+            let given = Shortcut.folderName(for: shortcut.name)
+            let numbered = shortcut.folder.hasPrefix(given + "-")
+                && Int(shortcut.folder.dropFirst(given.count + 1)) != nil
+                && !Graft.exists(shortcut.profileDir)
+            folderIsCustom = !isCreated && folderHolder == nil && !numbered
+                && shortcut.folder != store.suggestedFolder(for: shortcut.name, of: shortcut.id)
             refresh()
             loadIconPreviews()
             // Selecting a profile is someone looking at its figures, which is the
@@ -162,17 +179,25 @@ struct ShortcutDetail: View {
                     .textFieldStyle(.roundedBorder)
                     .labelsHidden()
                     .onChange(of: shortcut.name) { _ in
-                        guard installedAt == nil, !folderIsCustom else { return }
-                        shortcut.folder = Shortcut.folderName(for: shortcut.name)
+                        // Never once created: its app opens the folder it was
+                        // made with. `installedName` is in the list from the
+                        // start, where `installedAt` arrives after the page
+                        // opens, and a name typed before it did moved a
+                        // created shortcut's folder.
+                        guard !isCreated, !folderIsCustom else { return }
+                        shortcut.folder = store.suggestedFolder(for: shortcut.name, of: shortcut.id)
                     }
                     .identified("name")
                 // The field carries no title of its own, so without this
                 // VoiceOver reads only whatever has been typed.
+                // Its label hidden as the name's is: an empty one still had
+                // room kept for it, which dropped the box below the name's
+                // or took 20 points off its width.
                 TextField("", text: folderField)
                     .textFieldStyle(.roundedBorder)
+                    .labelsHidden()
                     .font(.body.monospaced())
                     .frame(width: 130)
-                    .onChange(of: shortcut.folder) { _ in folderIsCustom = true }
                     .help("Profile folder")
                     .accessibilityLabel(L10n.text("Profile folder"))
                     .identified("folder")
@@ -187,6 +212,14 @@ struct ShortcutDetail: View {
                 .accessibilityLabel(L10n.text("Show in Finder"))
                 .identified("show-in-finder")
                 InfoButton(Self.shortcutNote, about: "Shortcut", id: "shortcut-info")
+            }
+            // Said before Create is pressed, which refuses it.
+            if let holder = folderHolder {
+                let note = L10n.format("“%@” already uses the folder %@. Give this shortcut a folder of its own.",
+                                       holder.name.trimmingCharacters(in: .whitespacesAndNewlines),
+                                       pendingFolder)
+                OneLineNote(text: note, more: note, topic: "Profile folder", attention: true,
+                            id: "folder-taken-note")
             }
             if let copiedNote {
                 OneLineNote(text: copiedNote, id: "copied-note")
@@ -228,7 +261,9 @@ struct ShortcutDetail: View {
                 .disabled(installing)
                 .identified("delete")
             Spacer()
-            if plan?.mayStartSession ?? true {
+            // Not on a folder another shortcut has: the session would be
+            // that account's.
+            if plan?.mayStartSession ?? true, isCreated || folderHolder == nil {
                 Button(action: startSession) {
                     if startingSession {
                         ProgressView().controlSize(.small)
@@ -461,10 +496,27 @@ struct ShortcutDetail: View {
         return formatter
     }()
 
-    private var plan: UsageMonitor.Entry? { usage.entry(for: shortcut.profileDir) }
+    /// This shortcut's own figures, never those of another on the same folder.
+    private var plan: UsageMonitor.Entry? { usage.entry(for: shortcut) }
 
+    /// The folder Create or Update would write, as typed.
+    private var pendingFolder: String {
+        (folderDraft ?? shortcut.folder).trimmingCharacters(in: .whitespaces)
+    }
+
+    /// Another shortcut on the folder this one would be created in or moved
+    /// to, which Create and Update refuse. A created one staying where it is
+    /// has nothing pending.
+    private var folderHolder: Shortcut? {
+        let folder = pendingFolder
+        guard !isCreated || !Graft.isNamed(folder, shortcut.folder) else { return nil }
+        return store.shortcuts.first { $0.id != shortcut.id && Graft.isNamed($0.folder, folder) }
+    }
+
+    /// As `ShortcutStore.isDraft` has it: a folder another shortcut has is
+    /// that one's data, so leaving it behind is Discard, not Delete.
     private var isDraft: Bool {
-        installedAt == nil && !profileExists && shortcut.installedName == nil
+        installedAt == nil && shortcut.installedName == nil && (!profileExists || folderHolder != nil)
     }
 
     private var isCreated: Bool { shortcut.installedName != nil || installedAt != nil }
@@ -474,7 +526,12 @@ struct ShortcutDetail: View {
     private var folderField: Binding<String> {
         Binding(get: { folderDraft ?? shortcut.folder },
                 set: { typed in
-                    if isCreated { folderDraft = typed } else { shortcut.folder = typed }
+                    if isCreated {
+                        folderDraft = typed
+                    } else if typed != shortcut.folder {
+                        folderIsCustom = true
+                        shortcut.folder = typed
+                    }
                 })
     }
 
@@ -525,8 +582,9 @@ struct ShortcutDetail: View {
     /// which belongs in a view update.
     private func refresh(_ current: Shortcut? = nil) {
         let target = current ?? shortcut
+        let list = store.shortcuts
         DispatchQueue.global(qos: .utility).async {
-            let bundle = ProfileOpener.bundle(for: target)
+            let bundle = ProfileOpener.bundle(for: target, among: list)
             let running = Graft.isRunning(profile: target.profileDir)
             let sidebar = SidebarSync.status(for: target.profileDir)
             let hasProfile = FileManager.default.fileExists(atPath: target.profileDir.path)
@@ -642,7 +700,8 @@ struct ShortcutDetail: View {
 
     private func launch() {
         guard installedAt != nil else { return }
-        ProfileOpener.open(profile: shortcut.profileDir, shortcut: shortcut) { failure in
+        ProfileOpener.open(profile: shortcut.profileDir, shortcut: shortcut,
+                           among: store.shortcuts) { failure in
             error = failure?.localizedDescription
         }
     }

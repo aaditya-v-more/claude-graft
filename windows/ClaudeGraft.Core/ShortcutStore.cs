@@ -117,13 +117,55 @@ public sealed class ShortcutStore
                ?? Path.GetFileName(profile.TrimEnd(Path.DirectorySeparatorChar));
     }
 
-    /// Numbering starts at two, since the stock app is the first one.
+    /// Numbering starts at two, since the stock app is the first one. A name is
+    /// passed over when its folder is not free: a renamed "Claude 2" keeps
+    /// Claude-2, and a new "Claude 2" opened on it signed in to that account.
     public string UniqueName(string @base = "Claude")
     {
+        bool Taken(string name) =>
+            Shortcuts.Any(s => s.Name.Trim().Equals(name, StringComparison.OrdinalIgnoreCase))
+            || !FolderIsFree(Shortcut.FolderName(name));
         var n = 2;
         var candidate = $"{@base} {n}";
-        while (Shortcuts.Any(s => s.Name == candidate)) candidate = $"{@base} {++n}";
+        while (Taken(candidate)) candidate = $"{@base} {++n}";
         return candidate;
+    }
+
+    /// Whether a folder can go to a new shortcut without signing it in to
+    /// somebody: no other shortcut has it, and no profile is on disk there.
+    public bool FolderIsFree(string folder, Guid? id = null) =>
+        !Shortcuts.Any(s => s.Id != id && s.Folder.Equals(folder, StringComparison.OrdinalIgnoreCase))
+        && !Directory.Exists(GraftPaths.Profile(folder));
+
+    /// The folder a name gives a shortcut not yet created, numbered past any
+    /// that is not free. An emptied name gives Claude-Profile, which may be
+    /// somebody's; a folder typed by hand is still taken as typed.
+    public string SuggestedFolder(string name, Guid id)
+    {
+        var folder = Shortcut.FolderName(name);
+        if (FolderIsFree(folder, id)) return folder;
+        var n = 2;
+        while (!FolderIsFree($"{folder}-{n}", id)) n++;
+        return $"{folder}-{n}";
+    }
+
+    /// Why saving a shortcut would put it where another one is, or null. Only
+    /// a new shortcut, or one whose folder is changing, is refused a folder in
+    /// use, so a pair an older version left sharing one can still be untangled.
+    public string? Conflict(Shortcut shortcut, Shortcut? existing)
+    {
+        var others = Shortcuts.Where(s => s.Id != shortcut.Id).ToList();
+        var movesHere = existing is null
+            || !existing.Folder.Equals(shortcut.Folder, StringComparison.OrdinalIgnoreCase);
+        if (movesHere && others.FirstOrDefault(s =>
+                s.Folder.Equals(shortcut.Folder, StringComparison.OrdinalIgnoreCase)
+                || Fs.SamePath(s.ProfileDir, shortcut.ProfileDir)) is { } holder)
+            return $"“{holder.Name.Trim()}” already uses the folder {shortcut.Folder}. Give this Claude a folder of its own.";
+        // Both would write the same .lnk, and the second would open the first's profile.
+        var renamed = existing is null || !existing.Name.Trim().Equals(shortcut.Name.Trim(), StringComparison.OrdinalIgnoreCase);
+        if (renamed && others.FirstOrDefault(s => s.Name.Trim().Equals(shortcut.Name.Trim(), StringComparison.OrdinalIgnoreCase)) is { } namesake)
+            return $"Another Claude is already called “{namesake.Name.Trim()}”. Give this one another name.";
+        return null;
     }
 
     /// The colour a shortcut added now is handed: one no other shortcut wears.

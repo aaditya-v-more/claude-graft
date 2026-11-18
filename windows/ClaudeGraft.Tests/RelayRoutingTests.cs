@@ -414,7 +414,9 @@ public sealed class RelayRoutingTests : IDisposable
             Assert.Equal(["tok-A"], (await Ask(conn, "tok-A", body, path, method)).Went);
 
         foreach (var marker in new[] { "\"file_id\":\"f1\"", "\"container\":\"c1\"", "\"container\":{\"id\":\"c1\",\"skills\":[]}", "\"mcp_servers\":[{\"type\":\"url\",\"url\":\"u\"}]" })
-            Assert.Equal(["tok-A"], (await Ask(conn, "tok-A", "{\"model\":\"x\",\"messages\":[" + marker + "]}", session: null)).Went);
+            Assert.Equal(["tok-A"], (await Ask(conn, "tok-A", "{\"model\":\"x\",\"messages\":[]," + marker + "}", session: null)).Went);
+        var artifact = """{"model":"x","messages":[{"role":"assistant","content":[{"type":"tool_use","id":"t1","name":"artifact","input":{"container":"{\"kind\":\"project\",\"id\":\"p1\"}"}}]}]}""";
+        Assert.Equal(["tok-B"], (await Ask(conn, "tok-A", artifact, session: null)).Went);
         var schema = """{"model":"x","messages":[],"tools":[{"name":"batch","input_schema":{"type":"object","properties":{"container":{"type":"object"},"file_id":{"type":"string"},"mcp_servers":{"type":"array"}}}}]}""";
         Assert.Equal(["tok-B"], (await Ask(conn, "tok-A", schema, session: null)).Went);
         Assert.Equal(["tok-unknown"], (await Ask(conn, "tok-unknown")).Went);
