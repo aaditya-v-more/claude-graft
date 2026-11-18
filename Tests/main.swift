@@ -778,6 +778,27 @@ do {
           "a shortcut whose folder differs from another's only in case is sharing it")
     check(fm.fileExists(atPath: cased.path), "so the profile both read survives")
 
+    var open = Shortcut(name: "Open One", source: .own)
+    open.folder = "Claude-Open-One"
+    store.shortcuts = [open]
+    check(store.deletionRefusal(of: open, deletingProfile: true, isOpen: true) != nil,
+          "deleting the profile of a Claude that is open is refused before anything goes")
+    check(store.deletionRefusal(of: open, deletingProfile: false, isOpen: true) == nil,
+          "while deleting only its shortcut is not")
+    check(store.deletionRefusal(of: open, deletingProfile: true, isOpen: false) == nil,
+          "and neither is deleting a closed one's profile")
+    var twin = Shortcut(name: "Twin", source: .own)
+    twin.folder = "claude-open-one"
+    store.shortcuts = [open, twin]
+    check(store.deletionRefusal(of: open, deletingProfile: true, isOpen: true) == nil,
+          "a folder another shortcut shares is kept anyway, so the shortcut alone may go")
+    let window = (try? String(contentsOf: URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        .deletingLastPathComponent().appending(path: "Sources/App/ContentView.swift"), encoding: .utf8)) ?? ""
+    check(window.contains("store.deletionRefusal(of: shortcut, deletingProfile: alsoProfile,")
+            && window.contains("pendingDeletionIsOpen = Graft.isRunning(profile: shortcut.profileDir)")
+            && window.contains("if !pendingDeletionIsOpen {"),
+          "the window asks whether the Claude is open before offering to delete its profile, and again before deleting")
+
     try? fm.removeItem(at: cased)
     try? fm.removeItem(at: main)
     try? fm.removeItem(at: kept)
@@ -1916,6 +1937,8 @@ do {
     check(mailParts?.queryItems?.first { $0.name == "subject" }?.value == "Claude Graft 2.0.0"
             && mailParts?.queryItems?.first { $0.name == "body" }?.value?.contains("macOS Version 26.1") == true,
           "and already says which Graft and which macOS it comes from")
+    check(Links.site.absoluteString == "https://graft.aadityamore.com/",
+          "Help opens the site at its own address, not the one that only redirects")
     for item in ["Claude Graft Help", "Report a Problem…", "Email the Developer…",
                  "Aaditya More on LinkedIn", "View Source on GitHub", "Donate…"] {
         check(links.contains("L10n.text(\"\(item)\")"), "the Help menu offers \(item)")

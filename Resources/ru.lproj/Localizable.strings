@@ -514,3 +514,6 @@
 "View Source on GitHub" = "Исходный код на GitHub";
 "Automatic · now %@" = "Автоматически · сейчас %@";
 "Auto · %@" = "Авто · %@";
+"Nothing was deleted" = "Ничего не удалено";
+"“%@” is open, so its profile cannot be deleted now. Quit it first to delete the profile too." = "«%@» открыт, поэтому его профиль сейчас нельзя удалить. Чтобы удалить и профиль, сначала закройте его.";
+"“%@” is still open, so nothing was deleted. Quit it, then delete it again." = "«%@» всё ещё открыт, поэтому ничего не удалено. Закройте его и удалите снова.";

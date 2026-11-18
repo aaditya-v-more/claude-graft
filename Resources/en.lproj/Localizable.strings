@@ -514,3 +514,6 @@
 "View Source on GitHub" = "View Source on GitHub";
 "Automatic · now %@" = "Automatic · now %@";
 "Auto · %@" = "Auto · %@";
+"Nothing was deleted" = "Nothing was deleted";
+"“%@” is open, so its profile cannot be deleted now. Quit it first to delete the profile too." = "“%@” is open, so its profile cannot be deleted now. Quit it first to delete the profile too.";
+"“%@” is still open, so nothing was deleted. Quit it, then delete it again." = "“%@” is still open, so nothing was deleted. Quit it, then delete it again.";

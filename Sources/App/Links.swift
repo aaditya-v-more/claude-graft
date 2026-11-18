@@ -18,7 +18,8 @@ enum Links {
     static let owner = "aaditya-v-more"
     static let kofiAccount = "aadityavmore"
 
-    static let site = URL(string: "https://\(owner).github.io/claude-graft/")!
+    /// The site's own address: the github.io one only redirects here.
+    static let site = URL(string: "https://graft.aadityamore.com/")!
     static let source = URL(string: "https://github.com/\(owner)/claude-graft")!
     static let support = URL(string: "https://ko-fi.com/\(kofiAccount)")!
     static let releases = URL(string: "https://github.com/\(owner)/claude-graft/releases")!

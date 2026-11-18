@@ -14,7 +14,9 @@ struct ContentView: View {
     @EnvironmentObject private var store: ShortcutStore
     @State private var selection: UUID? = ContentView.mainProfileID
     @State private var pendingDeletion: UUID?
+    @State private var pendingDeletionIsOpen = false
     @State private var problem: String?
+    @State private var problemTitle = L10n.text("The shortcut was deleted")
     @State private var columns = NavigationSplitViewVisibility.all
 
     /// Nil in the app, which shows `Shared.artifacts`; the layout suite hands
@@ -63,12 +65,14 @@ struct ContentView: View {
                                                  set: { if !$0 { pendingDeletion = nil } }),
                             titleVisibility: .visible) {
             Button("Delete Shortcut Only") { delete(alsoProfile: false) }
-            Button("Delete Shortcut and Profile", role: .destructive) { delete(alsoProfile: true) }
+            if !pendingDeletionIsOpen {
+                Button("Delete Shortcut and Profile", role: .destructive) { delete(alsoProfile: true) }
+            }
             Button("Cancel", role: .cancel) { pendingDeletion = nil }
         } message: {
             Text(deletionMessage)
         }
-        .alert("The shortcut was deleted", isPresented: Binding(get: { problem != nil },
+        .alert(problemTitle, isPresented: Binding(get: { problem != nil },
                                                                set: { if !$0 { problem = nil } })) {
             Button("OK") { problem = nil }
         } message: {
@@ -106,14 +110,25 @@ struct ContentView: View {
             store.shortcuts.removeAll { $0.id == id }
             return
         }
+        // Asked before the question, so it never offers what would leave the
+        // shortcut gone and its folder stranded behind a running Claude.
+        pendingDeletionIsOpen = Graft.isRunning(profile: shortcut.profileDir)
         pendingDeletion = id
     }
 
     private func delete(alsoProfile: Bool) {
-        guard let pendingDeletion else { return }
-        if selection == pendingDeletion { selection = nil }
-        problem = store.delete(pendingDeletion, deletingProfile: alsoProfile)
+        guard let pendingDeletion, let shortcut = store.shortcut(pendingDeletion) else { return }
         self.pendingDeletion = nil
+        // Asked again: the Claude may have opened while the question was up.
+        if let refusal = store.deletionRefusal(of: shortcut, deletingProfile: alsoProfile,
+                                               isOpen: alsoProfile && Graft.isRunning(profile: shortcut.profileDir)) {
+            problemTitle = L10n.text("Nothing was deleted")
+            problem = refusal
+            return
+        }
+        if selection == pendingDeletion { selection = nil }
+        problemTitle = L10n.text("The shortcut was deleted")
+        problem = store.delete(pendingDeletion, deletingProfile: alsoProfile)
     }
 
     private var deletionMessage: String {
@@ -124,6 +139,10 @@ struct ContentView: View {
             Its profile folder, %@, holds that account's login and chat history. \
             Deleting it cannot be undone.
             """, Installer.installDirectory.path, shortcut.folder)
+            + (pendingDeletionIsOpen
+               ? "\n\n" + L10n.format("“%@” is open, so its profile cannot be deleted now. Quit it first to delete the profile too.",
+                                      shortcut.name)
+               : "")
     }
 
     private var deletionTitle: String {
