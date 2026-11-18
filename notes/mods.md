@@ -19,7 +19,7 @@ same settings.
 
 Measured with Claude Code 2.1.325, the build the desktop app runs, on
 2026-11-14. The `claude` on the PATH was 2.1.278 and does not read the variable
-the same way, so measure against the profile's own build.
+at all (below), so measure against the profile's own build.
 
 `CLAUDE_CODE_PLUGIN_DIRS` in the process environment replaces the one in user
 settings outright. The settings value is ignored with a warning that the desktop
@@ -96,6 +96,22 @@ that environment already sets." They also say:
   settings file; no scope follows a desktop profile.
 - There is no per-profile setting: every Claude reads the one
   `~/.claude/settings.json`.
+
+## The terminal CLI
+
+Measured with the `claude` on the PATH, 2.1.278, on 2026-11-18, signed out and
+against a throwaway `CLAUDE_CONFIG_DIR`, reading `--debug-file` and `plugin list
+--json`. It ignores `CLAUDE_CODE_PLUGIN_DIRS` wherever it is set: in settings
+`env` the name is read and nothing loads, in the process environment nothing
+loads, and an empty value changes nothing. `--plugin-dir` loads its folder as
+`<name>@inline` at session scope, repeatable, and is the only way in; with the
+variable also set, only the flag's folder loads. So a terminal list can go only
+through the flag, and it adds rather than replaces: with a plugin installed and
+on in user settings, a session given `--plugin-dir` loaded the commands of both.
+A flag folder with the same name as an installed plugin is listed beside it, as
+`<name>@inline` next to `<name>@<marketplace>`. Whether a newer CLI starts reading the variable, and so starts
+taking the desktop's per-Claude values from a shell that inherited them, is
+unmeasured.
 
 ## Not yet measured
 
