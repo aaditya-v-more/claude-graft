@@ -286,7 +286,7 @@ public partial class App : Application
     public static string SharingName(string key)
     {
         if (key == UsageSharing.MainKey) return "Claude";
-        if (PoolAccount.IsAccount(key)) return PoolAccounts.Load().FirstOrDefault(a => a.Id == key)?.Name ?? "Signed-in account";
+        if (PoolAccount.IsAccount(key)) return PoolAccounts.Load().FirstOrDefault(a => a.Id == key)?.Name ?? L10n.Text("Signed-in account");
         return Store.Shortcuts.FirstOrDefault(s => s.Id.ToString() == key)?.Name ?? key;
     }
     private int _sharingBusy;
@@ -529,7 +529,7 @@ public partial class App : Application
             .Select(k => new TaskbarStrip.Mark(ShortcutIcons.Preview(MainPage.PresetOf(k, accounts)), k == answering)).ToList();
         var usage = _frontUsage.GetValueOrDefault(front) is { } u ? UsageStatus.Rolled(u, DateTimeOffset.UtcNow) : null;
         // No five-hour limit is not 0%: such an account shows its week, marked as one.
-        var figure = usage is null ? null : usage.FiveHour is int five ? $"{five}%" : $"W {usage.Week}%";
+        var figure = usage is null ? null : usage.FiveHour is int five ? $"{five}%" : L10n.Format("W {0}%", usage.Week);
         var (turn, ended) = ChatOnScreen.TurnFor(front);
         if (claudeInFront && turn == ChatFocus.Turn.Done) _turnSeen[front] = ended;
         var signal = turn switch
@@ -550,13 +550,13 @@ public partial class App : Application
         var front = FrontClaude.Profile;
         var shortcut = front is null ? null : Store.Shortcuts.FirstOrDefault(s => Fs.SamePath(s.ProfileDir, front));
         if (UpdateDownload is { } f)
-            _tray.ToolTipText = $"Claude Graft — downloading update, {(int)Math.Round(f * 100)}%";
+            _tray.ToolTipText = L10n.Format("Claude Graft — downloading update, {0}%", (int)Math.Round(f * 100));
         else if (front is not null)
             _tray.ToolTipText = FrontLabel.Tooltip(shortcut?.Name ?? "Claude",
                 _frontUsage.GetValueOrDefault(front) is { } u ? UsageStatus.Rolled(u, DateTimeOffset.UtcNow) : null,
                 ChatOnScreen.TitleFor(front), AnsweredBy(front, shortcut));
         else
-            _tray.ToolTipText = AvailableUpdate is { } ready ? $"Claude Graft — update {ready.Version} ready" : "Claude Graft";
+            _tray.ToolTipText = AvailableUpdate is { } ready ? L10n.Format("Claude Graft — update {0} ready", ready.Version) : "Claude Graft";
 
         ShowStrip(front, shortcut);
         var icon = shortcut is null ? null : ShortcutIcons.LinkIcon(shortcut).File;
@@ -637,30 +637,30 @@ public partial class App : Application
         if (setup != SetupState.Ready)
         {
             items.Add(setup == SetupState.NotInstalled
-                ? ("Install Claude Desktop…", true, ShowManager)
-                : ("Sign in to Claude…", true, ShowManager));
+                ? (L10n.Text("Install Claude Desktop…"), true, ShowManager)
+                : (L10n.Text("Sign in to Claude…"), true, ShowManager));
         }
         else if (Store.Shortcuts.Count == 0)
         {
-            items.Add(("No profiles yet", false, null));
+            items.Add((L10n.Text("No profiles yet"), false, null));
         }
         else
         {
             foreach (var shortcut in Store.Shortcuts)
             {
                 var row = ShortcutRow.ForShortcut(shortcut);
-                items.Add(("Open " + shortcut.Name, true, () => _ = OpenFromTray(row)));
+                items.Add((L10n.Format("Open {0}", shortcut.Name), true, () => _ = OpenFromTray(row)));
             }
         }
         items.Add((TrayMenu.Separator, false, null));
         // The Mac's wording: "Version X is available" installs it, otherwise the
         // plain "Check for Updates".
         items.Add(AvailableUpdate is { } ready
-            ? ($"Version {ready.Version} is available", true, () => _ = InstallUpdateAsync(ready))
-            : ("Check for Updates", true, () => _ = CheckForUpdates()));
-        items.Add(("Manage Profiles…", true, ShowManager));
-        items.Add(("Settings…", true, ShowSettings));
-        items.Add(("Quit", true, Quit));
+            ? (L10n.Format("Version {0} is available", ready.Version), true, () => _ = InstallUpdateAsync(ready))
+            : (L10n.Text("Check for Updates"), true, () => _ = CheckForUpdates()));
+        items.Add((L10n.Text("Manage Profiles…"), true, ShowManager));
+        items.Add((L10n.Text("Settings…"), true, ShowSettings));
+        items.Add((L10n.Text("Quit"), true, Quit));
 
         TrayMenu.Show(items);
     }

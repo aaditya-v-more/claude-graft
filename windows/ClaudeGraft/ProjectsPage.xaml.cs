@@ -12,10 +12,8 @@ namespace ClaudeGraft;
 /// </summary>
 public sealed partial class ProjectsPage : Page
 {
-    public const string Note =
-        "Projects are listed from every account signed in under Artifacts, with the same sign-in. Graft only lists "
-        + "them; opening one takes you to claude.ai, where it is changed.\n\n"
-        + "claude.ai is asked when this page is shown and when you refresh it, never in the background.";
+    public static string Note => L10n.Text(
+        "Projects are listed from every account signed in under Artifacts, with the same sign-in. Graft only lists them; opening one takes you to claude.ai, where it is changed.\n\nclaude.ai is asked when this page is shown and when you refresh it, never in the background.");
 
     private readonly ProjectCenter _center = ProjectCenter.Shared;
     private string _shownSignature = "";
@@ -51,8 +49,8 @@ public sealed partial class ProjectsPage : Page
     {
         var accounts = _center.Accounts;
         var signedIn = accounts.Accounts.Count > 0;
-        AddAccountText.Text = signedIn ? "Add Account…" : "Sign In…";
-        AutomationProperties.SetName(AddAccountButton, signedIn ? "Add Account" : "Sign In");
+        AddAccountText.Text = signedIn ? L10n.Text("Add Account…") : L10n.Text("Sign In…");
+        AutomationProperties.SetName(AddAccountButton, signedIn ? L10n.Text("Add Account") : L10n.Text("Sign In"));
         RefreshIcon.Visibility = _center.Loading ? Visibility.Collapsed : Visibility.Visible;
         RefreshRing.Visibility = _center.Loading ? Visibility.Visible : Visibility.Collapsed;
         RefreshRing.IsActive = _center.Loading;
@@ -68,9 +66,9 @@ public sealed partial class ProjectsPage : Page
         FilterBar.Visibility = signedIn ? Visibility.Visible : Visibility.Collapsed;
         SignedOutPanel.Visibility = signedIn ? Visibility.Collapsed : Visibility.Visible;
         var shown = signedIn ? Shown() : [];
-        CountText.Text = shown.Count == 1 ? "1 project" : $"{shown.Count} projects";
+        CountText.Text = L10n.Plural(shown.Count, "{0} project", "{0} projects");
         EmptyText.Visibility = signedIn && shown.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
-        EmptyText.Text = _center.Loading ? "Asking claude.ai…" : FilterBox.Text.Trim().Length == 0 ? "No projects" : "Nothing matches";
+        EmptyText.Text = _center.Loading ? L10n.Text("Asking claude.ai…") : FilterBox.Text.Trim().Length == 0 ? L10n.Text("No projects") : L10n.Text("Nothing matches");
         ProjectList.Visibility = shown.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
 
         var signature = string.Join("\n", shown.Select(p => $"{p.Id}|{p.Name}|{p.IsStarred}|{p.IsPrivate}|{p.Updated}|{accounts.NameOf(p.Account)}"));
@@ -98,8 +96,8 @@ public sealed partial class ProjectsPage : Page
         grid.Children.Add(icon);
 
         var parts = new List<string> { _center.Accounts.NameOf(project.Account) };
-        if (project.IsExample) parts.Add("Example");
-        if (project.IsBeta) parts.Add("Beta");
+        if (project.IsExample) parts.Add(L10n.Text("Example"));
+        if (project.IsBeta) parts.Add(L10n.Text("Beta"));
         if (project.Updated is { } updated) parts.Add(ArtifactsPage.When(updated));
         var subtitle = string.Join(" · ", parts);
         var words = new StackPanel { Spacing = 1, VerticalAlignment = VerticalAlignment.Center };
@@ -115,7 +113,7 @@ public sealed partial class ProjectsPage : Page
         if (!project.IsPrivate)
         {
             var shared = new FontIcon { Glyph = "", FontSize = 14, Foreground = secondary, Margin = new Thickness(6), VerticalAlignment = VerticalAlignment.Center };
-            ToolTipService.SetToolTip(shared, "Shared with your organization");
+            ToolTipService.SetToolTip(shared, L10n.Text("Shared with your organization"));
             AutomationProperties.SetAccessibilityView(shared, Microsoft.UI.Xaml.Automation.Peers.AccessibilityView.Raw);
             Grid.SetColumn(shared, 2);
             grid.Children.Add(shared);
@@ -127,8 +125,8 @@ public sealed partial class ProjectsPage : Page
             Style = (Style)Application.Current.Resources["SubtleButtonStyle"],
         };
         open.Click += (_, _) => Open(project);
-        ToolTipService.SetToolTip(open, project.IsBeta ? "Open, signed in as its account" : "Open in the browser");
-        AutomationProperties.SetName(open, $"Open {project.Name}");
+        ToolTipService.SetToolTip(open, project.IsBeta ? L10n.Text("Open, signed in as its account") : L10n.Text("Open in the browser"));
+        AutomationProperties.SetName(open, L10n.Format("Open {0}", project.Name));
         AutomationProperties.SetAutomationId(open, $"project.{token}.open");
         Grid.SetColumn(open, 3);
         grid.Children.Add(open);

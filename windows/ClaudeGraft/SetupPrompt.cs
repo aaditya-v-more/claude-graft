@@ -31,7 +31,7 @@ public sealed class SetupPrompt : StackPanel
     {
         Style = (Style)Application.Current.Resources["AccentButtonStyle"],
     };
-    private readonly Button _recheck = new() { Content = "Check Again" };
+    private readonly Button _recheck = new() { Content = L10n.Text("Check Again") };
     private SetupState _state;
 
     /// Raised when the person asks for the state to be read again, and after
@@ -75,17 +75,15 @@ public sealed class SetupPrompt : StackPanel
         Visibility = state == SetupState.Ready ? Visibility.Collapsed : Visibility.Visible;
         if (state == SetupState.NotInstalled)
         {
-            _title.Text = "Install Claude Desktop";
-            _body.Text = "Claude Graft runs extra profiles of Claude Desktop, so it needs Claude Desktop "
-                         + "installed first. Install it, sign in, then come back here.";
-            _action.Content = "Download Claude";
+            _title.Text = L10n.Text("Install Claude Desktop");
+            _body.Text = L10n.Text("Claude Graft runs extra profiles of Claude Desktop, so it needs Claude Desktop installed first. Install it, sign in, then come back here.");
+            _action.Content = L10n.Text("Download Claude");
         }
         else
         {
-            _title.Text = "Sign in to Claude";
-            _body.Text = "Open Claude Desktop and sign in to your account. Your profile and its usage "
-                         + "show up here once you have.";
-            _action.Content = "Open Claude";
+            _title.Text = L10n.Text("Sign in to Claude");
+            _body.Text = L10n.Text("Open Claude Desktop and sign in to your account. Your profile and its usage show up here once you have.");
+            _action.Content = L10n.Text("Open Claude");
         }
     }
 

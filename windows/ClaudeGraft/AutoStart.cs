@@ -1,3 +1,5 @@
+using ClaudeGraft.Core;
+
 namespace ClaudeGraft;
 
 /// <summary>
@@ -36,7 +38,7 @@ internal static class AutoStart
             link.TargetPath = exe;
             link.WorkingDirectory = Path.GetDirectoryName(exe);
             link.IconLocation = exe + ",0";
-            link.Description = "Run extra Claude Desktop profiles";
+            link.Description = L10n.Text("Run extra Claude Desktop profiles");
             link.Save();
         }
         catch { }

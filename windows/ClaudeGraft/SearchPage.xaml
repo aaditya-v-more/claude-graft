@@ -3,6 +3,7 @@
     x:Class="ClaudeGraft.SearchPage"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="using:ClaudeGraft"
     Background="Transparent">
     <Grid>
         <Grid.RowDefinitions>
@@ -21,10 +22,10 @@
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
             <FontIcon Glyph="&#xE721;" FontSize="16" Foreground="{StaticResource GraftTextFillColorSecondaryBrush}" AutomationProperties.AccessibilityView="Raw" />
-            <TextBlock Grid.Column="1" Text="Search Chats" Style="{StaticResource BodyStrongTextBlockStyle}" VerticalAlignment="Center" />
+            <TextBlock Grid.Column="1" local:Localized.Text="Search Chats" Style="{StaticResource BodyStrongTextBlockStyle}" VerticalAlignment="Center" />
             <Button Style="{StaticResource InfoGlyphButton}" Grid.Column="2"
-                    AutomationProperties.Name="About Search Chats" AutomationProperties.AutomationId="search.info"
-                    ToolTipService.ToolTip="About Search Chats">
+                    local:Localized.AutomationName="About Search Chats" AutomationProperties.AutomationId="search.info"
+                    local:Localized.ToolTip="About Search Chats">
                 <FontIcon Glyph="&#xE946;" FontSize="14" />
                 <Button.Flyout>
                     <Flyout>
@@ -37,11 +38,11 @@
                 <StackPanel x:Name="AccountChips" Orientation="Horizontal" Spacing="6" />
             </ScrollViewer>
             <Button Grid.Column="4" x:Name="AddAccountButton" Click="AddAccount_Click"
-                    AutomationProperties.AutomationId="search.addAccount" AutomationProperties.Name="Add Account"
-                    ToolTipService.ToolTip="Sign in to another claude.ai account">
+                    AutomationProperties.AutomationId="search.addAccount" local:Localized.AutomationName="Add Account"
+                    local:Localized.ToolTip="Sign in to another claude.ai account">
                 <StackPanel Orientation="Horizontal" Spacing="8">
                     <FontIcon Glyph="&#xE710;" FontSize="14" />
-                    <TextBlock x:Name="AddAccountText" Text="Add Account…" />
+                    <TextBlock x:Name="AddAccountText" local:Localized.Text="Add Account…" />
                 </StackPanel>
             </Button>
         </Grid>
@@ -53,18 +54,18 @@
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
-            <TextBox x:Name="QueryBox" PlaceholderText="Search every account's chats and Code sessions" KeyDown="Query_KeyDown"
-                     AutomationProperties.Name="Search Chats" AutomationProperties.AutomationId="search.query" />
-            <DropDownButton Grid.Column="1" x:Name="FilterButton" AutomationProperties.Name="Filters"
-                            AutomationProperties.AutomationId="search.filters" ToolTipService.ToolTip="Filter the results">
+            <TextBox x:Name="QueryBox" local:Localized.PlaceholderText="Search every account's chats and Code sessions" KeyDown="Query_KeyDown"
+                     local:Localized.AutomationName="Search Chats" AutomationProperties.AutomationId="search.query" />
+            <DropDownButton Grid.Column="1" x:Name="FilterButton" local:Localized.AutomationName="Filters"
+                            AutomationProperties.AutomationId="search.filters" local:Localized.ToolTip="Filter the results">
                 <FontIcon x:Name="FilterIcon" Glyph="&#xE71C;" FontSize="14" />
             </DropDownButton>
             <Button Grid.Column="2" x:Name="SearchButton" Click="Search_Click" Style="{StaticResource AccentButtonStyle}"
-                    AutomationProperties.Name="Search" AutomationProperties.AutomationId="search.go">
+                    local:Localized.AutomationName="Search" AutomationProperties.AutomationId="search.go">
                 <Grid>
-                    <TextBlock x:Name="SearchText" Text="Search" />
+                    <TextBlock x:Name="SearchText" local:Localized.Text="Search" />
                     <ProgressRing x:Name="SearchRing" Width="16" Height="16" IsActive="False" Visibility="Collapsed"
-                                  AutomationProperties.Name="Asking claude.ai" />
+                                  local:Localized.AutomationName="Asking claude.ai" />
                 </Grid>
             </Button>
             <TextBlock Grid.Column="3" x:Name="CountText" VerticalAlignment="Center" MinWidth="70" TextAlignment="Right"
@@ -74,8 +75,8 @@
 
         <StackPanel Grid.Row="2" x:Name="SignedOutPanel" Spacing="10" HorizontalAlignment="Center" VerticalAlignment="Center" Visibility="Collapsed">
             <FontIcon Glyph="&#xE721;" FontSize="34" Foreground="{StaticResource GraftTextFillColorTertiaryBrush}" AutomationProperties.AccessibilityView="Raw" />
-            <TextBlock Text="Sign in to search chats" HorizontalAlignment="Center" AutomationProperties.AutomationId="search.signInNote" />
-            <Button Content="Sign In…" HorizontalAlignment="Center" Click="AddAccount_Click" AutomationProperties.AutomationId="search.signIn" />
+            <TextBlock local:Localized.Text="Sign in to search chats" HorizontalAlignment="Center" AutomationProperties.AutomationId="search.signInNote" />
+            <Button local:Localized.Content="Sign In…" HorizontalAlignment="Center" Click="AddAccount_Click" AutomationProperties.AutomationId="search.signIn" />
             <TextBlock x:Name="SignInHint" HorizontalAlignment="Center" Style="{StaticResource CaptionTextBlockStyle}"
                        Foreground="{StaticResource GraftTextFillColorSecondaryBrush}" AutomationProperties.AutomationId="search.signInHint" />
         </StackPanel>

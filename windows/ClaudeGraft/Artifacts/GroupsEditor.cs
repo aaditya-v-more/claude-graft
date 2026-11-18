@@ -19,14 +19,14 @@ public sealed class GroupsEditor
     private readonly Button _delete;
     private Guid? _selection;
 
-    public static string RoleSummary(ArtifactGroup group) => group.CommonRole?.Label() ?? "Mixed";
+    public static string RoleSummary(ArtifactGroup group) => group.CommonRole?.Label() ?? L10n.Text("Mixed");
 
     private static readonly ArtifactRole[] Roles = Enum.GetValues<ArtifactRole>();
 
     public GroupsEditor(ArtifactCenter center, XamlRoot root)
     {
         _center = center;
-        AutomationProperties.SetName(_list, "Groups");
+        AutomationProperties.SetName(_list, L10n.Text("Groups"));
         AutomationProperties.SetAutomationId(_list, "groups.list");
         _list.SelectionChanged += (_, _) =>
         {
@@ -37,13 +37,13 @@ public sealed class GroupsEditor
             }
         };
 
-        var add = SmallButton("", "New Group", "groups.add");
+        var add = SmallButton("", L10n.Text("New Group"), "groups.add");
         add.Click += (_, _) =>
         {
-            _selection = _center.AddGroup("New Group").Id;
+            _selection = _center.AddGroup(L10n.Text("New Group")).Id;
             Render();
         };
-        _delete = SmallButton("", "Delete Group", "groups.delete");
+        _delete = SmallButton("", L10n.Text("Delete Group"), "groups.delete");
         _delete.Click += (_, _) =>
         {
             if (_selection is { } id) _center.DeleteGroup(id);
@@ -71,7 +71,7 @@ public sealed class GroupsEditor
         body.Children.Add(_detail);
         var note = new TextBlock
         {
-            Text = "Each person is invited with the role beside them", Margin = new Thickness(0, 10, 0, 0),
+            Text = L10n.Text("Each person is invited with the role beside them"), Margin = new Thickness(0, 10, 0, 0),
             Style = (Style)Application.Current.Resources["CaptionTextBlockStyle"],
             Foreground = Themed.Brush("TextFillColorSecondaryBrush"),
         };
@@ -83,8 +83,8 @@ public sealed class GroupsEditor
 
         _dialog = new ContentDialog
         {
-            XamlRoot = root, Title = "Groups", Content = body,
-            CloseButtonText = "Done", DefaultButton = ContentDialogButton.Close,
+            XamlRoot = root, Title = L10n.Text("Groups"), Content = body,
+            CloseButtonText = L10n.Text("Done"), DefaultButton = ContentDialogButton.Close,
         };
         Dialogs.Prepare(_dialog, root);
         _dialog.Resources["ContentDialogMaxWidth"] = 720.0;
@@ -116,7 +116,7 @@ public sealed class GroupsEditor
             Grid.SetColumn(count, 1);
             row.Children.Add(count);
             var item = new ListViewItem { Content = row, Tag = group.Id };
-            AutomationProperties.SetName(item, $"{group.Name}, {group.Emails.Count} people, {RoleSummary(group)}");
+            AutomationProperties.SetName(item, L10n.Plural(group.Emails.Count, "{1}, {0} person, {2}", "{1}, {0} people, {2}", group.Name, RoleSummary(group)));
             _list.Items.Add(item);
             if (group.Id == _selection) _list.SelectedItem = item;
         }
@@ -140,7 +140,7 @@ public sealed class GroupsEditor
         {
             _detail.Content = new TextBlock
             {
-                Text = _center.Groups.Count == 0 ? "No groups yet" : "Select a group",
+                Text = _center.Groups.Count == 0 ? L10n.Text("No groups yet") : L10n.Text("Select a group"),
                 HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center,
                 Foreground = Themed.Brush("TextFillColorSecondaryBrush"),
             };
@@ -148,7 +148,7 @@ public sealed class GroupsEditor
         }
 
         var panel = new StackPanel { Spacing = 10 };
-        var name = new TextBox { Header = "Name", Text = group.Name };
+        var name = new TextBox { Header = L10n.Text("Name"), Text = group.Name };
         AutomationProperties.SetAutomationId(name, "groups.name");
         name.TextChanged += (_, _) =>
         {
@@ -158,9 +158,9 @@ public sealed class GroupsEditor
         };
         panel.Children.Add(name);
 
-        var everyone = new ComboBox { Header = "Everyone", IsEnabled = group.Emails.Count > 0, MinWidth = 160 };
+        var everyone = new ComboBox { Header = L10n.Text("Everyone"), IsEnabled = group.Emails.Count > 0, MinWidth = 160 };
         foreach (var role in Roles) everyone.Items.Add(role.Label());
-        if (group.CommonRole is null) everyone.Items.Add("Mixed");
+        if (group.CommonRole is null) everyone.Items.Add(L10n.Text("Mixed"));
         everyone.SelectedIndex = group.CommonRole is { } common ? Array.IndexOf(Roles, common) : Roles.Length;
         AutomationProperties.SetAutomationId(everyone, "groups.everyone");
         everyone.SelectionChanged += (_, _) =>
@@ -172,14 +172,14 @@ public sealed class GroupsEditor
         };
         panel.Children.Add(everyone);
 
-        panel.Children.Add(new TextBlock { Text = $"People · {group.Emails.Count}", Style = (Style)Application.Current.Resources["BodyStrongTextBlockStyle"] });
+        panel.Children.Add(new TextBlock { Text = L10n.Format("People · {0}", group.Emails.Count), Style = (Style)Application.Current.Resources["BodyStrongTextBlockStyle"] });
         var position = 0;
         foreach (var email in group.Emails.ToList()) panel.Children.Add(Member(group, email, position++));
 
-        var adding = new TextBox { PlaceholderText = "Add addresses" };
-        AutomationProperties.SetName(adding, "Add addresses");
+        var adding = new TextBox { PlaceholderText = L10n.Text("Add addresses") };
+        AutomationProperties.SetName(adding, L10n.Text("Add addresses"));
         AutomationProperties.SetAutomationId(adding, "groups.newAddresses");
-        var addButton = new Button { Content = "Add", IsEnabled = false };
+        var addButton = new Button { Content = L10n.Text("Add"), IsEnabled = false };
         AutomationProperties.SetAutomationId(addButton, "groups.addAddresses");
         adding.TextChanged += (_, _) => addButton.IsEnabled = GroupAddresses.Parse(adding.Text).Count > 0;
         // Pasted addresses join with the role everyone already has, so adding to
@@ -228,7 +228,7 @@ public sealed class GroupsEditor
         var role = new ComboBox { MinWidth = 120 };
         foreach (var r in Roles) role.Items.Add(r.Label());
         role.SelectedIndex = Array.IndexOf(Roles, group.RoleOf(email));
-        AutomationProperties.SetName(role, $"Role for {email}");
+        AutomationProperties.SetName(role, L10n.Format("Role for {0}", email));
         AutomationProperties.SetAutomationId(role, $"groups.member.{position}.role");
         role.SelectionChanged += (_, _) =>
         {
@@ -240,8 +240,8 @@ public sealed class GroupsEditor
         Grid.SetColumn(role, 1);
         row.Children.Add(role);
 
-        var remove = SmallButton("", $"Remove {email}", $"groups.member.{position}.remove");
-        ToolTipService.SetToolTip(remove, "Remove from the group");
+        var remove = SmallButton("", L10n.Format("Remove {0}", email), $"groups.member.{position}.remove");
+        ToolTipService.SetToolTip(remove, L10n.Text("Remove from the group"));
         remove.Click += (_, _) =>
         {
             group.Emails.Remove(email);

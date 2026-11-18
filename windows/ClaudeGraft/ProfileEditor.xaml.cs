@@ -89,11 +89,10 @@ public sealed partial class ProfileEditor : UserControl
         var own = _shortcut.Source.Kind == SourceKind.Own;
         var label = App.Store.Label(_shortcut.Source);
         MergeNote.Visibility = own ? Visibility.Collapsed : Visibility.Visible;
-        MergeText.Text = $"Shared both ways with {label}";
+        MergeText.Text = L10n.Format("Shared both ways with {0}", label);
         SourceInfoText.Text = own
-            ? "This profile keeps its own Claude Code history, connectors and preferences. Nothing is shared."
-            : $"Merges this profile's Claude Code chats with {label}'s, and shares extensions and window state. "
-              + "Missing local MCP servers are copied; existing server settings are kept. Logins and permission choices stay separate.";
+            ? L10n.Text("This profile keeps its own Claude Code history, connectors and preferences. Nothing is shared.")
+            : L10n.Format("Merges this profile's Claude Code chats with {0}'s, and shares extensions and window state. Missing local MCP servers are copied; existing server settings are kept. Logins and permission choices stay separate.", label);
     }
 
     /// Raised whenever what the page's buttons may do has changed.
@@ -192,7 +191,7 @@ public sealed partial class ProfileEditor : UserControl
         if (_busy) return;
         var name = NameBox.Text.Trim();
         var folder = FolderBox.Text.Trim();
-        if (name.Length == 0) { Reject("The Claude needs a name."); return; }
+        if (name.Length == 0) { Reject(L10n.Text("The Claude needs a name.")); return; }
         if (Graft.ValidateFolder(folder) is string problem) { Reject(problem); return; }
         Problem.IsOpen = false;
         var result = _shortcut.Copy();

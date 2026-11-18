@@ -1,3 +1,4 @@
+using ClaudeGraft.Core;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 
@@ -40,5 +41,5 @@ public sealed class SettingsCard : ContentControl
     }
 
     /// The words a switch shows beside it, as WinUI's own do.
-    public static string OnOff(bool on) => on ? "On" : "Off";
+    public static string OnOff(bool on) => on ? L10n.Text("On") : L10n.Text("Off");
 }

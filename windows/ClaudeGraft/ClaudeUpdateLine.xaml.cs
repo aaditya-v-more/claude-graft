@@ -1,3 +1,4 @@
+using ClaudeGraft.Core;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
@@ -58,11 +59,11 @@ public sealed partial class ClaudeUpdateLine : UserControl
             // Two short lines beside the button rather than a sentence wrapped under the name; the tooltip keeps it whole.
             if (Stacked) rest = phase switch
             {
-                ClaudeUpdateCenter.Phase.Available => $"{ClaudeUpdateCenter.Latest} available",
-                ClaudeUpdateCenter.Phase.NeedsRestart => $"{ClaudeUpdateCenter.Installed} waits on a restart",
+                ClaudeUpdateCenter.Phase.Available => L10n.Format("{0} available", ClaudeUpdateCenter.Latest),
+                ClaudeUpdateCenter.Phase.NeedsRestart => L10n.Format("{0} waits on a restart", ClaudeUpdateCenter.Installed),
                 _ => rest,
             };
-            var held = rest.IndexOf(" · updates when you ask", StringComparison.Ordinal);
+            var held = ClaudeUpdateCenter.Held is { Length: > 0 } words ? rest.IndexOf(words, StringComparison.Ordinal) : -1;
             var version = new Microsoft.UI.Xaml.Documents.Run { Text = (Stacked ? "" : " ") + (held < 0 ? rest : rest[..held]) };
             // Left unset when alarming so it takes the line's red: a null brush draws nothing.
             if (!ClaudeUpdateCenter.Alarming) version.Foreground = Themed.Brush("TextFillColorSecondaryBrush");
@@ -92,10 +93,10 @@ public sealed partial class ClaudeUpdateLine : UserControl
             ? "SystemFillColorCriticalBrush" : "TextFillColorSecondaryBrush");
         // The sidebar is narrow enough that "Restart Claudes…" beside the name squeezed it to three lines.
         ActionButton.Content = Stacked && action is not null
-            ? phase switch { ClaudeUpdateCenter.Phase.NeedsRestart => "Restart…", ClaudeUpdateCenter.Phase.Failed => "Retry", _ => action }
+            ? phase switch { ClaudeUpdateCenter.Phase.NeedsRestart => L10n.Text("Restart…"), ClaudeUpdateCenter.Phase.Failed => L10n.Text("Retry"), _ => action }
             : action;
         ActionButton.Visibility = action is null ? Visibility.Collapsed : Visibility.Visible;
-        AutomationProperties.SetName(ActionButton, action is null ? "" : action.TrimEnd('…') + " Claude Desktop");
+        AutomationProperties.SetName(ActionButton, action is null ? "" : L10n.Format("{0} Claude Desktop", action.TrimEnd('…')));
     }
 
     private void Action_Click(object sender, RoutedEventArgs e)
