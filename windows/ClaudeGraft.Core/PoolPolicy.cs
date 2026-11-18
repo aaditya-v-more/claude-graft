@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace ClaudeGraft.Core;
@@ -227,19 +228,31 @@ public static class PoolRequest
     public static bool IsInference(string method, string target) =>
         method == "POST" && target.Split('?', 2)[0] == "/v1/messages";
 
-    /// A file, container or server-side MCP connection lives in the
-    /// organization that made it. Matched with the start of the value that
-    /// makes it a reference: a tool schema can carry the bare key.
+    /// A file or server-side MCP connection lives in the organization that
+    /// made it. Matched with the start of the value that makes it a reference:
+    /// a tool schema can carry the bare key.
     public static readonly string[] AccountBoundMarks =
     [
         "\"file_id\":\"",
-        "\"container\":\"", "\"container\":{\"id\":\"",
         "\"mcp_servers\":[{",
     ];
 
     public static bool MustStayWithSender(byte[] body, string? contentEncoding)
     {
         if (!string.IsNullOrEmpty(contentEncoding) && !contentEncoding.Equals("identity", StringComparison.OrdinalIgnoreCase)) return true;
+        // A container is read off the top level: an artifact tool calls its own
+        // argument "container", and one call in the history pinned every turn after it.
+        try
+        {
+            using var request = JsonDocument.Parse(body);
+            if (request.RootElement.ValueKind != JsonValueKind.Object) return true;
+            if (request.RootElement.TryGetProperty("container", out var container)
+                && (container is { ValueKind: JsonValueKind.String } && container.GetString() is { Length: > 0 }
+                    || container.ValueKind == JsonValueKind.Object
+                       && container.TryGetProperty("id", out var id) && id.ValueKind == JsonValueKind.String))
+                return true;
+        }
+        catch (JsonException) { return true; }
         return AccountBoundMarks.Any(m => Has(body, m));
     }
 

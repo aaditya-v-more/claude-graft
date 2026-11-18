@@ -6458,6 +6458,13 @@ do {
           "an artifact tool's container argument does not pin inference to its account")
     check(PoolRequest.mustStayWithSender(body: Data(#"{"container":{"id":"c1"},"messages":[]}"#.utf8), contentEncoding: nil),
           "the API's real container still stays with its account")
+    check(PoolRequest.mustStayWithSender(body: Data(#"{"container":"c1","messages":[]}"#.utf8), contentEncoding: nil),
+          "and so does one named by its id alone")
+    let artifactObject = Data(#"{"model":"claude-x","messages":[{"role":"assistant","content":[{"type":"tool_use","id":"t1","name":"artifact","input":{"container":{"id":"p1","kind":"project"}}}]}]}"#.utf8)
+    check(!PoolRequest.mustStayWithSender(body: artifactObject, contentEncoding: nil),
+          "an artifact argument written as an object with an id pins nothing either")
+    check(PoolRequest.mustStayWithSender(body: Data(#"{"model":"claude-x","messages":["#.utf8), contentEncoding: nil),
+          "a body that cannot be read cannot be shown to refer to nothing, so it stays")
     let quoted = Data(#"{"messages":[{"content":"what is \"file_id\": for"}]}"#.utf8)
     check(!PoolRequest.mustStayWithSender(body: quoted, contentEncoding: nil),
           "the same key quoted inside a prompt pins nothing")

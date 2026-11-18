@@ -633,3 +633,6 @@ request envelope for `container`; keep real file and server-side MCP references
 pinned. The relay regression sends a historical artifact tool call through the
 stand-in and checks that the other account answers, while real containers stay
 on their owner.
+
+Windows reads the request the same way (`PoolRequest.MustStayWithSender` in
+`PoolPolicy.cs`), and a body that does not parse stays with its sender on both.
