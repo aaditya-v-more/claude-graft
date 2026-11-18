@@ -47,26 +47,18 @@ situations look identical from inside the code, and the note is what says how
 to tell them apart. A new fact goes into the note it belongs to; a new rule gets
 one line here as well.
 
-## Testing that can end the session doing it
+## Where builds and tests run
 
-Work on this app is done from inside a Claude that Graft itself manages, so a
-test that quits or relaunches Graft, swaps in a development build, opens, quits
-or brings forward a Claude, or installs an update can stop the session running
-it halfway through. Those are written up as a plan in `dist/<topic>/HANDOFF.md`
-and run from outside it: the exact steps, what each should show and where to
-check it, what must not be touched, how to put the installed Graft back, and a
-table for the results. `dist/` because it is ignored and `release.sh` clears
-only what it builds there; every `./build.sh` clears `build.noindex/`, which has
-already taken one plan and its results with it.
+Not on the development machine. There code is edited, committed and read, and
+nothing else: no build, no suite, no layout or opening check, no launch of the
+app and no release check. Mac builds and every Mac check run on the Mac mini or
+the macOS VMs, Windows builds and checks on a Windows test PC, each from a
+commit. The commands below are what those machines run.
 
-Done in place is everything that cannot disturb a running Claude: the suite, the
-layout checks, builds, read-only runs over this machine's data, and sandboxes
-cloned from it. A plan never releases, commits or touches a chat. A keychain
-prompt it meets is answered by the person whose keychain it is.
-
-The development machine has Claude's own profile and one shortcut, Claude 2,
-grafted from it. A plan may bring forward a Claude that is already open; it
-opens and quits none.
+Steps that need a person on a real machine are cases in `Tests/manual/`. A
+case says what must not be touched and how to put the machine back, and never
+releases, commits or touches a chat. A keychain prompt it meets is answered by
+the person whose keychain it is.
 
 ## Commands
 

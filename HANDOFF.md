@@ -6,7 +6,7 @@ Rewritten in place; it describes the current state, not a history.
 
 - **Signed-in passes are with the testers (19 Nov).** Sign-in is by emailed code, now allowed. Windows: `test-profiles`, `smoke` and `usage-and-start-session` on the second PC, against the installed 2.1.1. Mac, in a macOS VM: all seven signed-in cases against a universal build of `e689ecf`, zipped in `dist/test-builds/`. The Mac release, the next number after 2.1.1, follows a pass there.
 - **PR #17** (Tyler, "Windows: Mods page") is a draft he is still working on; nothing to do until he marks it ready.
-- **PRs #14 and #15 wait on the owner's decision to merge.** Both were merged locally onto `main` (`62dbbad`) and pass: `./test.sh` 1458/1459 and 1485/1486, failing only the known text-position check, and #14's `./test-relay.sh` 99/99.
+- **PRs #14 and #15 wait on the owner's decision to merge.** Both were merged locally onto `main` (`62dbbad`) and passed, on the development Mac before builds and tests moved off it: `./test.sh` 1458/1459 and 1485/1486, failing only the known text-position check, and #14's `./test-relay.sh` 99/99.
   - **#14** (Juulsn) stops an artifact tool's `container` argument in the history from pinning a conversation to its sender. It now reads the top-level `container` by parsing the body, where the old code did a byte scan, so every inference request is parsed once. Windows has the same scan in `PoolPolicy.cs` and needs the same fix.
   - **#15** (PvtLight) stops a new shortcut from landing on a folder another shortcut uses, which signed it in to that shortcut's account. Every caller passes the list. Windows has the same bug: `ShortcutStore.UniqueName` checks names only, and `ApplyEdit` adds a new shortcut on a folder in use without a word.
 - **Real-device runs** use the cases in `Tests/manual/`.
@@ -54,7 +54,7 @@ Both community Windows ports are merged into `main` and GitHub shows both PRs as
 - Nothing signed in ran there: usage, Start Session, sharing, Artifacts and Projects need the owner to sign in to Claude in a VM.
 - Notes, logs and screenshots are in the session notes folder, not the repo. mac2's disk is nearly full (about 5 GB free).
 
-**Mac.** On the Mac only builds and suites run; nothing is launched, because extra Claude Desktop instances there can take down the sessions running on that Mac.
+**Development Mac (before 19 Nov).** Builds and suites ran there then; since 19 Nov nothing is built, launched or tested on it, and all of that goes to the Mac mini, the VMs or a Windows test PC from a commit.
 - `./test.sh` passes 1456 of 1457 checks.
 - The one failure, "the moving text lies exactly where AppKit draws a picture of its size…", also fails on the old `main` with the macOS 26.5 SDK, so it is not caused by the merge.
 - `node Tests/sidebar-storage.cjs` passes 25/25, and `./build.sh` builds.
@@ -71,7 +71,7 @@ Both community Windows ports are merged into `main` and GitHub shows both PRs as
 - 2.1.0 installed, and its version, settings, Check for Updates and state report passed.
 - New Shortcut stays hidden until a Claude is signed in (the first-run gate), so Test A and Test B can only be made after the owner signs in the main Claude.
 
-**Mac, the Windows suite.** `dotnet test windows/ClaudeGraft.Tests` runs on the Mac (SDK in `~/.dotnet`): 509 of 561 pass. The other 52 call Windows APIs or assume Windows paths, so the full suite still runs on a Windows machine.
+**Windows suite on a Mac.** Run on the development Mac before 19 Nov, 509 of 561 passed; the other 52 call Windows APIs or assume Windows paths, so the suite belongs on a Windows machine.
 
 ## Settings in a wide window (fixed)
 

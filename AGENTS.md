@@ -41,13 +41,15 @@ to change it.
 
 # Testing
 
-The suites are listed in [CLAUDE.md](CLAUDE.md). Cases a person runs on a real
-Mac or Windows machine, signed in, are in `Tests/manual/`, one per file, as
-steps and what each should show.
+Nothing is built, launched or tested on the development machine. Builds,
+suites and checks run on the test machines from a commit: Mac on the Mac mini or
+the macOS VMs, Windows on a Windows test PC. The suites are listed in
+[CLAUDE.md](CLAUDE.md). Cases a person runs on a real machine, signed in, are in
+`Tests/manual/`, one per file, as steps and what each should show.
 
 # Windows development builds
 
-After any change to the Windows build, install it on the development machine
+After any change to the Windows build, install it on the Windows test PC
 before asking for it to be tested, so what is tested is what was changed. Run
 `windows/dev-install.ps1` from PowerShell. It publishes a Release build, packs
 it as a Velopack package numbered `<VERSION>-dev.<timestamp>` from the repository's `VERSION`, asks the
