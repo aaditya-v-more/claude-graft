@@ -71,6 +71,13 @@ still opening a folder its list entry has left matches both. Only a created shor
 for a created shortcut whose folder is shared only with others not created
 yet, the app found by its folder is its own, renamed in Finder.
 
+**Windows keeps the same rule** in `ShortcutStore`: `UniqueName` passes over a
+name whose folder is not free, `SuggestedFolder` is what the editor's name
+writes into the folder box, and `Conflict` refuses a new or moved Claude on a
+folder another one has. It also refuses a name another Claude has, compared
+ignoring case, because both would write the same desktop `.lnk` and the second
+would open the first's profile.
+
 ## Opening, revealing and the shortcut bundle
 
 **Every route that opens a profile asks first.** Two Claudes on one chat store
