@@ -91,6 +91,7 @@ struct FooterLink: View {
                 .font(.callout)
                 .foregroundStyle(text)
                 .underline(hovering)
+                .fixedSize()
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

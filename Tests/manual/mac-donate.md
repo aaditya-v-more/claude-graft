@@ -23,7 +23,10 @@ Setup: The build under test running; macOS in Light appearance first.
    background.
 6. Set macOS to Russian (or run Graft with `-AppleLanguages '(ru)'`) and look
    at the sidebar foot and the dropdown.
-   Expect: "Пожертвовать" and "Пожертвовать…", fitting without cutting off.
+   Expect: "Пожертвовать" and "Пожертвовать…", each word whole on one line,
+   never broken or cut off. If the sidebar is too narrow for Donate and Source
+   side by side, Source sits under Donate. Widen the sidebar to its widest
+   and back: they move side by side once both fit.
 
 Pass when: every place that said Support now says Donate with the red heart, in
 both appearances and both languages, and each opens the Ko-fi page.

@@ -265,18 +265,35 @@ struct ContentView: View {
             // about Claude's version took the full width above every profile.
             ClaudeUpdateStatus(stacked: true)
             Divider()
-            HStack(spacing: 0) {
-                FooterLink("Donate", icon: "heart.fill", iconTint: .donateHeart, url: Links.support,
-                           help: "Claude Graft is free. A tip on Ko-fi is what keeps it worked on.")
-                    .identified("support")
-                Spacer(minLength: 8)
-                FooterLink("Source", icon: "chevron.left.forwardslash.chevron.right", url: Links.source,
-                           help: Links.source.absoluteString)
-                    .identified("source")
+            // Side by side where both fit, one above the other where they don't:
+            // in Russian a narrow sidebar broke Пожертвовать mid-word.
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 0) {
+                    donateLink
+                    Spacer(minLength: 8)
+                    sourceLink
+                }
+                VStack(alignment: .leading, spacing: 6) {
+                    donateLink
+                    sourceLink
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 8)
         }
+    }
+
+    private var donateLink: some View {
+        FooterLink("Donate", icon: "heart.fill", iconTint: .donateHeart, url: Links.support,
+                   help: "Claude Graft is free. A tip on Ko-fi is what keeps it worked on.")
+            .identified("support")
+    }
+
+    private var sourceLink: some View {
+        FooterLink("Source", icon: "chevron.left.forwardslash.chevron.right", url: Links.source,
+                   help: Links.source.absoluteString)
+            .identified("source")
     }
 
     /// What the line under the name and the symbol beside it say between

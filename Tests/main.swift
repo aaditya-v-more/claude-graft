@@ -1951,6 +1951,9 @@ do {
     // that the money has nowhere to go.
     check(![links, site, readme].contains(where: { $0.contains("github.com/sponsors") }),
           "and nothing still offers the sponsor page that cannot take the money")
+    check(read("Sources/App/ContentView.swift").contains("ViewThatFits(in: .horizontal)")
+            && read("Sources/App/Links.swift").contains(".fixedSize()"),
+          "the sidebar's links never break a word: they stack when they can't sit side by side")
     check(read("Sources/App/ContentView.swift").contains(#"FooterLink("Donate", icon: "heart.fill", iconTint: .donateHeart"#)
             && read("Sources/App/MenuBarContent.swift").contains(#"MenuButton("Donate…", id: "support", icon: "heart.fill", iconTint: .donateHeart)"#),
           "the sidebar and the dropdown both say Donate beside a red heart")
