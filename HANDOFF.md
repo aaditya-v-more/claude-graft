@@ -30,6 +30,8 @@ Then the Mac release (both systems take the next number after 2.1.1), this file 
     - Russian through `L10n` and `ru.json`;
     - `GRAFT_LANGUAGE=ru` forces it for testing.
   - Merge #21 into #20, then #19 and #20 into `main`, once the runs pass.
+- **Releases are staged before they ship** (ebcf7ae): a prerelease with `appcast-staged.xml`, the cask on the tap's `release-<version>` branch, `Tools/check-distribution.py --tag` (Distribution Checks workflow; it also runs daily on what's live and passed on 2.0.1/2.1.1), then `Tests/manual/release-install.md` on clean Mac and Windows machines before publishing. `release.sh` prints the steps.
+- **Everyday-use cases** (`Tests/manual/everyday-*.md`, nine) run before every release. Request 5 runs eight of them on e0cfe53 (Mac) and 8fc80ec (Windows); everyday-update and the first-launch part run with release-install.
 - **`main` requires the `windows` check** as well as `checks`. The Windows workflow now runs on every change so that it always reports.
 - **Real-device runs** use the cases in `Tests/manual/`.
 
