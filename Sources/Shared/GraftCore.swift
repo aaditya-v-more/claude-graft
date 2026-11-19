@@ -1857,6 +1857,152 @@ enum Graft {
         }
     }
 
+    // MARK: - Folders moved after their chats
+
+    /// Each session folder's bookmark, kept while the folder is there so it
+    /// can still be found once it has been renamed or moved.
+    static var sessionFoldersFile: URL { graftFolder.appending(path: "session-folders.json") }
+
+    /// How the command line names a working directory under `claudeProjects`.
+    static func transcriptFolderName(for cwd: String) -> String {
+        String(cwd.unicodeScalars.map { $0.isASCII && CharacterSet.alphanumerics.contains($0) ? Character($0) : "-" })
+    }
+
+    private static func isInTrash(_ url: URL) -> Bool {
+        url.standardizedFileURL.pathComponents.contains { $0 == ".Trash" || $0 == ".Trashes" }
+    }
+
+    private static func sessionRecordFiles() -> [URL] {
+        var seen: Set<String> = []
+        var files: [URL] = []
+        for profile in sessionStoreProfiles() {
+            let store = profile.appending(path: "claude-code-sessions")
+            guard let accounts = try? fm.contentsOfDirectory(atPath: store.path) else { continue }
+            for account in accounts where !account.hasPrefix(".") && !account.hasSuffix(stashSuffix)
+                && !nonAccountStoreItems.contains(account) {
+                let accountDir = store.appending(path: account)
+                guard isDirectory(accountDir),
+                      let orgs = try? fm.contentsOfDirectory(atPath: accountDir.path) else { continue }
+                for org in orgs where !org.hasPrefix(".") && !org.hasSuffix(stashSuffix) {
+                    // A grafted folder is a link to another profile's, and is rewritten once.
+                    let dir = accountDir.appending(path: org).resolvingSymlinksInPath()
+                    guard isDirectory(dir), seen.insert(dir.path).inserted,
+                          let names = try? fm.contentsOfDirectory(atPath: dir.path) else { continue }
+                    files += names.filter { $0.hasPrefix("local_") && $0.hasSuffix(".json") }
+                        .sorted().map { dir.appending(path: $0) }
+                }
+            }
+        }
+        return files
+    }
+
+    /// Points the chats of a folder renamed or moved since they last ran at
+    /// where it is now, in every profile, and carries their transcripts along.
+    ///
+    /// Claude files a chat under the path it ran in and never looks again, so
+    /// a project folder renamed in Finder leaves its whole history under a
+    /// heading for a folder that no longer exists, and resuming one fails.
+    /// The folder is followed by its bookmark, which survives a rename or a
+    /// move on the same volume; a folder deleted, in the Trash, or on a drive
+    /// that is not mounted is left alone. Nothing moves while any Claude is up,
+    /// because a running one writes back the records it read at launch.
+    @discardableResult
+    static func followMovedFolders() -> [String: String] {
+        guard runningClaudes().isEmpty else { return [:] }
+        let files = sessionRecordFiles()
+        var records: [(file: URL, record: [String: Any], cwd: String)] = []
+        for file in files {
+            guard let data = try? Data(contentsOf: file),
+                  let record = recordObject(data),
+                  let cwd = record["cwd"] as? String, cwd.hasPrefix("/"),
+                  !cwd.contains("/scratch-workspaces/") else { continue }
+            records.append((file, record, cwd))
+        }
+
+        let stored = (try? Data(contentsOf: sessionFoldersFile))
+            .flatMap { try? JSONDecoder().decode([String: Data].self, from: $0) } ?? [:]
+        var remembered: [String: Data] = [:]
+        var moves: [String: String] = [:]
+        for cwd in Set(records.map(\.cwd)).sorted() {
+            let folder = URL(fileURLWithPath: cwd)
+            if isDirectory(folder) {
+                remembered[cwd] = (try? folder.bookmarkData()) ?? stored[cwd]
+                continue
+            }
+            guard let bookmark = stored[cwd] else { continue }
+            guard sessionFolderIsHere(cwd) else { remembered[cwd] = bookmark; continue }
+            var stale = false
+            guard let found = try? URL(resolvingBookmarkData: bookmark,
+                                       options: [.withoutUI, .withoutMounting],
+                                       bookmarkDataIsStale: &stale),
+                  isDirectory(found), !isInTrash(found),
+                  !samePath(found, folder) else { continue }
+            moves[cwd] = found.standardizedFileURL.path
+        }
+        // A folder inside a moved one went with it, bookmark or not.
+        for cwd in Set(records.map(\.cwd)) where moves[cwd] == nil && !isDirectory(URL(fileURLWithPath: cwd)) {
+            guard let parent = moves.keys.filter({ cwd.hasPrefix($0 + "/") }).max(by: { $0.count < $1.count })
+            else { continue }
+            let moved = moves[parent]! + cwd.dropFirst(parent.count)
+            if isDirectory(URL(fileURLWithPath: moved)) { moves[cwd] = moved }
+        }
+        guard !moves.isEmpty else {
+            if remembered != stored { saveSessionFolders(remembered) }
+            return [:]
+        }
+
+        func follow(_ value: Any?) -> Any? {
+            guard let path = value as? String else { return value }
+            if let to = moves[path] { return to }
+            guard let from = moves.keys.filter({ path.hasPrefix($0 + "/") }).max(by: { $0.count < $1.count })
+            else { return value }
+            return moves[from]! + path.dropFirst(from.count)
+        }
+        var rewritten: [String: Int] = [:]
+        for entry in records {
+            guard let to = moves[entry.cwd] else { continue }
+            var record = entry.record
+            for key in ["cwd", "originCwd", "gitAnchorsFolderRealpath"] where record[key] != nil {
+                record[key] = follow(record[key])
+            }
+            guard let data = try? JSONSerialization.data(withJSONObject: record, options: [.sortedKeys]),
+                  (try? data.write(to: entry.file, options: .atomic)) != nil else { continue }
+            rewritten[to, default: 0] += 1
+        }
+
+        for (from, to) in moves.sorted(by: { $0.key < $1.key }) {
+            let source = claudeProjects.appending(path: transcriptFolderName(for: from))
+            let target = claudeProjects.appending(path: transcriptFolderName(for: to))
+            var carried = 0, kept = 0
+            if isDirectory(source), let names = try? fm.contentsOfDirectory(atPath: source.path) {
+                try? fm.createDirectory(at: target, withIntermediateDirectories: true)
+                for name in names {
+                    // Two histories of one name are both kept; the old one stays where it was.
+                    guard !exists(target.appending(path: name)),
+                          (try? fm.moveItem(at: source.appending(path: name),
+                                            to: target.appending(path: name))) != nil
+                    else { kept += 1; continue }
+                    carried += 1
+                }
+                if kept == 0 { try? fm.removeItem(at: source) }
+            }
+            remembered[from] = nil
+            if remembered[to] == nil { remembered[to] = try? URL(fileURLWithPath: to).bookmarkData() }
+            Diagnostics.note("folder.followed", ["from": from, "to": to,
+                                                 "records": rewritten[to] ?? 0,
+                                                 "transcripts": carried, "keptBehind": kept])
+        }
+        saveSessionFolders(remembered)
+        return moves
+    }
+
+    private static func saveSessionFolders(_ folders: [String: Data]) {
+        guard let data = try? JSONEncoder().encode(folders) else { return }
+        try? fm.createDirectory(at: sessionFoldersFile.deletingLastPathComponent(),
+                                withIntermediateDirectories: true)
+        try? data.write(to: sessionFoldersFile, options: .atomic)
+    }
+
     // MARK: - Mirrored chat folders
 
     /// A stable digest of a record's bytes.
@@ -4015,6 +4161,7 @@ enum Graft {
                          checkingRunning: Bool = true) -> [SessionFacts] {
         withStateLock {
             mirrorKnownPairs()
+            followMovedFolders()
             let filed = fileMissingSessionRecords(filingInto: profiles)
             writeStateReport(checkingRunning: checkingRunning)
             return filed

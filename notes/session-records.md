@@ -357,6 +357,31 @@ long since been rewritten by Claude in its own shape and belongs to Claude, so
 those fourteen are deleted from the sidebar by hand, and the deletion markers
 keep them from coming back.
 
+## Folders renamed after their chats
+
+Claude files a Code chat under the path it ran in and never looks at that path
+again. Renaming a project folder in Finder therefore leaves every chat that ran
+in it under a sidebar heading named after a folder that no longer exists, apart
+from the chats started since, and resuming one fails because the transcript sits
+under `~/.claude/projects/<old path, encoded>`. With two profiles sharing one
+history the records exist in both, and a hand fix has to touch every copy the
+same way or the mirror carries the stale one back. Eight chats were found like
+this after a client folder was renamed twice; nothing had been lost, they were
+simply filed under the old name.
+
+So each pass keeps a bookmark for every folder a record names while that folder
+is there (`ClaudeGraft/session-folders.json`). A bookmark finds a folder again
+after a rename or a move on the same volume, which a path cannot. When a
+record's folder is gone, its home or drive is here (`sessionFolderIsHere`), and
+the bookmark resolves to a folder outside any Trash, the pass points `cwd`,
+`originCwd` and `gitAnchorsFolderRealpath` at the new place in every profile's
+copy, folders inside it included, and moves the transcript folder to the name
+the command line gives the new path (ASCII letters and digits kept, everything
+else a dash). A transcript already present under the new name is left where it
+was rather than written over. A deleted folder has no bookmark to resolve and a
+cleaned-up worktree is that case, so both stay as they are. Nothing moves while
+any Claude is running: a Claude writes back the records it read at launch.
+
 ## Which profiles are written to
 
 **A Claude this app did not make is read, never written to.** Every profile in
