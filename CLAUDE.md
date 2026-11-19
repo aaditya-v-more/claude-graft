@@ -55,6 +55,12 @@ app and no release check. Mac builds and every Mac check run on the Mac mini or
 the macOS VMs, Windows builds and checks on a Windows test PC, each from a
 commit. The commands below are what those machines run.
 
+For prototyping, debugging and live development a developer may work on a test
+machine directly, over ssh or by driving it, holding that machine's lock for
+the length of the work and leaving it as found: nothing device-wide changed, no
+accounts, network or other products touched. What that shows is a development
+check; a release and the everyday-use cases are still judged by the testers.
+
 Steps that need a person on a real machine are cases in `Tests/manual/`. A
 case says what must not be touched and how to put the machine back, and never
 releases, commits or touches a chat. A keychain prompt, permission or
