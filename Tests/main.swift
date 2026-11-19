@@ -8321,6 +8321,9 @@ do {
     func file(_ session: String, at cwd: URL) {
         let record: [String: Any] = ["sessionId": "local_\(session)", "cliSessionId": session,
             "cwd": cwd.path, "originCwd": cwd.path, "gitAnchorsFolderRealpath": cwd.path,
+            "folderPlace": ["cwd": cwd.path, "realPath": cwd.path],
+            "gitAnchors": [["gitRoot": cwd.path, "commonDir": cwd.path + "/.git"]],
+            "writtenBranches": [cwd.path + " main"], "shellFolders": ["/elsewhere"],
             "title": session, "lastActivityAt": 100, "isArchived": false]
         for store in stores {
             try! JSONSerialization.data(withJSONObject: record).write(to: store.appending(path: "local_\(session).json"))
@@ -8364,6 +8367,12 @@ do {
                   && moved["title"] as? String == "renamed"
           },
           "every profile's record of the chat points at the renamed folder and keeps the rest")
+    let followed = record("renamed", in: stores[1])
+    check((followed["folderPlace"] as? [String: String]) == ["cwd": renamed.path, "realPath": renamed.path]
+          && (followed["gitAnchors"] as? [[String: String]])?.first?["commonDir"] == renamed.path + "/.git"
+          && (followed["writtenBranches"] as? [String]) == [renamed.path + " main"]
+          && (followed["shellFolders"] as? [String]) == ["/elsewhere"],
+          "the folder is followed everywhere the record names it, and other paths are left as they were")
     check(stores.allSatisfy { record("nested", in: $0)["cwd"] as? String == nested },
           "a chat that ran in a folder inside the renamed one follows it too")
     let newHistory = transcripts.appending(path: Graft.transcriptFolderName(for: renamed.path))

@@ -1951,20 +1951,23 @@ enum Graft {
             return [:]
         }
 
-        func follow(_ value: Any?) -> Any? {
-            guard let path = value as? String else { return value }
+        // Claude keeps the folder in more places than `cwd` — `folderPlace`, which it
+        // compares with `cwd`, git anchors, shell folders, branches as "path branch" — so
+        // every string naming a moved folder is followed, wherever it sits.
+        func follow(_ value: Any) -> Any {
+            if let record = value as? [String: Any] { return record.mapValues(follow) }
+            if let list = value as? [Any] { return list.map(follow) }
+            guard let path = value as? String, path.hasPrefix("/") else { return value }
             if let to = moves[path] { return to }
-            guard let from = moves.keys.filter({ path.hasPrefix($0 + "/") }).max(by: { $0.count < $1.count })
+            guard let from = moves.keys
+                .filter({ path.hasPrefix($0 + "/") || path.hasPrefix($0 + " ") })
+                .max(by: { $0.count < $1.count })
             else { return value }
             return moves[from]! + path.dropFirst(from.count)
         }
         var rewritten: [String: Int] = [:]
         for entry in records {
-            guard let to = moves[entry.cwd] else { continue }
-            var record = entry.record
-            for key in ["cwd", "originCwd", "gitAnchorsFolderRealpath"] where record[key] != nil {
-                record[key] = follow(record[key])
-            }
+            guard let to = moves[entry.cwd], let record = follow(entry.record) as? [String: Any] else { continue }
             guard let data = try? JSONSerialization.data(withJSONObject: record, options: [.sortedKeys]),
                   (try? data.write(to: entry.file, options: .atomic)) != nil else { continue }
             rewritten[to, default: 0] += 1

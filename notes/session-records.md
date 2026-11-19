@@ -373,14 +373,18 @@ So each pass keeps a bookmark for every folder a record names while that folder
 is there (`ClaudeGraft/session-folders.json`). A bookmark finds a folder again
 after a rename or a move on the same volume, which a path cannot. When a
 record's folder is gone, its home or drive is here (`sessionFolderIsHere`), and
-the bookmark resolves to a folder outside any Trash, the pass points `cwd`,
-`originCwd` and `gitAnchorsFolderRealpath` at the new place in every profile's
-copy, folders inside it included, and moves the transcript folder to the name
-the command line gives the new path (ASCII letters and digits kept, everything
-else a dash). A transcript already present under the new name is left where it
-was rather than written over. A deleted folder has no bookmark to resolve and a
-cleaned-up worktree is that case, so both stay as they are. Nothing moves while
-any Claude is running: a Claude writes back the records it read at launch.
+the bookmark resolves to a folder outside any Trash, the pass points every path
+in the record that names it at the new place, in every profile's copy and
+folders inside it included. That is not only `cwd`: Claude also keeps
+`originCwd`, `gitAnchorsFolderRealpath`, `folderPlace` (which it compares with
+`cwd`), `gitAnchors`, shell folders and `writtenBranches` ("path branch"), and a
+record moved by `cwd` alone keeps the old folder in all of them. The pass also
+moves the transcript folder to the name the command line gives the new path
+(ASCII letters and digits kept, everything else a dash). A transcript already
+present under the new name is left where it was rather than written over. A
+deleted folder has no bookmark to resolve and a cleaned-up worktree is that
+case, so both stay as they are. Nothing moves while any Claude is running: a
+Claude writes back the records it read at launch.
 
 ## Which profiles are written to
 
