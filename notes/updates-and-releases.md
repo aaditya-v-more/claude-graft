@@ -310,6 +310,26 @@ tag, one `git add docs` away from being served. The feed is built and checked in
 `dist/sparkle/appcast.xml` and copied into `docs/` as the last step before
 `--install`.
 
+**Nothing a person downloads or runs ships before it has been run.** Every
+check above asks of the files this machine built, none of what people fetch,
+and an install command or a link is only as good as what it fetches.
+So a release is staged before it is published. Its GitHub release is a
+prerelease, which Sparkle never sees (the feed is not pushed yet), Velopack's
+GitHub source skips, and the site's `releases/latest` lookup ignores; the zip,
+disk image, Windows setup and packages are on it at the addresses they will
+keep, with the new feed beside them as `appcast-staged.xml`; the cask waits on
+the tap's `release-<version>` branch. `Tools/check-distribution.py --tag`
+fetches all of that the way a person would: every release link on the README
+and the site opens, every `brew install` command finds its cask, the cask's
+disk image matches its sha256, the feed's new zip is the length it says and
+verifies against `SUPublicEDKey`, and the Windows feed's package matches its
+size and SHA256. Then `Tests/manual/release-install.md` installs it on clean
+Macs and Windows machines by each route, a Mac pointed at the staged feed with
+`defaults write graft.claude-graft SUFeedURL` and a Windows Graft with
+`GRAFT_UPDATE_FEED`, both of which read the release's own files. Publishing
+flips the prerelease, pushes the feed and moves the tap's `main` to the
+branch, and the same script then runs daily against what is live.
+
 **The feed URL is unchangeable once shipped.** A copy out in the world polls the
 URL it was born with, and GitHub gives Pages no redirect if the account is ever
 renamed — repositories redirect, Pages does not. `Resources/Info.plist` and the
