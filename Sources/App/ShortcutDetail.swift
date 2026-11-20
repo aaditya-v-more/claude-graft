@@ -197,7 +197,7 @@ struct ShortcutDetail: View {
                     .textFieldStyle(.roundedBorder)
                     .labelsHidden()
                     .font(.body.monospaced())
-                    .frame(width: 130)
+                    .frame(width: Self.folderBoxWidth(for: shortcut.folder))
                     .help("Profile folder")
                     .accessibilityLabel(L10n.text("Profile folder"))
                     .identified("folder")
@@ -251,6 +251,14 @@ struct ShortcutDetail: View {
                 }
             }
         }
+    }
+
+    /// Wide enough to show the whole folder: at a fixed 130 points the -2 that
+    /// sets a new Claude's folder apart from another's was the part cut off.
+    static func folderBoxWidth(for folder: String) -> CGFloat {
+        let font = NSFont.monospacedSystemFont(ofSize: NSFont.systemFontSize, weight: .regular)
+        let text = (folder as NSString).size(withAttributes: [.font: font]).width
+        return min(max(130, ceil(text) + 18), 260)
     }
 
     /// Delete on the left, what the shortcut is for on the right.

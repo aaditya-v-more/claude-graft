@@ -101,8 +101,8 @@
 "Start Session" = "Start Session";
 "Status" = "Status";
 "Stops automatic updates for Claude and every shortcut from their next launch. Graft checks for new versions; use Update Claude when your work is finished." = "Stops automatic updates for Claude and every shortcut from their next launch. Graft checks for new versions; use Update Claude when your work is finished.";
-"Support" = "Support";
-"Support Claude Graft…" = "Support Claude Graft…";
+"Donate" = "Donate";
+"Donate…" = "Donate…";
 "That account is rate-limited right now." = "That account is rate-limited right now.";
 "That folder belongs to Claude Graft itself. Pick another name." = "That folder belongs to Claude Graft itself. Pick another name.";
 "That folder belongs to Claude Graft itself and will not be deleted." = "That folder belongs to Claude Graft itself and will not be deleted.";
@@ -514,3 +514,6 @@
 "View Source on GitHub" = "View Source on GitHub";
 "Automatic · now %@" = "Automatic · now %@";
 "Auto · %@" = "Auto · %@";
+"Nothing was deleted" = "Nothing was deleted";
+"“%@” is open, so its profile cannot be deleted now. Quit it first to delete the profile too." = "“%@” is open, so its profile cannot be deleted now. Quit it first to delete the profile too.";
+"“%@” is still open, so nothing was deleted. Quit it, then delete it again." = "“%@” is still open, so nothing was deleted. Quit it, then delete it again.";
