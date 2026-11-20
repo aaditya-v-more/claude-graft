@@ -1140,8 +1140,9 @@ do {
         let fields = descendants(window.contentView!).compactMap { $0 as? NSTextField }.filter(\.isEditable)
         let name = fields.first { $0.stringValue == shortcut?.name }.map { $0.convert($0.bounds, to: nil) }
         let folder = fields.first { $0.stringValue == shortcut?.folder }.map { $0.convert($0.bounds, to: nil) }
-        check(name != nil && folder != nil && abs(name!.minY - folder!.minY) <= 1 && abs(folder!.width - 130) <= 1,
-              "naming, \(place): the folder box sits level with the name, 130 points wide (name \(name.map { "\($0)" } ?? "?"), folder \(folder.map { "\($0)" } ?? "?"))")
+        let wanted = ShortcutDetail.folderBoxWidth(for: shortcut?.folder ?? "")
+        check(name != nil && folder != nil && abs(name!.minY - folder!.minY) <= 1 && abs(folder!.width - wanted) <= 1,
+              "naming, \(place): the folder box sits level with the name, wide enough for the whole folder (name \(name.map { "\($0)" } ?? "?"), folder \(folder.map { "\($0)" } ?? "?"))")
     }
     do {
         var long = Shortcut(name: "CRM-Kai-Longname@example.com", folder: "Claude-Longname-example-com", source: .own)

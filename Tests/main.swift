@@ -1951,6 +1951,8 @@ do {
     // that the money has nowhere to go.
     check(![links, site, readme].contains(where: { $0.contains("github.com/sponsors") }),
           "and nothing still offers the sponsor page that cannot take the money")
+    check(read("Sources/App/ShortcutDetail.swift").contains(".frame(width: Self.folderBoxWidth(for: shortcut.folder))"),
+          "the folder box grows to show a new Claude's numbered folder whole")
     check(read("Sources/App/ContentView.swift").contains("ViewThatFits(in: .horizontal)")
             && read("Sources/App/Links.swift").contains(".fixedSize()"),
           "the sidebar's links never break a word: they stack when they can't sit side by side")
