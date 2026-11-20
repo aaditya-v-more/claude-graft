@@ -38,6 +38,7 @@ public sealed partial class ClaudeUpdateLine : UserControl
     {
         InitializeComponent();
         Loaded += (_, _) => { ClaudeUpdateCenter.Changed += Draw; Draw(); };
+        Root.SizeChanged += (_, _) => PlaceAction();
         Unloaded += (_, _) => ClaudeUpdateCenter.Changed -= Draw;
     }
 
@@ -97,6 +98,28 @@ public sealed partial class ClaudeUpdateLine : UserControl
             : action;
         ActionButton.Visibility = action is null ? Visibility.Collapsed : Visibility.Visible;
         AutomationProperties.SetName(ActionButton, action is null ? "" : L10n.Format("{0} Claude Desktop", action.TrimEnd('…')));
+        PlaceAction();
+    }
+
+    /// In the sidebar the button goes under the words when beside them it would
+    /// leave too little room for the name: in Russian, Перезапустить… broke
+    /// "Claude Desktop" into "Claud", "e", "Deskt".
+    private void PlaceAction()
+    {
+        var below = false;
+        if (Stacked && ActionButton.Visibility == Visibility.Visible && Root.ActualWidth > 0)
+        {
+            var name = new TextBlock { Text = "Claude Desktop", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold };
+            name.Measure(new Windows.Foundation.Size(double.PositiveInfinity, double.PositiveInfinity));
+            ActionButton.Measure(new Windows.Foundation.Size(double.PositiveInfinity, double.PositiveInfinity));
+            var room = Root.ActualWidth - Glyph.Width - Root.ColumnSpacing * 2 - ActionButton.DesiredSize.Width;
+            below = room < name.DesiredSize.Width;
+        }
+        Grid.SetRow(ActionButton, below ? 1 : 0);
+        Grid.SetColumn(ActionButton, below ? 1 : 3);
+        Grid.SetColumnSpan(ActionButton, below ? 3 : 1);
+        ActionButton.HorizontalAlignment = HorizontalAlignment.Left;
+        ActionButton.Margin = below ? new Thickness(0, 6, 0, 0) : new Thickness(0);
     }
 
     private void Action_Click(object sender, RoutedEventArgs e)
