@@ -465,14 +465,7 @@ public sealed partial class MainWindow : Window
         if (!_shown)
         {
             _shown = true;
-            DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
-            {
-                Activate();
-                // A first launch from Start was seen to bring up nothing until a
-                // second one; this says whether the window was left hidden.
-                ClaudeGraft.Core.Diagnostics.Note("manager.firstShown", new Dictionary<string, object?> { ["visible"] = AppWindow.IsVisible });
-                if (!AppWindow.IsVisible) AppWindow.Show(true);
-            });
+            DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, Activate);
         }
         else Activate();
         // The page loads its usage once, when it is first built; every reopen
