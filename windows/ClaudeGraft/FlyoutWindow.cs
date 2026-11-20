@@ -123,7 +123,10 @@ public sealed class FlyoutWindow : Window
         // A tray click leaves the shell in the foreground, not this process, so
         // the window comes up without focus and would never hear it being lost.
         // Pulling it to the foreground is what arms the click-away dismiss.
-        SetForegroundWindow(WinRT.Interop.WindowNative.GetWindowHandle(this));
+        var focused = SetForegroundWindow(WinRT.Interop.WindowNative.GetWindowHandle(this));
+        // A click on the taskbar strip was seen to open nothing; this says whether
+        // the flyout came up, and with focus, without a debugger on the machine.
+        ClaudeGraft.Core.Diagnostics.Note("flyout.shown", new Dictionary<string, object?> { ["centred"] = _centred, ["focused"] = focused });
 
         // The window is the whole motion; the content rides with it as one piece.
         // Parallaxing the content within the window was tried and dropped: the
@@ -146,6 +149,7 @@ public sealed class FlyoutWindow : Window
     {
         if (!_shown || _hiding) return;
         _hiding = true;
+        ClaudeGraft.Core.Diagnostics.Note("flyout.hidden", new Dictionary<string, object?> { ["clickedAway"] = clickedAway });
         var self = WinRT.Interop.WindowNative.GetWindowHandle(this);
         // The window clicked comes forward and would cover the slide; back on top of the
         // ordinary windows, still under the topmost taskbar, without taking focus back.
