@@ -70,6 +70,7 @@ public static class Program
     {
         try { ChimeHook.Remove(ChimeHook.SettingsFile); } catch { }
         try { PoolEnvironment.TakeOutLines(null, ClaudeProcesses.IsRunning); } catch { }
+        try { ModEnvironment.TakeOut(ClaudeCredentials.SafeStorageKey, ClaudeProcesses.IsRunning); } catch { }
         AutoStart.Set(false);
         try { LinkRegistration.Remove(Microsoft.Win32.Registry.CurrentUser); } catch { }
         if (GraftUpdates.Root is { } root) try { LegacyInstall.RemoveJunctions(root); } catch { }

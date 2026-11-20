@@ -74,6 +74,14 @@
                         <TextBlock Text="Every account" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{StaticResource GraftTextFillColorSecondaryBrush}" />
                     </StackPanel>
                 </NavigationViewItem>
+                <NavigationViewItem Tag="mods" AutomationProperties.Name="Mods, every Claude"
+                                    AutomationProperties.AutomationId="sidebar.mods">
+                    <NavigationViewItem.Icon><FontIcon Glyph="&#xEA86;" /></NavigationViewItem.Icon>
+                    <StackPanel Spacing="1" Margin="0,6">
+                        <TextBlock Text="Mods" />
+                        <TextBlock Text="Every Claude" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{StaticResource GraftTextFillColorSecondaryBrush}" />
+                    </StackPanel>
+                </NavigationViewItem>
                 <NavigationViewItemHeader x:Name="ShortcutsHeader" Content="Shortcuts" />
                 <NavigationViewItem x:Name="NewClaudeItem" Content="New Shortcut" Tag="new" SelectsOnInvoked="False"
                                     AutomationProperties.AutomationId="sidebar.newShortcut"
