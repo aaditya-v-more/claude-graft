@@ -1,7 +1,7 @@
 # A new Claude never lands on another Claude's folder or login
 
 Platforms: macOS, Windows
-Needs: Test A signed in (see test-profiles.md)
+Needs: Test A existing (see test-profiles.md); only step 7 needs it signed in
 Setup: Graft running. Test A exists, created, signed in, its folder
 `Claude-Test-A`, and closed. No shortcut is called "Test A renamed" or uses a
 folder starting `Claude-Test-A-`.

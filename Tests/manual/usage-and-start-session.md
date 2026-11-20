@@ -4,7 +4,8 @@ Platforms: macOS, Windows
 Needs: two signed-in accounts (Claude and Test A)
 Setup: Graft running. Claude and Test A signed in to different accounts, both
 closed. On a Mac, the first read of a login may raise a keychain prompt for
-"Claude Safe Storage"; **Owner:** answers it with Allow.
+"Claude Safe Storage"; whoever runs the case answers it with Allow, never
+Always Allow.
 
 1. Open Graft's window and select Claude, then Test A.
    Expect: each shows five-hour and weekly bars with a reset time, or "No

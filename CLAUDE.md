@@ -55,10 +55,17 @@ app and no release check. Mac builds and every Mac check run on the Mac mini or
 the macOS VMs, Windows builds and checks on a Windows test PC, each from a
 commit. The commands below are what those machines run.
 
+For prototyping, debugging and live development a developer may work on a test
+machine directly, over ssh or by driving it, holding that machine's lock for
+the length of the work and leaving it as found: nothing device-wide changed, no
+accounts, network or other products touched. What that shows is a development
+check; a release and the everyday-use cases are still judged by the testers.
+
 Steps that need a person on a real machine are cases in `Tests/manual/`. A
 case says what must not be touched and how to put the machine back, and never
-releases, commits or touches a chat. A keychain prompt it meets is answered by
-the person whose keychain it is.
+releases, commits or touches a chat. A keychain prompt, permission or
+setting it meets is answered by whoever runs the case: Allow, never Always
+Allow.
 
 ## Commands
 
@@ -209,7 +216,7 @@ any of these. The why is in [notes/updates-and-releases.md](notes/updates-and-re
 ### Updates and releases — [notes/updates-and-releases.md](notes/updates-and-releases.md), [notes/update-relaunch.md](notes/update-relaunch.md)
 
 - **The version is written down once,** in `VERSION`; `Resources/Info.plist` keeps `0.0.0`. `release.sh` refuses an existing tag and rewrites the Homebrew cask.
-- **One version, one release, both systems.** `VERSION` numbers the Windows build too; a `v*` tag runs `windows-release.yml`, which adds the Windows installer and feed to that version's release (making it if the Mac has not) and needs `windows/release-notes/<version>.md`. No portable copy: only an installed Graft updates itself.
+- **One version, one release, both systems.** `VERSION` numbers the Windows build too; a `v*` tag runs `windows-release.yml`, which adds the Windows installer and feed to that version's release (making it, as a prerelease, if the Mac has not) and needs `windows/release-notes/<version>.md`. No portable copy: only an installed Graft updates itself.
 - **A release carries both architectures. The build directory is `build.noindex`** so Spotlight skips it.
 - **A local build is signed with the Mac's Apple Development certificate, a release never is** — `Tools/signing-identity.sh` for `build.sh` alone; `release.sh` always passes its own identity.
 - **An update restart is not permission to undo a quit** — `UpdateRecovery` needs a fresh `stealth-relaunch` marker.
@@ -220,6 +227,9 @@ any of these. The why is in [notes/updates-and-releases.md](notes/updates-and-re
 - **`sparkle:minimumAutoupdateVersion` 1.1.0 is a floor** on every entry from 1.1.0 on, and **every release needs a note that says what upgrading from 1.0.x does**: a 1.0.x Mac is asked about the newest one.
 - **The feed keeps every release** (`--maximum-versions 0`), **and its URL never changes.**
 - **The feed is built and checked in `dist/sparkle`** — signature, length and floor asked of the new `<item>` itself — and reaches `docs/` only after the cask.
+- **Nothing a person downloads or runs ships unchecked.** A release is staged first as a prerelease, which neither updater offers and the site does not call latest, with the cask on the tap's `release-<version>` branch. It is published only after `Tools/check-distribution.py --tag` (the Distribution Checks workflow) and `Tests/manual/release-install.md` on clean Mac and Windows machines pass, using the very files and commands people get. The same checks run daily on what is live.
+- **Every release runs the everyday-use cases** (`Tests/manual/everyday-*.md`) on Mac and Windows, besides the scripted ones: a tester doing a person's tasks and reporting anything that would stop or irritate them.
+- **A bug a person hit gets a test that would have caught it** before its fix ships, in the suite where that code is tested.
 
 ### Sidebar and desktop settings — [notes/sidebar-and-settings.md](notes/sidebar-and-settings.md)
 
