@@ -8306,6 +8306,96 @@ do {
           "an environment both accounts share by identifier is kept and duplicates are dropped")
 }
 
+section("Chats follow a project folder renamed after they ran")
+do {
+    let previous = (Graft.applicationSupportOverride, Graft.claudeProjectsOverride)
+    let isolated = root.appending(path: "moved-folder-support")
+    let transcripts = root.appending(path: "moved-folder-transcripts")
+    Graft.applicationSupportOverride = isolated
+    Graft.claudeProjectsOverride = transcripts
+    defer {
+        Graft.applicationSupportOverride = previous.0
+        Graft.claudeProjectsOverride = previous.1
+        Graft.runningClaudesOverride = { [] }
+    }
+    let work = root.appending(path: "moved-folder-work")
+    let stores = [isolated.appending(path: "Claude/claude-code-sessions/ACC/ORG"),
+                  isolated.appending(path: "Claude-Second/claude-code-sessions/ACC/ORG")]
+    for store in stores { try! fm.createDirectory(at: store, withIntermediateDirectories: true) }
+    func folder(_ name: String) -> URL {
+        let url = work.appending(path: name)
+        try! fm.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
+    }
+    func file(_ session: String, at cwd: URL) {
+        let record: [String: Any] = ["sessionId": "local_\(session)", "cliSessionId": session,
+            "cwd": cwd.path, "originCwd": cwd.path, "gitAnchorsFolderRealpath": cwd.path,
+            "folderPlace": ["cwd": cwd.path, "realPath": cwd.path],
+            "gitAnchors": [["gitRoot": cwd.path, "commonDir": cwd.path + "/.git"]],
+            "writtenBranches": [cwd.path + " main"], "shellFolders": ["/elsewhere"],
+            "title": session, "lastActivityAt": 100, "isArchived": false]
+        for store in stores {
+            try! JSONSerialization.data(withJSONObject: record).write(to: store.appending(path: "local_\(session).json"))
+        }
+        let history = transcripts.appending(path: Graft.transcriptFolderName(for: cwd.path))
+        try! fm.createDirectory(at: history, withIntermediateDirectories: true)
+        try! Data("{}\n".utf8).write(to: history.appending(path: "\(session).jsonl"))
+    }
+    func record(_ session: String, in store: URL) -> [String: Any] {
+        try! JSONSerialization.jsonObject(with: Data(contentsOf: store.appending(path: "local_\(session).json"))) as! [String: Any]
+    }
+
+    let app = folder("Clients/APP")
+    let inside = folder("Clients/APP/app-v2")
+    let removed = folder("Clients/Old")
+    let binned = folder("Clients/Binned")
+    file("renamed", at: app)
+    file("nested", at: inside)
+    file("deleted", at: removed)
+    file("trashed", at: binned)
+    check(Graft.followMovedFolders().isEmpty, "a pass with every folder in place moves nothing")
+
+    let renamed = work.appending(path: "Clients/Nous-Lisons - APP MOBILE")
+    try! fm.moveItem(at: app, to: renamed)
+    try! fm.removeItem(at: removed)
+    try! fm.createDirectory(at: work.appending(path: ".Trash"), withIntermediateDirectories: true)
+    try! fm.moveItem(at: binned, to: work.appending(path: ".Trash/Binned"))
+
+    Graft.runningClaudesOverride = { [isolated.appending(path: "Claude")] }
+    check(Graft.followMovedFolders().isEmpty && record("renamed", in: stores[0])["cwd"] as? String == app.path,
+          "nothing is followed while a Claude is open, since it would write its own records back")
+    Graft.runningClaudesOverride = { [] }
+
+    let moves = Graft.followMovedFolders()
+    let nested = renamed.appending(path: "app-v2").path
+    check(moves[app.path] == renamed.path && moves[inside.path] == nested,
+          "a renamed folder and a folder inside it are both found where they now are")
+    check(stores.allSatisfy { store in
+              let moved = record("renamed", in: store)
+              return ["cwd", "originCwd", "gitAnchorsFolderRealpath"].allSatisfy { moved[$0] as? String == renamed.path }
+                  && moved["title"] as? String == "renamed"
+          },
+          "every profile's record of the chat points at the renamed folder and keeps the rest")
+    let followed = record("renamed", in: stores[1])
+    check((followed["folderPlace"] as? [String: String]) == ["cwd": renamed.path, "realPath": renamed.path]
+          && (followed["gitAnchors"] as? [[String: String]])?.first?["commonDir"] == renamed.path + "/.git"
+          && (followed["writtenBranches"] as? [String]) == [renamed.path + " main"]
+          && (followed["shellFolders"] as? [String]) == ["/elsewhere"],
+          "the folder is followed everywhere the record names it, and other paths are left as they were")
+    check(stores.allSatisfy { record("nested", in: $0)["cwd"] as? String == nested },
+          "a chat that ran in a folder inside the renamed one follows it too")
+    let newHistory = transcripts.appending(path: Graft.transcriptFolderName(for: renamed.path))
+    check(Graft.exists(newHistory.appending(path: "renamed.jsonl"))
+          && !Graft.exists(transcripts.appending(path: Graft.transcriptFolderName(for: app.path))),
+          "the transcript goes with the chat, so the chat can still be resumed")
+    check(stores.allSatisfy { record("deleted", in: $0)["cwd"] as? String == removed.path
+                              && record("trashed", in: $0)["cwd"] as? String == binned.path },
+          "a folder that was deleted or put in the Trash is not followed")
+    check(Graft.followMovedFolders().isEmpty, "a second pass finds nothing left to follow")
+    check(Graft.transcriptFolderName(for: "/Users/a/Réseau (B)/x") == "-Users-a-R-seau--B--x",
+          "a transcript folder is named the way the command line names it, accents included")
+}
+
 print("\n\(checks - failures)/\(checks) checks passed")
 if failures > 0 {
     print("\(failures) FAILED")

@@ -136,6 +136,7 @@ any of these. The why is in [notes/updates-and-releases.md](notes/updates-and-re
 - **A conversation carried on or asked again is not a second one** — `superseded`, `resumedCopies`. **A fork is**, and only its record says so: keep `forks` in `session-records.json`.
 - **A Claude this app did not make is read, never written to** — `recordFilingProfiles`.
 - **A session from another Mac is not a missing one:** `sessionFolderIsHere` asks whether its home folder or drive exists here, never the folder itself.
+- **A chat follows its folder only by bookmark, and only with every Claude closed:** `followMovedFolders` rewrites every path in the record that names the moved folder (`cwd`, `folderPlace`, `gitAnchors`, …) in every profile and carries the transcript folder; a folder deleted, in the Trash or on a drive that is not here is left where the record says.
 - **The sweep runs on no timer:** at a launcher's open, at Graft's start, when the dropdown opens and a few seconds after any Claude quits. A cold pass must stay cheap enough to stand in front of a window opening.
 
 ### Usage and credentials — [notes/usage-and-credentials.md](notes/usage-and-credentials.md)
