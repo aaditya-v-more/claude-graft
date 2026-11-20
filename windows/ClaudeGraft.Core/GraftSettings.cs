@@ -43,6 +43,11 @@ public sealed class GraftSettings
     /// follows a taskbar Windows gives apps no place in.
     [JsonPropertyName("taskbarStrip")] public bool TaskbarStrip { get; set; }
 
+    /// What the strip says about the Claude in front, each switched apart as on
+    /// the Mac: its icon by default, its name only when asked for.
+    [JsonPropertyName("frontIcon")] public bool FrontIcon { get; set; } = true;
+    [JsonPropertyName("frontName")] public bool FrontName { get; set; }
+
     /// A sound when a Claude in the background finishes a turn or waits on a
     /// permission. Off unless turned on: it puts an entry in Claude Code's own settings.
     [JsonPropertyName("chime")] public bool Chime { get; set; }

@@ -149,4 +149,23 @@ public sealed class ShortcutStoreTests : IDisposable
         renamed.Name = "Stale renamed";
         Assert.Null(store.Conflict(renamed, stale));
     }
+
+    [Fact(DisplayName = "removing an open Claude together with its chats and login is refused before anything goes, while removing it alone is not")]
+    public void OpenClaudeKeepsItsShortcut()
+    {
+        var store = new ShortcutStore();
+        var open = Shortcut.New("Open One");
+        store.Add(open);
+        Assert.Contains("still open, so nothing was removed", store.DeletionRefusal(open, deletingProfile: true, isOpen: true));
+        Assert.Null(store.DeletionRefusal(open, deletingProfile: false, isOpen: true));
+        Assert.Null(store.DeletionRefusal(open, deletingProfile: true, isOpen: false));
+        store.Add(Shortcut.New("Twin", folder: "claude-open-one"));
+        Assert.Null(store.DeletionRefusal(open, deletingProfile: true, isOpen: true));
+
+        var page = File.ReadAllText(Path.Combine(Path.GetDirectoryName(Here())!, "..", "ClaudeGraft", "MainPage.xaml.cs"));
+        Assert.Contains("IsEnabled = !open", page);
+        Assert.Contains("App.Store.DeletionRefusal(shortcut, deletingData,", page);
+    }
+
+    private static string Here([System.Runtime.CompilerServices.CallerFilePath] string here = "") => here;
 }

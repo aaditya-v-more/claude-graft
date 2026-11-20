@@ -71,6 +71,7 @@ public sealed partial class FlyoutView : UserControl
         };
         _clock.Start();
         App.SharingChanged += () => { ShowChats(); LayoutChanged?.Invoke(); };
+        App.RecoveredChanged += () => { ShowRecovered(); LayoutChanged?.Invoke(); };
         ChatOnScreen.Changed += ShowChats;
     }
 
@@ -108,8 +109,16 @@ public sealed partial class FlyoutView : UserControl
         }
         ReflectUpdate();
         ShowChats();
+        ShowRecovered();
         LayoutChanged?.Invoke();
         _ = MarkRunning(rows);
+    }
+
+    private void ShowRecovered()
+    {
+        var text = RecoveredNotice.Text(App.Recovered);
+        RecoveredLine.Text = text ?? "";
+        RecoveredLine.Visibility = text is null ? Visibility.Collapsed : Visibility.Visible;
     }
 
     // MARK: - Conversations
@@ -310,7 +319,7 @@ public sealed partial class FlyoutView : UserControl
         if (sender is FrameworkElement { Tag: ShortcutRow row })
         {
             row.RecheckLinkHandler();
-            ProfileRows.Open(row);
+            _ = App.OpenFromTray(row);
             DismissRequested?.Invoke();
         }
     }

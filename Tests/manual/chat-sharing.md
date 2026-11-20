@@ -14,14 +14,17 @@ Claude). Both Claudes closed.
    reply "one".
 3. In Test A, archive that chat. Quit Test A from its own menu. Open Claude.
    Expect: the chat is archived in Claude too.
-4. macOS only (Windows does not ask yet): open Test A from Graft while Claude
-   is still open.
+4. Open Test A from Graft's window while Claude is still open.
    Expect: Graft first asks whether to open it while another Claude is open on
-   the same chats, with Open Anyway and Cancel. Choose Cancel; Test A does not
-   open.
-5. Look at the diagnostics log.
+   the same chats ("Another Claude is open on these chats"), naming Claude,
+   with Open Anyway and Cancel. Choose Cancel; Test A does not open.
+5. Do the same from the dropdown (Mac) or the flyout and the tray icon's
+   right-click menu (Windows).
+   Expect: the same question each time (on Windows it comes up in Graft's
+   window). Cancel opens nothing; Open Anyway opens Test A. Quit Test A again.
+6. Look at the diagnostics log.
    Expect: no line with `"refused"` or `"unreadable"` from this run.
 
 Pass when: a chat made in Claude reaches Test A, an archive made in Test A
-reaches Claude, and on a Mac opening a second Claude on the same chats asks
-first.
+reaches Claude, and every way of opening a second Claude on the same chats
+asks first.

@@ -70,6 +70,24 @@
                                                    AutomationProperties.Name="Show usage on the taskbar" AutomationProperties.AutomationId="settings.taskbarStrip" /></Grid>
                 </StackPanel>
             </local:SettingsCard>
+            <local:SettingsCard Header="Show the icon of the Claude in front" Glyph="&#xE8B9;"
+                                Description="On the taskbar, beside its usage"
+                                IsEnabled="{x:Bind TaskbarStripSwitch.IsOn, Mode=OneWay}">
+                <StackPanel Orientation="Horizontal" Spacing="12">
+                    <TextBlock Text="{x:Bind local:SettingsCard.OnOff(FrontIconSwitch.IsOn), Mode=OneWay}" VerticalAlignment="Center" />
+                    <Grid Width="40"><ToggleSwitch x:Name="FrontIconSwitch" Style="{StaticResource CardSwitch}" Toggled="Changed"
+                                                   AutomationProperties.Name="Show the icon of the Claude in front" AutomationProperties.AutomationId="settings.frontIcon" /></Grid>
+                </StackPanel>
+            </local:SettingsCard>
+            <local:SettingsCard Header="Show the name of the Claude in front" Glyph="&#xE8AC;"
+                                Description="On the taskbar, beside its usage"
+                                IsEnabled="{x:Bind TaskbarStripSwitch.IsOn, Mode=OneWay}">
+                <StackPanel Orientation="Horizontal" Spacing="12">
+                    <TextBlock Text="{x:Bind local:SettingsCard.OnOff(FrontNameSwitch.IsOn), Mode=OneWay}" VerticalAlignment="Center" />
+                    <Grid Width="40"><ToggleSwitch x:Name="FrontNameSwitch" Style="{StaticResource CardSwitch}" Toggled="Changed"
+                                                   AutomationProperties.Name="Show the name of the Claude in front" AutomationProperties.AutomationId="settings.frontName" /></Grid>
+                </StackPanel>
+            </local:SettingsCard>
             <local:SettingsCard Header="Chime when a Claude is ready" Glyph="&#xE767;"
                                 Description="A sound when a Claude in the background finishes, and a stronger one when it waits on you">
                 <StackPanel Orientation="Horizontal" Spacing="12">
@@ -102,6 +120,20 @@
                                 Description="Keeps reporting usage in the notification area after its window is closed; quit it from there">
                 <Button x:Name="CheckButton" Content="Check for Updates" Click="Check_Click"
                         AutomationProperties.AutomationId="settings.checkUpdates" />
+            </local:SettingsCard>
+            <local:SettingsCard Header="Help and feedback" Glyph="&#xE897;"
+                                Description="How Graft works, what changed, and where to say what went wrong">
+                <StackPanel Orientation="Horizontal" Spacing="4">
+                    <HyperlinkButton Content="Help" NavigateUri="https://graft.aadityamore.com/"
+                                     AutomationProperties.AutomationId="settings.help" />
+                    <HyperlinkButton Content="What’s New" NavigateUri="https://github.com/aaditya-v-more/claude-graft/releases"
+                                     AutomationProperties.AutomationId="settings.whatsNew" />
+                    <HyperlinkButton Content="Report a Problem" NavigateUri="https://github.com/aaditya-v-more/claude-graft/issues/new"
+                                     AutomationProperties.AutomationId="settings.reportProblem" />
+                    <HyperlinkButton Content="Email" Click="Email_Click"
+                                     ToolTipService.ToolTip="aadityavmore@gmail.com"
+                                     AutomationProperties.Name="Email the developer" AutomationProperties.AutomationId="settings.email" />
+                </StackPanel>
             </local:SettingsCard>
             <!-- The owner's wish: the Windows port's author is credited here and in the README. -->
             <local:SettingsCard Header="Windows port" Glyph="&#xE716;"

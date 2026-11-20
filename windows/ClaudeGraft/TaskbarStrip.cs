@@ -18,7 +18,7 @@ internal sealed class TaskbarStrip : IDisposable
 {
     public sealed record Mark(string? IconFile, bool Answering);
     public enum Signal { None, Done, NeedsPerson }
-    public sealed record Face(IReadOnlyList<Mark> Marks, string? Usage, string? Title, Signal Signal = Signal.None);
+    public sealed record Face(IReadOnlyList<Mark> Marks, string? Usage, string? Title, Signal Signal = Signal.None, string? Name = null);
 
     private readonly Action<Windows.Graphics.PointInt32> _click;
     private readonly WndProc _proc;
@@ -195,11 +195,12 @@ internal sealed class TaskbarStrip : IDisposable
             var size = g.MeasureString(text, f, int.MaxValue, StringFormat.GenericTypographic);
             return new Size((int)Math.Ceiling(size.Width), (int)Math.Ceiling(size.Height));
         }
+        var name = string.IsNullOrWhiteSpace(face.Name) ? Size.Empty : Measure(face.Name!, font);
         var usage = face.Usage is null ? Size.Empty : Measure(face.Usage, bold);
         var title = string.IsNullOrWhiteSpace(face.Title) ? Size.Empty : Measure(face.Title!, font);
         var room = Math.Min(title.Width, Px(TextRoom));
         var dot = face.Signal == Signal.None ? 0 : Px(8);
-        var width = pad + face.Marks.Count * (icon + gap) + (usage.Width > 0 ? usage.Width + gap : 0) + (dot > 0 ? dot + gap : 0) + (room > 0 ? room + gap : 0) - gap + pad;
+        var width = pad + face.Marks.Count * (icon + gap) + (name.Width > 0 ? name.Width + gap : 0) + (usage.Width > 0 ? usage.Width + gap : 0) + (dot > 0 ? dot + gap : 0) + (room > 0 ? room + gap : 0) - gap + pad;
         width = Math.Max(width, height);
 
         using var bitmap = new Bitmap(width, height, PixelFormat.Format32bppPArgb);
@@ -238,6 +239,11 @@ internal sealed class TaskbarStrip : IDisposable
                 x += icon + gap;
             }
             using var inkBrush = new SolidBrush(ink);
+            if (name.Width > 0)
+            {
+                g.DrawString(face.Name, font, inkBrush, x, (height - name.Height) / 2f, StringFormat.GenericTypographic);
+                x += name.Width + gap;
+            }
             if (usage.Width > 0)
             {
                 g.DrawString(face.Usage, bold, inkBrush, x, (height - usage.Height) / 2f, StringFormat.GenericTypographic);

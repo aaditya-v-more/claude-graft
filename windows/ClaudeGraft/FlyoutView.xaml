@@ -215,6 +215,10 @@
             </ItemsControl>
             </ScrollViewer>
 
+            <TextBlock x:Name="RecoveredLine" Visibility="Collapsed" Margin="16,0,16,10" TextWrapping="Wrap"
+                       Style="{StaticResource CaptionTextBlockStyle}" Foreground="{StaticResource GraftTextFillColorSecondaryBrush}"
+                       AutomationProperties.AutomationId="flyout.recovered" />
+
             <!-- Conversations from a Claude that draws on other accounts, each
                  with the account answering it; filled in code. -->
             <StackPanel x:Name="Conversations" Visibility="Collapsed">

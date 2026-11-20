@@ -45,6 +45,8 @@ public sealed partial class SettingsPage : Page
         StartHiddenSwitch.IsOn = current.StartHidden;
         HoldUpdatesSwitch.IsOn = current.HoldUpdates;
         TaskbarStripSwitch.IsOn = current.TaskbarStrip;
+        FrontIconSwitch.IsOn = current.FrontIcon;
+        FrontNameSwitch.IsOn = current.FrontName;
         ChimeSwitch.IsOn = current.Chime;
         // Only an install Graft can update by hand can safely stop updating itself.
         ManualClaudeCard.Visibility = ClaudeDesktopUpdates.IsSquirrel ? Visibility.Visible : Visibility.Collapsed;
@@ -67,6 +69,8 @@ public sealed partial class SettingsPage : Page
             StartHidden = StartHiddenSwitch.IsOn,
             HoldUpdates = HoldUpdatesSwitch.IsOn,
             TaskbarStrip = TaskbarStripSwitch.IsOn,
+            FrontIcon = FrontIconSwitch.IsOn,
+            FrontName = FrontNameSwitch.IsOn,
             Chime = ChimeSwitch.IsOn,
             // Set elsewhere, but a save must not drop them.
             KeepMainWarm = current.KeepMainWarm,
@@ -142,6 +146,9 @@ public sealed partial class SettingsPage : Page
 
     // Unlike the flyout, which stays quiet like the Mac dropdown, this page reports the
     // outcome in words: a person who pressed is owed an answer.
+    private void Email_Click(object sender, RoutedEventArgs e) =>
+        _ = Windows.System.Launcher.LaunchUriAsync(new Uri(Links.Mail()));
+
     private async void Check_Click(object sender, RoutedEventArgs e)
     {
         if (_update is not null)

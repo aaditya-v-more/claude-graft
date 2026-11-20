@@ -66,6 +66,8 @@ public partial class App : Application
             && updated.StartHidden == Settings.StartHidden
             && updated.HoldUpdates == Settings.HoldUpdates
             && updated.TaskbarStrip == Settings.TaskbarStrip
+            && updated.FrontIcon == Settings.FrontIcon
+            && updated.FrontName == Settings.FrontName
             && updated.Chime == Settings.Chime) return;
 
         // Only a change of look redraws the windows; a redraw resets the backdrop, which flashes.
@@ -188,6 +190,13 @@ public partial class App : Application
         _quitWatch = new ClaudeQuitWatch(() => new ShortcutStore().Shortcuts
             .Where(s => s.InstalledName is not null).Select(s => s.ProfileDir)
             .Prepend(GraftPaths.DefaultProfile).ToList());
+        _quitWatch.Swept += titles => OnUi(() =>
+        {
+            if (Recovered.SequenceEqual(titles)) return;
+            Recovered = titles;
+            RecoveredChanged?.Invoke();
+        });
+        _quitWatch.Request();
         System.Threading.Tasks.Task.Run(() =>
         {
             try { ManualUpdates.Synchronize(); }
@@ -399,6 +408,11 @@ public partial class App : Application
     private Task<bool>? _installing;
     private ClaudeQuitWatch? _quitWatch;
 
+    /// What the last pass Graft ran filed, by title. Empty the rest of the time:
+    /// the session list is the history, and the line only says what just happened.
+    internal static IReadOnlyList<string> Recovered { get; private set; } = [];
+    internal static event Action? RecoveredChanged;
+
     /// Fetches the package and hands off to Velopack, then quits — the folder
     /// cannot be swapped while this process holds it open.
     /// A second press while one is under way joins it rather than starting
@@ -524,7 +538,8 @@ public partial class App : Application
             ChatFocus.Turn.Done when _turnSeen.GetValueOrDefault(front) != ended => TaskbarStrip.Signal.Done,
             _ => TaskbarStrip.Signal.None,
         };
-        _strip.Show(new TaskbarStrip.Face(marks, figure, ChatOnScreen.TitleFor(front), signal));
+        var name = Settings.FrontName ? shortcut?.Name ?? "Claude" : null;
+        _strip.Show(new TaskbarStrip.Face(Settings.FrontIcon ? marks : new List<TaskbarStrip.Mark>(), figure, ChatOnScreen.TitleFor(front), signal, name));
     }
 
     /// The tray says which Claude is in front and what its account has spent,
@@ -606,6 +621,7 @@ public partial class App : Application
         {
             _flyout ??= new FlyoutWindow(ShowManager, Donate, Quit);
             _flyout.Toggle(anchor, priorForeground, centred: from is not null);
+            _quitWatch?.Request();
         });
     }
 
@@ -632,8 +648,8 @@ public partial class App : Application
         {
             foreach (var shortcut in Store.Shortcuts)
             {
-                var config = Store.ConfigFor(shortcut);
-                items.Add(("Open " + shortcut.Name, true, () => Task.Run(() => Launcher.Open(config))));
+                var row = ShortcutRow.ForShortcut(shortcut);
+                items.Add(("Open " + shortcut.Name, true, () => _ = OpenFromTray(row)));
             }
         }
         items.Add((TrayMenu.Separator, false, null));
@@ -647,6 +663,16 @@ public partial class App : Application
         items.Add(("Quit", true, Quit));
 
         TrayMenu.Show(items);
+    }
+
+    /// Opens a Claude from the flyout or the tray menu, asking first in the
+    /// manager when another Claude on the same chats is open.
+    internal static async Task OpenFromTray(ShortcutRow row)
+    {
+        var neighbours = Store.ChatStoreNeighbours(row.Shortcut);
+        var sharers = await Task.Run(() => ChatConflict.OpenSharers(row.ProfileDir, neighbours));
+        if (sharers.Count == 0) { ProfileRows.Open(row); return; }
+        (Current as App)?.OnUi(() => ((App)Current).Manager().OpenAsking(row));
     }
 
     /// The warning before closing Claudes needs a window to sit in, and the

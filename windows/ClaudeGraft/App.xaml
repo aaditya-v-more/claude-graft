@@ -24,7 +24,7 @@
                             <Color x:Key="GraftField">#1F1E1D</Color>
                             <Color x:Key="GraftMeter">#68CE67</Color>
                             <Color x:Key="GraftTrack">#484644</Color>
-                            <!-- Tinkerfold's red, the heart beside Donate: 3.4:1 or more on these greys. -->
+                            <!-- The heart beside Donate, red at 3.4:1 or more on these greys. -->
                             <Color x:Key="DonateHeart">#EE5A3A</Color>
                             <SolidColorBrush x:Key="GraftHeaderBrush" Color="{StaticResource GraftHeader}" />
                             <SolidColorBrush x:Key="GraftSidebarBrush" Color="{StaticResource GraftSidebar}" />

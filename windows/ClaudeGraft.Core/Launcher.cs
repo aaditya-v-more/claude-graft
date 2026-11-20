@@ -123,12 +123,12 @@ public static class Launcher
 
     /// Mirror, file, then write down what the pass left; always under the state
     /// lock, so the report reads what the pass wrote.
-    private static void SquareUp(IReadOnlyList<string> filingInto)
+    private static IReadOnlyList<SessionFacts> SquareUp(IReadOnlyList<string> filingInto)
     {
         try
         {
             Graft.MirrorKnownPairs();
-            Graft.FileMissingSessionRecords(filingInto, ClaudeProcesses.AnyDesktopRunning);
+            return Graft.FileMissingSessionRecords(filingInto, ClaudeProcesses.AnyDesktopRunning);
         }
         // Even after a pass stopped at an unreadable state file, which is when somebody reads it.
         finally { Graft.WriteStateReport(); }
@@ -136,10 +136,10 @@ public static class Launcher
 
     /// The pass a Claude quitting calls for: whatever the mirror could not land
     /// while it ran lands now, before anything opens it again.
-    public static void Sweep(IReadOnlyList<string> filingInto)
+    public static IReadOnlyList<SessionFacts> Sweep(IReadOnlyList<string> filingInto)
     {
-        try { StateLock.Run(() => SquareUp(filingInto)); }
-        catch (IOException e) when (Skipped(e, "sweep")) { }
+        try { return StateLock.Run(() => SquareUp(filingInto)); }
+        catch (IOException e) when (Skipped(e, "sweep")) { return []; }
     }
 
     /// Notes a pass that did not run for its state, and leaves every other failure to throw.

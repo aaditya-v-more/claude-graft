@@ -86,6 +86,20 @@ public sealed class ShortcutStore
         }
     }
 
+    /// The other profiles reading the same chat store as this one, Claude's own
+    /// included; null stands for Claude's own.
+    public IReadOnlyList<(string Name, string Profile)> ChatStoreNeighbours(Shortcut? shortcut)
+    {
+        var root = shortcut is null ? GraftPaths.DefaultProfile : ChatRoot(shortcut);
+        var found = new List<(string Name, string Profile)>();
+        if (shortcut is not null && Fs.SamePath(root, GraftPaths.DefaultProfile))
+            found.Add(("Claude", GraftPaths.DefaultProfile));
+        foreach (var other in Shortcuts.ToList())
+            if (other.Id != shortcut?.Id && Fs.SamePath(ChatRoot(other), root))
+                found.Add((other.Name, other.ProfileDir));
+        return found;
+    }
+
     public string Label(ShortcutSource source) => source.Kind switch
     {
         SourceKind.Own => "Its own chats",
@@ -184,6 +198,17 @@ public sealed class ShortcutStore
         var i = Shortcuts.FindIndex(s => s.Id == shortcut.Id);
         if (i >= 0) Shortcuts[i] = shortcut; else Shortcuts.Add(shortcut);
         Save();
+    }
+
+    /// Why a delete must not start at all. Deleting the profile of a Claude that
+    /// is open used to remove the shortcut and then refuse the folder, leaving a
+    /// login and a history nothing in Graft could reach again.
+    public string? DeletionRefusal(Shortcut shortcut, bool deletingProfile, bool isOpen)
+    {
+        var sharedWithAnother = Shortcuts.Any(s => s.Id != shortcut.Id
+            && s.Folder.Equals(shortcut.Folder, StringComparison.OrdinalIgnoreCase));
+        if (!deletingProfile || !isOpen || sharedWithAnother) return null;
+        return $"“{shortcut.Name.Trim()}” is still open, so nothing was removed. Quit it, then remove it again.";
     }
 
     /// Removes the shortcut. The profile folder — a login and a chat history —
