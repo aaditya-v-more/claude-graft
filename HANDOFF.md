@@ -2,7 +2,7 @@
 
 **Live:** Mac 2.0.1 and Windows 2.1.1. The next release uses one version above 2.1.1 for both platforms. #14 and #15 are merged; their new-shortcut and shared-usage cases still need release-candidate coverage. #17 is the contributor’s draft, not a release task.
 
-**Next:** finish signed-in tests on both platforms and the Windows parity and everyday-use checks. Include the approved Windows startup behavior: automatic sign-in launch may stay hidden, but opening Graft manually must show the window. Keep the Mac Donate/Help and profile-deletion regression cases. Do not infer signed-in coverage from a signed-out pass.
+**Next:** finish signed-in tests on both platforms and the Windows parity and everyday-use checks. The approved Windows startup behavior is built on `windows-russian` at `d1c6541` (Startup shortcut runs `--autostart`, rewritten at every start; a self-installed update restarts hidden; any other launch shows the window; CI 607/607). It awaits wintest2 QA with `Tests/manual/windows-start-hidden.md`; the Windows RC is now `d1c6541`, the Mac RC `6500abd`. Keep the Mac Donate/Help and profile-deletion regression cases. Do not infer signed-in coverage from a signed-out pass.
 
 Merge the passing Windows Russian work (#21) into Windows parity (#20), then the approved Mac (#19) and Windows work into `main`; check current PR state before retrying. Stage the exact release files, test clean installs and updates, then publish and recheck live routes. Do not bump or publish for this documentation change.
 
