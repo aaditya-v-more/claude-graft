@@ -20,11 +20,11 @@ public static class ArtifactExporter
 
         public string Text => Problem switch
         {
-            Problem.Gone => "claude.ai no longer has that artifact",
-            Problem.Refused => $"claude.ai wouldn't hand over its files ({Status})",
-            Problem.TooLarge => "That artifact is too large to export",
-            Problem.Unrenderable => "That artifact couldn't be drawn for export",
-            _ => "The export couldn't be saved there",
+            Problem.Gone => L10n.Text("claude.ai no longer has that artifact"),
+            Problem.Refused => L10n.Format("claude.ai wouldn't hand over its files ({0})", Status),
+            Problem.TooLarge => L10n.Text("That artifact is too large to export"),
+            Problem.Unrenderable => L10n.Text("That artifact couldn't be drawn for export"),
+            _ => L10n.Text("The export couldn't be saved there"),
         };
     }
 

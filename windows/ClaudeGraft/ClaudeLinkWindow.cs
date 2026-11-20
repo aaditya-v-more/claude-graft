@@ -19,15 +19,15 @@ internal sealed class ClaudeLinkWindow : Window
     private readonly ComboBox _profiles = new()
     {
         HorizontalAlignment = HorizontalAlignment.Stretch,
-        PlaceholderText = "Choose a Claude",
+        PlaceholderText = L10n.Text("Choose a Claude"),
     };
     private readonly Button _continue = new()
     {
-        Content = "Continue Sign-In",
+        Content = L10n.Text("Continue Sign-In"),
         IsEnabled = false,
         Style = (Style)Application.Current.Resources["AccentButtonStyle"],
     };
-    private readonly Button _close = new() { Content = "Close" };
+    private readonly Button _close = new() { Content = L10n.Text("Close") };
     private readonly TextBlock _message = new() { TextWrapping = TextWrapping.Wrap };
     private IReadOnlyList<SignInTarget> _targets = [];
     private string? _link;
@@ -40,12 +40,12 @@ internal sealed class ClaudeLinkWindow : Window
         _link = link;
         _staged = staged;
         Title = "Claude Graft";
-        AppWindow.Resize(new Windows.Graphics.SizeInt32(480, 260));
+        AppWindow.Resize(new Windows.Graphics.SizeInt32(520, 300));
 
         var panel = new StackPanel { Padding = new Thickness(24), Spacing = 12, Background = Themed.Brush("SolidBackgroundFillColorBaseBrush") };
         panel.Children.Add(new TextBlock
         {
-            Text = "Finish Signing In",
+            Text = L10n.Text("Finish Signing In"),
             Style = (Style)Application.Current.Resources["SubtitleTextBlockStyle"],
         });
         panel.Children.Add(_message);
@@ -56,9 +56,9 @@ internal sealed class ClaudeLinkWindow : Window
         panel.Children.Add(buttons);
         Content = panel;
 
-        Identify(_profiles, "Claude that started sign-in", "signIn.profiles");
-        Identify(_continue, "Continue Sign-In", "signIn.continue");
-        Identify(_close, "Close", "signIn.close");
+        Identify(_profiles, L10n.Text("Claude that started sign-in"), "signIn.profiles");
+        Identify(_continue, L10n.Text("Continue Sign-In"), "signIn.continue");
+        Identify(_close, L10n.Text("Close"), "signIn.close");
 
         Closed += (_, _) => { if (_link is not null) Note("dismissed"); _link = null; };
         _close.Click += (_, _) => Close();
@@ -98,17 +98,17 @@ internal sealed class ClaudeLinkWindow : Window
             if (kind == ClaudeLinkKind.Invalid)
             {
                 Note("invalid");
-                Refuse("This Claude link could not be opened.");
+                Refuse(L10n.Text("This Claude link could not be opened."));
                 return;
             }
             var targets = _staged ?? await Task.Run(ClaudeLinks.RunningTargets);
             if (targets.Count == 0)
             {
                 Note("noClaudeOpen");
-                Refuse("No Claude is open. Open the one you want to sign in to and start sign-in from its window.");
+                Refuse(L10n.Text("No Claude is open. Open the one you want to sign in to and start sign-in from its window."));
                 return;
             }
-            _message.Text = "Which Claude did you start this sign-in from?";
+            _message.Text = L10n.Text("Which Claude did you start this sign-in from?");
             _targets = targets;
             var names = targets.ToLookup(t => t.Name, StringComparer.OrdinalIgnoreCase);
             _profiles.ItemsSource = targets
@@ -121,7 +121,7 @@ internal sealed class ClaudeLinkWindow : Window
         catch (Exception)
         {
             Note("unreadable");
-            Refuse("Graft could not read which Claudes are open. Make sure Claude Desktop is installed and try again.");
+            Refuse(L10n.Text("Graft could not read which Claudes are open. Make sure Claude Desktop is installed and try again."));
         }
     }
 
@@ -134,7 +134,7 @@ internal sealed class ClaudeLinkWindow : Window
         _continue.IsEnabled = _profiles.IsEnabled = false;
         if (_staged is not null)
         {
-            Refuse($"Staged from the debug window: nothing was sent to {target.Name}.");
+            Refuse(L10n.Format("Staged from the debug window: nothing was sent to {0}.", target.Name));
             return;
         }
         try
@@ -146,7 +146,7 @@ internal sealed class ClaudeLinkWindow : Window
         catch (Exception)
         {
             Note("targetGone", target.Profile);
-            Refuse("That Claude is no longer open. Go back to it and start sign-in again.");
+            Refuse(L10n.Text("That Claude is no longer open. Go back to it and start sign-in again."));
         }
     }
 

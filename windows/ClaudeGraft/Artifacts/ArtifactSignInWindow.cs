@@ -13,7 +13,7 @@ namespace ClaudeGraft;
 /// </summary>
 public sealed class ArtifactSignInWindow
 {
-    public const string Hint = "Choose Continue with email, then type the code claude.ai sends you.";
+    public static string Hint => L10n.Text("Choose Continue with email, then type the code claude.ai sends you.");
 
     public Guid Account { get; }
     private readonly Action<ArtifactAPI.Identity> _done;
@@ -44,7 +44,7 @@ public sealed class ArtifactSignInWindow
         Grid.SetRow(web, 1);
         root.Children.Add(web);
         root.Background = Themed.Brush("ApplicationPageBackgroundThemeBrush");
-        var window = new Window { Title = "Sign In to claude.ai", Content = root };
+        var window = new Window { Title = L10n.Text("Sign In to claude.ai"), Content = root };
         window.AppWindow.Resize(new SizeInt32(560, 760));
         window.Closed += (_, _) =>
         {
@@ -83,7 +83,7 @@ public sealed class ArtifactSignInWindow
         try
         {
             var popupWeb = new WebView2();
-            var popup = new Window { Title = "Sign In to claude.ai", Content = popupWeb };
+            var popup = new Window { Title = L10n.Text("Sign In to claude.ai"), Content = popupWeb };
             popup.AppWindow.Resize(new SizeInt32(520, 680));
             _popups.Add(popup);
             popup.Closed += (_, _) => _popups.Remove(popup);

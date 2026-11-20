@@ -102,10 +102,10 @@ public sealed class ShortcutStore
 
     public string Label(ShortcutSource source) => source.Kind switch
     {
-        SourceKind.Own => "Its own chats",
-        SourceKind.Main => "Main Claude",
-        SourceKind.Shortcut => source.ShortcutId is Guid id ? Get(id)?.Name ?? "Removed shortcut" : "Removed shortcut",
-        _ => "Main Claude",
+        SourceKind.Own => L10n.Text("Its own chats"),
+        SourceKind.Main => L10n.Text("Main Claude"),
+        SourceKind.Shortcut => source.ShortcutId is Guid id ? Get(id)?.Name ?? L10n.Text("Removed shortcut") : L10n.Text("Removed shortcut"),
+        _ => L10n.Text("Main Claude"),
     };
 
     /// What to call a profile on screen. Claude's own has no shortcut standing
@@ -160,11 +160,11 @@ public sealed class ShortcutStore
         if (movesHere && others.FirstOrDefault(s =>
                 s.Folder.Equals(shortcut.Folder, StringComparison.OrdinalIgnoreCase)
                 || Fs.SamePath(s.ProfileDir, shortcut.ProfileDir)) is { } holder)
-            return $"“{holder.Name.Trim()}” already uses the folder {shortcut.Folder}. Give this Claude a folder of its own.";
+            return L10n.Format("“{0}” already uses the folder {1}. Give this Claude a folder of its own.", holder.Name.Trim(), shortcut.Folder);
         // Both would write the same .lnk, and the second would open the first's profile.
         var renamed = existing is null || !existing.Name.Trim().Equals(shortcut.Name.Trim(), StringComparison.OrdinalIgnoreCase);
         if (renamed && others.FirstOrDefault(s => s.Name.Trim().Equals(shortcut.Name.Trim(), StringComparison.OrdinalIgnoreCase)) is { } namesake)
-            return $"Another Claude is already called “{namesake.Name.Trim()}”. Give this one another name.";
+            return L10n.Format("Another Claude is already called “{0}”. Give this one another name.", namesake.Name.Trim());
         return null;
     }
 
@@ -208,7 +208,7 @@ public sealed class ShortcutStore
         var sharedWithAnother = Shortcuts.Any(s => s.Id != shortcut.Id
             && s.Folder.Equals(shortcut.Folder, StringComparison.OrdinalIgnoreCase));
         if (!deletingProfile || !isOpen || sharedWithAnother) return null;
-        return $"“{shortcut.Name.Trim()}” is still open, so nothing was removed. Quit it, then remove it again.";
+        return L10n.Format("“{0}” is still open, so nothing was removed. Quit it, then remove it again.", shortcut.Name.Trim());
     }
 
     /// Removes the shortcut. The profile folder — a login and a chat history —
@@ -230,7 +230,7 @@ public sealed class ShortcutStore
         if (deletingProfile)
         {
             if (sharedWithAnother)
-                problem = "The profile folder was kept: another shortcut still uses it.";
+                problem = L10n.Text("The profile folder was kept: another shortcut still uses it.");
             else
                 try { Graft.DeleteProfile(shortcut.ProfileDir, ClaudeProcesses.IsRunning); }
                 catch (ProfileException e) { problem = e.Message; }

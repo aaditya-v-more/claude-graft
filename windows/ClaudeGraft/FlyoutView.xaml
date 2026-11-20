@@ -26,6 +26,7 @@
         </Style>
         <Style x:Key="Under" TargetType="TextBlock" BasedOn="{StaticResource CaptionTextBlockStyle}">
             <Setter Property="Foreground" Value="{StaticResource GraftTextFillColorTertiaryBrush}" />
+            <Setter Property="TextWrapping" Value="Wrap" />
         </Style>
     </UserControl.Resources>
 
@@ -62,15 +63,15 @@
                               Visibility="Collapsed" AutomationProperties.AccessibilityView="Raw" />
                 <Button x:Name="CheckButton" Grid.Column="2" Click="Check_Click" VerticalAlignment="Center"
                         Width="24" Height="24" Padding="0" MinHeight="0" MinWidth="0" Style="{StaticResource SubtleButtonStyle}"
-                        ToolTipService.ToolTip="Check for Claude Graft Updates" AutomationProperties.Name="Check for Claude Graft Updates"
+                        local:Localized.ToolTip="Check for Claude Graft Updates" local:Localized.AutomationName="Check for Claude Graft Updates"
                         AutomationProperties.AutomationId="flyout.checkUpdates">
                     <FontIcon Glyph="&#xE72C;" FontSize="14" />
                 </Button>
-                <Button x:Name="AvailableButton" Grid.Column="3" Click="Install_Click" Visibility="Collapsed" Content="Update"
+                <Button x:Name="AvailableButton" Grid.Column="3" Click="Install_Click" Visibility="Collapsed" local:Localized.Content="Update"
                         Padding="10,3" MinHeight="0" VerticalAlignment="Center"
-                        AutomationProperties.Name="Update Claude Graft" AutomationProperties.AutomationId="flyout.install" />
+                        local:Localized.AutomationName="Update Claude Graft" AutomationProperties.AutomationId="flyout.install" />
                 <ProgressBar x:Name="UpdateProgress" Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="3" Visibility="Collapsed" Maximum="1"
-                             AutomationProperties.Name="Downloading the update" AutomationProperties.AutomationId="flyout.updateProgress"
+                             local:Localized.AutomationName="Downloading the update" AutomationProperties.AutomationId="flyout.updateProgress"
                              Margin="0,6,0,0" />
             </Grid>
             <Border Style="{StaticResource Rule}" />
@@ -103,8 +104,8 @@
                                             <ProgressRing IsActive="{x:Bind Starting, Mode=OneWay}"
                                                           Visibility="{x:Bind StartingVisibility, Mode=OneWay}"
                                                           Width="16" Height="16" VerticalAlignment="Center" />
-                                            <Button Content="Start Session" Click="Start_Click" Tag="{x:Bind}"
-                                                    AutomationProperties.Name="{x:Bind local:Spoken.Act('Start Session in', Name)}"
+                                            <Button local:Localized.Content="Start Session" Click="Start_Click" Tag="{x:Bind}"
+                                                    AutomationProperties.Name="{x:Bind local:Spoken.StartIn(Name)}"
                                                     AutomationProperties.AutomationId="{x:Bind local:Spoken.Id('flyout', Key, 'start')}"
                                                     Visibility="{x:Bind StartVisibility, Mode=OneWay}"
                                                     IsEnabled="{x:Bind StartEnabled, Mode=OneWay}"
@@ -129,7 +130,8 @@
                             <Grid ColumnSpacing="12" RowSpacing="2" Visibility="{x:Bind SignedInVisibility, Mode=OneWay}"
                                   Opacity="{x:Bind BarsOpacity, Mode=OneWay}">
                                 <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="64" />
+                                    <!-- Sized to the longest label, so Russian's longer words push the bars over rather than clip. -->
+                                    <ColumnDefinition Width="Auto" MinWidth="64" />
                                     <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="40" />
                                 </Grid.ColumnDefinitions>
@@ -142,19 +144,19 @@
                                     <RowDefinition Height="Auto" />
                                 </Grid.RowDefinitions>
 
-                                <TextBlock Text="5 hours" Foreground="{StaticResource GraftTextFillColorSecondaryBrush}" />
+                                <TextBlock local:Localized.Text="5 hours" Foreground="{StaticResource GraftTextFillColorSecondaryBrush}" />
                                 <ProgressBar Grid.Column="1" Style="{StaticResource UsageMeter}" Maximum="100" Value="{x:Bind FiveHour, Mode=OneWay}"
                                              Visibility="{x:Bind FiveHourBarVisibility, Mode=OneWay}" local:BarPulse.Key="{x:Bind Pulse, Mode=OneWay}"
                                              AutomationProperties.Name="{x:Bind FiveHourText, Mode=OneWay}"
                                              AutomationProperties.AutomationId="{x:Bind local:Spoken.Id('flyout', Key, 'fiveHour')}" />
-                                <TextBlock Grid.Column="1" Text="No five-hour limit" Visibility="{x:Bind FiveHourNoLimitVisibility, Mode=OneWay}"
+                                <TextBlock Grid.Column="1" local:Localized.Text="No five-hour limit" Visibility="{x:Bind FiveHourNoLimitVisibility, Mode=OneWay}"
                                            Foreground="{StaticResource GraftTextFillColorSecondaryBrush}" />
                                 <TextBlock Grid.Column="2" Text="{x:Bind FiveHourPercent, Mode=OneWay}" HorizontalAlignment="Right"
                                            Visibility="{x:Bind FiveHourBarVisibility, Mode=OneWay}" AutomationProperties.AccessibilityView="Raw" />
                                 <TextBlock Grid.Row="1" Grid.Column="1" Text="{x:Bind FiveHourResets, Mode=OneWay}" Style="{StaticResource Under}"
                                            Visibility="{x:Bind FiveHourResetsVisibility, Mode=OneWay}" Margin="0,0,0,6" />
 
-                                <TextBlock Grid.Row="2" Text="Week" Foreground="{StaticResource GraftTextFillColorSecondaryBrush}" />
+                                <TextBlock Grid.Row="2" local:Localized.Text="Week" Foreground="{StaticResource GraftTextFillColorSecondaryBrush}" />
                                 <ProgressBar Grid.Row="2" Grid.Column="1" Style="{StaticResource UsageMeter}" Maximum="100" Value="{x:Bind Week, Mode=OneWay}"
                                              local:BarPulse.Key="{x:Bind Pulse, Mode=OneWay}"
                                              AutomationProperties.Name="{x:Bind WeekText, Mode=OneWay}"
@@ -164,7 +166,7 @@
                                 <TextBlock Grid.Row="3" Grid.Column="1" Text="{x:Bind WeekResets, Mode=OneWay}" Style="{StaticResource Under}"
                                            Visibility="{x:Bind WeekResetsVisibility, Mode=OneWay}" Margin="0,0,0,6" />
 
-                                <TextBlock Grid.Row="4" Text="Fable" Visibility="{x:Bind FableVisibility, Mode=OneWay}"
+                                <TextBlock Grid.Row="4" local:Localized.Text="Fable" Visibility="{x:Bind FableVisibility, Mode=OneWay}"
                                            Foreground="{StaticResource GraftTextFillColorSecondaryBrush}" />
                                 <ProgressBar Grid.Row="4" Grid.Column="1" Style="{StaticResource UsageMeter}" Maximum="100" Value="{x:Bind Fable, Mode=OneWay}"
                                              Visibility="{x:Bind FableVisibility, Mode=OneWay}" local:BarPulse.Key="{x:Bind Pulse, Mode=OneWay}"
@@ -190,8 +192,8 @@
                                 <Button Grid.Column="2" Click="Refresh_Click" Padding="4" MinHeight="0" MinWidth="0"
                                         Style="{StaticResource SubtleButtonStyle}"
                                         Foreground="{StaticResource GraftTextFillColorTertiaryBrush}"
-                                        ToolTipService.ToolTip="Refresh Usage"
-                                        AutomationProperties.Name="{x:Bind local:Spoken.Act('Refresh Usage for', Name)}"
+                                        local:Localized.ToolTip="Refresh Usage"
+                                        AutomationProperties.Name="{x:Bind local:Spoken.RefreshFor(Name)}"
                                         AutomationProperties.AutomationId="{x:Bind local:Spoken.Id('flyout', Key, 'refresh')}">
                                     <FontIcon Glyph="&#xE72C;" FontSize="12" />
                                 </Button>
@@ -234,18 +236,18 @@
 
             <StackPanel Padding="6,6,6,8">
                 <Button x:Name="RefreshButton" Click="Refresh_Click" AutomationProperties.AutomationId="flyout.refresh"
-                        Style="{StaticResource MenuRow}" Content="Refresh Usage" />
+                        Style="{StaticResource MenuRow}" local:Localized.Content="Refresh Usage" />
                 <Button Click="Manager_Click" AutomationProperties.AutomationId="flyout.openManager"
-                        Style="{StaticResource MenuRow}" Content="Open Claude Graft" />
+                        Style="{StaticResource MenuRow}" local:Localized.Content="Open Claude Graft" />
                 <Button Click="Donate_Click" AutomationProperties.AutomationId="flyout.donate"
-                        AutomationProperties.Name="Donate" Style="{StaticResource MenuRow}">
+                        local:Localized.AutomationName="Donate" Style="{StaticResource MenuRow}">
                     <StackPanel Orientation="Horizontal" Spacing="8">
                         <FontIcon Glyph="&#xEB52;" FontSize="12" Foreground="{StaticResource GraftDonateHeartBrush}" />
-                        <TextBlock Text="Donate" />
+                        <TextBlock local:Localized.Text="Donate" />
                     </StackPanel>
                 </Button>
                 <Button Click="Quit_Click" AutomationProperties.AutomationId="flyout.quit"
-                        Style="{StaticResource MenuRow}" Content="Quit Claude Graft" />
+                        Style="{StaticResource MenuRow}" local:Localized.Content="Quit Claude Graft" />
             </StackPanel>
         </StackPanel>
     </Border>

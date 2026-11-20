@@ -456,6 +456,7 @@ internal sealed class TaskbarStrip : IDisposable
                 Ease();
                 return 0;
             case WM_LBUTTONUP:
+                ClaudeGraft.Core.Diagnostics.Note("strip.click");
                 _pressed = false;
                 Ease();
                 GetWindowRect(hwnd, out var me);

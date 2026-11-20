@@ -60,7 +60,7 @@ public static class ManualUpdates
     {
         if (!File.Exists(StateFile)) return new State();
         try { return JsonSerializer.Deserialize<State>(File.ReadAllBytes(StateFile)) ?? throw new JsonException(); }
-        catch (JsonException) { throw new Refusal("Graft's saved update settings could not be read."); }
+        catch (JsonException) { throw new Refusal(L10n.Text("Graft's saved update settings could not be read.")); }
     }
 
     private static void Save(State state)
@@ -74,7 +74,7 @@ public static class ManualUpdates
     public static void SetEnabled(bool enabled) => StateLock.Run(() =>
     {
         if (enabled && Managed()) throw new Refusal(
-            "Claude's updates are set by an administrator's policy, which overrides a local setting. Ask them to set disableAutoUpdates.");
+            L10n.Text("Claude's updates are set by an administrator's policy, which overrides a local setting. Ask them to set disableAutoUpdates."));
         var state = Read();
         state.Enabled = enabled;
         Save(state);
@@ -106,11 +106,11 @@ public static class ManualUpdates
         if (optional && !File.Exists(file)) return new JsonObject();
         try
         {
-            if (new FileInfo(file).LinkTarget is not null) throw new Refusal($"{Path.GetFileName(file)} is a link.");
+            if (new FileInfo(file).LinkTarget is not null) throw new Refusal(L10n.Format("{0} is a link.", Path.GetFileName(file)));
             return JsonNode.Parse(File.ReadAllBytes(file)) as JsonObject
-                   ?? throw new Refusal($"{Path.GetFileName(file)} could not be read. Its configuration was kept.");
+                   ?? throw new Refusal(L10n.Format("{0} could not be read. Its configuration was kept.", Path.GetFileName(file)));
         }
-        catch (JsonException) { throw new Refusal($"{Path.GetFileName(file)} could not be read. Its configuration was kept."); }
+        catch (JsonException) { throw new Refusal(L10n.Format("{0} could not be read. Its configuration was kept.", Path.GetFileName(file))); }
     }
 
     private static void WriteObject(JsonObject value, string file) =>
@@ -129,19 +129,19 @@ public static class ManualUpdates
         var hadMetadata = File.Exists(metadataFile);
         var metadata = ReadObject(metadataFile, optional: true);
         if (metadata["hybridPointer"] is not null)
-            throw new Refusal("Claude's configuration comes from an organisation, which overrides a local setting.");
+            throw new Refusal(L10n.Text("Claude's configuration comes from an organisation, which overrides a local setting."));
         if (metadata["entries"] is not null and not JsonArray)
-            throw new Refusal("Claude's configuration list could not be read. It was kept.");
+            throw new Refusal(L10n.Text("Claude's configuration list could not be read. It was kept."));
         var applied = metadata["appliedId"];
         string? appliedId = applied is JsonValue av && av.TryGetValue<string>(out var a) ? a : null;
         if (applied is not null && !IsId(appliedId))
-            throw new Refusal("Claude's selected configuration could not be read. It was kept.");
+            throw new Refusal(L10n.Text("Claude's selected configuration could not be read. It was kept."));
 
         var id = appliedId ?? Guid.NewGuid().ToString();
         var file = Path.Combine(Library, id + ".json");
         var config = ReadObject(file, optional: appliedId is null);
         if (config["bootstrapUrl"] is not null || config["bootstrap.url"] is not null)
-            throw new Refusal("Claude's configuration comes from an organisation, which overrides a local setting.");
+            throw new Refusal(L10n.Text("Claude's configuration comes from an organisation, which overrides a local setting."));
 
         // A configuration chosen since the last write is a different one: what
         // was saved for the old one no longer describes this.
@@ -155,7 +155,7 @@ public static class ManualUpdates
         foreach (var name in PolicyKeys)
         {
             if (config[name] is not { } existing || keys.Any(k => k.Name == name)) continue;
-            if (Bool(existing) is not bool previous) throw new Refusal($"{name} in Claude's configuration is not a yes or no.");
+            if (Bool(existing) is not bool previous) throw new Refusal(L10n.Format("{0} in Claude's configuration is not a yes or no.", name));
             keys.Add(new SavedKey { Name = name, Previous = previous });
         }
         if (keys.Count == 0) keys.Add(new SavedKey { Name = PolicyKeys[0], Previous = null });
@@ -191,7 +191,7 @@ public static class ManualUpdates
     private static void Restore(Change change)
     {
         if (!IsId(change.ConfigId) || change.Keys.Any(k => !PolicyKeys.Contains(k.Name)))
-            throw new Refusal("Graft's saved update settings name something it never changed.");
+            throw new Refusal(L10n.Text("Graft's saved update settings name something it never changed."));
         var file = Path.Combine(Library, change.ConfigId + ".json");
         if (!File.Exists(file)) return;
         var config = ReadObject(file);
@@ -217,7 +217,7 @@ public static class ManualUpdates
             foreach (var entry in entries.Where(e => e?["id"]?.GetValue<string>() == change.ConfigId).ToList())
                 entries.Remove(entry);
         }
-        else if (metadata["entries"] is not null) throw new Refusal("Claude's configuration list could not be read. It was kept.");
+        else if (metadata["entries"] is not null) throw new Refusal(L10n.Text("Claude's configuration list could not be read. It was kept."));
 
         var onlyEmptyEntries = metadata.All(p => p.Key == "entries") && (metadata["entries"] as JsonArray ?? new JsonArray()).Count == 0;
         if (change.CreatedMetadata && onlyEmptyEntries) File.Delete(metadataFile);

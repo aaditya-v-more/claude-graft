@@ -3,6 +3,7 @@
     x:Class="ClaudeGraft.ArtifactsPage"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="using:ClaudeGraft"
     Background="Transparent">
     <Grid>
         <Grid.RowDefinitions>
@@ -22,10 +23,10 @@
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
             <FontIcon Glyph="&#xE8A9;" FontSize="16" Foreground="{StaticResource GraftTextFillColorSecondaryBrush}" AutomationProperties.AccessibilityView="Raw" />
-            <TextBlock Grid.Column="1" Text="Artifacts" Style="{StaticResource BodyStrongTextBlockStyle}" VerticalAlignment="Center" />
+            <TextBlock Grid.Column="1" local:Localized.Text="Artifacts" Style="{StaticResource BodyStrongTextBlockStyle}" VerticalAlignment="Center" />
             <Button Style="{StaticResource InfoGlyphButton}" Grid.Column="2" x:Name="InfoButton"
-                    AutomationProperties.Name="About Artifacts" AutomationProperties.AutomationId="artifacts.info"
-                    ToolTipService.ToolTip="About Artifacts">
+                    local:Localized.AutomationName="About Artifacts" AutomationProperties.AutomationId="artifacts.info"
+                    local:Localized.ToolTip="About Artifacts">
                 <FontIcon Glyph="&#xE946;" FontSize="14" />
                 <Button.Flyout>
                     <Flyout>
@@ -38,20 +39,20 @@
                 <StackPanel x:Name="AccountChips" Orientation="Horizontal" Spacing="6" />
             </ScrollViewer>
             <Button Grid.Column="4" x:Name="AddAccountButton" Click="AddAccount_Click"
-                    AutomationProperties.AutomationId="artifacts.addAccount" AutomationProperties.Name="Add Account"
-                    ToolTipService.ToolTip="Sign in to another claude.ai account">
+                    AutomationProperties.AutomationId="artifacts.addAccount" local:Localized.AutomationName="Add Account"
+                    local:Localized.ToolTip="Sign in to another claude.ai account">
                 <StackPanel Orientation="Horizontal" Spacing="8">
                     <FontIcon Glyph="&#xE710;" FontSize="14" />
-                    <TextBlock x:Name="AddAccountText" Text="Add Account…" />
+                    <TextBlock x:Name="AddAccountText" local:Localized.Text="Add Account…" />
                 </StackPanel>
             </Button>
             <Button Grid.Column="5" x:Name="RefreshButton" Click="Refresh_Click" Padding="8" Style="{StaticResource SubtleButtonStyle}"
-                    ToolTipService.ToolTip="Ask claude.ai for every account's artifacts again"
-                    AutomationProperties.Name="Refresh Artifacts" AutomationProperties.AutomationId="artifacts.refresh">
+                    local:Localized.ToolTip="Ask claude.ai for every account's artifacts again"
+                    local:Localized.AutomationName="Refresh Artifacts" AutomationProperties.AutomationId="artifacts.refresh">
                 <Grid>
                     <FontIcon x:Name="RefreshIcon" Glyph="&#xE72C;" FontSize="14" />
                     <ProgressRing x:Name="RefreshRing" Width="16" Height="16" IsActive="False" Visibility="Collapsed"
-                                  AutomationProperties.Name="Asking claude.ai" />
+                                  local:Localized.AutomationName="Asking claude.ai" />
                 </Grid>
             </Button>
         </Grid>
@@ -63,13 +64,13 @@
                 <ColumnDefinition Width="*" />
             </Grid.ColumnDefinitions>
             <ComboBox x:Name="FilterBox" SelectedIndex="0" SelectionChanged="Filter_Changed"
-                      AutomationProperties.Name="Show" AutomationProperties.AutomationId="artifacts.filter">
-                <ComboBoxItem Content="All" />
-                <ComboBoxItem Content="Yours" />
-                <ComboBoxItem Content="Shared with You" />
+                      local:Localized.AutomationName="Show" AutomationProperties.AutomationId="artifacts.filter">
+                <ComboBoxItem local:Localized.Content="All" />
+                <ComboBoxItem local:Localized.Content="Yours" />
+                <ComboBoxItem local:Localized.Content="Shared with You" />
             </ComboBox>
-            <TextBox Grid.Column="1" x:Name="SearchBox" PlaceholderText="Search" TextChanged="Search_Changed"
-                     AutomationProperties.Name="Search Artifacts" AutomationProperties.AutomationId="artifacts.search" />
+            <TextBox Grid.Column="1" x:Name="SearchBox" local:Localized.PlaceholderText="Search" TextChanged="Search_Changed"
+                     local:Localized.AutomationName="Search Artifacts" AutomationProperties.AutomationId="artifacts.search" />
             <TextBlock Grid.Column="2" x:Name="CountText" HorizontalAlignment="Right" VerticalAlignment="Center"
                        Style="{StaticResource CaptionTextBlockStyle}" Foreground="{StaticResource GraftTextFillColorSecondaryBrush}"
                        AutomationProperties.AutomationId="artifacts.count" />
@@ -77,8 +78,8 @@
 
         <StackPanel Grid.Row="2" x:Name="SignedOutPanel" Spacing="10" HorizontalAlignment="Center" VerticalAlignment="Center" Visibility="Collapsed">
             <FontIcon Glyph="&#xE8A9;" FontSize="34" Foreground="{StaticResource GraftTextFillColorTertiaryBrush}" AutomationProperties.AccessibilityView="Raw" />
-            <TextBlock Text="Sign in to see artifacts" HorizontalAlignment="Center" AutomationProperties.AutomationId="artifacts.signInNote" />
-            <Button Content="Sign In…" HorizontalAlignment="Center" Click="AddAccount_Click" AutomationProperties.AutomationId="artifacts.signIn" />
+            <TextBlock local:Localized.Text="Sign in to see artifacts" HorizontalAlignment="Center" AutomationProperties.AutomationId="artifacts.signInNote" />
+            <Button local:Localized.Content="Sign In…" HorizontalAlignment="Center" Click="AddAccount_Click" AutomationProperties.AutomationId="artifacts.signIn" />
             <TextBlock x:Name="SignInHint" HorizontalAlignment="Center" Style="{StaticResource CaptionTextBlockStyle}"
                        Foreground="{StaticResource GraftTextFillColorSecondaryBrush}" AutomationProperties.AutomationId="artifacts.signInHint" />
         </StackPanel>
@@ -95,12 +96,12 @@
             <TextBlock x:Name="StatusLine" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
                        Style="{StaticResource CaptionTextBlockStyle}" Foreground="{StaticResource GraftTextFillColorSecondaryBrush}"
                        AutomationProperties.AutomationId="artifacts.status" />
-            <Button Grid.Column="1" x:Name="GroupsButton" Click="Groups_Click" AutomationProperties.Name="Groups"
+            <Button Grid.Column="1" x:Name="GroupsButton" Click="Groups_Click" local:Localized.AutomationName="Groups"
                     AutomationProperties.AutomationId="artifacts.groups"
-                    ToolTipService.ToolTip="Make and change the groups artifacts can be shared with">
+                    local:Localized.ToolTip="Make and change the groups artifacts can be shared with">
                 <StackPanel Orientation="Horizontal" Spacing="8">
                     <FontIcon Glyph="&#xE716;" FontSize="14" />
-                    <TextBlock x:Name="GroupsText" Text="Groups (0)" />
+                    <TextBlock x:Name="GroupsText" local:Localized.Text="Groups" />
                 </StackPanel>
             </Button>
         </Grid>

@@ -12,6 +12,8 @@ public static class Program
     [STAThread]
     private static void Main()
     {
+        // Lets a tester see Russian on an English Windows, or English on a Russian one.
+        L10n.Choose(Environment.GetEnvironmentVariable("GRAFT_LANGUAGE"));
         VelopackApp.Build()
             // Graft applies an update when it decides to; on, any launch, --quit included, applied whatever package lay newest on disk.
             .SetAutoApplyOnStartup(false)
@@ -37,7 +39,8 @@ public static class Program
         using var running = new Mutex(true, @"Local\ClaudeGraft.Running", out var first);
         if (!first || quit)
         {
-            if (!first) (quit ? QuitRequest : ShowRequest).Set();
+            if (quit) { if (!first) QuitRequest.Set(); }
+            else if (AutomaticLaunch.AsksForWindow(Environment.GetCommandLineArgs())) ShowRequest.Set();
             return;
         }
         XamlGeneratedProgram.XamlGeneratedMain();

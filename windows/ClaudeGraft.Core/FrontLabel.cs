@@ -15,10 +15,12 @@ public static class FrontLabel
     {
         // Answered by another account, the conversation says so, since the
         // figures above are this Claude's own and are not what it is spending.
-        if (!string.IsNullOrWhiteSpace(chat) && answeredBy is not null) chat = $"{chat.Trim()} · answered by {answeredBy}";
+        if (!string.IsNullOrWhiteSpace(chat) && answeredBy is not null) chat = L10n.Format("{0} · answered by {1}", chat.Trim(), answeredBy);
         var text = usage is null
             ? name
-            : name + " — " + (usage.FiveHour is int five ? $"5h {five}%" : "5h no limit") + $" · week {usage.Week}%";
+            : usage.FiveHour is int five
+                ? L10n.Format("{0} — 5h {1}% · week {2}%", name, five, usage.Week)
+                : L10n.Format("{0} — 5h no limit · week {1}%", name, usage.Week);
         if (text.Length > MaxLength) return text[..(MaxLength - 1)] + "…";
         if (string.IsNullOrWhiteSpace(chat)) return text;
         var room = MaxLength - text.Length - 1;

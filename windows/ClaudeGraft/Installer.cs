@@ -44,20 +44,20 @@ public static class Installer
     public static void Install(Shortcut shortcut)
     {
         if (ReservedNames.Contains(shortcut.Name.Trim().TrimEnd('.'), StringComparer.OrdinalIgnoreCase))
-            throw new InstallException(InstallError.ReservedName, $"“{shortcut.Name}” is the name of Claude itself. Pick another.");
+            throw new InstallException(InstallError.ReservedName, L10n.Format("“{0}” is the name of Claude itself. Pick another.", shortcut.Name));
 
         if (LinkTarget() is not { } launcher)
-            throw new InstallException(InstallError.MissingLauncher, "This copy of Claude Graft is missing its launcher.");
+            throw new InstallException(InstallError.MissingLauncher, L10n.Text("This copy of Claude Graft is missing its launcher."));
 
         var path = LinkPath(shortcut.Name);
         // Something already there that is not ours must not be clobbered.
         if (File.Exists(path) && !IsOurs(path))
-            throw new InstallException(InstallError.NameTaken, $"A shortcut named “{shortcut.Name}” already exists that Claude Graft did not create.");
+            throw new InstallException(InstallError.NameTaken, L10n.Format("A shortcut named “{0}” already exists that Claude Graft did not create.", shortcut.Name));
 
         try
         {
             WriteLink(path, launcher, shortcut.Folder, ShortcutIcons.LinkIcon(shortcut),
-                      $"Open {shortcut.Name} — a Claude Desktop profile");
+                      L10n.Format("Open {0} — a Claude Desktop profile", shortcut.Name));
             AddToStartMenu(shortcut, launcher);
             RefreshPinnedCopies(shortcut, launcher);
         }
@@ -90,7 +90,7 @@ public static class Installer
         try
         {
             WriteLink(path, launcher, shortcut.Folder, ShortcutIcons.LinkIcon(shortcut),
-                      $"Open {shortcut.Name} — a Claude Desktop profile");
+                      L10n.Format("Open {0} — a Claude Desktop profile", shortcut.Name));
         }
         catch { }
     }

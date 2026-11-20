@@ -50,34 +50,34 @@
                         SelectionChanged="Sections_SelectionChanged" ItemInvoked="Sections_ItemInvoked">
             <NavigationView.MenuItems>
                 <NavigationViewItemHeader x:Name="ClaudesHeader" Content="Claude" />
-                <NavigationViewItem Tag="artifacts" AutomationProperties.Name="Artifacts, every account"
+                <NavigationViewItem Tag="artifacts" local:Localized.AutomationName="Artifacts, every account"
                                     AutomationProperties.AutomationId="sidebar.artifacts">
                     <NavigationViewItem.Icon><FontIcon Glyph="&#xF0E2;" /></NavigationViewItem.Icon>
                     <StackPanel Spacing="1" Margin="0,6">
-                        <TextBlock Text="Artifacts" />
-                        <TextBlock Text="Every account" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{StaticResource GraftTextFillColorSecondaryBrush}" />
+                        <TextBlock local:Localized.Text="Artifacts" />
+                        <TextBlock local:Localized.Text="Every account" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{StaticResource GraftTextFillColorSecondaryBrush}" />
                     </StackPanel>
                 </NavigationViewItem>
-                <NavigationViewItem Tag="projects" AutomationProperties.Name="Projects, every account"
+                <NavigationViewItem Tag="projects" local:Localized.AutomationName="Projects, every account"
                                     AutomationProperties.AutomationId="sidebar.projects">
                     <NavigationViewItem.Icon><FontIcon Glyph="&#xE8B7;" /></NavigationViewItem.Icon>
                     <StackPanel Spacing="1" Margin="0,6">
-                        <TextBlock Text="Projects" />
-                        <TextBlock Text="Every account" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{StaticResource GraftTextFillColorSecondaryBrush}" />
+                        <TextBlock local:Localized.Text="Projects" />
+                        <TextBlock local:Localized.Text="Every account" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{StaticResource GraftTextFillColorSecondaryBrush}" />
                     </StackPanel>
                 </NavigationViewItem>
-                <NavigationViewItem Tag="search" AutomationProperties.Name="Search Chats, every account"
+                <NavigationViewItem Tag="search" local:Localized.AutomationName="Search Chats, every account"
                                     AutomationProperties.AutomationId="sidebar.search">
                     <NavigationViewItem.Icon><FontIcon Glyph="&#xE721;" /></NavigationViewItem.Icon>
                     <StackPanel Spacing="1" Margin="0,6">
-                        <TextBlock Text="Search Chats" />
-                        <TextBlock Text="Every account" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{StaticResource GraftTextFillColorSecondaryBrush}" />
+                        <TextBlock local:Localized.Text="Search Chats" />
+                        <TextBlock local:Localized.Text="Every account" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{StaticResource GraftTextFillColorSecondaryBrush}" />
                     </StackPanel>
                 </NavigationViewItem>
-                <NavigationViewItemHeader x:Name="ShortcutsHeader" Content="Shortcuts" />
-                <NavigationViewItem x:Name="NewClaudeItem" Content="New Shortcut" Tag="new" SelectsOnInvoked="False"
+                <NavigationViewItemHeader x:Name="ShortcutsHeader" local:Localized.Content="Shortcuts" />
+                <NavigationViewItem x:Name="NewClaudeItem" local:Localized.Content="New Shortcut" Tag="new" SelectsOnInvoked="False"
                                     AutomationProperties.AutomationId="sidebar.newShortcut"
-                                    ToolTipService.ToolTip="Another Claude, with its own login and chats">
+                                    local:Localized.ToolTip="Another Claude, with its own login and chats">
                     <NavigationViewItem.Icon><FontIcon Glyph="&#xE710;" /></NavigationViewItem.Icon>
                 </NavigationViewItem>            </NavigationView.MenuItems>
             <NavigationView.PaneFooter>
@@ -93,19 +93,19 @@
                     <!-- Who made it and where it comes from, at the foot of the sidebar as on the Mac. -->
                     <Grid Margin="8,6">
                         <HyperlinkButton Click="Donate_Click" Padding="8,4" Foreground="{StaticResource GraftTextFillColorSecondaryBrush}"
-                                         ToolTipService.ToolTip="Claude Graft is free. A tip on Ko-fi is what keeps it worked on."
-                                         AutomationProperties.Name="Donate" AutomationProperties.AutomationId="donate">
+                                         local:Localized.ToolTip="Claude Graft is free. A tip on Ko-fi is what keeps it worked on."
+                                         local:Localized.AutomationName="Donate" AutomationProperties.AutomationId="donate">
                             <StackPanel Orientation="Horizontal" Spacing="6">
                                 <FontIcon Glyph="&#xEB52;" FontSize="12" Foreground="{StaticResource GraftDonateHeartBrush}" />
-                                <TextBlock Text="Donate" Style="{StaticResource CaptionTextBlockStyle}" />
+                                <TextBlock local:Localized.Text="Donate" Style="{StaticResource CaptionTextBlockStyle}" />
                             </StackPanel>
                         </HyperlinkButton>
                         <HyperlinkButton x:Name="SourceLink" Click="Source_Click" HorizontalAlignment="Right" Padding="8,4"
                                          Foreground="{StaticResource GraftTextFillColorSecondaryBrush}"
-                                         AutomationProperties.Name="Source" AutomationProperties.AutomationId="source">
+                                         local:Localized.AutomationName="Source" AutomationProperties.AutomationId="source">
                             <StackPanel Orientation="Horizontal" Spacing="6">
                                 <FontIcon Glyph="&#xE943;" FontSize="12" />
-                                <TextBlock Text="Source" Style="{StaticResource CaptionTextBlockStyle}" />
+                                <TextBlock local:Localized.Text="Source" Style="{StaticResource CaptionTextBlockStyle}" />
                             </StackPanel>
                         </HyperlinkButton>
                     </Grid>
@@ -115,7 +115,7 @@
                 </StackPanel>
             </NavigationView.PaneFooter>
             <NavigationView.FooterMenuItems>
-                <NavigationViewItem x:Name="SettingsItem" Content="Settings" Tag="settings"
+                <NavigationViewItem x:Name="SettingsItem" local:Localized.Content="Settings" Tag="settings"
                                     AutomationProperties.AutomationId="sidebar.settings">
                     <NavigationViewItem.Icon><FontIcon Glyph="&#xE713;" /></NavigationViewItem.Icon>
                 </NavigationViewItem>

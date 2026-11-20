@@ -13,10 +13,10 @@ internal static class UpdateToast
     private static uint _sequence;
 
     public static void Available(Updater.Release release) => Show(new ToastContentBuilder()
-        .AddText("Claude Graft update available")
-        .AddText($"Version {release.Version} is ready to install.")
-        .AddButton(new ToastButton().SetContent("Install").AddArgument("action", "install"))
-        .AddButton(new ToastButton().SetContent("Dismiss").SetDismissActivation()));
+        .AddText(L10n.Text("Claude Graft update available"))
+        .AddText(L10n.Format("Version {0} is ready to install.", release.Version))
+        .AddButton(new ToastButton().SetContent(L10n.Text("Install")).AddArgument("action", "install"))
+        .AddButton(new ToastButton().SetContent(L10n.Text("Dismiss")).SetDismissActivation()));
 
     /// The bar's value is bound rather than baked in, so progress can move it
     /// with an in-place update instead of a new toast popping up each percent.
@@ -24,32 +24,32 @@ internal static class UpdateToast
     {
         _sequence = 0;
         Show(new ToastContentBuilder()
-            .AddText("Updating Claude Graft")
+            .AddText(L10n.Text("Updating Claude Graft"))
             .AddVisualChild(new AdaptiveProgressBar
             {
-                Title = $"Version {release.Version}",
+                Title = L10n.Format("Version {0}", release.Version),
                 Value = new BindableProgressBarValue("value"),
                 ValueStringOverride = new BindableString("percent"),
                 Status = new BindableString("status"),
             }),
-            data: Progress(0, "Downloading…"));
+            data: Progress(0, L10n.Text("Downloading…")));
     }
 
     public static void Report(double fraction)
     {
-        try { ToastNotificationManagerCompat.CreateToastNotifier().Update(Progress(fraction, "Downloading…"), Tag, Group); }
+        try { ToastNotificationManagerCompat.CreateToastNotifier().Update(Progress(fraction, L10n.Text("Downloading…")), Tag, Group); }
         catch { }
     }
 
     public static void Installing() => Show(new ToastContentBuilder()
-        .AddText("Updating Claude Graft")
-        .AddText("Installing. Claude Graft will reopen when it is done."));
+        .AddText(L10n.Text("Updating Claude Graft"))
+        .AddText(L10n.Text("Installing. Claude Graft will reopen when it is done.")));
 
     public static void Failed(Updater.Release release) => Show(new ToastContentBuilder()
-        .AddText("Claude Graft could not download the update")
-        .AddText($"Version {release.Version} is still available. Check your connection and try again.")
-        .AddButton(new ToastButton().SetContent("Try Again").AddArgument("action", "install"))
-        .AddButton(new ToastButton().SetContent("Dismiss").SetDismissActivation()));
+        .AddText(L10n.Text("Claude Graft could not download the update"))
+        .AddText(L10n.Format("Version {0} is still available. Check your connection and try again.", release.Version))
+        .AddButton(new ToastButton().SetContent(L10n.Text("Try Again")).AddArgument("action", "install"))
+        .AddButton(new ToastButton().SetContent(L10n.Text("Dismiss")).SetDismissActivation()));
 
     private static NotificationData Progress(double fraction, string status)
     {
@@ -67,13 +67,13 @@ internal static class UpdateToast
         try
         {
             new ToastContentBuilder()
-                .AddText($"{shortcut} was opened again after Claude updated")
-                .AddText("Claude's update also opened your main Claude. Close it?")
-                .AddButton(new ToastButton().SetContent("Close It")
+                .AddText(L10n.Format("{0} was opened again after Claude updated", shortcut))
+                .AddText(L10n.Text("Claude's update also opened your main Claude. Close it?"))
+                .AddButton(new ToastButton().SetContent(L10n.Text("Close It"))
                     .AddArgument("action", "closeStray")
                     .AddArgument("pid", stray.Pid)
                     .AddArgument("started", stray.Started.Ticks.ToString()))
-                .AddButton(new ToastButton().SetContent("Keep It").SetDismissActivation())
+                .AddButton(new ToastButton().SetContent(L10n.Text("Keep It")).SetDismissActivation())
                 .Show(toast => { toast.Tag = "stray"; toast.Group = "claude-update"; });
         }
         catch (Exception e) { Diagnostics.Note("notify.failed", new Dictionary<string, object?> { ["error"] = e.Message }); }

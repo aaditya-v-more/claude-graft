@@ -8,19 +8,12 @@ namespace ClaudeGraft;
 
 public sealed partial class ArtifactsPage : Page
 {
-    public const string Note =
-        "Graft signs in to claude.ai once for each account, in a window of its own, and keeps that sign-in in a "
-        + "browser store of its own for that account. One sign-in serves Artifacts, Projects and Search Chats alike. "
-        + "It is used only by claude.ai's own pages and is never read by Graft or sent anywhere else. Signing out deletes it.\n\n"
-        + "Sign in with an emailed code: enter the account's address on claude.ai's page, choose Continue with email, "
-        + "and type the code claude.ai sends. That is the one way of signing in Graft supports.\n\n"
-        + "Groups are kept by Graft on this PC. Sharing with a group invites each person with the role the group gives "
-        + "them, and claude.ai emails each one, as it does when you invite them from the artifact's own Share panel. "
-        + "Where an artifact takes no commenters or editors, they are invited with the most it does take, never more.";
+    public static string Note => L10n.Text(
+        "Graft signs in to claude.ai once for each account, in a window of its own, and keeps that sign-in in a browser store of its own for that account. One sign-in serves Artifacts, Projects and Search Chats alike. It is used only by claude.ai's own pages and is never read by Graft or sent anywhere else. Signing out deletes it.\n\nSign in with an emailed code: enter the account's address on claude.ai's page, choose Continue with email, and type the code claude.ai sends. That is the one way of signing in Graft supports.\n\nGroups are kept by Graft on this PC. Sharing with a group invites each person with the role the group gives them, and claude.ai emails each one, as it does when you invite them from the artifact's own Share panel. Where an artifact takes no commenters or editors, they are invited with the most it does take, never more.");
 
     /// Under every Sign In button, since a sign-in that starts another way is
     /// one Graft does not support.
-    public const string SignInHintText = "Use Continue with email and the code claude.ai sends you";
+    public static string SignInHintText => L10n.Text("Use Continue with email and the code claude.ai sends you");
 
     private readonly ArtifactCenter _center = ArtifactCenter.Shared;
     private string _shownSignature = "";
@@ -63,25 +56,25 @@ public sealed partial class ArtifactsPage : Page
     private void Render()
     {
         var signedIn = _center.Accounts.Count > 0;
-        AddAccountText.Text = signedIn ? "Add Account…" : "Sign In…";
-        AutomationProperties.SetName(AddAccountButton, signedIn ? "Add Account" : "Sign In");
+        AddAccountText.Text = signedIn ? L10n.Text("Add Account…") : L10n.Text("Sign In…");
+        AutomationProperties.SetName(AddAccountButton, signedIn ? L10n.Text("Add Account") : L10n.Text("Sign In"));
         RefreshIcon.Visibility = _center.AnyLoading ? Visibility.Collapsed : Visibility.Visible;
         RefreshRing.Visibility = _center.AnyLoading ? Visibility.Visible : Visibility.Collapsed;
         RefreshRing.IsActive = _center.AnyLoading;
         RefreshButton.IsEnabled = signedIn && !_center.AnyLoading;
         StatusLine.Text = _center.Status ?? "";
         ToolTipService.SetToolTip(StatusLine, _center.Status);
-        GroupsText.Text = $"Groups ({_center.Groups.Count})";
-        AutomationProperties.SetName(GroupsButton, $"Groups, {_center.Groups.Count}");
+        GroupsText.Text = L10n.Format("Groups ({0})", _center.Groups.Count);
+        AutomationProperties.SetName(GroupsButton, L10n.Format("Groups, {0}", _center.Groups.Count));
 
         ArtifactsPage.ShowChips(AccountChips, _center, "artifacts");
 
         FilterBar.Visibility = signedIn ? Visibility.Visible : Visibility.Collapsed;
         SignedOutPanel.Visibility = signedIn ? Visibility.Collapsed : Visibility.Visible;
         var shown = signedIn ? Shown() : [];
-        CountText.Text = shown.Count == 1 ? "1 artifact" : $"{shown.Count} artifacts";
+        CountText.Text = L10n.Plural(shown.Count, "{0} artifact", "{0} artifacts");
         EmptyText.Visibility = signedIn && shown.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
-        EmptyText.Text = _center.AnyLoading ? "Asking claude.ai…" : SearchBox.Text.Trim().Length == 0 ? "No artifacts" : "Nothing matches";
+        EmptyText.Text = _center.AnyLoading ? L10n.Text("Asking claude.ai…") : SearchBox.Text.Trim().Length == 0 ? L10n.Text("No artifacts") : L10n.Text("Nothing matches");
         ArtifactList.Visibility = shown.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
 
         // Rebuilt only when what it shows has changed: a rebuild closes any menu
@@ -118,11 +111,11 @@ public sealed partial class ArtifactsPage : Page
 
     private static (Windows.UI.Color, string) Look(ArtifactCenter.AccountState state) => state switch
     {
-        ArtifactCenter.AccountState.Ready => (Microsoft.UI.Colors.SeaGreen, "Signed in"),
-        ArtifactCenter.AccountState.SignedOut => (Microsoft.UI.Colors.DarkOrange, "Signed out · sign in again"),
-        ArtifactCenter.AccountState.Failed => (Microsoft.UI.Colors.DarkOrange, "claude.ai didn't answer"),
-        ArtifactCenter.AccountState.Loading => (Microsoft.UI.Colors.Gray, "Asking claude.ai…"),
-        _ => (Microsoft.UI.Colors.Gray, "Not asked yet"),
+        ArtifactCenter.AccountState.Ready => (Microsoft.UI.Colors.SeaGreen, L10n.Text("Signed in")),
+        ArtifactCenter.AccountState.SignedOut => (Microsoft.UI.Colors.DarkOrange, L10n.Text("Signed out · sign in again")),
+        ArtifactCenter.AccountState.Failed => (Microsoft.UI.Colors.DarkOrange, L10n.Text("claude.ai didn't answer")),
+        ArtifactCenter.AccountState.Loading => (Microsoft.UI.Colors.Gray, L10n.Text("Asking claude.ai…")),
+        _ => (Microsoft.UI.Colors.Gray, L10n.Text("Not asked yet")),
     };
 
     /// One signed-in account, with its way to sign in again or out. The same chip
@@ -135,9 +128,9 @@ public sealed partial class ArtifactsPage : Page
         var (color, help) = Look(state);
         var menu = new MenuFlyout();
         if (account.Email is { } email && email != name) menu.Items.Add(new MenuFlyoutItem { Text = email, IsEnabled = false });
-        var again = new MenuFlyoutItem { Text = "Sign In Again…" };
+        var again = new MenuFlyoutItem { Text = L10n.Text("Sign In Again…") };
         again.Click += (_, _) => center.SignInAgain(account.Id);
-        var signOut = new MenuFlyoutItem { Text = "Sign Out" };
+        var signOut = new MenuFlyoutItem { Text = L10n.Text("Sign Out") };
         signOut.Click += (_, _) => center.SignOut(account.Id);
         menu.Items.Add(again);
         menu.Items.Add(new MenuFlyoutSeparator());
@@ -205,9 +198,9 @@ internal sealed class ArtifactRow
 
         Place(grid, Access(), 2);
         Place(grid, ShareMenu(), 3);
-        Place(grid, IconButton("", "Copy link", $"Copy Link to {artifact.Title}", "copy-link", artifact.OpenUrl is not null,
+        Place(grid, IconButton("", L10n.Text("Copy link"), L10n.Format("Copy Link to {0}", artifact.Title), "copy-link", artifact.OpenUrl is not null,
             () => center.CopyLink(artifact)), 4);
-        Place(grid, IconButton("", "Open in the browser", $"Open {artifact.Title}", "open", artifact.OpenUrl is not null,
+        Place(grid, IconButton("", L10n.Text("Open in the browser"), L10n.Format("Open {0}", artifact.Title), "open", artifact.OpenUrl is not null,
             () => { if (Uri.TryCreate(artifact.OpenUrl, UriKind.Absolute, out var url)) _ = Windows.System.Launcher.LaunchUriAsync(url); }), 5);
         Place(grid, Actions(), 6);
         Element = grid;
@@ -225,7 +218,7 @@ internal sealed class ArtifactRow
     private string Subtitle()
     {
         var who = _center.NameOf(_artifact.Account);
-        var owner = _artifact.IsOwn ? who : $"Shared with {who}";
+        var owner = _artifact.IsOwn ? who : L10n.Format("Shared with {0}", who);
         return _artifact.SortTime is { } time ? $"{owner} · {ArtifactsPage.When(time)}" : owner;
     }
 
@@ -279,17 +272,17 @@ internal sealed class ArtifactRow
             else item.IsEnabled = false;
             menu.Items.Add(item);
         }
-        Choice("Only People Invited", ArtifactAccess.Invited, false);
-        if (current == ArtifactAccess.Organization) Choice("Your Organization", ArtifactAccess.Organization, null);
-        Choice("Anyone with the Link", ArtifactAccess.AnyoneWithLink, true);
-        return MenuButton(glyph, current.Label(), $"Who Can Open {_artifact.Title}, {current.Label()}", "access", menu, true);
+        Choice(L10n.Text("Only People Invited"), ArtifactAccess.Invited, false);
+        if (current == ArtifactAccess.Organization) Choice(L10n.Text("Your Organization"), ArtifactAccess.Organization, null);
+        Choice(L10n.Text("Anyone with the Link"), ArtifactAccess.AnyoneWithLink, true);
+        return MenuButton(glyph, current.Label(), L10n.Format("Who Can Open {0}, {1}", _artifact.Title, current.Label()), "access", menu, true);
     }
 
     private FrameworkElement ShareMenu()
     {
         if (IsBusy("share")) return Working();
         var menu = new MenuFlyout();
-        if (_center.Groups.Count == 0) menu.Items.Add(new MenuFlyoutItem { Text = "No groups yet", IsEnabled = false });
+        if (_center.Groups.Count == 0) menu.Items.Add(new MenuFlyoutItem { Text = L10n.Text("No groups yet"), IsEnabled = false });
         foreach (var group in _center.Groups)
         {
             var item = new MenuFlyoutItem { Text = $"{group.Name} ({group.Emails.Count}) · {GroupsEditor.RoleSummary(group)}", IsEnabled = group.Emails.Count > 0 };
@@ -297,8 +290,8 @@ internal sealed class ArtifactRow
             menu.Items.Add(item);
         }
         return MenuButton(new FontIcon { Glyph = "", FontSize = 14 },
-            _artifact.IsOwn ? "Share with a group" : "Only its owner can share it",
-            $"Share {_artifact.Title} with a Group", "share", menu, _artifact.IsOwn);
+            _artifact.IsOwn ? L10n.Text("Share with a group") : L10n.Text("Only its owner can share it"),
+            L10n.Format("Share {0} with a Group", _artifact.Title), "share", menu, _artifact.IsOwn);
     }
 
     /// What claude.ai's own menu offers for an artifact, each only where the list
@@ -309,17 +302,17 @@ internal sealed class ArtifactRow
         var menu = new MenuFlyout();
         if (_artifact.IsOwn && _artifact.Renamable)
         {
-            var rename = new MenuFlyoutItem { Text = "Rename…" };
+            var rename = new MenuFlyoutItem { Text = L10n.Text("Rename…") };
             rename.Click += async (_, _) => await AskRename();
             menu.Items.Add(rename);
         }
         if (_artifact.Duplicable)
         {
-            var duplicate = new MenuFlyoutItem { Text = "Duplicate", IsEnabled = _artifact.DuplicateAvailable };
+            var duplicate = new MenuFlyoutItem { Text = L10n.Text("Duplicate"), IsEnabled = _artifact.DuplicateAvailable };
             duplicate.Click += (_, _) => _center.Duplicate(_artifact);
             menu.Items.Add(duplicate);
         }
-        var export = new MenuFlyoutSubItem { Text = "Export" };
+        var export = new MenuFlyoutSubItem { Text = L10n.Text("Export") };
         foreach (var format in Enum.GetValues<ArtifactExportFormat>())
         {
             var item = new MenuFlyoutItem { Text = format.Label() + "…" };
@@ -330,19 +323,19 @@ internal sealed class ArtifactRow
         if (_artifact.IsOwn)
         {
             menu.Items.Add(new MenuFlyoutSeparator());
-            var delete = new MenuFlyoutItem { Text = "Delete…" };
+            var delete = new MenuFlyoutItem { Text = L10n.Text("Delete…") };
             delete.Click += async (_, _) => await AskDelete();
             menu.Items.Add(delete);
         }
-        return MenuButton(new FontIcon { Glyph = "", FontSize = 14 }, "Rename, duplicate, export or delete",
-            $"More for {_artifact.Title}", "more", menu, true);
+        return MenuButton(new FontIcon { Glyph = "", FontSize = 14 }, L10n.Text("Rename, duplicate, export or delete"),
+            L10n.Format("More for {0}", _artifact.Title), "more", menu, true);
     }
 
     private async Task<string?> AskWhere(string fileName, ArtifactExportFormat format)
     {
         var picker = new Windows.Storage.Pickers.FileSavePicker { SuggestedFileName = Path.GetFileNameWithoutExtension(fileName) };
         var extension = Path.GetExtension(fileName);
-        picker.FileTypeChoices.Add(format == ArtifactExportFormat.Html && extension == ".zip" ? "Zip archive" : format.Label(), [extension]);
+        picker.FileTypeChoices.Add(format == ArtifactExportFormat.Html && extension == ".zip" ? L10n.Text("Zip archive") : format.Label(), [extension]);
         var window = Microsoft.UI.Win32Interop.GetWindowFromWindowId(_root.ContentIslandEnvironment.AppWindowId);
         WinRT.Interop.InitializeWithWindow.Initialize(picker, window);
         return (await picker.PickSaveFileAsync())?.Path;
@@ -351,12 +344,12 @@ internal sealed class ArtifactRow
     private async Task AskRename()
     {
         var box = new TextBox { Text = _artifact.Title, SelectionStart = 0, SelectionLength = _artifact.Title.Length };
-        AutomationProperties.SetName(box, "Title");
+        AutomationProperties.SetName(box, L10n.Text("Title"));
         AutomationProperties.SetAutomationId(box, $"artifact.{Token}.newTitle");
         var dialog = new ContentDialog
         {
-            XamlRoot = _root, Title = "Rename Artifact", Content = box,
-            PrimaryButtonText = "Rename", CloseButtonText = "Cancel", DefaultButton = ContentDialogButton.Primary,
+            XamlRoot = _root, Title = L10n.Text("Rename Artifact"), Content = box,
+            PrimaryButtonText = L10n.Text("Rename"), CloseButtonText = L10n.Text("Cancel"), DefaultButton = ContentDialogButton.Primary,
         };
         Dialogs.Prepare(dialog, _root);
         if (await dialog.ShowAsync() == ContentDialogResult.Primary) _center.Rename(_artifact, box.Text);
@@ -366,9 +359,9 @@ internal sealed class ArtifactRow
     {
         var dialog = new ContentDialog
         {
-            XamlRoot = _root, Title = $"Delete “{_artifact.Title}”?",
-            Content = "claude.ai keeps no copy, and everyone it was shared with loses it too.",
-            PrimaryButtonText = "Delete", CloseButtonText = "Cancel", DefaultButton = ContentDialogButton.Close,
+            XamlRoot = _root, Title = L10n.Format("Delete “{0}”?", _artifact.Title),
+            Content = L10n.Text("claude.ai keeps no copy, and everyone it was shared with loses it too."),
+            PrimaryButtonText = L10n.Text("Delete"), CloseButtonText = L10n.Text("Cancel"), DefaultButton = ContentDialogButton.Close,
         };
         Dialogs.Prepare(dialog, _root);
         if (await dialog.ShowAsync() == ContentDialogResult.Primary) _center.Delete(_artifact);

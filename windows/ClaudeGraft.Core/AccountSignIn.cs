@@ -61,7 +61,7 @@ public static class AccountSignIn
                 catch (OperationCanceledException)
                 {
                     cancel.ThrowIfCancellationRequested();
-                    throw new Failure("Nothing came back from the browser, so the sign-in was abandoned.");
+                    throw new Failure(L10n.Text("Nothing came back from the browser, so the sign-in was abandoned."));
                 }
                 var index = accepts.IndexOf(done);
                 accepts[index] = (index == 0 ? v4 : v6!).AcceptTcpClientAsync(deadline.Token).AsTask();
@@ -77,20 +77,20 @@ public static class AccountSignIn
                 // else: a stale tab, or a page poking at the port.
                 if (query.GetValueOrDefault("state") != state)
                 {
-                    await Respond(stream, 400, Page("This sign-in link is out of date. Start again from Claude Graft."));
+                    await Respond(stream, 400, Page(L10n.Text("This sign-in link is out of date. Start again from Claude Graft.")));
                     continue;
                 }
                 if (query.GetValueOrDefault("code") is not string code)
                 {
                     var reason = query.GetValueOrDefault("error_description") ?? query.GetValueOrDefault("error");
-                    var message = reason is null ? "The sign-in was not completed." : $"The sign-in was not completed: {reason}";
+                    var message = reason is null ? L10n.Text("The sign-in was not completed.") : L10n.Format("The sign-in was not completed: {0}", reason);
                     await Respond(stream, 200, Page(message));
                     throw new Failure(message);
                 }
                 try
                 {
                     var account = await Finish(code, redirect, verifier, state, ownAccount, cancel);
-                    await Respond(stream, 200, Page($"{account.Name} is signed in. You can close this tab and go back to Claude Graft."));
+                    await Respond(stream, 200, Page(L10n.Format("{0} is signed in. You can close this tab and go back to Claude Graft.", account.Name)));
                     return account;
                 }
                 catch (Failure f)
@@ -121,7 +121,7 @@ public static class AccountSignIn
         request.Headers.Accept.ParseAdd("application/json");
         HttpResponseMessage response;
         try { response = await http.SendAsync(request, cancel); }
-        catch (HttpRequestException e) { throw new Failure($"Anthropic's sign-in service could not be reached: {e.Message}"); }
+        catch (HttpRequestException e) { throw new Failure(L10n.Format("Anthropic's sign-in service could not be reached: {0}", e.Message)); }
         using var _ = response;
         var text = await response.Content.ReadAsStringAsync(cancel);
         JsonElement? root = null;
@@ -129,14 +129,14 @@ public static class AccountSignIn
         if (response.StatusCode != HttpStatusCode.OK)
         {
             var reason = Str(root, "error_description") ?? (root?.TryGetProperty("error", out var e) == true ? Str(e, "message") : null);
-            throw new Failure(reason is null ? $"Anthropic did not accept the sign-in ({(int)response.StatusCode})." : $"Anthropic did not accept the sign-in: {reason}");
+            throw new Failure(reason is null ? L10n.Format("Anthropic did not accept the sign-in ({0}).", (int)response.StatusCode) : L10n.Format("Anthropic did not accept the sign-in: {0}", reason));
         }
-        if (Str(root, "access_token") is not { Length: > 0 } token) throw new Failure("Anthropic's answer to the sign-in could not be read.");
+        if (Str(root, "access_token") is not { Length: > 0 } token) throw new Failure(L10n.Text("Anthropic's answer to the sign-in could not be read."));
         JsonElement? account = root?.TryGetProperty("account", out var a) == true ? a : null;
         JsonElement? organization = root?.TryGetProperty("organization", out var o) == true ? o : null;
         var uuid = Str(account, "uuid");
         if (uuid is not null && uuid == ownAccount)
-            throw new Failure("That is the account this Claude already uses, so it has nothing to add. Switch accounts in the browser, then try again.");
+            throw new Failure(L10n.Text("That is the account this Claude already uses, so it has nothing to add. Switch accounts in the browser, then try again."));
         var lifetime = root?.TryGetProperty("expires_in", out var x) == true && x.TryGetDouble(out var seconds) ? seconds : Lifetime;
         return new PoolAccount
         {

@@ -41,8 +41,8 @@ public sealed class ProjectCenter
     /// the list.
     public List<string> Trouble() => Accounts.Accounts.Select(a => ProjectStates.GetValueOrDefault(a.Id) switch
     {
-        State.SignedOut => $"Sign in to {Accounts.NameOf(a.Id)} again",
-        State.Failed => $"{Accounts.NameOf(a.Id)} didn't answer",
+        State.SignedOut => L10n.Format("Sign in to {0} again", Accounts.NameOf(a.Id)),
+        State.Failed => L10n.Format("{0} didn't answer", Accounts.NameOf(a.Id)),
         _ => null,
     }).OfType<string>().ToList();
 
@@ -161,8 +161,8 @@ public sealed class ProjectCenter
 
     public List<string> SearchTrouble() => Accounts.Accounts.Select(a => SearchStates.GetValueOrDefault(a.Id) switch
     {
-        State.SignedOut => $"Sign in to {Accounts.NameOf(a.Id)} again",
-        State.Failed => $"{Accounts.NameOf(a.Id)} didn't answer",
+        State.SignedOut => L10n.Format("Sign in to {0} again", Accounts.NameOf(a.Id)),
+        State.Failed => L10n.Format("{0} didn't answer", Accounts.NameOf(a.Id)),
         _ => null,
     }).OfType<string>().ToList();
 

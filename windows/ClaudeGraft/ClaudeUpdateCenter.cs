@@ -40,26 +40,28 @@ public static class ClaudeUpdateCenter
 
     public static string Line => Now switch
     {
-        Phase.Store => "Claude Desktop · updated by the Microsoft Store",
-        Phase.Checking => $"Claude Desktop {Installed} · checking",
-        Phase.UpToDate => $"Claude Desktop {Installed} · Up to date" + Held,
-        Phase.Available => $"Claude Desktop {Latest} is available · you have {Installed}",
-        Phase.Installing => $"Installing Claude Desktop {Latest}…",
-        Phase.NeedsRestart => $"Claude Desktop {Installed} is installed · "
-            + (OnOlderVersion == 1 ? "an open Claude is" : $"{OnOlderVersion} open Claudes are") + " still on the old version",
-        Phase.Restarting => "Restarting Claude…",
-        Phase.Failed => $"Claude Desktop {Installed} · {Problem}",
+        Phase.Store => L10n.Text("Claude Desktop · updated by the Microsoft Store"),
+        Phase.Checking => L10n.Format("Claude Desktop {0} · checking", Installed),
+        Phase.UpToDate => L10n.Format("Claude Desktop {0} · Up to date", Installed) + Held,
+        Phase.Available => L10n.Format("Claude Desktop {0} is available · you have {1}", Latest, Installed),
+        Phase.Installing => L10n.Format("Installing Claude Desktop {0}…", Latest),
+        Phase.NeedsRestart => L10n.Plural(OnOlderVersion,
+            "Claude Desktop {1} is installed · an open Claude is still on the old version",
+            "Claude Desktop {1} is installed · {0} open Claudes are still on the old version", Installed),
+        Phase.Restarting => L10n.Text("Restarting Claude…"),
+        Phase.Failed => L10n.Format("Claude Desktop {0} · {1}", Installed, Problem),
         _ => "",
     };
 
-    private static string Held => ManualUpdates.Enabled ? " · updates when you ask" : "";
+    /// What the line carries after the version while Claude updates only when asked; the window's line leaves it to the tooltip.
+    public static string Held => ManualUpdates.Enabled ? " · " + L10n.Text("updates when you ask") : "";
 
     /// The one button the line offers, or null for none.
     public static string? Action => Now switch
     {
-        Phase.Available => "Update",
-        Phase.NeedsRestart => "Restart Claudes…",
-        Phase.Failed => "Try Again",
+        Phase.Available => L10n.Text("Update"),
+        Phase.NeedsRestart => L10n.Text("Restart Claudes…"),
+        Phase.Failed => L10n.Text("Try Again"),
         _ => null,
     };
 
@@ -77,7 +79,7 @@ public static class ClaudeUpdateCenter
         Installed ??= new Version(1, 0, 0);
         Latest = new Version(Installed.Major, Installed.Minor + 1, 0);
         OnOlderVersion = phase == Phase.NeedsRestart ? 2 : 0;
-        Set(phase, phase == Phase.Failed ? "could not check for updates" : null);
+        Set(phase, phase == Phase.Failed ? L10n.Text("could not check for updates") : null);
     }
 
     public static void Unstage()
@@ -117,10 +119,10 @@ public static class ClaudeUpdateCenter
 
     private static void Settle()
     {
-        if (_installFailed) Set(Phase.Failed, "the update could not be installed");
+        if (_installFailed) Set(Phase.Failed, L10n.Text("the update could not be installed"));
         else if (Latest is not null && Installed is not null && Latest > Installed) Set(Phase.Available);
         else if (OnOlderVersion > 0) Set(Phase.NeedsRestart);
-        else if (_checkFailed && Latest is null) Set(Phase.Failed, "could not check for updates");
+        else if (_checkFailed && Latest is null) Set(Phase.Failed, L10n.Text("could not check for updates"));
         else Set(Phase.UpToDate);
     }
 
@@ -249,8 +251,8 @@ public static class ClaudeUpdateCenter
     /// reported, never forced.
     public static async Task<string?> RestartAsync(IReadOnlyList<(GracefulQuit.Target Target, GraftConfig Config, string Name)> agreed)
     {
-        if (Staged) return "That update was staged from the debug window; nothing was restarted.";
-        if (Interlocked.CompareExchange(ref _busy, 1, 0) != 0) return "Claude is already being updated.";
+        if (Staged) return L10n.Text("That update was staged from the debug window; nothing was restarted.");
+        if (Interlocked.CompareExchange(ref _busy, 1, 0) != 0) return L10n.Text("Claude is already being updated.");
         try
         {
             Set(Phase.Restarting);
@@ -262,7 +264,7 @@ public static class ClaudeUpdateCenter
             ReadLocal();
             if (stayed.Count == 0) return null;
             var names = string.Join(", ", agreed.Where(a => stayed.Contains(a.Target)).Select(a => a.Name));
-            return $"Did not close, and stayed on the old version: {names}. Quit it from its own menu, then open it again.";
+            return L10n.Format("Did not close, and stayed on the old version: {0}. Quit it from its own menu, then open it again.", names);
         }
         finally { Interlocked.Exchange(ref _busy, 0); }
     }

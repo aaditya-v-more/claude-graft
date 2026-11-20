@@ -1,3 +1,5 @@
+using ClaudeGraft.Core;
+
 namespace ClaudeGraft;
 
 /// <summary>
@@ -19,6 +21,13 @@ internal static class AutoStart
 
     public static bool IsEnabled() => File.Exists(LinkPath);
 
+    /// A shortcut from 2.1.1 or the installer of then carries no flag, so its
+    /// sign-in launch would open the window; rewritten at every start, it gains one.
+    public static void Refresh()
+    {
+        if (IsEnabled()) Enable();
+    }
+
     public static void Set(bool enabled)
     {
         if (enabled) Enable();
@@ -34,9 +43,11 @@ internal static class AutoStart
             dynamic shell = Activator.CreateInstance(Type.GetTypeFromProgID("WScript.Shell")!)!;
             var link = shell.CreateShortcut(LinkPath);
             link.TargetPath = exe;
+            // Start hidden applies to this launch only, never to one a person starts.
+            link.Arguments = AutomaticLaunch.Flag;
             link.WorkingDirectory = Path.GetDirectoryName(exe);
             link.IconLocation = exe + ",0";
-            link.Description = "Run extra Claude Desktop profiles";
+            link.Description = L10n.Text("Run extra Claude Desktop profiles");
             link.Save();
         }
         catch { }

@@ -6,7 +6,7 @@ public static class RecoveredNotice
     public static string? Text(IReadOnlyList<string> titles) => titles.Count switch
     {
         0 => null,
-        1 => $"Recovered “{titles[0]}”, which had closed without a record",
-        _ => $"Recovered {titles.Count} sessions that closed without records",
+        1 => L10n.Format("Recovered “{0}”, which had closed without a record", titles[0]),
+        _ => L10n.Plural(titles.Count, "Recovered {0} session that closed without a record", "Recovered {0} sessions that closed without records"),
     };
 }

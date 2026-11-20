@@ -51,7 +51,7 @@ public static class ArtifactRoles
 
     public static string Label(this ArtifactRole role) => role switch
     {
-        ArtifactRole.Commenter => "Can Comment", ArtifactRole.Editor => "Can Edit", _ => "Can View",
+        ArtifactRole.Commenter => L10n.Text("Can Comment"), ArtifactRole.Editor => L10n.Text("Can Edit"), _ => L10n.Text("Can View"),
     };
 
     /// The most an artifact will take of what was asked, never more.
@@ -188,10 +188,10 @@ public static class ArtifactAccessOf
 
     public static string Label(this ArtifactAccess access) => access switch
     {
-        ArtifactAccess.Invited => "Only people invited",
-        ArtifactAccess.Organization => "Your organization",
-        ArtifactAccess.AnyoneWithLink => "Anyone with the link",
-        _ => "Only you",
+        ArtifactAccess.Invited => L10n.Text("Only people invited"),
+        ArtifactAccess.Organization => L10n.Text("Your organization"),
+        ArtifactAccess.AnyoneWithLink => L10n.Text("Anyone with the link"),
+        _ => L10n.Text("Only you"),
     };
 
     /// Graft offers only invited and public; one shared with the organization
@@ -504,7 +504,7 @@ public static class ArtifactExport
     public static string Label(this ArtifactExportFormat f) => f switch
     {
         ArtifactExportFormat.Markdown => "Markdown", ArtifactExportFormat.Pdf => "PDF",
-        ArtifactExportFormat.Word => "Word Document", _ => "Page Source",
+        ArtifactExportFormat.Word => L10n.Text("Word Document"), _ => L10n.Text("Page Source"),
     };
 
     /// A page of several files goes out zipped, since its page alone would open with pieces missing.

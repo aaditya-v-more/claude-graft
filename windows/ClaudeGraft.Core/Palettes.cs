@@ -46,7 +46,13 @@ public static class Palettes
 {
     public static string Title(AppPalette palette) => palette switch
     {
-        AppPalette.Accent => "System accent",
+        AppPalette.Graft => L10n.Text("Graft"),
+        AppPalette.Accent => L10n.Text("System accent"),
+        AppPalette.Slate => L10n.Text("Slate"),
+        AppPalette.Ocean => L10n.Text("Ocean"),
+        AppPalette.Forest => L10n.Text("Forest"),
+        AppPalette.Plum => L10n.Text("Plum"),
+        AppPalette.Rose => L10n.Text("Rose"),
         _ => palette.ToString(),
     };
 

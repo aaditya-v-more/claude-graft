@@ -41,7 +41,7 @@ public sealed class ShortcutRow : INotifyPropertyChanged
     public static ShortcutRow MainClaude() => new()
     {
         ProfileDir = GraftPaths.DefaultProfile, Name = "Claude",
-        SourceLabel = "Main account", Folder = GraftPaths.DefaultFolder,
+        SourceLabel = L10n.Text("Main account"), Folder = GraftPaths.DefaultFolder,
         _signedIn = Onboarding.IsSignedIn(GraftPaths.DefaultProfile),
         _fetching = Staging.For(GraftPaths.DefaultProfile)?.Fetching == true,
     };
@@ -75,7 +75,7 @@ public sealed class ShortcutRow : INotifyPropertyChanged
 
     public Visibility SignInVisibility => _signedIn ? Visibility.Collapsed : Visibility.Visible;
     public Visibility SignedInVisibility => _signedIn ? Visibility.Visible : Visibility.Collapsed;
-    public string OpenLabel => _opening ? "Opening…" : _signedIn ? "Open" : "Sign In";
+    public string OpenLabel => _opening ? L10n.Text("Opening…") : _signedIn ? L10n.Text("Open") : L10n.Text("Sign In");
 
     private bool _opening;
 
@@ -89,9 +89,9 @@ public sealed class ShortcutRow : INotifyPropertyChanged
     public bool CanPressOpen => !_opening;
 
     /// The sidebar's line under the name.
-    public string SidebarCaption => _opening ? "Opening…"
-        : Shortcut is null ? "Installed normally"
-        : Shortcut.InstalledName is null ? "Not created yet" : SourceLabel;
+    public string SidebarCaption => _opening ? L10n.Text("Opening…")
+        : Shortcut is null ? L10n.Text("Installed normally")
+        : Shortcut.InstalledName is null ? L10n.Text("Not created yet") : SourceLabel;
 
     private void FlightChanged()
     {
@@ -107,10 +107,10 @@ public sealed class ShortcutRow : INotifyPropertyChanged
     /// Google and company sign-in come back through a claude:// link, which
     /// reaches the right profile only once Graft is the handler Windows picks.
     public string SignInNote => Shortcut is null
-        ? "Not signed in yet. Sign In opens Claude so you can log in."
+        ? L10n.Text("Not signed in yet. Sign In opens Claude so you can log in.")
         : _handler == ClaudeLinkHandler.Graft
-            ? "Not signed in yet. Graft asks which Claude a Google or company sign-in is for."
-            : "Not signed in yet. Email sign-in works; Google or company sign-in needs Graft for Claude links.";
+            ? L10n.Text("Not signed in yet. Graft asks which Claude a Google or company sign-in is for.")
+            : L10n.Text("Not signed in yet. Email sign-in works; Google or company sign-in needs Graft for Claude links.");
 
     public Visibility DefaultAppsVisibility =>
         Shortcut is not null && !_signedIn && _handler != ClaudeLinkHandler.Graft ? Visibility.Visible : Visibility.Collapsed;
@@ -143,9 +143,9 @@ public sealed class ShortcutRow : INotifyPropertyChanged
 
     /// The status dot is a shape, which a screen reader never reaches, so the
     /// row's name carries what it shows.
-    public string SpokenName => $"{Name}, {(_running ? "open" : "not open")}";
+    public string SpokenName => _running ? L10n.Format("{0}, open", Name) : L10n.Format("{0}, not open", Name);
 
-    public string StatusLabel => _running ? "A Claude is open on this profile" : "No Claude is open on this profile";
+    public string StatusLabel => _running ? L10n.Text("A Claude is open on this profile") : L10n.Text("No Claude is open on this profile");
 
     // Lit green when a Claude holds the profile; a faint, theme-neutral grey
     // when none does, so the dot is legible on either background without a
@@ -233,12 +233,12 @@ public sealed class ShortcutRow : INotifyPropertyChanged
     public bool StartEnabled => _usageKnown && !_starting && !WindowOpen && !NoFiveHourLimit;
 
     public string StartTooltip => !_usageKnown
-        ? "Waiting for this account's usage to load"
+        ? L10n.Text("Waiting for this account's usage to load")
         : NoFiveHourLimit
-            ? "This account has no five-hour limit, so there is no window to open"
+            ? L10n.Text("This account has no five-hour limit, so there is no window to open")
         : WindowOpen
-            ? "This account's five-hour window is already open"
-            : "Sends one short message to this account to open its five-hour window";
+            ? L10n.Text("This account's five-hour window is already open")
+            : L10n.Text("Sends one short message to this account to open its five-hour window");
 
     /// Bumped on every usage read, to replay the bars' fill. See BarPulse.
     public int Pulse { get; private set; }
@@ -249,12 +249,12 @@ public sealed class ShortcutRow : INotifyPropertyChanged
     public int Week => Current?.Week ?? 0;
 
     public string FiveHourText => Current is { FiveHour: null }
-        ? "5 hours · no limit"
-        : Line("5 hours", FiveHour, Current?.FiveHourReset);
-    public string WeekText => Line("Week", Week, Current?.WeekReset);
+        ? L10n.Text("5 hours · no limit")
+        : Line(L10n.Text("5 hours"), FiveHour, Current?.FiveHourReset);
+    public string WeekText => Line(L10n.Text("Week"), Week, Current?.WeekReset);
 
     public int Fable => Current?.Fable ?? 0;
-    public string FableText => Line("Fable", Fable, Current?.FableReset);
+    public string FableText => Line(L10n.Text("Fable"), Fable, Current?.FableReset);
     public Visibility FableVisibility => _usage?.Usage?.Fable is not null ? Visibility.Visible : Visibility.Collapsed;
 
     // The Mac's rows: the label, the bar, the figure and the time left, each in a column of its own.
@@ -272,19 +272,17 @@ public sealed class ShortcutRow : INotifyPropertyChanged
     public Visibility FiveHourResetsVisibility => FiveHourLeft.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
     public Visibility WeekResetsVisibility => WeekLeft.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
     public Visibility FableResetsVisibility => FableLeft.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
-    private static string Resets(string left) => left.Length > 0 ? $"Resets in {left}" : "";
+    private static string Resets(string left) => left.Length > 0 ? L10n.Format("Resets in {0}", left) : "";
     private static string Left(DateTimeOffset? reset) => reset is DateTimeOffset r && Graft.Countdown(r) is string left ? left : "";
 
     /// Created or not, and running or not, under the page's title, as the Mac's subtitle.
-    public string StateLine => (Shortcut is null ? "" : (Shortcut.InstalledName is null ? "Not created yet" : "Created") + " · ")
-        + (_running ? "Running" : "Not running");
+    public string StateLine => (Shortcut is null ? "" : (Shortcut.InstalledName is null ? L10n.Text("Not created yet") : L10n.Text("Created")) + " · ")
+        + (_running ? L10n.Text("Running") : L10n.Text("Not running"));
 
-    private static string Line(string label, int percent, DateTimeOffset? reset)
-    {
-        var text = $"{label} · {percent}%";
-        if (reset is DateTimeOffset r && Graft.Countdown(r) is string left) text += $" · resets in {left}";
-        return text;
-    }
+    private static string Line(string label, int percent, DateTimeOffset? reset) =>
+        reset is DateTimeOffset r && Graft.Countdown(r) is string left
+            ? L10n.Format("{0} · {1}% · resets in {2}", label, percent, left)
+            : L10n.Format("{0} · {1}%", label, percent);
 
     private bool _fetching;
 
@@ -365,15 +363,15 @@ public sealed class ShortcutRow : INotifyPropertyChanged
     /// whether this is the history being missed, merge-or-recovery says the stakes.
     public string ElsewhereNote => _elsewhere is not { } found
         ? ""
-        : $"{App.Store.NameOfProfile(found.Profile)} is holding {Chats(found.Count)} for the account this "
-          + "profile is signed into that this one has not got. "
-          + (found.Merging
-              ? "This profile has chats of its own too, so they are merged rather than either set being replaced."
-              : "This profile has none of its own yet.");
+        : L10n.Plural(found.Count,
+              "{1} is holding {0} chat for the account this profile is signed into that this one has not got.",
+              "{1} is holding {0} chats for the account this profile is signed into that this one has not got.",
+              App.Store.NameOfProfile(found.Profile))
+          + " " + (found.Merging
+              ? L10n.Text("This profile has chats of its own too, so they are merged rather than either set being replaced.")
+              : L10n.Text("This profile has none of its own yet."));
 
-    public string AdoptLabel => _elsewhere?.Merging == true ? "Merge Them Here" : "Copy Them Here";
-
-    public static string Chats(int count) => count == 1 ? "1 chat" : $"{count} chats";
+    public string AdoptLabel => _elsewhere?.Merging == true ? L10n.Text("Merge Them Here") : L10n.Text("Copy Them Here");
 
     private string? _sidebarStatus;
 
@@ -431,7 +429,7 @@ public sealed class ShortcutRow : INotifyPropertyChanged
     /// How shared usage knows this Claude: "main", or its shortcut's id.
     public string SharingKey => Shortcut?.Id.ToString() ?? UsageSharing.MainKey;
 
-    private string _sharingLabel = "Shared usage: off";
+    private string _sharingLabel = L10n.Text("Shared usage: off");
     private (string Text, bool Attention)? _sharingNote;
 
     public string SharingLabel => _sharingLabel;
@@ -456,7 +454,7 @@ public sealed class ShortcutRow : INotifyPropertyChanged
     /// The accounts this Claude draws on, one row each, as the Mac lists them.
     public IReadOnlyList<LenderLine> Lenders { get; private set; } = [];
     public Visibility NoLendersVisibility => Lenders.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
-    public string AddLenderLabel => Lenders.Count == 0 ? "Add an Account" : "Add Another Account";
+    public string AddLenderLabel => Lenders.Count == 0 ? L10n.Text("Add an Account") : L10n.Text("Add Another Account");
 
     public void SetLenders(IReadOnlyList<LenderLine> lenders)
     {
@@ -495,7 +493,7 @@ public sealed class LenderLine
     public Microsoft.UI.Xaml.Media.ImageSource? Icon { get; init; }
     public Visibility IconVisibility => Icon is null ? Visibility.Collapsed : Visibility.Visible;
     public string Spoken => State.Length == 0 ? Name : $"{Name}, {State}";
-    public string RemoveName => $"Stop drawing on {Name}";
+    public string RemoveName => L10n.Format("Stop drawing on {0}", Name);
     public string RemoveId => Id + ".remove";
     public string Id => Spoken.Length == 0 ? "" : ClaudeGraft.Spoken.Id("manager", Claude.Key, "lender." + Key[^Math.Min(8, Key.Length)..]);
     public Brush StateBrush => Themed.Brush(Attention ? "SystemFillColorCautionBrush" : "TextFillColorSecondaryBrush");

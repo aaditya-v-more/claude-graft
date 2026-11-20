@@ -7,6 +7,7 @@ public class AccessibilityTests
 {
     private static readonly XNamespace Ui = "http://schemas.microsoft.com/winfx/2006/xaml/presentation";
     private static readonly XNamespace Xaml = "http://schemas.microsoft.com/winfx/2006/xaml";
+    private static readonly XNamespace Local = "using:ClaudeGraft";
     private static readonly string[] Controls =
         { "Button", "ToggleSwitch", "CheckBox", "ComboBox", "TextBox", "ProgressBar", "GridView" };
 
@@ -28,6 +29,10 @@ public class AccessibilityTests
 
     private static string? Attribute(XElement e, string name) => e.Attribute(name)?.Value;
 
+    // Words given through the catalog count the same as words written in place.
+    private static string? Words(XElement e, string name, string localized) =>
+        Attribute(e, name) ?? e.Attribute(Local + "Localized." + localized)?.Value;
+
     [Fact(DisplayName = "every control can be found by automation the same way in every language")]
     public void EveryControlIdentified()
     {
@@ -45,8 +50,8 @@ public class AccessibilityTests
             .Where(c => c.Control.Name.LocalName == "Button"
                 // WinUI names a button from plain text content alone, never from
                 // a TextBlock nested beside an icon.
-                && Attribute(c.Control, "Content") is null
-                && Attribute(c.Control, "AutomationProperties.Name") is null
+                && Words(c.Control, "Content", "Content") is null
+                && Words(c.Control, "AutomationProperties.Name", "AutomationName") is null
                 // Their words, and names, are set in code as their state changes.
                 && c.Control.Attribute(Xaml + "Name")?.Value is not ("AvailableButton" or "ActionButton"))
             .Select(c => $"{c.File}: {Attribute(c.Control, "AutomationProperties.AutomationId")}")
@@ -58,7 +63,7 @@ public class AccessibilityTests
     public void BarsSpeak()
     {
         var silent = AllControls()
-            .Where(c => c.Control.Name.LocalName == "ProgressBar" && Attribute(c.Control, "AutomationProperties.Name") is null)
+            .Where(c => c.Control.Name.LocalName == "ProgressBar" && Words(c.Control, "AutomationProperties.Name", "AutomationName") is null)
             .Select(c => c.File)
             .ToList();
         Assert.Empty(silent);
