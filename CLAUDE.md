@@ -2,22 +2,7 @@
 
 ## Style, first
 
-Comments say **why**, never what. Delete a comment that restates the line under it.
-
-    // WRONG — increments the counter
-    failures += 1
-
-    // RIGHT — a refused call retried on the next tick becomes 120 attempts an
-    // hour, which is how a client earns a rate limit rather than avoids one.
-    failures += 1
-
-A comment is for the non-obvious: a workaround, an edge-case quirk, a knotty
-piece of regex or arithmetic, an external constraint. Never a narration of the
-line beside it — no `// loop through items`, `// initialize variable`, `// check
-if user exists`. Reach for a clearer name or shape before reaching for a
-comment. Never leave a mark that the code was generated or changed — no
-`// Added`, no `/* Updated logic */`, no changelog in the source. And leave the
-docs and docstrings already here alone unless the task is to rework them.
+Comments explain **why**, not what. Prefer a clearer name; comment only on a non-obvious constraint, workaround or edge case. No generated-code markers, change history or narration in source. Leave existing docs and docstrings alone unless the task concerns them.
 
 And keep it short. A why-comment is a line, two at the outside; when it wants a
 paragraph the reason has become an invariant, and invariants live in this file
@@ -45,7 +30,7 @@ area, linked from the heading each rule sits under. **Read the note before
 changing code in its area** — nearly every rule here exists because two
 situations look identical from inside the code, and the note is what says how
 to tell them apart. A new fact goes into the note it belongs to; a new rule gets
-one line here as well.
+one line here only if it applies broadly. Keep this file and `AGENTS.md` within 80 lines and 6 KiB each; link topic rules rather than duplicating them.
 
 ## Where builds and tests run
 
