@@ -39,7 +39,8 @@ public static class Program
         using var running = new Mutex(true, @"Local\ClaudeGraft.Running", out var first);
         if (!first || quit)
         {
-            if (!first) (quit ? QuitRequest : ShowRequest).Set();
+            if (quit) { if (!first) QuitRequest.Set(); }
+            else if (AutomaticLaunch.AsksForWindow(Environment.GetCommandLineArgs())) ShowRequest.Set();
             return;
         }
         XamlGeneratedProgram.XamlGeneratedMain();

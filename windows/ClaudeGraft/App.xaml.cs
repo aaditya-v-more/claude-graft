@@ -246,10 +246,11 @@ public partial class App : Application
         _flyout = new FlyoutWindow(ShowManager, Donate, Quit);
         SessionEnd.Watch(_flyout, Quit);
 
-        // A tray app comes up hidden by default — the notification-area icon is
-        // the whole of it until asked for more. Turned off, it opens the manager
-        // straight away, for someone who would rather see the window on launch.
-        if (!Settings.StartHidden) ShowManager();
+        // At sign-in a tray app comes up hidden by default — the notification-area
+        // icon is the whole of it until asked for more. A launch a person starts
+        // always opens the manager: hidden, it looked as if nothing had happened.
+        if (AutomaticLaunch.ShowsManager(Settings.StartHidden, Environment.GetCommandLineArgs())) ShowManager();
+        System.Threading.Tasks.Task.Run(AutoStart.Refresh);
 
         // The one thing the app does off nobody's press: keep an opted-in
         // account's five-hour window open. It runs on its own timer, from launch,
@@ -463,7 +464,7 @@ public partial class App : Application
         {
             ["version"] = release.Version.ToString(), ["onItsOwn"] = quiet,
         });
-        try { GraftUpdates.ApplyOnExit(release); }
+        try { GraftUpdates.ApplyOnExit(release, restartsUnseen: quiet); }
         catch (Exception e)
         {
             Record("update.apply", e);

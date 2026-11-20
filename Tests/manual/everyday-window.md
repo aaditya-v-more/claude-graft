@@ -14,7 +14,9 @@ small as it goes and as large as the screen, switch to Dark and back, then quit
 Graft and open it again from where a person would (Mac: Applications or
 Spotlight; Windows: Start).
 Expect along the way: it is clear what Graft is for and what to do first, and
-it comes back where you left it.
+it comes back where you left it. On Windows, opening Graft from Start brings up
+its window on the first try, whether Graft was quit or was running with its
+window closed, and with "Start hidden" on or off.
 
 Do it the way a person would, with the mouse and keyboard, without knowing the code.
 Along the way, check and report anything that fails these:

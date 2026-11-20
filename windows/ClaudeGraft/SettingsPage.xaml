@@ -53,7 +53,7 @@
                                                    local:Localized.AutomationName="Start with Windows" AutomationProperties.AutomationId="settings.startWithWindows" /></Grid>
                 </StackPanel>
             </local:SettingsCard>
-            <local:SettingsCard local:Localized.Header="Start hidden" local:Localized.Description="Open in the notification area, with no window" Glyph="&#xED1A;">
+            <local:SettingsCard local:Localized.Header="Start hidden" local:Localized.Description="At sign-in, open in the notification area with no window" Glyph="&#xED1A;">
                 <StackPanel Orientation="Horizontal" Spacing="12">
                     <TextBlock Text="{x:Bind local:SettingsCard.OnOff(StartHiddenSwitch.IsOn), Mode=OneWay}" VerticalAlignment="Center" />
                     <Grid Width="40"><ToggleSwitch x:Name="StartHiddenSwitch" Style="{StaticResource CardSwitch}" Toggled="Changed"
