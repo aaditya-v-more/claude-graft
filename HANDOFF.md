@@ -15,11 +15,24 @@ Then the Mac release (both systems take the next number after 2.1.1), this file 
 - **Signed-in passes are with the testers (19 Nov).** Sign-in is by emailed code, now allowed. Windows: `test-profiles`, `smoke` and `usage-and-start-session` on the second PC, against the installed 2.1.1. Mac, in a macOS VM: all seven signed-in cases against a universal build of `e689ecf`, zipped in `dist/test-builds/`. The Mac release, the next number after 2.1.1, follows a pass there.
 - **PR #17** (Tyler, "Windows: Mods page") is a draft he is still working on; nothing to do until he marks it ready.
 - **PRs #14 and #15 are merged (19 Nov)**, with their Windows ports and extra checks (`main` 92ea788). Each PR got a thank-you and a post-merge review. Real-machine runs are queued: `new-shortcut-folder` and `shared-usage-artifact` on a Mac and on Windows.
-- **Approved and in draft PRs, waiting on real-machine runs:**
-  - #19 `mac-donate`: Support becomes Donate with the red heart. Screenshots in Light, Dark and Russian are asked for.
-  - #20 `windows-parity`: the chat question before opening, help links in Settings, the recovered-sessions line and the icon and name switches for the Claude in front.
-  - Russian for Windows is on `windows-russian`, a draft PR based on #20.
-  - Merge each into `main` once its run passes.
+- **Approved and in draft PRs, waiting on real-machine runs** (requests 3 and 4, queued behind the signed-in runs):
+  - **#19 `mac-donate`, request 3, commit baadd3f:**
+    - Donate with the red heart, with screenshots asked for;
+    - Help opens graft.aadityamore.com;
+    - an open Claude's profile is never offered for deletion, and a delete that would strand it removes nothing.
+  - **#20 `windows-parity`:**
+    - the chat question;
+    - help links (email to the owner's own address; Graft has nothing to do with Tinkerfold);
+    - the recovered line;
+    - the icon and name switches for the Claude in front;
+    - the same delete refusal as the Mac.
+  - **#21 `windows-russian`, based on #20, request 4, commit 8fc80ec:**
+    - Russian through `L10n` and `ru.json`;
+    - `GRAFT_LANGUAGE=ru` forces it for testing.
+  - Merge #21 into #20, then #19 and #20 into `main`, once the runs pass.
+- **Releases are staged before they ship** (ebcf7ae): a prerelease with `appcast-staged.xml`, the cask on the tap's `release-<version>` branch, `Tools/check-distribution.py --tag` (Distribution Checks workflow; it also runs daily on what's live and passed on 2.0.1/2.1.1), then `Tests/manual/release-install.md` on clean Mac and Windows machines before publishing. `release.sh` prints the steps.
+- **Everyday-use cases** (`Tests/manual/everyday-*.md`, nine) run before every release. Request 5 runs eight of them on e0cfe53 (Mac) and 8fc80ec (Windows); everyday-update and the first-launch part run with release-install.
+- **`main` requires the `windows` check** as well as `checks`. The Windows workflow now runs on every change so that it always reports.
 - **Real-device runs** use the cases in `Tests/manual/`.
 
 ## The Windows port is merged

@@ -1,7 +1,7 @@
 # Windows Settings links, the taskbar strip's switches and the recovered line
 
 Platforms: Windows
-Needs: Test A signed in and reading Claude's chats (see test-profiles.md)
+Needs: steps 1-5 nothing special; step 6 needs Test A signed in and reading Claude's chats (see test-profiles.md)
 Setup: Graft running, Claude open, Test A closed.
 
 1. Open Graft's window, select Settings and scroll to About.
