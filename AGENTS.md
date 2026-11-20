@@ -77,3 +77,7 @@ Graft turns off Velopack's apply-on-startup. With it on, any launch of
 `ClaudeGraft.exe`, `--quit` included, applied whatever package lay newest in
 `%LOCALAPPDATA%\ClaudeGraftApp\packages`, which after a full setup is the
 release, ranked above every development build.
+
+## Markdown size limits
+
+Keep each `HANDOFF.md` to **80 lines and 6 KiB**: current goal, exact build, open decisions or QA, and next action. Replace stale entries; link evidence and history. Keep other maintained Markdown to **200 lines and 16 KiB**. Split by topic before either limit is exceeded, leave an index at the original path, and check `wc -lc` and relative links before committing. Do not split generated evidence, vendored material or legal text just to meet a size target.
