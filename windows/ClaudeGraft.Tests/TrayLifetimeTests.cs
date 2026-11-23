@@ -6,8 +6,29 @@ namespace ClaudeGraft.Tests;
 
 public class TrayLifetimeTests
 {
-    // A message-only parent keeps these windows off the screen and out of Explorer.
-    private static readonly nint MessageOnly = -3;
+    // Windows rejects a layered child on a message-only parent (ERROR_INVALID_PARAMETER).
+    private sealed class HiddenParent : IDisposable
+    {
+        public nint Handle { get; private set; }
+        public HiddenParent()
+        {
+            Handle = CreateWindowEx(0, "STATIC", "", 0, 0, 0, 1, 1, 0, 0, 0, 0);
+            if (Handle == 0) throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error());
+        }
+        public void Dispose()
+        {
+            if (Handle == 0) return;
+            if (!DestroyWindow(Handle)) throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error());
+            Handle = 0;
+        }
+    }
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern nint CreateWindowEx(int exStyle, string cls, string name, uint style,
+        int x, int y, int width, int height, nint parent, nint menu, nint instance, nint param);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool DestroyWindow(nint hwnd);
     private const uint ProbeMessage = 0x8001;
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
@@ -16,16 +37,17 @@ public class TrayLifetimeTests
     [Fact(DisplayName = "switching the strip back on delivers messages to the new strip, not the first one")]
     public void SwitchBackOn()
     {
+        using var parent = new HiddenParent();
         using var first = new TaskbarStripWindow((_, msg, _, _) => msg == ProbeMessage ? 1 : null);
-        Assert.True(first.Attach(MessageOnly));
+        Assert.True(first.Attach(parent.Handle));
         Assert.Equal((nint)1, SendMessage(first.Handle, ProbeMessage, 0, 0));
         first.Dispose();
         Assert.Equal((nint)0, first.Handle);
 
         using var second = new TaskbarStripWindow((_, msg, _, _) => msg == ProbeMessage ? 2 : null);
-        Assert.True(second.Attach(MessageOnly));
+        Assert.True(second.Attach(parent.Handle));
         // A placement tick already on the queue cannot bring the old window back.
-        Assert.False(first.Attach(MessageOnly));
+        Assert.False(first.Attach(parent.Handle));
         Assert.Equal((nint)0, first.Handle);
         GC.Collect();
         Assert.Equal((nint)2, SendMessage(second.Handle, ProbeMessage, 0, 0));
@@ -35,14 +57,14 @@ public class TrayLifetimeTests
     [Fact(DisplayName = "losing the parent releases the strip window, and the replacement receives its messages")]
     public void ReplaceParent()
     {
-        using var parent = new TaskbarStripWindow((_, _, _, _) => null);
+        using var parent = new HiddenParent();
+        using var replacement = new HiddenParent();
         using var child = new TaskbarStripWindow((_, msg, _, _) => msg == ProbeMessage ? 3 : null);
-        Assert.True(parent.Attach(MessageOnly));
         Assert.True(child.Attach(parent.Handle));
         Assert.False(child.Attach(parent.Handle));
         parent.Dispose();
         Assert.Equal((nint)0, child.Handle);
-        Assert.True(child.Attach(MessageOnly));
+        Assert.True(child.Attach(replacement.Handle));
         Assert.Equal((nint)3, SendMessage(child.Handle, ProbeMessage, 0, 0));
     }
 

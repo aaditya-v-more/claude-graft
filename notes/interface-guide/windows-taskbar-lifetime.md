@@ -13,7 +13,8 @@ click or a chat-recovery decision.
 `TaskbarStripWindow` registers one permanent callback. Messages belong to the
 strip for that HWND on its owning thread, from creation to `WM_NCDESTROY`.
 A placement tick queued before disposal cannot create a new taskbar child.
-The Windows suite exercises this with message-only windows, never Explorer.
+The Windows suite uses ordinary hidden parent windows, never Explorer:
+Windows rejects a layered child on a message-only parent.
 
 A second failure looked like a clean Quit: the process disappeared promptly.
 Windows recorded an access violation at offset `0x7f9640` in
