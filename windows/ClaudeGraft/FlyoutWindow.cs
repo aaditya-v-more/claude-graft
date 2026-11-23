@@ -284,6 +284,8 @@ public sealed class FlyoutWindow : Window
         // what made the placement wander.
         var scale = TrayAnchor.ScaleFor(_anchor);
 
+        var workArea = DisplayArea.GetFromPoint(_anchor, DisplayAreaFallback.Nearest).WorkArea;
+        _view.FitTo(workArea.Height / scale - 16);
         _view.Measure(new Windows.Foundation.Size(double.PositiveInfinity, double.PositiveInfinity));
         var size = new SizeInt32(
             (int)Math.Ceiling(_view.DesiredSize.Width * scale),
