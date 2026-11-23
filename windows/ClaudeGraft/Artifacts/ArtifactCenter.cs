@@ -101,7 +101,7 @@ public sealed class ArtifactCenter
     {
         if (Account(id) is not { } account) return "";
         if (account.AccountUuid is { } uuid && _claudeNames.TryGetValue(uuid, out var claude)) return claude;
-        return account.Email ?? "Signing in…";
+        return account.Email ?? L10n.Text("Signing in…");
     }
 
     private Dictionary<string, string> _claudeNames = new();
@@ -151,7 +151,7 @@ public sealed class ArtifactCenter
         SaveAccounts();
         foreach (var earlier in retired) Retire(earlier);
         if (wasAnother) _lists.Remove(id);
-        if (retired.Count > 0) Status = $"Signed in to {identity.Email} again";
+        if (retired.Count > 0) Status = L10n.Format("Signed in to {0} again", identity.Email);
         _sessions.GetValueOrDefault(id)?.Reset();
         LastSignIn = (id, DateTimeOffset.UtcNow);
         Changed?.Invoke();
@@ -255,10 +255,10 @@ public sealed class ArtifactCenter
                 ArtifactAPI.ReadModeBody(isPublic, permissions.Invited), headers);
             if (status is < 200 or >= 300)
             {
-                Status = $"claude.ai refused the change ({status})";
+                Status = L10n.Format("claude.ai refused the change ({0})", status);
                 return;
             }
-            Status = isPublic ? $"Anyone with the link can view “{artifact.Title}”" : $"“{artifact.Title}” is private again";
+            Status = isPublic ? L10n.Format("Anyone with the link can view “{0}”", artifact.Title) : L10n.Format("“{0}” is private again", artifact.Title);
             Replace(artifact.Id, a => a with { Audience = isPublic ? "public" : permissions.Invited.Count == 0 ? "owner" : "users" });
         });
     }
@@ -291,8 +291,9 @@ public sealed class ArtifactCenter
                 // Every address after this one would be turned away the same way.
                 catch (ClaudeWebSession.WebFailure e) when (e.Reason != ClaudeWebSession.Failure.SignedOut) { refusal ??= "unanswered"; }
             }
-            Status = $"Shared “{artifact.Title}” with {invited} of {group.Emails.Count} in {group.Name}"
-                + (lowered == 0 ? "" : $", {lowered} with less than asked");
+            Status = lowered == 0
+                ? L10n.Format("Shared “{0}” with {1} of {2} in {3}", artifact.Title, invited, group.Emails.Count, group.Name)
+                : L10n.Format("Shared “{0}” with {1} of {2} in {3}, {4} with less than asked", artifact.Title, invited, group.Emails.Count, group.Name, lowered);
             if (invited > 0 && artifact.Access == ArtifactAccess.OnlyYou) Replace(artifact.Id, a => a with { Audience = "users" });
             if (refusal is not null) Diagnostics.Note("artifacts.invite refused", new Dictionary<string, object?> { ["status"] = refusal });
         });
@@ -315,7 +316,7 @@ public sealed class ArtifactCenter
             var answer = await Session(artifact.Account).Send("POST", ArtifactAPI.RetitlePath(artifact.Id, artifact.Org), ArtifactAPI.RetitleBody(title));
             if (answer.Status is < 200 or >= 300) { Status = Refused(answer); return; }
             Replace(artifact.Id, a => a with { Title = title });
-            Status = $"Renamed “{title}”";
+            Status = L10n.Format("Renamed “{0}”", title);
         });
     }
 
@@ -328,7 +329,7 @@ public sealed class ArtifactCenter
         {
             var answer = await Session(artifact.Account).Send("POST", ArtifactAPI.DuplicatePath(artifact.Id, artifact.Org));
             if (answer.Status is < 200 or >= 300) { Status = Refused(answer); return; }
-            Status = $"Made a copy of “{artifact.Title}”";
+            Status = L10n.Format("Made a copy of “{0}”", artifact.Title);
             await Load(artifact.Account);
         });
     }
@@ -348,7 +349,7 @@ public sealed class ArtifactCenter
             }
             foreach (var key in _lists.Keys.ToList()) _lists[key] = _lists[key].Where(a => a.Id != artifact.Id).ToList();
             Artifacts = Artifacts.Where(a => a.Id != artifact.Id).ToList();
-            Status = $"Deleted “{artifact.Title}”";
+            Status = L10n.Format("Deleted “{0}”", artifact.Title);
         });
     }
 
@@ -365,7 +366,7 @@ public sealed class ArtifactCenter
                 var single = files.Count == 1;
                 if (await askWhere(ArtifactExport.FileName(artifact.Title, format, single)) is not { } destination) return;
                 await ArtifactExporter.Write(folder, format, single, destination);
-                Status = $"Exported “{artifact.Title}” to {Path.GetFileName(destination)}";
+                Status = L10n.Format("Exported “{0}” to {1}", artifact.Title, Path.GetFileName(destination));
             }
             catch (ArtifactExporter.ExportFailure failure)
             {
@@ -419,17 +420,17 @@ public sealed class ArtifactCenter
         package.SetText(artifact.OpenUrl);
         Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(package);
         Status = artifact.Access is ArtifactAccess.OnlyYou or ArtifactAccess.Invited
-            ? "Link copied · only people with access can open it"
-            : "Link copied";
+            ? L10n.Text("Link copied · only people with access can open it")
+            : L10n.Text("Link copied");
         Changed?.Invoke();
     }
 
     private static string Refused((int Status, string Body) answer) => ArtifactAPI.Reason(answer.Body) switch
     {
-        "title_invalid" => "claude.ai won't take that title",
-        "org_mismatch" => "claude.ai won't copy it into this account",
-        { } reason when reason.Contains("limit") || reason.Contains("cap") => "claude.ai won't make more copies today",
-        _ => $"claude.ai refused the change ({answer.Status})",
+        "title_invalid" => L10n.Text("claude.ai won't take that title"),
+        "org_mismatch" => L10n.Text("claude.ai won't copy it into this account"),
+        { } reason when reason.Contains("limit") || reason.Contains("cap") => L10n.Text("claude.ai won't make more copies today"),
+        _ => L10n.Format("claude.ai refused the change ({0})", answer.Status),
     };
 
     private string MessageFor(Exception error, Guid account)
@@ -437,9 +438,9 @@ public sealed class ArtifactCenter
         if (error is ClaudeWebSession.WebFailure { Reason: ClaudeWebSession.Failure.SignedOut })
         {
             _states[account] = AccountState.SignedOut;
-            return $"Sign in to {NameOf(account)} again";
+            return L10n.Format("Sign in to {0} again", NameOf(account));
         }
-        return "claude.ai didn't answer";
+        return L10n.Text("claude.ai didn't answer");
     }
 
     private void Replace(string id, Func<Artifact, Artifact> change)

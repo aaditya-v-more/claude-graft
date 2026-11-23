@@ -7,21 +7,11 @@ namespace ClaudeGraft.Core;
 /// </summary>
 public static class ChatConflict
 {
-    public const string Title = "Another Claude is open on these chats";
+    public static string Title => L10n.Text("Another Claude is open on these chats");
 
-    public static string Message(IReadOnlyList<string> sharers)
-    {
-        var list = sharers.Count switch
-        {
-            0 => "",
-            1 => sharers[0],
-            2 => sharers[0] + " and " + sharers[1],
-            _ => string.Join(", ", sharers.Take(sharers.Count - 1)) + " and " + sharers[^1],
-        };
-        var verb = sharers.Count == 1 ? "is" : "are";
-        return $"{list} {verb} already open on the same Claude Code chats.\n\n"
-             + "Both write to the same chat files. Opening the same conversation in two of them at once can lose messages.";
-    }
+    public static string Message(IReadOnlyList<string> sharers) => sharers.Count == 1
+        ? L10n.Format("{0} is already open on the same Claude Code chats.\n\nBoth write to the same chat files. Opening the same conversation in two of them at once can lose messages.", sharers[0])
+        : L10n.Format("{0} are already open on the same Claude Code chats.\n\nBoth write to the same chat files. Opening the same conversation in two of them at once can lose messages.", L10n.List(sharers));
 
     /// Who among the neighbours is running. One process query each, so never on the UI thread.
     public static IReadOnlyList<string> OpenSharers(string profile, IReadOnlyList<(string Name, string Profile)> neighbours,

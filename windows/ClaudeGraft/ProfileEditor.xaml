@@ -23,13 +23,13 @@
                      so the one in use opens the others. -->
                 <Button x:Name="IconButton" AutomationProperties.AutomationId="profile.icon" Width="36" Height="32" Padding="2"
                         Style="{StaticResource SubtleButtonStyle}"
-                        ToolTipService.ToolTip="Shortcut icon" AutomationProperties.Name="Shortcut icon">
+                        local:Localized.ToolTip="Shortcut icon" local:Localized.AutomationName="Shortcut icon">
                     <Image x:Name="IconImage" Width="26" Height="26" />
                     <Button.Flyout>
                         <Flyout x:Name="IconFlyout" Placement="BottomEdgeAlignedLeft">
                             <StackPanel Spacing="8" Width="324">
                                 <GridView x:Name="IconGrid" AutomationProperties.AutomationId="profile.iconGrid" SelectionMode="Single" IsItemClickEnabled="True"
-                                          ItemClick="IconGrid_ItemClick" AutomationProperties.Name="Shortcut icon">
+                                          ItemClick="IconGrid_ItemClick" local:Localized.AutomationName="Shortcut icon">
                                     <GridView.ItemsPanel>
                                         <ItemsPanelTemplate>
                                             <ItemsWrapGrid Orientation="Horizontal" MaximumRowsOrColumns="6" />
@@ -42,31 +42,31 @@
                                         </DataTemplate>
                                     </GridView.ItemTemplate>
                                 </GridView>
-                                <TextBlock Text="Used for the desktop shortcut and for this Claude's own button on the taskbar."
+                                <TextBlock local:Localized.Text="Used for the desktop shortcut and for this Claude's own button on the taskbar."
                                            TextWrapping="Wrap" Style="{ThemeResource CaptionTextBlockStyle}"
                                            Foreground="{StaticResource GraftTextFillColorSecondaryBrush}" />
                             </StackPanel>
                         </Flyout>
                     </Button.Flyout>
                 </Button>
-                <TextBox x:Name="NameBox" Grid.Column="1" AutomationProperties.Name="Name" AutomationProperties.AutomationId="profile.name"
-                         PlaceholderText="Work Account" TextChanged="NameBox_TextChanged" VerticalAlignment="Center" />
+                <TextBox x:Name="NameBox" Grid.Column="1" local:Localized.AutomationName="Name" AutomationProperties.AutomationId="profile.name"
+                         local:Localized.PlaceholderText="Work Account" TextChanged="NameBox_TextChanged" VerticalAlignment="Center" />
                 <TextBox x:Name="FolderBox" Grid.Column="2" FontFamily="Cascadia Mono, Consolas" Padding="10,7,6,4" VerticalAlignment="Center"
-                         AutomationProperties.Name="Profile folder" AutomationProperties.AutomationId="profile.folder"
-                         TextChanged="FolderBox_TextChanged" ToolTipService.ToolTip="Profile folder" />
+                         local:Localized.AutomationName="Profile folder" AutomationProperties.AutomationId="profile.folder"
+                         TextChanged="FolderBox_TextChanged" local:Localized.ToolTip="Profile folder" />
                 <Button Grid.Column="3" x:Name="ShowFolderButton" Click="ShowFolder_Click" Padding="6" Style="{StaticResource SubtleButtonStyle}"
-                        ToolTipService.ToolTip="Show in File Explorer" AutomationProperties.Name="Show in File Explorer"
+                        local:Localized.ToolTip="Show in File Explorer" local:Localized.AutomationName="Show in File Explorer"
                         AutomationProperties.AutomationId="profile.showFolder">
                     <FontIcon Glyph="&#xE8B7;" FontSize="16" />
                 </Button>
                 <Button Style="{StaticResource InfoGlyphButton}" Grid.Column="4"
-                        ToolTipService.ToolTip="About the name and folder" AutomationProperties.Name="About the name and folder"
+                        local:Localized.ToolTip="About the name and folder" local:Localized.AutomationName="About the name and folder"
                         AutomationProperties.AutomationId="profile.info">
                     <FontIcon Glyph="&#xE946;" FontSize="16" />
                     <Button.Flyout>
                         <Flyout>
                             <TextBlock MaxWidth="340" TextWrapping="Wrap"
-                                       Text="The name is what the desktop shortcut is called. The profile folder is where this account's login, chats and settings are kept, inside %APPDATA%.&#x0a;&#x0a;Naming an existing folder adopts that profile instead of starting an empty one." />
+                                       local:Localized.Text="The name is what the desktop shortcut is called. The profile folder is where this account's login, chats and settings are kept, inside %APPDATA%.&#x0a;&#x0a;Naming an existing folder adopts that profile instead of starting an empty one." />
                         </Flyout>
                     </Button.Flyout>
                 </Button>
@@ -81,9 +81,9 @@
                 </Grid.ColumnDefinitions>
                 <StackPanel Spacing="2" VerticalAlignment="Center">
                     <StackPanel Orientation="Horizontal" Spacing="6">
-                        <TextBlock Text="Reads chats from" VerticalAlignment="Center" />
+                        <TextBlock local:Localized.Text="Reads chats from" VerticalAlignment="Center" />
                         <Button Style="{StaticResource InfoGlyphButton}" x:Name="SourceInfoButton"
-                                ToolTipService.ToolTip="About reading chats" AutomationProperties.Name="About reading chats"
+                                local:Localized.ToolTip="About reading chats" local:Localized.AutomationName="About reading chats"
                                 AutomationProperties.AutomationId="profile.sourceInfo">
                             <FontIcon Glyph="&#xE946;" FontSize="14" />
                             <Button.Flyout>
@@ -97,20 +97,20 @@
                         <TextBlock x:Name="MergeText" Style="{ThemeResource CaptionTextBlockStyle}" VerticalAlignment="Center"
                                    Foreground="{StaticResource GraftTextFillColorSecondaryBrush}" />
                         <Button Style="{StaticResource InfoGlyphButton}"
-                                ToolTipService.ToolTip="About merging histories" AutomationProperties.Name="About merging histories"
+                                local:Localized.ToolTip="About merging histories" local:Localized.AutomationName="About merging histories"
                                 AutomationProperties.AutomationId="profile.mergeInfo">
                             <FontIcon Glyph="&#xE946;" FontSize="12" />
                             <Button.Flyout>
                                 <Flyout>
                                     <TextBlock MaxWidth="340" TextWrapping="Wrap"
-                                               Text="The two histories are merged rather than swapped. This profile keeps the chats it already had and gains the source's, and both sidebars end up showing the combined set.&#x0a;&#x0a;Sharing goes both ways, so this profile's chats are copied into the source as well. Switching back returns this profile to exactly what it had, but the copies already in the source stay there; merging a history cannot be undone." />
+                                               local:Localized.Text="The two histories are merged rather than swapped. This profile keeps the chats it already had and gains the source's, and both sidebars end up showing the combined set.&#x0a;&#x0a;Sharing goes both ways, so this profile's chats are copied into the source as well. Switching back returns this profile to exactly what it had, but the copies already in the source stay there; merging a history cannot be undone." />
                                 </Flyout>
                             </Button.Flyout>
                         </Button>
                     </StackPanel>
                 </StackPanel>
                 <ComboBox x:Name="SourceBox" Grid.Column="1" MinWidth="170" VerticalAlignment="Center"
-                          AutomationProperties.Name="Reads chats from" AutomationProperties.AutomationId="profile.source"
+                          local:Localized.AutomationName="Reads chats from" AutomationProperties.AutomationId="profile.source"
                           DisplayMemberPath="Label" SelectionChanged="SourceBox_SelectionChanged" />
             </Grid>
 

@@ -19,16 +19,16 @@ public static partial class Graft
     public static string? ValidateFolder(string folder)
     {
         var trimmed = folder.Trim();
-        if (trimmed.Length == 0) return "The profile folder needs a name.";
+        if (trimmed.Length == 0) return L10n.Text("The profile folder needs a name.");
         if (trimmed.Contains('/') || trimmed.Contains('\\') || trimmed.Contains(':'))
-            return "The profile folder must be a single folder name, not a path.";
+            return L10n.Text("The profile folder must be a single folder name, not a path.");
         if (trimmed is "." or ".." || trimmed.StartsWith('.'))
-            return $"“{trimmed}” is not a usable folder name.";
+            return L10n.Format("“{0}” is not a usable folder name.", trimmed);
         if (trimmed.Equals("Claude", StringComparison.OrdinalIgnoreCase)
             || trimmed.Equals(GraftPaths.DefaultFolder, StringComparison.OrdinalIgnoreCase))
-            return "That is Claude's own profile folder. Pick another name.";
+            return L10n.Text("That is Claude's own profile folder. Pick another name.");
         if (trimmed.Equals("ClaudeGraft", StringComparison.OrdinalIgnoreCase))
-            return "That folder belongs to Claude Graft itself. Pick another name.";
+            return L10n.Text("That folder belongs to Claude Graft itself. Pick another name.");
         return ValidateWindowsName(trimmed);
     }
 
@@ -38,11 +38,11 @@ public static partial class Graft
     {
         if (name.EndsWith('.') || name.Length > 120
             || name.Any(c => c < 32 || "<>:\"/\\|?*".Contains(c)))
-            return "Use a plain Windows name without trailing dots or reserved characters.";
+            return L10n.Text("Use a plain Windows name without trailing dots or reserved characters.");
         var stem = name.Split('.')[0].TrimEnd().ToUpperInvariant();
         if (stem is "CON" or "PRN" or "AUX" or "NUL" or "CONIN$" or "CONOUT$"
             || System.Text.RegularExpressions.Regex.IsMatch(stem, @"^(COM|LPT)[1-9¹²³]$"))
-            return "That name is reserved by Windows.";
+            return L10n.Text("That name is reserved by Windows.");
         return null;
     }
 

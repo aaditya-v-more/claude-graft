@@ -28,7 +28,7 @@ public static class SessionStarter
     /// who pressed the button, in the words the Mac dropdown uses.
     public static async Task<string?> StartAsync(string profile, string prompt = "hi")
     {
-        if (!Claim(profile)) return "A session is already being started for this account.";
+        if (!Claim(profile)) return L10n.Text("A session is already being started for this account.");
         try
         {
             string token;
@@ -36,13 +36,12 @@ public static class SessionStarter
             {
                 if (ClaudeCredentials.GetToken(profile, new[] { ClaudeCredentials.InferenceScope })
                     is not ClaudeCredentials.Token t)
-                    return "No login is stored for this profile yet. Open it once and sign in, "
-                        + "then a session can be started from here.";
+                    return L10n.Text("No login is stored for this profile yet. Open it once and sign in, then a session can be started from here.");
                 token = t.Value;
             }
             catch (ClaudeCredentials.CredentialException)
             {
-                return "That profile's login could not be read. Open it once so Claude can renew it.";
+                return L10n.Text("That profile's login could not be read. Open it once so Claude can renew it.");
             }
 
             using var request = new HttpRequestMessage(HttpMethod.Post, Endpoint);
@@ -66,7 +65,7 @@ public static class SessionStarter
 
             HttpResponseMessage response;
             try { response = await Http.SendAsync(request).ConfigureAwait(false); }
-            catch (Exception e) { return "Could not reach Anthropic: " + e.Message; }
+            catch (Exception e) { return L10n.Format("Could not reach Anthropic: {0}", e.Message); }
 
             using (response)
             {
@@ -86,11 +85,11 @@ public static class SessionStarter
     /// whatever Anthropic said.
     public static string Describe(int status, string? payload) => status switch
     {
-        401 or 403 => "That profile's login was refused. Open it once so Claude can renew it.",
-        429 => "That account is rate-limited right now.",
+        401 or 403 => L10n.Text("That profile's login was refused. Open it once so Claude can renew it."),
+        429 => L10n.Text("That account is rate-limited right now."),
         _ => Message(payload) is { Length: > 0 } detail
-            ? $"Anthropic answered {status}: {detail}"
-            : $"Anthropic answered {status}.",
+            ? L10n.Format("Anthropic answered {0}: {1}", status, detail)
+            : L10n.Format("Anthropic answered {0}.", status),
     };
 
     /// Anthropic returns <c>{ "error": { "message": … } }</c> on a refusal.

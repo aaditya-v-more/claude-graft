@@ -15,13 +15,8 @@ namespace ClaudeGraft;
 /// </summary>
 public sealed partial class SearchPage : Page
 {
-    public const string Note =
-        "Searches every account signed in under Artifacts, with the same sign-in: each account's chats as claude.ai's "
-        + "own search box finds them, and its Code sessions by title and folder.\n\n"
-        + "A Code session is placed by its transcript on this PC: run here, on another computer, in the cloud, or gone "
-        + "from claude.ai when a transcript here belongs to a session claude.ai no longer lists. Gone is only said once "
-        + "the account's whole session list has been read.\n\n"
-        + "claude.ai is asked only when you press Return or Search. The filters narrow what came back and ask nothing.";
+    public static string Note => L10n.Text(
+        "Searches every account signed in under Artifacts, with the same sign-in: each account's chats as claude.ai's own search box finds them, and its Code sessions by title and folder.\n\nA Code session is placed by its transcript on this PC: run here, on another computer, in the cloud, or gone from claude.ai when a transcript here belongs to a session claude.ai no longer lists. Gone is only said once the account's whole session list has been read.\n\nclaude.ai is asked only when you press Return or Search. The filters narrow what came back and ask nothing.");
 
     private readonly ProjectCenter _center = ProjectCenter.Shared;
     private string _shownSignature = "";
@@ -63,8 +58,8 @@ public sealed partial class SearchPage : Page
     {
         var accounts = _center.Accounts;
         var signedIn = accounts.Accounts.Count > 0;
-        AddAccountText.Text = signedIn ? "Add Account…" : "Sign In…";
-        AutomationProperties.SetName(AddAccountButton, signedIn ? "Add Account" : "Sign In");
+        AddAccountText.Text = signedIn ? L10n.Text("Add Account…") : L10n.Text("Sign In…");
+        AutomationProperties.SetName(AddAccountButton, signedIn ? L10n.Text("Add Account") : L10n.Text("Sign In"));
         ArtifactsPage.ShowChips(AccountChips, accounts, "search");
 
         SearchText.Visibility = _center.Searching ? Visibility.Collapsed : Visibility.Visible;
@@ -73,8 +68,8 @@ public sealed partial class SearchPage : Page
         SearchButton.IsEnabled = !_center.Searching;
         FilterButton.Flyout = FilterMenu();
         FilterIcon.Glyph = _center.Filters.IsNarrowed ? "" : "";
-        ToolTipService.SetToolTip(FilterButton, _center.Filters.IsNarrowed ? "Filters are narrowing the results" : "Filter the results");
-        AutomationProperties.SetName(FilterButton, _center.Filters.IsNarrowed ? "Filters, narrowed" : "Filters");
+        ToolTipService.SetToolTip(FilterButton, _center.Filters.IsNarrowed ? L10n.Text("Filters are narrowing the results") : L10n.Text("Filter the results"));
+        AutomationProperties.SetName(FilterButton, _center.Filters.IsNarrowed ? L10n.Text("Filters, narrowed") : L10n.Text("Filters"));
 
         var trouble = _center.SearchTrouble();
         TroubleText.Text = string.Join(" · ", trouble);
@@ -84,12 +79,12 @@ public sealed partial class SearchPage : Page
         SignedOutPanel.Visibility = signedIn ? Visibility.Collapsed : Visibility.Visible;
         var shown = signedIn ? _center.Shown() : [];
         var hidden = _center.Results.Count - shown.Count;
-        CountText.Text = _center.Searched is null ? "" : shown.Count == 1 ? "1 result" : $"{shown.Count} results";
+        CountText.Text = _center.Searched is null ? "" : L10n.Plural(shown.Count, "{0} result", "{0} results");
         EmptyText.Visibility = signedIn && shown.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
-        EmptyText.Text = _center.Searching ? "Asking claude.ai…"
-            : _center.Searched is null ? "Type what to look for, then press Return"
-            : hidden > 0 ? $"Nothing the filters let through · {hidden} hidden"
-            : "Nothing matches";
+        EmptyText.Text = _center.Searching ? L10n.Text("Asking claude.ai…")
+            : _center.Searched is null ? L10n.Text("Type what to look for, then press Return")
+            : hidden > 0 ? L10n.Format("Nothing the filters let through · {0} hidden", hidden)
+            : L10n.Text("Nothing matches");
         HitList.Visibility = shown.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
 
         var signature = string.Join("\n", shown.Select(h => $"{h.Id}|{h.Account}|{accounts.NameOf(h.Account)}|{_center.ProjectName(h.Project, h.Account)}"));
@@ -117,25 +112,25 @@ public sealed partial class SearchPage : Page
             return sub;
         }
 
-        menu.Items.Add(Choices("Kind", [("Chats and Code", SearchFilters.Kinds.All), ("Chats", SearchFilters.Kinds.Chats), ("Code Sessions", SearchFilters.Kinds.Code)],
+        menu.Items.Add(Choices(L10n.Text("Kind"), [(L10n.Text("Chats and Code"), SearchFilters.Kinds.All), (L10n.Text("Chats"), SearchFilters.Kinds.Chats), (L10n.Text("Code Sessions"), SearchFilters.Kinds.Code)],
             filters.Kind, v => filters with { Kind = v }));
-        menu.Items.Add(Choices("Status", [("Active", SearchFilters.Statuses.Active), ("Archived", SearchFilters.Statuses.Archived), ("Active and Archived", SearchFilters.Statuses.Any)],
+        menu.Items.Add(Choices(L10n.Text("Status"), [(L10n.Text("Active"), SearchFilters.Statuses.Active), (L10n.Text("Archived"), SearchFilters.Statuses.Archived), (L10n.Text("Active and Archived"), SearchFilters.Statuses.Any)],
             filters.Status, v => filters with { Status = v }));
-        menu.Items.Add(Choices("Where", [("Anywhere", SearchFilters.Places.Anywhere), ("On This PC", SearchFilters.Places.ThisPC),
-            ("On Another Computer", SearchFilters.Places.OtherPC), ("In the Cloud", SearchFilters.Places.Cloud), ("Gone from claude.ai", SearchFilters.Places.GoneFromClaude)],
+        menu.Items.Add(Choices(L10n.Text("Where"), [(L10n.Text("Anywhere"), SearchFilters.Places.Anywhere), (L10n.Text("On This PC"), SearchFilters.Places.ThisPC),
+            (L10n.Text("On Another Computer"), SearchFilters.Places.OtherPC), (L10n.Text("In the Cloud"), SearchFilters.Places.Cloud), (L10n.Text("Gone from claude.ai"), SearchFilters.Places.GoneFromClaude)],
             filters.Place, v => filters with { Place = v }));
-        menu.Items.Add(Choices("Age", [("Any Time", SearchFilters.Ages.Any), ("Past Day", SearchFilters.Ages.Day), ("Past Week", SearchFilters.Ages.Week),
-            ("Past Month", SearchFilters.Ages.Month), ("Past Year", SearchFilters.Ages.Year)],
+        menu.Items.Add(Choices(L10n.Text("Age"), [(L10n.Text("Any Time"), SearchFilters.Ages.Any), (L10n.Text("Past Day"), SearchFilters.Ages.Day), (L10n.Text("Past Week"), SearchFilters.Ages.Week),
+            (L10n.Text("Past Month"), SearchFilters.Ages.Month), (L10n.Text("Past Year"), SearchFilters.Ages.Year)],
             filters.Age, v => filters with { Age = v }));
-        menu.Items.Add(Choices("Account", [("Every Account", (Guid?)null), .. _center.Accounts.Accounts.Select(a => (_center.Accounts.NameOf(a.Id), (Guid?)a.Id))],
+        menu.Items.Add(Choices(L10n.Text("Account"), [(L10n.Text("Every Account"), (Guid?)null), .. _center.Accounts.Accounts.Select(a => (_center.Accounts.NameOf(a.Id), (Guid?)a.Id))],
             filters.Account, v => filters with { Account = v }));
-        menu.Items.Add(Choices("Project", [("Any Project", (string?)null), ("No Project", ""), .. _center.Projects.Where(p => !p.IsBeta).Select(p => (p.Name, (string?)p.Id))],
+        menu.Items.Add(Choices(L10n.Text("Project"), [(L10n.Text("Any Project"), (string?)null), (L10n.Text("No Project"), ""), .. _center.Projects.Where(p => !p.IsBeta).Select(p => (p.Name, (string?)p.Id))],
             filters.Project, v => filters with { Project = v }));
-        var starred = new ToggleMenuFlyoutItem { Text = "Starred Only", IsChecked = filters.StarredOnly };
+        var starred = new ToggleMenuFlyoutItem { Text = L10n.Text("Starred Only"), IsChecked = filters.StarredOnly };
         starred.Click += (_, _) => Set(filters with { StarredOnly = starred.IsChecked });
         menu.Items.Add(starred);
         menu.Items.Add(new MenuFlyoutSeparator());
-        var reset = new MenuFlyoutItem { Text = "Reset Filters", IsEnabled = filters.IsNarrowed };
+        var reset = new MenuFlyoutItem { Text = L10n.Text("Reset Filters"), IsEnabled = filters.IsNarrowed };
         reset.Click += (_, _) => Set(new SearchFilters());
         menu.Items.Add(reset);
         return menu;
@@ -160,16 +155,17 @@ public sealed partial class SearchPage : Page
     private string Subtitle(SearchHit hit)
     {
         var parts = new List<string> { _center.Accounts.NameOf(hit.Account) };
-        parts.Add(hit.Kind == SearchHit.Kinds.Chat ? "Chat" : hit.Place switch
+        parts.Add(hit.Kind == SearchHit.Kinds.Chat ? L10n.Text("Chat") : hit.Place switch
         {
-            SearchHit.Places.ThisPC => "Code · on this PC",
-            SearchHit.Places.OtherPC => "Code · on another computer",
-            SearchHit.Places.Cloud => "Code · in the cloud",
-            SearchHit.Places.GoneFromClaude => "Code · gone from claude.ai",
+            SearchHit.Places.ThisPC => L10n.Text("Code · on this PC"),
+            SearchHit.Places.OtherPC => L10n.Text("Code · on another computer"),
+            SearchHit.Places.Cloud => L10n.Text("Code · in the cloud"),
+            SearchHit.Places.GoneFromClaude => L10n.Text("Code · gone from claude.ai"),
+            // Code is the product's own name, which stays the same in every language.
             _ => "Code",
         });
         if (_center.ProjectName(hit.Project, hit.Account) is { } project) parts.Add(project);
-        if (hit.IsArchived) parts.Add("Archived");
+        if (hit.IsArchived) parts.Add(L10n.Text("Archived"));
         if (hit.Updated is { } updated) parts.Add(ArtifactsPage.When(updated));
         return string.Join(" · ", parts);
     }
@@ -213,9 +209,9 @@ public sealed partial class SearchPage : Page
             IsEnabled = !gone || hit.Transcript is not null,
         };
         open.Click += (_, _) => Open(hit);
-        var help = gone ? "Show the transcript in File Explorer" : hit.Kind == SearchHit.Kinds.Code ? "Open, signed in as its account" : "Open in the browser";
+        var help = gone ? L10n.Text("Show the transcript in File Explorer") : hit.Kind == SearchHit.Kinds.Code ? L10n.Text("Open, signed in as its account") : L10n.Text("Open in the browser");
         ToolTipService.SetToolTip(open, help);
-        AutomationProperties.SetName(open, gone ? $"Show the transcript of {hit.Title}" : $"Open {hit.Title}");
+        AutomationProperties.SetName(open, gone ? L10n.Format("Show the transcript of {0}", hit.Title) : L10n.Format("Open {0}", hit.Title));
         AutomationProperties.SetAutomationId(open, $"hit.{token}.open");
         Grid.SetColumn(open, 2);
         grid.Children.Add(open);

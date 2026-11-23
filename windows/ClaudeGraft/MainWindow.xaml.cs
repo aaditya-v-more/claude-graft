@@ -19,6 +19,7 @@ namespace ClaudeGraft;
 public sealed partial class MainWindow : Window
 {
     [DllImport("user32.dll")] private static extern uint GetDpiForWindow(IntPtr hWnd);
+    [DllImport("user32.dll")] private static extern bool SetForegroundWindow(IntPtr hWnd);
 
     public MainWindow()
     {
@@ -104,10 +105,10 @@ public sealed partial class MainWindow : Window
         var tag = (Sections.SelectedItem as NavigationViewItem)?.Tag as string;
         (string Title, string Subtitle) heading = tag switch
         {
-            "artifacts" => ("Artifacts", "Every account"),
-            "projects" => ("Projects", "Every account"),
-            "search" => ("Search Chats", "Every account"),
-            "settings" => ("Settings", "Claude Graft"),
+            "artifacts" => (L10n.Text("Artifacts"), L10n.Text("Every account")),
+            "projects" => (L10n.Text("Projects"), L10n.Text("Every account")),
+            "search" => (L10n.Text("Search Chats"), L10n.Text("Every account")),
+            "settings" => (L10n.Text("Settings"), "Claude Graft"),
             _ => RootFrame.Content is MainPage page ? page.Heading : ("Claude", ""),
         };
         HeadingTitle.Text = heading.Title;
@@ -255,8 +256,8 @@ public sealed partial class MainWindow : Window
             var shortcutAt = items.IndexOf(ShortcutsHeader) + 1;
             foreach (var row in page.Rows.ToList())
             {
-                var line = row.Shortcut is null ? "Installed normally"
-                    : row.Shortcut.InstalledName is null ? "Not created yet" : row.SourceLabel;
+                var line = row.Shortcut is null ? L10n.Text("Installed normally")
+                    : row.Shortcut.InstalledName is null ? L10n.Text("Not created yet") : row.SourceLabel;
                 var words = new StackPanel { Spacing = 1, Margin = new Thickness(0, 6, 0, 6) };
                 words.Children.Add(new TextBlock { Text = row.Name, TextTrimming = TextTrimming.CharacterEllipsis });
                 var caption = new TextBlock
@@ -278,8 +279,8 @@ public sealed partial class MainWindow : Window
                 };
                 open.Content = WithOpeningRing((FontIcon)open.Content, row);
                 open.SetBinding(Control.IsEnabledProperty, new Binding { Source = row, Path = new PropertyPath(nameof(ShortcutRow.CanPressOpen)) });
-                ToolTipService.SetToolTip(open, $"Open {row.Name}");
-                AutomationProperties.SetName(open, Spoken.Act("Open", row.Name));
+                ToolTipService.SetToolTip(open, L10n.Format("Open {0}", row.Name));
+                AutomationProperties.SetName(open, L10n.Format("Open {0}", row.Name));
                 AutomationProperties.SetAutomationId(open, Spoken.Id("sidebar", row.Key, "open"));
                 open.SetBinding(UIElement.VisibilityProperty, new Binding { Source = row, Path = new PropertyPath(nameof(ShortcutRow.QuickOpenVisibility)) });
                 // A Button takes its own press, so opening a Claude leaves the page shown where it was.
@@ -396,26 +397,28 @@ public sealed partial class MainWindow : Window
         var dialog = new ContentDialog
         {
             XamlRoot = Content.XamlRoot,
-            Title = "Support Claude Graft",
-            CloseButtonText = "Close",
+            Title = L10n.Text("Support Claude Graft"),
+            CloseButtonText = L10n.Text("Close"),
             CloseButtonStyle = (Style)Application.Current.Resources["DialogNeutralButtonStyle"],
         };
         var list = new StackPanel { Spacing = 8, Width = 340 };
         list.Children.Add(new TextBlock
         {
-            Text = "Graft is free. A tip on Ko-fi keeps it worked on.",
+            Text = L10n.Text("Graft is free. A tip on Ko-fi keeps it worked on."),
             TextWrapping = TextWrapping.Wrap,
             Foreground = Themed.Brush("TextFillColorSecondaryBrush"),
             Margin = new Thickness(0, 0, 0, 6),
         });
-        list.Children.Add(Tip("The original author", "Made Claude Graft for the Mac", Links.SupportAuthor, "support.author", dialog));
-        list.Children.Add(Tip("The Windows maintainer", "Brought it to Windows", Links.SupportWindows, "support.windows", dialog));
+        list.Children.Add(Tip(L10n.Text("The original author"), L10n.Text("Made Claude Graft for the Mac"),
+            L10n.Text("Support the original author on Ko-fi"), Links.SupportAuthor, "support.author", dialog));
+        list.Children.Add(Tip(L10n.Text("The Windows maintainer"), L10n.Text("Brought it to Windows"),
+            L10n.Text("Support the Windows maintainer on Ko-fi"), Links.SupportWindows, "support.windows", dialog));
         dialog.Content = list;
         Dialogs.Prepare(dialog, Content.XamlRoot);
         await dialog.ShowAsync();
     }
 
-    private static Button Tip(string who, string what, string url, string id, ContentDialog dialog)
+    private static Button Tip(string who, string what, string spoken, string url, string id, ContentDialog dialog)
     {
         var text = new StackPanel { Spacing = 1 };
         text.Children.Add(new TextBlock { Text = who });
@@ -434,7 +437,7 @@ public sealed partial class MainWindow : Window
         row.Children.Add(open);
         var button = new Button { Content = row, HorizontalAlignment = HorizontalAlignment.Stretch,
             HorizontalContentAlignment = HorizontalAlignment.Stretch, Padding = new Thickness(14, 10, 14, 10) };
-        AutomationProperties.SetName(button, $"Support {who.ToLowerInvariant()} on Ko-fi");
+        AutomationProperties.SetName(button, spoken);
         AutomationProperties.SetAutomationId(button, id);
         ToolTipService.SetToolTip(button, url);
         button.Click += (_, _) => { OpenLink(url); dialog.Hide(); };
@@ -463,14 +466,22 @@ public sealed partial class MainWindow : Window
         if (!_shown)
         {
             _shown = true;
-            DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, Activate);
+            DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, ComeForward);
         }
-        else Activate();
+        else ComeForward();
         // The page loads its usage once, when it is first built; every reopen
         // after that has to ask for a fresh read itself, or a first read that
         // came up empty would never be retried. Harmless on the first show, when
         // the list is still filling and there is nothing yet to refresh.
         if (RootFrame.Content is MainPage page) page.OnShown();
+    }
+
+    // Activate alone left a window that Graft, running hidden, opened for a launch
+    // from Start behind the window in front; the launch hands over the foreground.
+    private void ComeForward()
+    {
+        Activate();
+        SetForegroundWindow(WinRT.Interop.WindowNative.GetWindowHandle(this));
     }
 
     /// An open from the flyout or the tray menu that has a question to ask

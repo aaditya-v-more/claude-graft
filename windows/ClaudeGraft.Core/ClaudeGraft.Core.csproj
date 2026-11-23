@@ -13,4 +13,7 @@
     <PackageReference Include="System.Management" Version="10.0.11" />
     <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="10.0.11" />
   </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="Localization\ru.json" LogicalName="ClaudeGraft.Core.Localization.ru.json" />
+  </ItemGroup>
 </Project>

@@ -54,8 +54,10 @@ internal static class GraftUpdates
     }
 
     /// Velopack waits for this process to go before it swaps the folder, then starts the new one.
-    public static void ApplyOnExit(Updater.Release release) =>
-        Manager.WaitExitThenApplyUpdates(Found(release), silent: true, restart: true);
+    /// One Graft installed on its own comes back as it was, not with a window nobody asked for.
+    public static void ApplyOnExit(Updater.Release release, bool restartsUnseen) =>
+        Manager.WaitExitThenApplyUpdates(Found(release), silent: true, restart: true,
+            restartArgs: restartsUnseen ? new[] { AutomaticLaunch.Flag } : null);
 
     private static UpdateInfo Found(Updater.Release release)
     {

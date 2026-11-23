@@ -1,0 +1,155 @@
+# Dropdown and foreground tracking
+
+[Back to shared-usage.md](../shared-usage.md)
+
+## The dropdown
+
+**The dropdown lists what the relay carried.** The relay keeps the
+conversations it has seen by `X-Claude-Code-Session-Id`, which is the
+`cliSessionId` a record names, so a title comes from that record or, before one
+exists, from the title line in the transcript. Listed are conversations from a
+Claude with something to borrow, active in the last half hour and not put away,
+the Claude in front first and five at most.
+
+That list lives in the relay's memory and nowhere else, so a relay replaced by
+an update starts it empty. The live run on 9 November saw the conversation on
+screen go from ringed to named alone the moment the new relay took over; its
+next message through the new one brings the ring back. The choices made from
+the dropdown are not lost with it, since Graft keeps them in
+`usage-sharing.json` and configures the new relay with them. Handing the list
+over was weighed and left: it is lost once per update, for one message.
+
+**Which Claude is in front is `FrontmostClaude`'s answer,** the one the status
+item draws. Matching a Claude to its profile costs a `ps`, and the list used to
+run its own on every activation beside the one the status item was already
+paying for. Its answer is also the right one for a dropdown: Graft coming
+forward leaves it where it was, so opening the dropdown keeps the Claude the
+person was just using at the top.
+
+**The conversation on screen runs across the menu bar** for as long as it is
+there: its title and the account answering it, and a right click on the item
+moves it with the same choices as its row. Until
+2.0.1 it was only a conversation that had just begun, for its first two
+minutes, and a person who switched chats saw the bar go on naming one no longer
+in front, or "New session" for a test chat begun minutes earlier.
+
+Which conversation is on screen is Claude's word alone. It writes
+`lastFocusedAt`, in milliseconds, into a conversation's record the moment its
+window switches to it, so the bar names the conversation the front Claude's
+store focused last. One the relay has not carried — an old chat opened to read,
+which has sent nothing since sharing began — is named by its record's title
+alone, with nothing lit and no account beside it, since none has answered it.
+The first 2.0.1 candidate named nothing there, and on a machine whose chats
+mostly began before 2.0 the text went whenever one of them was opened. Keeping
+the conversation before instead would have named the one thing certain not to
+be on screen.
+One the relay did carry is left to its row, which an archived or deleted one
+has already left; named from its record, it would be back on the bar. A Claude
+whose records say nothing of focus falls back on the
+conversation typed into last, `promptedAt`: a turn on a conversation's thread
+whose last user message is not a tool's answer. A lone message with no thread
+does not count, because the title Claude Code asks for beside a conversation is
+exactly that, and a first message is marked by `startedAt` anyway, set only
+when the first request the relay sees for a session carries no answer — a relay
+restarted part way through sees every conversation for the first time. Each
+change of conversation is logged as `menu.chat`, with the first eight
+characters of its session, whether an account was chosen for it and whether
+the relay carried it, so a run can be checked against what was on screen.
+
+A new chat is the one wait the bar cannot shorten. Claude's first record of it
+lands about three seconds after its first message and already carries its
+title, so there is no "New chat" stage to show, and until it lands the bar goes
+on naming the chat before. The relay sees that first message at once, but a
+conversation beginning is not always the one on screen: a scheduled task, or a
+session another one started, begins the same way, and only the records say
+which conversation the window shows. The second live run timed it: each new
+chat's name was on the bar within a tenth of a second of Claude's first record.
+
+**A focus belongs to the store it turned up in first.** Claudes that share
+chats each keep a mirrored folder, and the mirror copies a changed record
+across with its `lastFocusedAt`. Read as the second store's own, the copy made
+the conversation on one Claude's screen the newest focus in the other's, and
+once old chats were named from their records, the other Claude's bar would
+have named it too. So each focus, a session and the moment it was focused, is
+held against the stores that had it when it was first seen, and a Claude's
+focus is the newest of its own. On the first pass after Graft starts every
+store holding a focus owns it, as every store did before; a copy made after
+that is told apart. The mirror can also write the other Claude's copy of a
+record over this one's, and an older focus with it. The focus this store had
+then stays the word, as for a deleted record, since this Claude still shows
+that conversation.
+
+The text is drawn into a picture of fixed width and scrolled inside it, because
+text scrolled a character at a time changes width with every letter, and a
+status item that changes width moves every item to its left with it. Following
+the screen costs a look at each record's modification date while anything is
+shared, with a record parsed again only when it changed and a missing
+transcript looked for once a minute; a full pass reads logins as well, which is
+why that one waits half a minute. The look ran every two seconds, and a switch
+took up to four to reach the bar: Claude writes the record about a second after
+its window changes conversation, and the look could come two seconds after
+that. `StoreWatch` now has FSEvents say when a store changes, a tenth of a
+second after it does, which leaves Claude's own second as the wait. It leaves
+out Graft's own writes, since the sweep files records and the mirror copies
+them and neither says what is on screen; the suite wakes it with `touch` for
+that reason. A look woken while another is under way runs as soon as that one
+ends, and the two-second look stays for the relay's news, which no file
+carries. The timer, not a look, decides which stores are watched, because the
+watch itself wakes a look and must not be torn down from inside its own call.
+
+**What following the screen costs.** Since 2.0 the text runs whenever a
+conversation is on screen, so whatever a tick costs is paid all day. Each tick
+used to hand the item a new title: the text measured again, a new picture, the
+title rebuilt, and then AppKit measuring the item, giving the bar its new
+length and rebuilding the spoken title, twelve and a half times a second. With
+the look's walk beside it, that held 2.0.1 at about 9% of a core on the
+development machine on 9 November, with nothing else asked of it. Now the text
+does not move by Graft's hand at all. Moving it by redrawing the button's end
+on every tick, with the title, length and spoken title left alone, cut the
+moving cost on the Mac Mini only from 4.8 points of a core over idle to 3.7:
+AppKit drawing the button was nearly all of it, and drawing the text was
+little. So text too long for the width leaves the title a blank picture of the
+same width, `NewChatTicker.Picture`'s `image`, and runs in its `strip`, a
+clipped view laid over the blank, as a plain layer holding the text twice with
+the gap between. A discrete keyframe animation on that layer's position holds
+the start for the pause and then steps it at the old speed, so the render
+server moves the text and Graft wakes for none of it; the main thread has no
+timer and the button is never asked to draw again. The layer is drawn once, and
+again only when the bar's appearance or the display's scale changes. It is a
+layer rather than a view because AppKit draws a layer-backed view only as far
+as it can be seen, which left the text blank past its first 150 points. A
+picture rebuilt for the same conversation, new words for its account, carries
+on from where the pass was (`tickerStarted`); a new conversation starts its
+pass again. Text short enough to stand still is drawn into the title as before.
+
+Where to lay the strip is not published, and working it out failed. Laying
+the title out as the button's cell does, centred in its title rect with the
+blank at its baseline and moved to the next whole pixel, matched the old
+picture on five titles of different widths, all without an icon. The third run
+on the Mac Mini, with the icons in front, found still text a pixel above the
+same text moving: the icons make the line taller than the text, the title rect
+then starts on a half point, and AppKit rounds that half point the other way.
+Fitting a rounding rule to nine title shapes still left one wrong, so the rule
+was dropped. `Picture.place` instead draws the button once into a picture,
+`cacheDisplay`, with the blank filled in magenta, and lays the strip where the
+first row the magenta fills across the whole width begins. Nothing else in a
+title is 150 points wide, and that drawing leaves out the strip, a layer of its
+own. Over the same nine shapes in the bar, each moving title then started on
+the row the still one did. The blank is kept out of the image cache
+(`cacheMode = .never`) so it can draw marked, and still text with it so the two
+are drawn the same way; the button draws either only when it draws itself,
+which is not on any tick. Its handler calls `place` a turn of the
+run loop later, so the drawing uses the geometry the title was drawn in. A
+title, size and scale it has already placed for is not drawn again, and a title
+no longer ending in that blank hides the strip. Captured from the bar, the
+strip and the old picture differed by at most 19 of 255 in any channel, all on
+the text's edges, which is the blending of a separate layer. The fourth run on the Mac Mini
+saw still and moving text begin on the same row and column as 2.0.1's. Only 1x
+has been measured. At 2x the drawing is in the button's own pixels, so the same
+reading holds, unchecked.
+
+The walk dates each
+record with one `lstat` on a string path (`Graft.modificationDate(atPath:)`),
+since `attributesOfItem` builds a dictionary of every attribute: over the 699
+records here it took 20 ms a look against 2.5, and the walk was close to a
+third of the samples in a profile of the running app. Neither follows a link.

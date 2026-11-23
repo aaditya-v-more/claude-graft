@@ -68,11 +68,11 @@ internal static class ProfileRows
                 while (!(started = ClaudeProcesses.IsRunning(config.ProfileDir)) && DateTime.UtcNow < until)
                     await Task.Delay(400);
             }));
-            if (ran && !started) row.Problem = "Claude did not start. Try opening it again.";
+            if (ran && !started) row.Problem = L10n.Text("Claude did not start. Try opening it again.");
         }
         catch (Exception e)
         {
-            row.Problem = "Claude could not be opened: " + e.Message;
+            row.Problem = L10n.Format("Claude could not be opened: {0}", e.Message);
             // The press has no caller to hand a throw to, so it is written down where the other passes are.
             Diagnostics.Note("open.failed", new Dictionary<string, object?>
             {

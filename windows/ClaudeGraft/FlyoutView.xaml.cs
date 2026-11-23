@@ -156,7 +156,7 @@ public sealed partial class FlyoutView : UserControl
             {
                 var toggle = new HyperlinkButton
                 {
-                    Content = $"{(_othersShown ? "Hide" : "Show")} other conversations · {others.Count}",
+                    Content = _othersShown ? L10n.Format("Hide other conversations · {0}", others.Count) : L10n.Format("Show other conversations · {0}", others.Count),
                     Padding = new Thickness(0),
                     FontSize = 12,
                 };
@@ -176,7 +176,7 @@ public sealed partial class FlyoutView : UserControl
 
     private UIElement ChatRow(SharedChats.Chat chat, bool showClaude, bool emphasised)
     {
-        var title = string.IsNullOrWhiteSpace(chat.Title) ? "Untitled conversation" : chat.Title!;
+        var title = string.IsNullOrWhiteSpace(chat.Title) ? L10n.Text("Untitled conversation") : chat.Title!;
         var grid = new Grid { ColumnSpacing = 8 };
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
@@ -187,8 +187,8 @@ public sealed partial class FlyoutView : UserControl
             Text = title, TextTrimming = TextTrimming.CharacterEllipsis,
             FontWeight = emphasised ? Microsoft.UI.Text.FontWeights.SemiBold : Microsoft.UI.Text.FontWeights.Normal,
         });
-        string? detail = chat.PassedOver && chat.Assigned is string a ? $"{NameOf(a)} had no room"
-            : showClaude ? $"in {NameOf(chat.Claude)}" : null;
+        string? detail = chat.PassedOver && chat.Assigned is string a ? L10n.Format("{0} had no room", NameOf(a))
+            : showClaude ? L10n.Format("in {0}", NameOf(chat.Claude)) : null;
         if (detail is not null)
             text.Children.Add(new TextBlock
             {
@@ -198,7 +198,7 @@ public sealed partial class FlyoutView : UserControl
         grid.Children.Add(text);
 
         var answering = SharedChats.AnsweringKey(chat);
-        var label = answering is null ? "Automatic" : chat.Assigned is null ? $"Auto · {NameOf(answering)}" : NameOf(answering);
+        var label = answering is null ? L10n.Text("Automatic") : chat.Assigned is null ? L10n.Format("Auto · {0}", NameOf(answering)) : NameOf(answering);
         var menu = new MenuFlyout { Placement = Microsoft.UI.Xaml.Controls.Primitives.FlyoutPlacementMode.BottomEdgeAlignedRight };
         void Add(string text, string? to)
         {
@@ -206,13 +206,13 @@ public sealed partial class FlyoutView : UserControl
             item.Click += (_, _) => Assign(chat.Id, to);
             menu.Items.Add(item);
         }
-        Add(chat.ServedBy is string served && chat.Assigned is null ? $"Automatic · now {NameOf(served)}" : "Automatic", null);
+        Add(chat.ServedBy is string served && chat.Assigned is null ? L10n.Format("Automatic · now {0}", NameOf(served)) : L10n.Text("Automatic"), null);
         foreach (var choice in chat.Choices) Add(NameOf(choice), choice);
         var button = new DropDownButton { Content = label, Flyout = menu, FontSize = 12, VerticalAlignment = VerticalAlignment.Center };
         // Several reading "Claude 2" would not say which conversation each moves.
-        AutomationProperties.SetName(button, $"Account answering “{title}”");
+        AutomationProperties.SetName(button, L10n.Format("Account answering “{0}”", title));
         AutomationProperties.SetAutomationId(button, $"flyout.conversation.{chat.Id}.account");
-        ToolTipService.SetToolTip(button, "Which account answers this conversation");
+        ToolTipService.SetToolTip(button, L10n.Text("Which account answers this conversation"));
         Grid.SetColumn(button, 1);
         grid.Children.Add(button);
         return grid;
@@ -237,10 +237,11 @@ public sealed partial class FlyoutView : UserControl
         GraftWords.Inlines.Add(new Microsoft.UI.Xaml.Documents.Run
         {
             Text = " " + (_update is null
-                ? $"{Updater.Shown}" + (_checking ? " · checking" : App.UpdateChecked ? " · Up to date" : "")
+                ? _checking ? L10n.Format("{0} · checking", Updater.Shown)
+                    : App.UpdateChecked ? L10n.Format("{0} · Up to date", Updater.Shown) : Updater.Shown
                 : downloading is { } f
-                    ? $"{_update.Version} · downloading {(int)Math.Round(f * 100)}%"
-                    : $"{_update.Version} is available · you have {Updater.Shown}"),
+                    ? L10n.Format("{0} · downloading {1}%", _update.Version, (int)Math.Round(f * 100))
+                    : L10n.Format("{0} is available · you have {1}", _update.Version, Updater.Shown)),
             Foreground = Themed.Brush("TextFillColorSecondaryBrush"),
         });
         GraftGlyph.Glyph = _update is not null ? "" : _checking || !App.UpdateChecked ? "" : "";
