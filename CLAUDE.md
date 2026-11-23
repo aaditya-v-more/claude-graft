@@ -34,17 +34,17 @@ one line here only if it applies broadly. Keep this file and `AGENTS.md` within 
 
 ## Where builds and tests run
 
-Not on the development machine. There code is edited, committed and read, and
-nothing else: no build, no suite, no layout or opening check, no launch of the
-app and no release check. Mac builds and every Mac check run on the Mac mini or
-the macOS VMs, Windows builds and checks on a Windows test PC, each from a
-commit. The commands below are what those machines run.
+On the test machines the owner hands out for the work, each from a commit:
+Mac builds and checks on the Mac mini, the macOS VMs or the development machine
+once it has been handed out, Windows builds and checks on a Windows test PC.
+Until then the development machine only edits, commits and reads: no build, no
+suite, no layout or opening check, no launch of the app and no release check.
+The commands below are what those machines run.
 
-For prototyping, debugging and live development a developer may work on a test
-machine directly, over ssh or by driving it, holding that machine's lock for
-the length of the work and leaving it as found: nothing device-wide changed, no
-accounts, network or other products touched. What that shows is a development
-check; a release and the everyday-use cases are still judged by the testers.
+A developer works on a machine it has been given directly, over ssh or by
+driving it, and leaves it as found: nothing device-wide changed, no accounts,
+network or other products touched. A release and the everyday-use cases are
+judged from runs on real machines, each kept with its evidence.
 
 Steps that need a person on a real machine are cases in `Tests/manual/`. A
 case says what must not be touched and how to put the machine back, and never

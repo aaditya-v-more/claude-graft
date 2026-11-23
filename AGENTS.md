@@ -35,9 +35,10 @@ Link requests do not authorize palettes, theme controls or appearance synchroniz
 
 # Testing
 
-Nothing is built, launched or tested on the development machine. Builds,
-suites and checks run on the test machines from a commit: Mac on the Mac mini or
-the macOS VMs, Windows on a Windows test PC. The suites are listed in
+Builds, suites and checks run from a commit on the test machines the owner
+hands out: Mac on the Mac mini, the macOS VMs or the development machine once
+handed out, Windows on a Windows test PC. Nothing is built, launched or tested
+on a machine that hasn't been handed out. The suites are listed in
 [CLAUDE.md](CLAUDE.md). Cases a person runs on a real machine, signed in, are in
 `Tests/manual/`, one per file, as steps and what each should show.
 

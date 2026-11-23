@@ -5,3 +5,5 @@ dist/
 vendor/
 .firecrawl/
 windows/installer/vc_redist*.exe
+# Reports and screenshots from runs on real machines.
+Tests/results/
