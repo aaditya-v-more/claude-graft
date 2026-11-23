@@ -1,0 +1,86 @@
+<h2>A chat two Claudes both carried on becomes two</h2>
+
+<p>When two Claudes sharing chats both went on with the same chat between two
+syncs, each carried it into a conversation of its own, and only one of them
+stayed in the sidebars; the other was left on disk with nothing naming it. Now
+the chat becomes two in every Claude sharing it, each half named after the
+Claude that carried it on, such as “Plans (Claude)” and “Plans (Work)”, and
+each opening on its own last reply. The split waits until both Claudes have
+quit, because a Claude that is open would write its half back over it.</p>
+
+<h2>Archived chats stay archived</h2>
+
+<p>A chat archived in one Claude no longer comes back in the Claudes sharing
+it, and one brought back in either stays brought back. What two Claudes change
+in the same chat between syncs is now merged field by field, rather than one
+side's record winning whole.</p>
+
+<h2>Less work in the menu bar</h2>
+
+<p>The conversation running across the menu bar now moves on a layer of its
+own instead of being redrawn several times a second, so Graft does far less
+while a title runs, and nothing while a short one stands still. It moves
+exactly as before.</p>
+
+<h2>Donate</h2>
+
+<p>The tip jar is now Donate, with a red heart, in the sidebar, the dropdown
+and the Help menu, as on Windows. Help opens the site at its own address,
+graft.aadityamore.com.</p>
+
+<h3>Also fixed on the Mac</h3>
+
+<ul>
+<li>Every new Claude gets a profile folder no other Claude uses, also while its
+name is being typed, and a new Claude given an existing one's name no longer
+takes over its app, so Open, Start Session and Delete reach the right
+account.</li>
+<li>Deleting an open Claude's profile is refused before anything is removed,
+so its folder is never left half gone.</li>
+<li>A conversation that made an artifact can still move between accounts under
+Shared usage.</li>
+<li>Project headings keep the same order in Claudes on different accounts
+sharing a history, and chats outside any project stay under This computer in
+every Claude they reach. Going back to a Claude's own chats hands those back
+too.</li>
+<li>A project order write that fails partway is put back in every Claude it
+reached, a stored project-order time too large to read no longer stops a sync,
+and a Claude opened from the Dock while Graft carries project order after a
+quit opens normally.</li>
+<li>The dropdown stays on screen however many accounts there are; the account
+list scrolls instead.</li>
+<li>A new Claude's folder box shows the whole folder, and Donate and Source
+stay whole at the foot of the sidebar, one above the other where they can't
+sit side by side.</li>
+</ul>
+
+<p>With fixes from Christofu450, Juulsn and PvtLight.</p>
+
+<h2>On Windows</h2>
+
+<ul>
+<li><b>Russian</b> when Windows' display language is Russian.</li>
+<li><b>A question first</b> when a Claude is opened while another Claude on
+the same chats is open, from the window, the flyout and the
+notification-area menu, as on the Mac.</li>
+<li><b>Help and feedback in Settings:</b> the site, what's new, a problem
+report, and an email that already carries your Graft and Windows
+versions.</li>
+<li><b>Recovered sessions named:</b> when Graft files a Claude Code session
+that had gone missing from Claude's sidebar, the flyout says which.</li>
+<li><b>The icon and the name of the Claude in front</b> switch on and off
+separately on the taskbar.</li>
+<li><b>Start hidden keeps only the launch at sign-in out of sight.</b> Opening
+Graft from Start or a shortcut always shows its window, in front.</li>
+<li>Every new Claude gets a folder and a name no other Claude has, removing an
+open Claude with its data is refused before anything goes, and a conversation
+that made an artifact can still move between accounts.</li>
+</ul>
+
+<h3>Upgrading from 1.0.x</h3>
+
+<p>As with 1.1.0, shared profiles merge their chat histories on their next
+launch. Going back to a profile's own chats preserves what it brought, but
+copies already merged into the source stay there. If you need an untouched
+copy, back up your Claude profile folders in <code>~/Library/Application
+Support</code> before upgrading.</p>

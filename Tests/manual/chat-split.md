@@ -15,7 +15,7 @@ a split, so the split waits until both have quit.
 2. Open Test A from Graft's window, choosing Open Anyway when Graft asks. In
    Test A, search for the chat by its exact title and open it.
    Expect: it opens on the reply "one".
-3. On a Mac, leave Graft's dropdown shut until step 5: opening it syncs, and a
+3. Leave Graft's dropdown or flyout shut until step 5: opening it syncs, and a
    sync between the two replies carries one across before the other exists.
    In Test A, in that chat, send `Reply with only the word test-a.` and wait
    for the reply. Then in Claude, in that chat, send
