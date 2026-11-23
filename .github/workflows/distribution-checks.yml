@@ -1,0 +1,51 @@
+# What a person downloads or runs to get Graft, fetched from where they get it:
+# the install command, the cask and its disk image, the Mac update feed and its
+# signatures, the Windows setup, feed and packages, and every release link on
+# the README and the site. Daily and on any change to those pages, so a link
+# that stops opening is found before someone finds it for us; and by hand with
+# a tag, to check a release while it is still a prerelease nobody is offered.
+name: Distribution Checks
+
+on:
+  schedule:
+    - cron: '17 6 * * *'
+  push:
+    branches: [main]
+    paths:
+      - 'README.md'
+      - 'windows/README.md'
+      - 'docs/**'
+      - 'Resources/Info.plist'
+      - 'Tools/check-distribution.py'
+      - '.github/workflows/distribution-checks.yml'
+  pull_request:
+    paths:
+      - 'README.md'
+      - 'windows/README.md'
+      - 'docs/**'
+      - 'Resources/Info.plist'
+      - 'Tools/check-distribution.py'
+      - '.github/workflows/distribution-checks.yml'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'A staged release to check, such as v2.2.0; empty for what is published'
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  distribution:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install cryptography
+      - name: Check
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ inputs.tag }}
+        run: python3 Tools/check-distribution.py ${TAG:+--tag "$TAG"}

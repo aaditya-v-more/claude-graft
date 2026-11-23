@@ -1781,6 +1781,15 @@ do {
           "the feed and the release assets agree on whose account they are")
     check(release.contains("github.com/\(owner)/claude-graft/releases/download/"),
           "so a download the feed advertises resolves to something")
+    // A release is installed from what people fetch before anyone is offered it.
+    check(release.contains("--prerelease") && release.contains("appcast-staged.xml")
+            && release.contains("HEAD:release-$VERSION"),
+          "a release is staged as a prerelease, with its feed beside it and its cask on a branch")
+    check(read(".github/workflows/windows-release.yml").contains("--prerelease")
+            && read("windows/ClaudeGraft/GraftUpdates.cs").contains("new GithubSource(Updater.RepoUrl, null, false)"),
+          "and the Windows release starts as one too, which an installed Windows Graft is not offered")
+    check(read(".github/workflows/distribution-checks.yml").contains("Tools/check-distribution.py"),
+          "what people download is checked where they download it from")
 
     // Fetched over the wire, then trusted to verify every future update.
     let fetch = read("Tools/fetch-sparkle.sh")

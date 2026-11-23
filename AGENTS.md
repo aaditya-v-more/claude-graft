@@ -22,10 +22,7 @@ for this project and the affected change. This includes content, creator links,
 appearance, layout, behavior, source configuration, deployment and repository
 guidance.
 
-Permission to change the main portfolio, Play, Learn or another site originating
-in the resume repository does not authorize changes to this independent project.
-A direct request for a specific change supplies the necessary approval; do not
-ask again while completing work already within that approved scope.
+Approval for another site does not cover this one. A direct request for a specific change is sufficient; don't ask twice.
 
 ## Scope of project synchronization
 
@@ -34,10 +31,7 @@ GitHub, LinkedIn and project source links only with the user's explicit
 permission. Linking or listing a project does not itself grant that permission.
 Preserve the creator links already approved for this website.
 
-A link request does not authorize new color palettes, theme controls, changes to
-the project's default appearance or appearance synchronization between sites.
-Keep this website's original appearance behavior unless the user separately asks
-to change it.
+Link requests do not authorize palettes, theme controls or appearance synchronization. Preserve this site's appearance unless separately requested.
 
 # Testing
 
@@ -77,3 +71,7 @@ Graft turns off Velopack's apply-on-startup. With it on, any launch of
 `ClaudeGraft.exe`, `--quit` included, applied whatever package lay newest in
 `%LOCALAPPDATA%\ClaudeGraftApp\packages`, which after a full setup is the
 release, ranked above every development build.
+
+## Markdown size limits
+
+`AGENTS.md`, `CLAUDE.md` and `HANDOFF.md` must each fit **80 lines and 6 KiB**. Link detailed procedures from the instruction files. The handoff covers: current goal, exact build, open decisions or QA, and next action. Replace stale entries; link evidence and history. Keep other maintained Markdown to **200 lines and 16 KiB**. Split by topic before either limit is exceeded, leave an index at the original path, and check `wc -lc` and relative links before committing. Do not split generated evidence, vendored material or legal text just to meet a size target.

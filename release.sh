@@ -259,8 +259,12 @@ else
 fi
 
 # Last, so a run that stopped anywhere above leaves the live feed as it was.
+# It goes live only when docs/ is pushed, which waits for the checks below. The
+# same bytes go up with the prerelease, so a clean Mac can be pointed at the
+# very feed that is about to be served.
 cp "$FEED" "$ROOT/docs/appcast.xml"
-echo "docs/appcast.xml now offers $VERSION"
+cp "$FEED" "$DIST/appcast-staged.xml"
+echo "docs/appcast.xml offers $VERSION once it is pushed"
 
 if [ "${1:-}" = "--install" ]; then
     rm -rf "/Applications/Claude Graft.app"
@@ -270,27 +274,39 @@ fi
 
 cat <<NOTE
 
-To publish $TAG:
-  git add docs/appcast.xml && git commit -m "Release $VERSION"
-  git tag -a $TAG -m "Claude Graft $VERSION"
-  git push origin main --tags
-  gh release create $TAG "$ZIP" "$DMG" --title "Claude Graft $VERSION" --notes-file -
-  git -C "$TAP" push origin HEAD
+$TAG is built but nobody has it yet. Nothing a person downloads or runs ships
+before it has passed its automated checks and been installed on a clean test
+machine from exactly the files and commands people will use. So it goes out
+staged first, as a prerelease, which neither updater offers and the site does
+not call latest, with the cask on a branch of the tap.
 
-The appcast must be pushed for the feed to serve it, and the release must exist
-for the URL inside it to resolve. Do both before telling anyone. The cask push
-is the third: it is a separate repository, it is what \`brew install\` reads, and
-it is the one that was forgotten for four releases running.
+1. Stage it. The tag starts the Windows workflow, which adds the setup and
+   packages to the same prerelease.
+  git tag -a $TAG -m "Claude Graft $VERSION" && git push origin $TAG
+  gh release create $TAG "$ZIP" "$DMG" "$DIST/appcast-staged.xml" --prerelease \\
+      --title "Claude Graft $VERSION" --notes-file docs/release-notes/$VERSION.html
+     (if the Windows workflow made it first: gh release upload $TAG "$ZIP" "$DMG" "$DIST/appcast-staged.xml")
+  git -C "$TAP" push origin HEAD:release-$VERSION
 
-Then check the feed actually rebuilt. A push does not reliably queue a Pages
-build — one has already errored here, and another never started — and a feed
-still serving the old file means nobody is offered the update. The address
-redirects to the site's own domain, so the check has to follow it:
+2. Check it, once the Windows workflow has finished:
+  gh workflow run distribution-checks.yml -f tag=$TAG
+   Then run Tests/manual/release-install.md on clean test machines, Mac and
+   Windows, against this prerelease. Do not go on until both have passed.
 
+3. Publish it, all of it together:
+  gh release edit $TAG --prerelease=false --latest
+  gh release delete-asset $TAG appcast-staged.xml -y
+  git add docs/appcast.xml && git commit -m "Release $VERSION" && git push origin main
+  git -C "$TAP" push origin HEAD:main && git -C "$TAP" push origin --delete release-$VERSION
+
+   A release with no Mac disk image is published with --latest=false instead:
+   the site and README take the Mac download from whichever release is latest.
+
+4. Check what people now get:
+  gh workflow run distribution-checks.yml
+   and the published part of Tests/manual/release-install.md. A push does not
+   reliably queue a Pages build; if the feed still names the old version, ask:
   curl -sL https://aaditya-v-more.github.io/claude-graft/appcast.xml | grep shortVersionString
-
-If it does not name this version, ask for a build and wait for it:
-
   gh api -X POST repos/aaditya-v-more/claude-graft/pages/builds
 
 To notarise first (needs a Developer ID and an app-specific password):
