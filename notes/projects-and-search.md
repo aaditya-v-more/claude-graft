@@ -157,5 +157,5 @@ session.
 The request shapes above were read and replayed read-only from claude.ai in a
 browser signed in to one account. The transcript reader was run read-only over
 the development Mac's own transcripts. Nothing has yet been run inside Graft
-against a real account; `handoff/projects-search/HANDOFF.md` is the plan for
-that, on a second Mac.
+against a real account; `Tests/manual/projects-and-search.md` is the case for
+that.

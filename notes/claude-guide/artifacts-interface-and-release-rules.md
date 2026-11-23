@@ -59,7 +59,7 @@
 - **The feed keeps every release** (`--maximum-versions 0`), **and its URL never changes.**
 - **The feed is built and checked in `dist/sparkle`** — signature, length and floor asked of the new `<item>` itself — and reaches `docs/` only after the cask.
 - **Nothing a person downloads or runs ships unchecked.** A release is staged first as a prerelease, which neither updater offers and the site does not call latest, with the cask on the tap's `release-<version>` branch. It is published only after `Tools/check-distribution.py --tag` (the Distribution Checks workflow) and `Tests/manual/release-install.md` on clean Mac and Windows machines pass, using the very files and commands people get. The same checks run daily on what is live.
-- **Every release runs the everyday-use cases** (`Tests/manual/everyday-*.md`) on Mac and Windows, besides the scripted ones: a tester doing a person's tasks and reporting anything that would stop or irritate them.
+- **Every release runs the everyday-use cases** (`Tests/manual/everyday-*.md`) on Mac and Windows, besides the scripted ones: someone doing a person's tasks and reporting anything that would stop or irritate them.
 - **A bug a person hit gets a test that would have caught it** before its fix ships, in the suite where that code is tested.
 
 ### Sidebar and desktop settings — [notes/sidebar-and-settings.md](../../notes/sidebar-and-settings.md)

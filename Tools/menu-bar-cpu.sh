@@ -6,15 +6,16 @@
 # menu bar's work on an item's behalf, but anything on screen moves them too,
 # so they are context rather than a verdict.
 #
-#     cpu.sh <seconds> <label> [seconds to settle first, 15 if left out]
+#     Tools/menu-bar-cpu.sh <seconds> <label> [seconds to settle first, 15 if left out]
 #
 # The settle is for bringing a Claude forward after starting this from a
 # terminal, and for the bar to catch up with it. What it finds is printed and
-# added to cpu.txt beside this file.
+# added to Tests/results/menu-bar/cpu.txt, which git ignores.
 secs=${1:?how many seconds to measure}
 label=${2:?a label for the line}
 settle=${3:-15}
-here=${0:A:h}
+out=${0:A:h}/../Tests/results/menu-bar
+mkdir -p "$out"
 
 snapshot() {
     ps -Ao pid=,time=,rss=,comm= | awk '$0 ~ /\/(ClaudeGraft|graft-relay|ControlCenter|WindowServer)$/ {
@@ -49,4 +50,4 @@ after=$(snapshot)
                 printf "  %-14s pid %-6s quit during the stretch, not measured\n", short, pid
             }
         }' <(print -r -- "$before") <(print -r -- "$after")
-} | tee -a "$here/cpu.txt"
+} | tee -a "$out/cpu.txt"

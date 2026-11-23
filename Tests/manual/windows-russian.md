@@ -19,8 +19,7 @@ Setup: Graft installed from the build under test. Quit it with
    Expect: every card, switch label ("Вкл."/"Выкл." or the like), combo box,
    the Help and feedback card's four links and About are Russian and fit.
    Take a picture of the top and of About.
-4. Open the flyout (without touching the tray: through the taskbar strip, as
-   the rig allows).
+4. Open the flyout from the taskbar strip, not the notification area.
    Expect: the account rows, Запустить сессию and Открыть, the 5-hour, week
    and Fable bars, the status lines and the bottom menu are Russian, and the
    flyout's width holds them. Take a picture.

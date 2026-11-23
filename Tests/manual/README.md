@@ -19,6 +19,6 @@ Graft writes `diagnostics.log` and `state-report.txt` in its own folder:
 on Windows. Save both with the results of any case that fails.
 
 Cases named `everyday-*.md` are different: each is a goal a person has, done
-the way a person would, and the tester reports anything that would stop or
-irritate one, with a screenshot, whether or not the case asked about it. The
+the way a person would, and whoever runs it reports anything that would stop
+or irritate one, with a screenshot, whether or not the case asked about it. The
 set covers the main journeys on both systems and runs before every release.
