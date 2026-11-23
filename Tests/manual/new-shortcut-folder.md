@@ -10,8 +10,8 @@ folder starting `Claude-Test-A-`.
    Shortcut; Windows: Save).
    Expect: the name changes; its folder stays `Claude-Test-A`.
 2. Press New Shortcut and type the name `Test A`.
-   Expect: the folder box shows `Claude-Test-A-2`, never `Claude-Test-A`. The
-   draft shows no usage figures and no Start Session.
+   Expect: the folder box shows `Claude-Test-A-2` whole, never `Claude-Test-A`.
+   The draft shows no usage figures.
 3. Clear the name field completely, one backspace at a time, watching the
    folder box. Then type `Test A` again.
    Expect: at no point does the folder box show a folder another Claude in the

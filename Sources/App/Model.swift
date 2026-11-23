@@ -233,6 +233,19 @@ final class ShortcutStore: ObservableObject {
         return problem
     }
 
+    /// Why a delete must not start at all. Deleting the profile of a Claude
+    /// that is open used to remove the shortcut and then refuse the folder,
+    /// leaving a login and a history that nothing in Graft could reach again.
+    func deletionRefusal(of shortcut: Shortcut, deletingProfile: Bool, isOpen: Bool) -> String? {
+        let sharedWithAnother = shortcuts.contains {
+            $0.id != shortcut.id && (Graft.isNamed($0.folder, shortcut.folder)
+                                     || Graft.samePath($0.profileDir, shortcut.profileDir))
+        }
+        guard deletingProfile, isOpen, !sharedWithAnother else { return nil }
+        return L10n.format("“%@” is still open, so nothing was deleted. Quit it, then delete it again.",
+                           shortcut.name.trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+
     /// Never created, and holding no data: safe to drop without asking. A
     /// folder another shortcut has holds that one's data, not this one's. The
     /// bundle is looked for last, since finding none means reading every app

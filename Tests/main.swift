@@ -778,6 +778,27 @@ do {
           "a shortcut whose folder differs from another's only in case is sharing it")
     check(fm.fileExists(atPath: cased.path), "so the profile both read survives")
 
+    var open = Shortcut(name: "Open One", source: .own)
+    open.folder = "Claude-Open-One"
+    store.shortcuts = [open]
+    check(store.deletionRefusal(of: open, deletingProfile: true, isOpen: true) != nil,
+          "deleting the profile of a Claude that is open is refused before anything goes")
+    check(store.deletionRefusal(of: open, deletingProfile: false, isOpen: true) == nil,
+          "while deleting only its shortcut is not")
+    check(store.deletionRefusal(of: open, deletingProfile: true, isOpen: false) == nil,
+          "and neither is deleting a closed one's profile")
+    var twin = Shortcut(name: "Twin", source: .own)
+    twin.folder = "claude-open-one"
+    store.shortcuts = [open, twin]
+    check(store.deletionRefusal(of: open, deletingProfile: true, isOpen: true) == nil,
+          "a folder another shortcut shares is kept anyway, so the shortcut alone may go")
+    let window = (try? String(contentsOf: URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        .deletingLastPathComponent().appending(path: "Sources/App/ContentView.swift"), encoding: .utf8)) ?? ""
+    check(window.contains("store.deletionRefusal(of: shortcut, deletingProfile: alsoProfile,")
+            && window.contains("pendingDeletionIsOpen = Graft.isRunning(profile: shortcut.profileDir)")
+            && window.contains("if !pendingDeletionIsOpen {"),
+          "the window asks whether the Claude is open before offering to delete its profile, and again before deleting")
+
     try? fm.removeItem(at: cased)
     try? fm.removeItem(at: main)
     try? fm.removeItem(at: kept)
@@ -1925,8 +1946,10 @@ do {
     check(mailParts?.queryItems?.first { $0.name == "subject" }?.value == "Claude Graft 2.0.0"
             && mailParts?.queryItems?.first { $0.name == "body" }?.value?.contains("macOS Version 26.1") == true,
           "and already says which Graft and which macOS it comes from")
+    check(Links.site.absoluteString == "https://graft.aadityamore.com/",
+          "Help opens the site at its own address, not the one that only redirects")
     for item in ["Claude Graft Help", "Report a Problem…", "Email the Developer…",
-                 "Aaditya More on LinkedIn", "View Source on GitHub", "Support Claude Graft…"] {
+                 "Aaditya More on LinkedIn", "View Source on GitHub", "Donate…"] {
         check(links.contains("L10n.text(\"\(item)\")"), "the Help menu offers \(item)")
     }
     check(read("Sources/App/ClaudeGraftApp.swift").contains("GraftHelpCommands()"),
@@ -1937,6 +1960,18 @@ do {
     // that the money has nowhere to go.
     check(![links, site, readme].contains(where: { $0.contains("github.com/sponsors") }),
           "and nothing still offers the sponsor page that cannot take the money")
+    check(read("Sources/App/ShortcutDetail.swift").contains(".frame(width: Self.folderBoxWidth(for: shortcut.folder))"),
+          "the folder box grows to show a new Claude's numbered folder whole")
+    check(read("Sources/App/ContentView.swift").contains("ViewThatFits(in: .horizontal)")
+            && read("Sources/App/Links.swift").contains(".fixedSize()"),
+          "the sidebar's links never break a word: they stack when they can't sit side by side")
+    check(read("Sources/App/ContentView.swift").contains(#"FooterLink("Donate", icon: "heart.fill", iconTint: .donateHeart"#)
+            && read("Sources/App/MenuBarContent.swift").contains(#"MenuButton("Donate…", id: "support", icon: "heart.fill", iconTint: .donateHeart)"#),
+          "the sidebar and the dropdown both say Donate beside a red heart")
+    let windowsTheme = read("windows/ClaudeGraft/App.xaml")
+    check(links.contains("0xE0 / 255, green: 0x49 / 255, blue: 0x2B / 255") && windowsTheme.contains("#E0492B")
+            && links.contains("0xEE / 255, green: 0x5A / 255, blue: 0x3A / 255") && windowsTheme.contains("#EE5A3A"),
+          "and the heart is the same red as on Windows, light and dark")
 
     // An enclosure without a signature is one every client refuses, and
     // generate_appcast omits it silently when the key does not match.

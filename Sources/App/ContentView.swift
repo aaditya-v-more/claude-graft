@@ -14,7 +14,9 @@ struct ContentView: View {
     @EnvironmentObject private var store: ShortcutStore
     @State private var selection: UUID? = ContentView.mainProfileID
     @State private var pendingDeletion: UUID?
+    @State private var pendingDeletionIsOpen = false
     @State private var problem: String?
+    @State private var problemTitle = L10n.text("The shortcut was deleted")
     @State private var columns = NavigationSplitViewVisibility.all
 
     /// Nil in the app, which shows `Shared.artifacts`; the layout suite hands
@@ -63,12 +65,14 @@ struct ContentView: View {
                                                  set: { if !$0 { pendingDeletion = nil } }),
                             titleVisibility: .visible) {
             Button("Delete Shortcut Only") { delete(alsoProfile: false) }
-            Button("Delete Shortcut and Profile", role: .destructive) { delete(alsoProfile: true) }
+            if !pendingDeletionIsOpen {
+                Button("Delete Shortcut and Profile", role: .destructive) { delete(alsoProfile: true) }
+            }
             Button("Cancel", role: .cancel) { pendingDeletion = nil }
         } message: {
             Text(deletionMessage)
         }
-        .alert("The shortcut was deleted", isPresented: Binding(get: { problem != nil },
+        .alert(problemTitle, isPresented: Binding(get: { problem != nil },
                                                                set: { if !$0 { problem = nil } })) {
             Button("OK") { problem = nil }
         } message: {
@@ -106,14 +110,25 @@ struct ContentView: View {
             store.shortcuts.removeAll { $0.id == id }
             return
         }
+        // Asked before the question, so it never offers what would leave the
+        // shortcut gone and its folder stranded behind a running Claude.
+        pendingDeletionIsOpen = Graft.isRunning(profile: shortcut.profileDir)
         pendingDeletion = id
     }
 
     private func delete(alsoProfile: Bool) {
-        guard let pendingDeletion else { return }
-        if selection == pendingDeletion { selection = nil }
-        problem = store.delete(pendingDeletion, deletingProfile: alsoProfile)
+        guard let pendingDeletion, let shortcut = store.shortcut(pendingDeletion) else { return }
         self.pendingDeletion = nil
+        // Asked again: the Claude may have opened while the question was up.
+        if let refusal = store.deletionRefusal(of: shortcut, deletingProfile: alsoProfile,
+                                               isOpen: alsoProfile && Graft.isRunning(profile: shortcut.profileDir)) {
+            problemTitle = L10n.text("Nothing was deleted")
+            problem = refusal
+            return
+        }
+        if selection == pendingDeletion { selection = nil }
+        problemTitle = L10n.text("The shortcut was deleted")
+        problem = store.delete(pendingDeletion, deletingProfile: alsoProfile)
     }
 
     private var deletionMessage: String {
@@ -124,6 +139,10 @@ struct ContentView: View {
             Its profile folder, %@, holds that account's login and chat history. \
             Deleting it cannot be undone.
             """, Installer.installDirectory.path, shortcut.folder)
+            + (pendingDeletionIsOpen
+               ? "\n\n" + L10n.format("“%@” is open, so its profile cannot be deleted now. Quit it first to delete the profile too.",
+                                      shortcut.name)
+               : "")
     }
 
     private var deletionTitle: String {
@@ -246,18 +265,35 @@ struct ContentView: View {
             // about Claude's version took the full width above every profile.
             ClaudeUpdateStatus(stacked: true)
             Divider()
-            HStack(spacing: 0) {
-                FooterLink("Support", icon: "heart", url: Links.support,
-                           help: "Claude Graft is free. A tip on Ko-fi is what keeps it worked on.")
-                    .identified("support")
-                Spacer(minLength: 8)
-                FooterLink("Source", icon: "chevron.left.forwardslash.chevron.right", url: Links.source,
-                           help: Links.source.absoluteString)
-                    .identified("source")
+            // Side by side where both fit, one above the other where they don't:
+            // in Russian a narrow sidebar broke Пожертвовать mid-word.
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 0) {
+                    donateLink
+                    Spacer(minLength: 8)
+                    sourceLink
+                }
+                VStack(alignment: .leading, spacing: 6) {
+                    donateLink
+                    sourceLink
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 8)
         }
+    }
+
+    private var donateLink: some View {
+        FooterLink("Donate", icon: "heart.fill", iconTint: .donateHeart, url: Links.support,
+                   help: "Claude Graft is free. A tip on Ko-fi is what keeps it worked on.")
+            .identified("support")
+    }
+
+    private var sourceLink: some View {
+        FooterLink("Source", icon: "chevron.left.forwardslash.chevron.right", url: Links.source,
+                   help: Links.source.absoluteString)
+            .identified("source")
     }
 
     /// What the line under the name and the symbol beside it say between
