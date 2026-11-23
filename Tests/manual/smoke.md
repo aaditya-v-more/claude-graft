@@ -18,13 +18,22 @@ Desktop installed and signed in. No other Graft running.
    page).
    Expect: each shows its account's plan usage or a one-line reason it has
    none, and Settings fits inside the window, including with the window
-   maximised.
-4. Open the menu-bar dropdown (Mac) or the tray flyout (Windows).
+   maximised. On Windows, visit all five Settings sections at both sizes. With
+   the usual two test shortcuts, run the read-only
+   [manager fit check](../Layout/windows-manager.ps1) in the signed-in session
+   with the sidebar expanded. Use `-Page Sidebar` on Claude's page and
+   `-Page Appearance`, `Startup`, `Taskbar`, `Updates` or `About` on the
+   matching Settings section. Supply `-ShortcutFolders` if the fixture folders
+   differ. Keep pictures too: control bounds do not prove the words were drawn.
+4. Open the menu-bar dropdown (Mac) or the taskbar strip's flyout (Windows;
+   temporarily enable the strip if needed, and restore it afterwards).
    Expect: one row of usage per account, with the five-hour and weekly
    figures, and Quit at the bottom, inside the screen.
 5. Press ⌘Q in Graft's window (Mac only).
    Expect: the window closes and the menu-bar item stays.
-6. Choose Quit from the dropdown or flyout.
+6. Choose Quit from the dropdown or flyout (on a Windows PC restricted to the
+   strip, use the `--quit` process-handle and Application-log checks in
+   [windows-strip-lifetime.md](windows-strip-lifetime.md) instead).
    Expect: within ten seconds no Graft process is left (`pgrep -fl ClaudeGraft`
    on a Mac, `Get-Process ClaudeGraft` on Windows). A running Claude is not
    closed by it.

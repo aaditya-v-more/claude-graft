@@ -14,7 +14,9 @@ Expect along the way: each switch says what it does in words a person
 understands, and its effect is visible straight away or says when it will be.
 On Windows, "Start hidden" only keeps Graft out of sight when it starts at
 sign-in (try it by signing out and in, or by opening Graft's shortcut in the
-Startup folder); opening Graft from Start always shows its window.
+Startup folder); opening Graft from Start always shows its window. Try changing
+sections at the smallest size. Turn the strip off and on again without a
+restart; its name switch should take effect even with the pointer elsewhere.
 
 Do it the way a person would, with the mouse and keyboard, without knowing the code.
 Along the way, check and report anything that fails these:

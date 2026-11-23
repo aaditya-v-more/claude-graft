@@ -2,19 +2,24 @@
 
 Platforms: Windows
 Needs: steps 1-5 nothing special; step 6 needs Test A signed in and reading Claude's chats (see test-profiles.md)
-Setup: Graft running, Claude open, Test A closed.
+Setup: Graft running, Claude open, Test A closed. Note the strip switches as
+found. Use only the strip to reach the flyout, and `ClaudeGraft.exe --quit`
+to quit Graft.
 
-1. Open Graft's window, select Settings and scroll to About.
+1. Open Graft's window and choose About from the section picker in Settings.
    Expect: a "Help and feedback" card with Help, What's New, Report a Problem
    and Email, laid out on one line inside the card at the default window size
    and when maximised.
 2. Press Help, then What's New, then Report a Problem.
    Expect: the browser opens graft.aadityamore.com, the repository's releases
-   page and a new-issue page, in turn.
+   page and a new-issue page, in turn. If GitHub asks for sign-in, record the
+   requested URL and the redirect; do not sign into another account.
 3. Press Email.
    Expect: the mail app (or the "choose an app" box if none is set) opens a
    message to aadityavmore@gmail.com, subject "Claude Graft <version>", whose
    body ends with the Graft version and the Windows version. Close it unsent.
+   If Windows only offers a chooser, dismiss it and mark the message contents
+   unverified; do not change the default mail app.
 4. Under "Taskbar and sound", turn on "Show usage on the taskbar". Bring
    Claude forward.
    Expect: the strip beside the notification area shows Claude's icon and its
@@ -26,10 +31,12 @@ Setup: Graft running, Claude open, Test A closed.
    Expect: first icon, "Claude" and the figure; then "Claude" and the figure
    with no icon. Turning both off leaves the figure alone. Restart Graft:
    the switches keep their positions. Put both back (icon on, name off) and
-   turn the strip off.
-6. Open Test A from Graft (Open Anyway if asked), start a Claude Code session
-   in its Code tab, send `Reply with the word one.`, then quit Test A.
-   About ten seconds later open the flyout.
+   turn the strip off and on again so the flyout is reachable.
+6. Note Graft's process ID. Open Test A from Graft (Open Anyway if asked);
+   in its Code tab send `Reply with the word one.` and note whether its
+   session is already in Test A's sidebar. Use File → Exit in Test A.
+   About ten seconds later check the same Graft is running and click its
+   strip to open the flyout. A restart breaks this check.
    Expect: if the pass filed the session's record, a grey line above Claude
    Code reads "Recovered “<title>”, which had closed without a record" (or
    "Recovered N sessions…"). If no line shows, record whether the session is
@@ -37,6 +44,10 @@ Setup: Graft running, Claude open, Test A closed.
    is logged as `sweep.file`.
 7. Close and reopen the flyout.
    Expect: the line is gone once a pass has filed nothing new.
+
+Restore the three switches as found. If Claude had already written its own
+record and there was no `sweep.file`, report the positive recovery check as
+not exercised; do not remove a real record to manufacture it.
 
 Pass when: each link opens what it names, the two switches each change only
 their own part of the strip and are remembered, and a recovered session is

@@ -28,6 +28,13 @@ public sealed partial class MainWindow : Window
 
         ExtendsContentIntoTitleBar = true;
         SetTitleBar(AppTitleBar);
+        RootGrid.SizeChanged += (_, e) =>
+        {
+            var compact = e.NewSize.Height < 650;
+            if (_compactRows == compact) return;
+            _compactRows = compact;
+            FitSidebarRows();
+        };
         // Square over the rail's highlights, which sit 4 in from the edge; WinUI puts it at 2.
         // WinUI rules off the footer only while the items above it overflow; the footer draws
         // its own, always, and WinUI's would sit doubled on top of it.
@@ -119,7 +126,8 @@ public sealed partial class MainWindow : Window
     // Folded to WinUI's icon rail.
     private const double PaneWidth = 240;
     private const double RailWidth = 48;
-    private bool _paneMoving, _paneOpen = true;
+    private bool _paneMoving, _paneOpen = true, _compactRows;
+    private double PaneExpansion => Math.Clamp((Sections.OpenPaneLength - RailWidth) / (PaneWidth - RailWidth), 0, 1);
     private FrameworkElement? _paneItems;
     private double _headerHeight;
 
@@ -154,15 +162,25 @@ public sealed partial class MainWindow : Window
         Sections.OpenPaneLength = width;
         Heading.Margin = new Thickness(width + 22, 0, 140, 0);
         // Headings and the footer would show cut off beside the icons, so they fade with the width.
-        var shown = Math.Clamp((width - RailWidth) / (PaneWidth - RailWidth), 0, 1);
+        var shown = PaneExpansion;
         ClaudesHeader.Opacity = ShortcutsHeader.Opacity = PaneFooterPanel.Opacity = SettingsRule.Opacity = shown;
         PaneFooterPanel.IsHitTestVisible = shown > 0.99;
         Theming.SelectionFill(shown);
         // The items narrow with the pane, so a highlight stops short of the page as WinUI's does;
         // their headings and second lines fold away so the icons close up toward the top.
         if (_paneItems is not null) _paneItems.Width = width;
+        FitSidebarRows();
+        ShapePageEdge();
+    }
+
+    private void FitSidebarRows()
+    {
+        var shown = PaneExpansion;
         if (_headerHeight == 0) _headerHeight = ClaudesHeader.ActualHeight;
-        ClaudesHeader.MaxHeight = ShortcutsHeader.MaxHeight = _headerHeight * shown;        foreach (var item in Sections.MenuItems.Concat(Sections.FooterMenuItems).OfType<NavigationViewItem>())
+        // At minimum height, keep the shortcut names and their Open buttons above the footer.
+        ClaudesHeader.Visibility = ShortcutsHeader.Visibility = _compactRows ? Visibility.Collapsed : Visibility.Visible;
+        ClaudesHeader.MaxHeight = ShortcutsHeader.MaxHeight = shown == 1 ? double.PositiveInfinity : _headerHeight * shown;
+        foreach (var item in Sections.MenuItems.Concat(Sections.FooterMenuItems).OfType<NavigationViewItem>())
         {
             // WinUI's own fold drops the item's right-hand margin so the icon fills the highlight;
             // this fold never changes its state, so the margin goes with the width instead.
@@ -178,18 +196,24 @@ public sealed partial class MainWindow : Window
             }
             if (words is { Children.Count: > 1 })
             {
-                words.Margin = new Thickness(0, 6 * shown, 0, 6 * shown);
-                foreach (var line in words.Children.OfType<TextBlock>())
+                var inset = _compactRows ? 0 : 6 * shown;
+                words.Margin = new Thickness(0, inset, 0, inset);
+                if (words.Children[0] is TextBlock name)
                 {
-                    line.TextWrapping = TextWrapping.NoWrap;
-                    line.TextTrimming = TextTrimming.CharacterEllipsis;
+                    name.TextWrapping = TextWrapping.NoWrap;
+                    name.TextTrimming = TextTrimming.CharacterEllipsis;
                 }
-                var second = (FrameworkElement)words.Children[1];
-                second.MaxHeight = 20 * shown;
-                second.Opacity = shown;
+                if (words.Children[1] is TextBlock caption)
+                {
+                    caption.Visibility = _compactRows ? Visibility.Collapsed : Visibility.Visible;
+                    caption.TextWrapping = shown == 1 ? TextWrapping.Wrap : TextWrapping.NoWrap;
+                    caption.TextTrimming = TextTrimming.CharacterEllipsis;
+                    caption.MaxLines = 2;
+                    caption.MaxHeight = shown == 1 ? double.PositiveInfinity : 20 * shown;
+                    caption.Opacity = shown;
+                }
             }
         }
-        ShapePageEdge();
     }
 
     private Grid? _contentGrid;
@@ -298,6 +322,7 @@ public sealed partial class MainWindow : Window
                 };
                 if (!_paneOpen) strip.Visibility = Visibility.Collapsed;
                 AutomationProperties.SetName(item, $"{row.Name}, {line}");
+                ToolTipService.SetToolTip(item, $"{row.Name}, {line}");
                 AutomationProperties.SetAutomationId(item, "sidebar." + row.Key);
                 if (row.Shortcut is null)
                 {
@@ -307,7 +332,9 @@ public sealed partial class MainWindow : Window
                 else items.Insert(shortcutAt++, item);
                 if (showingClaude && row.Key == page.Focused) Sections.SelectedItem = item;
             }
-        }        finally { _rebuilding = false; }
+            FitSidebarRows();
+        }
+        finally { _rebuilding = false; }
     }
 
     /// The glyph gives way to a ring while the row opens; the button keeps its size either way.
