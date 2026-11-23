@@ -94,7 +94,7 @@ public sealed partial class MainWindow : Window
             _closing = true;
             sender.Hide();
             await Task.Delay(300);
-            Close();
+            FinishClose();
         };
         RootFrame.Navigate(typeof(MainPage));
         if (RootFrame.Content is MainPage page)
@@ -494,7 +494,24 @@ public sealed partial class MainWindow : Window
             ?? Sections.MenuItems.OfType<NavigationViewItem>().FirstOrDefault(i => ((string?)i.Tag)?.StartsWith("claude:") == true);
     }
 
-    private bool _closing, _shown;
+    private bool _closing, _closed, _shown;
+
+    internal void CloseForExit()
+    {
+        if (_closed) return;
+        _closing = true;
+        // Detach the non-client input region while its dispatcher can still handle window messages.
+        SetTitleBar(null);
+        ExtendsContentIntoTitleBar = false;
+        FinishClose();
+    }
+
+    private void FinishClose()
+    {
+        if (_closed) return;
+        _closed = true;
+        Close();
+    }
     public bool IsClosing => _closing;
 
     public void Show()

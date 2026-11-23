@@ -740,6 +740,8 @@ public partial class App : Application
         _tray?.Dispose();
         WindowIdentity.Stop();
         FrontClaude.Stop();
+        _window?.CloseForExit();
+        _flyout?.Close();
         Exit();
     }
 

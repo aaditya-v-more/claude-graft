@@ -73,7 +73,7 @@ public class TrayLifetimeTests
     {
         var app = AppSource("App.xaml.cs");
         var shutdown = app[app.IndexOf("private async Task ShutDown()", StringComparison.Ordinal)..];
-        InOrder(shutdown, "_quitting = true;", "_strip?.Dispose();", "await _flyout.PrepareForExitAsync();", "Exit();");
+        InOrder(shutdown, "_quitting = true;", "_strip?.Dispose();", "await _flyout.PrepareForExitAsync();", "_window?.CloseForExit();", "_flyout?.Close();", "Exit();");
         var flyout = AppSource("FlyoutWindow.cs");
         var teardown = flyout[flyout.IndexOf("internal async Task PrepareForExitAsync()", StringComparison.Ordinal)..];
         InOrder(teardown, "Interlocked.Increment(ref _slideId);", "await _slide;", "ReleaseBackdrop();");
