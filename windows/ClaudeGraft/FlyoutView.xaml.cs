@@ -385,6 +385,26 @@ public sealed partial class FlyoutView : UserControl
 
     private void Quit_Click(object sender, RoutedEventArgs e) => QuitRequested?.Invoke();
 
+    private const int RowsBeforeScrolling = 3;
+
+    /// Shows up to three Claudes in full before the list scrolls, and never runs the flyout off the screen.
+    public void FitTo(double height)
+    {
+        ProfileScroller.MaxHeight = double.PositiveInfinity;
+        Measure(new Windows.Foundation.Size(double.PositiveInfinity, double.PositiveInfinity));
+        var cap = double.PositiveInfinity;
+        if (Rows.Count > RowsBeforeScrolling)
+        {
+            cap = 0;
+            for (var i = 0; i < RowsBeforeScrolling; i++)
+                if (ProfileList.ContainerFromIndex(i) is UIElement row) cap += row.DesiredSize.Height;
+            if (cap <= 0) cap = double.PositiveInfinity;
+        }
+        var overflow = DesiredSize.Height - Math.Max(0, ProfileScroller.DesiredSize.Height - cap) - height;
+        if (overflow > 0) cap = Math.Min(cap, ProfileScroller.DesiredSize.Height - overflow);
+        ProfileScroller.MaxHeight = Math.Max(120, cap);
+    }
+
     private void Donate_Click(object sender, RoutedEventArgs e)
     {
         DonateRequested?.Invoke();

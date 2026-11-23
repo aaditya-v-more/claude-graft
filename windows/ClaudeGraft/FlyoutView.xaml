@@ -77,10 +77,10 @@
             <Border Style="{StaticResource Rule}" />
             <local:SetupPrompt x:Name="Setup" Visibility="Collapsed" Padding="16,24,16,12" />
 
-            <!-- Capped so a long list scrolls rather than growing the flyout past the screen. -->
-            <ScrollViewer x:Name="ProfileScroller" MaxHeight="520" VerticalScrollBarVisibility="Auto"
+            <!-- Capped in code at three Claudes, or the screen's height if that is less. -->
+            <ScrollViewer x:Name="ProfileScroller" VerticalScrollBarVisibility="Auto"
                           HorizontalScrollMode="Disabled">
-            <ItemsControl ItemsSource="{x:Bind Rows}">
+            <ItemsControl x:Name="ProfileList" ItemsSource="{x:Bind Rows}">
                 <ItemsControl.ItemTemplate>
                     <DataTemplate x:DataType="local:ShortcutRow">
                         <StackPanel>
