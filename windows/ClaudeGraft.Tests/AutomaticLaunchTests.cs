@@ -49,10 +49,25 @@ public class AutomaticLaunchTests
         Assert.Contains("AutoStart.Set(true)", Read("Program.cs"));
     }
 
-    [Fact(DisplayName = "a second launch asks for the window only when a person started it")]
+    [Fact(DisplayName = "a second launch asks for the window only when a person started it, and hands it the foreground first")]
     public void SecondLaunchWiring()
     {
-        Assert.Contains("AutomaticLaunch.AsksForWindow(Environment.GetCommandLineArgs())) ShowRequest.Set()", Read("Program.cs"));
+        var program = Read("Program.cs");
+        var asks = program.IndexOf("AutomaticLaunch.AsksForWindow(Environment.GetCommandLineArgs())", StringComparison.Ordinal);
+        var handsOver = program.IndexOf("AllowSetForegroundWindow(AnyProcess);", StringComparison.Ordinal);
+        var signals = program.IndexOf("ShowRequest.Set();", StringComparison.Ordinal);
+        Assert.True(asks >= 0 && handsOver > asks && signals > handsOver,
+            "the second launch has to check it was a person's, allow the foreground, then signal");
+    }
+
+    [Fact(DisplayName = "the manager takes the foreground whenever it is shown, the first time included")]
+    public void ManagerComesForward()
+    {
+        var window = Read("MainWindow.xaml.cs");
+        Assert.Contains("DispatcherQueuePriority.Low, ComeForward)", window);
+        Assert.Contains("else ComeForward();", window);
+        Assert.Contains("SetForegroundWindow(WinRT.Interop.WindowNative.GetWindowHandle(this));", window);
+        Assert.DoesNotContain("DispatcherQueuePriority.Low, Activate)", window);
     }
 
     [Fact(DisplayName = "an update Graft installed on its own restarts hidden, and one a person pressed restarts as a launch of theirs")]

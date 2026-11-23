@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using ClaudeGraft.Core;
 using Velopack;
 
@@ -40,11 +41,22 @@ public static class Program
         if (!first || quit)
         {
             if (quit) { if (!first) QuitRequest.Set(); }
-            else if (AutomaticLaunch.AsksForWindow(Environment.GetCommandLineArgs())) ShowRequest.Set();
+            else if (AutomaticLaunch.AsksForWindow(Environment.GetCommandLineArgs()))
+            {
+                // Launched from Start, this process may take the foreground and the running
+                // one may not: without the hand-over its window opened behind the one in front.
+                AllowSetForegroundWindow(AnyProcess);
+                ShowRequest.Set();
+            }
             return;
         }
         XamlGeneratedProgram.XamlGeneratedMain();
     }
+
+    private const int AnyProcess = -1;
+
+    [DllImport("user32.dll")]
+    private static extern bool AllowSetForegroundWindow(int processId);
 
     /// The claude:// link this process was started to route, or null for the app itself.
     public static string? Link { get; private set; }

@@ -15,8 +15,9 @@ quit Graft only with `ClaudeGraft.exe --quit`.
 3. Quit Graft with `--quit`. Open it from Start (type "Claude Graft", press
    Enter) once.
    Expect: the manager window appears on that first try.
-4. Close the window (Graft keeps running), then open Graft from Start again.
-   Expect: the window comes back on the first try.
+4. Close the window (Graft keeps running), click on another window such as
+   File Explorer, then open Graft from Start again.
+   Expect: the window comes back on the first try, in front of Explorer.
 5. Quit Graft with `--quit`. Start it the way sign-in does: double-click
    `Claude Graft` in the Startup folder (`shell:startup` in Explorer's
    address bar). If this machine may be signed out, sign out of Windows and
@@ -25,8 +26,9 @@ quit Graft only with `ClaudeGraft.exe --quit`.
    strip is on, the strip appears) and no window opens.
 6. With Graft running hidden from step 5, double-click the Startup shortcut
    again.
-   Expect: still no window. Then open Graft from Start: the window appears on
-   the first try.
+   Expect: still no window. Then, with the Startup folder's Explorer window
+   in front, open Graft from Start: the window appears on the first try, in
+   front of Explorer.
 7. In Settings, turn "Start hidden" off; its description reads "At sign-in,
    open in the notification area with no window". Quit with `--quit` and
    repeat step 5.
@@ -35,6 +37,6 @@ quit Graft only with `ClaudeGraft.exe --quit`.
    command.
    Expect: `--autostart`.
 
-Pass when: every launch from Start shows the window on the first try, and only
+Pass when: every launch from Start shows the window in front on the first try, and only
 the Startup shortcut (or a real sign-in) with Start hidden on leaves Graft
 running with no window.
