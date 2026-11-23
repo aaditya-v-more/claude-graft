@@ -96,7 +96,7 @@
                                          local:Localized.ToolTip="Claude Graft is free. A tip on Ko-fi is what keeps it worked on."
                                          local:Localized.AutomationName="Donate" AutomationProperties.AutomationId="donate">
                             <StackPanel Orientation="Horizontal" Spacing="6">
-                                <FontIcon Glyph="&#xEB52;" FontSize="12" Foreground="{StaticResource GraftDonateHeartBrush}" />
+                                <FontIcon Glyph="&#xEB51;" FontSize="12" />
                                 <TextBlock local:Localized.Text="Donate" Style="{StaticResource CaptionTextBlockStyle}" />
                             </StackPanel>
                         </HyperlinkButton>

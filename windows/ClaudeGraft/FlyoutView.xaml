@@ -235,17 +235,17 @@
             </StackPanel>
 
             <StackPanel Padding="6,6,6,8">
+                <Button Click="Donate_Click" AutomationProperties.AutomationId="flyout.donate"
+                        local:Localized.AutomationName="Donate" Style="{StaticResource MenuRow}">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <FontIcon Glyph="&#xEB51;" FontSize="12" />
+                        <TextBlock local:Localized.Text="Donate" />
+                    </StackPanel>
+                </Button>
                 <Button x:Name="RefreshButton" Click="Refresh_Click" AutomationProperties.AutomationId="flyout.refresh"
                         Style="{StaticResource MenuRow}" local:Localized.Content="Refresh Usage" />
                 <Button Click="Manager_Click" AutomationProperties.AutomationId="flyout.openManager"
                         Style="{StaticResource MenuRow}" local:Localized.Content="Open Claude Graft" />
-                <Button Click="Donate_Click" AutomationProperties.AutomationId="flyout.donate"
-                        local:Localized.AutomationName="Donate" Style="{StaticResource MenuRow}">
-                    <StackPanel Orientation="Horizontal" Spacing="8">
-                        <FontIcon Glyph="&#xEB52;" FontSize="12" Foreground="{StaticResource GraftDonateHeartBrush}" />
-                        <TextBlock local:Localized.Text="Donate" />
-                    </StackPanel>
-                </Button>
                 <Button Click="Quit_Click" AutomationProperties.AutomationId="flyout.quit"
                         Style="{StaticResource MenuRow}" local:Localized.Content="Quit Claude Graft" />
             </StackPanel>

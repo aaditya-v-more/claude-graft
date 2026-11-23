@@ -394,6 +394,15 @@ public sealed partial class MainWindow : Window
     public async void ShowSupport()
     {
         Show();
+        // A window first shown from the tray has no XamlRoot until its content loads.
+        if (Content is FrameworkElement root && root.XamlRoot is null)
+        {
+            var loaded = new TaskCompletionSource();
+            root.Loaded += (_, _) => loaded.TrySetResult();
+            await loaded.Task;
+        }
+        // Only one dialog may be open in a window; a second throws.
+        if (VisualTreeHelper.GetOpenPopupsForXamlRoot(Content.XamlRoot).Any(p => p.Child is ContentDialog)) return;
         var dialog = new ContentDialog
         {
             XamlRoot = Content.XamlRoot,
@@ -415,7 +424,8 @@ public sealed partial class MainWindow : Window
             L10n.Text("Support the Windows maintainer on Ko-fi"), Links.SupportWindows, "support.windows", dialog));
         dialog.Content = list;
         Dialogs.Prepare(dialog, Content.XamlRoot);
-        await dialog.ShowAsync();
+        try { await dialog.ShowAsync(); }
+        catch (System.Runtime.InteropServices.COMException) { }   // a dialog opened meanwhile
     }
 
     private static Button Tip(string who, string what, string spoken, string url, string id, ContentDialog dialog)
