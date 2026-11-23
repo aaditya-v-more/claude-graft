@@ -66,6 +66,8 @@ public partial class App : Application
             && updated.StartHidden == Settings.StartHidden
             && updated.HoldUpdates == Settings.HoldUpdates
             && updated.TaskbarStrip == Settings.TaskbarStrip
+            && updated.FrontIcon == Settings.FrontIcon
+            && updated.FrontName == Settings.FrontName
             && updated.Chime == Settings.Chime) return;
 
         // Only a change of look redraws the windows; a redraw resets the backdrop, which flashes.
@@ -188,6 +190,13 @@ public partial class App : Application
         _quitWatch = new ClaudeQuitWatch(() => new ShortcutStore().Shortcuts
             .Where(s => s.InstalledName is not null).Select(s => s.ProfileDir)
             .Prepend(GraftPaths.DefaultProfile).ToList());
+        _quitWatch.Swept += titles => OnUi(() =>
+        {
+            if (Recovered.SequenceEqual(titles)) return;
+            Recovered = titles;
+            RecoveredChanged?.Invoke();
+        });
+        _quitWatch.Request();
         System.Threading.Tasks.Task.Run(() =>
         {
             try { ManualUpdates.Synchronize(); }
@@ -237,10 +246,11 @@ public partial class App : Application
         _flyout = new FlyoutWindow(ShowManager, Donate, Quit);
         SessionEnd.Watch(_flyout, Quit);
 
-        // A tray app comes up hidden by default — the notification-area icon is
-        // the whole of it until asked for more. Turned off, it opens the manager
-        // straight away, for someone who would rather see the window on launch.
-        if (!Settings.StartHidden) ShowManager();
+        // At sign-in a tray app comes up hidden by default — the notification-area
+        // icon is the whole of it until asked for more. A launch a person starts
+        // always opens the manager: hidden, it looked as if nothing had happened.
+        if (AutomaticLaunch.ShowsManager(Settings.StartHidden, Environment.GetCommandLineArgs())) ShowManager();
+        System.Threading.Tasks.Task.Run(AutoStart.Refresh);
 
         // The one thing the app does off nobody's press: keep an opted-in
         // account's five-hour window open. It runs on its own timer, from launch,
@@ -277,7 +287,7 @@ public partial class App : Application
     public static string SharingName(string key)
     {
         if (key == UsageSharing.MainKey) return "Claude";
-        if (PoolAccount.IsAccount(key)) return PoolAccounts.Load().FirstOrDefault(a => a.Id == key)?.Name ?? "Signed-in account";
+        if (PoolAccount.IsAccount(key)) return PoolAccounts.Load().FirstOrDefault(a => a.Id == key)?.Name ?? L10n.Text("Signed-in account");
         return Store.Shortcuts.FirstOrDefault(s => s.Id.ToString() == key)?.Name ?? key;
     }
     private int _sharingBusy;
@@ -399,6 +409,11 @@ public partial class App : Application
     private Task<bool>? _installing;
     private ClaudeQuitWatch? _quitWatch;
 
+    /// What the last pass Graft ran filed, by title. Empty the rest of the time:
+    /// the session list is the history, and the line only says what just happened.
+    internal static IReadOnlyList<string> Recovered { get; private set; } = [];
+    internal static event Action? RecoveredChanged;
+
     /// Fetches the package and hands off to Velopack, then quits — the folder
     /// cannot be swapped while this process holds it open.
     /// A second press while one is under way joins it rather than starting
@@ -449,7 +464,7 @@ public partial class App : Application
         {
             ["version"] = release.Version.ToString(), ["onItsOwn"] = quiet,
         });
-        try { GraftUpdates.ApplyOnExit(release); }
+        try { GraftUpdates.ApplyOnExit(release, restartsUnseen: quiet); }
         catch (Exception e)
         {
             Record("update.apply", e);
@@ -515,7 +530,7 @@ public partial class App : Application
             .Select(k => new TaskbarStrip.Mark(ShortcutIcons.Preview(MainPage.PresetOf(k, accounts)), k == answering)).ToList();
         var usage = _frontUsage.GetValueOrDefault(front) is { } u ? UsageStatus.Rolled(u, DateTimeOffset.UtcNow) : null;
         // No five-hour limit is not 0%: such an account shows its week, marked as one.
-        var figure = usage is null ? null : usage.FiveHour is int five ? $"{five}%" : $"W {usage.Week}%";
+        var figure = usage is null ? null : usage.FiveHour is int five ? $"{five}%" : L10n.Format("W {0}%", usage.Week);
         var (turn, ended) = ChatOnScreen.TurnFor(front);
         if (claudeInFront && turn == ChatFocus.Turn.Done) _turnSeen[front] = ended;
         var signal = turn switch
@@ -524,7 +539,8 @@ public partial class App : Application
             ChatFocus.Turn.Done when _turnSeen.GetValueOrDefault(front) != ended => TaskbarStrip.Signal.Done,
             _ => TaskbarStrip.Signal.None,
         };
-        _strip.Show(new TaskbarStrip.Face(marks, figure, ChatOnScreen.TitleFor(front), signal));
+        var name = Settings.FrontName ? shortcut?.Name ?? "Claude" : null;
+        _strip.Show(new TaskbarStrip.Face(Settings.FrontIcon ? marks : new List<TaskbarStrip.Mark>(), figure, ChatOnScreen.TitleFor(front), signal, name));
     }
 
     /// The tray says which Claude is in front and what its account has spent,
@@ -535,13 +551,13 @@ public partial class App : Application
         var front = FrontClaude.Profile;
         var shortcut = front is null ? null : Store.Shortcuts.FirstOrDefault(s => Fs.SamePath(s.ProfileDir, front));
         if (UpdateDownload is { } f)
-            _tray.ToolTipText = $"Claude Graft — downloading update, {(int)Math.Round(f * 100)}%";
+            _tray.ToolTipText = L10n.Format("Claude Graft — downloading update, {0}%", (int)Math.Round(f * 100));
         else if (front is not null)
             _tray.ToolTipText = FrontLabel.Tooltip(shortcut?.Name ?? "Claude",
                 _frontUsage.GetValueOrDefault(front) is { } u ? UsageStatus.Rolled(u, DateTimeOffset.UtcNow) : null,
                 ChatOnScreen.TitleFor(front), AnsweredBy(front, shortcut));
         else
-            _tray.ToolTipText = AvailableUpdate is { } ready ? $"Claude Graft — update {ready.Version} ready" : "Claude Graft";
+            _tray.ToolTipText = AvailableUpdate is { } ready ? L10n.Format("Claude Graft — update {0} ready", ready.Version) : "Claude Graft";
 
         ShowStrip(front, shortcut);
         var icon = shortcut is null ? null : ShortcutIcons.LinkIcon(shortcut).File;
@@ -606,6 +622,7 @@ public partial class App : Application
         {
             _flyout ??= new FlyoutWindow(ShowManager, Donate, Quit);
             _flyout.Toggle(anchor, priorForeground, centred: from is not null);
+            _quitWatch?.Request();
         });
     }
 
@@ -621,32 +638,42 @@ public partial class App : Application
         if (setup != SetupState.Ready)
         {
             items.Add(setup == SetupState.NotInstalled
-                ? ("Install Claude Desktop…", true, ShowManager)
-                : ("Sign in to Claude…", true, ShowManager));
+                ? (L10n.Text("Install Claude Desktop…"), true, ShowManager)
+                : (L10n.Text("Sign in to Claude…"), true, ShowManager));
         }
         else if (Store.Shortcuts.Count == 0)
         {
-            items.Add(("No profiles yet", false, null));
+            items.Add((L10n.Text("No profiles yet"), false, null));
         }
         else
         {
             foreach (var shortcut in Store.Shortcuts)
             {
-                var config = Store.ConfigFor(shortcut);
-                items.Add(("Open " + shortcut.Name, true, () => Task.Run(() => Launcher.Open(config))));
+                var row = ShortcutRow.ForShortcut(shortcut);
+                items.Add((L10n.Format("Open {0}", shortcut.Name), true, () => _ = OpenFromTray(row)));
             }
         }
         items.Add((TrayMenu.Separator, false, null));
         // The Mac's wording: "Version X is available" installs it, otherwise the
         // plain "Check for Updates".
         items.Add(AvailableUpdate is { } ready
-            ? ($"Version {ready.Version} is available", true, () => _ = InstallUpdateAsync(ready))
-            : ("Check for Updates", true, () => _ = CheckForUpdates()));
-        items.Add(("Manage Profiles…", true, ShowManager));
-        items.Add(("Settings…", true, ShowSettings));
-        items.Add(("Quit", true, Quit));
+            ? (L10n.Format("Version {0} is available", ready.Version), true, () => _ = InstallUpdateAsync(ready))
+            : (L10n.Text("Check for Updates"), true, () => _ = CheckForUpdates()));
+        items.Add((L10n.Text("Manage Profiles…"), true, ShowManager));
+        items.Add((L10n.Text("Settings…"), true, ShowSettings));
+        items.Add((L10n.Text("Quit"), true, Quit));
 
         TrayMenu.Show(items);
+    }
+
+    /// Opens a Claude from the flyout or the tray menu, asking first in the
+    /// manager when another Claude on the same chats is open.
+    internal static async Task OpenFromTray(ShortcutRow row)
+    {
+        var neighbours = Store.ChatStoreNeighbours(row.Shortcut);
+        var sharers = await Task.Run(() => ChatConflict.OpenSharers(row.ProfileDir, neighbours));
+        if (sharers.Count == 0) { ProfileRows.Open(row); return; }
+        (Current as App)?.OnUi(() => ((App)Current).Manager().OpenAsking(row));
     }
 
     /// The warning before closing Claudes needs a window to sit in, and the

@@ -16,7 +16,7 @@ public sealed class UnreadableStateException : IOException
 /// this one did nothing.
 public sealed class StateBusyException : IOException
 {
-    public StateBusyException() : base("Graft is still finishing another change. Try again in a moment.") { }
+    public StateBusyException() : base(L10n.Text("Graft is still finishing another change. Try again in a moment.")) { }
 }
 
 public static class StateFile

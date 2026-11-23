@@ -466,9 +466,9 @@ public static partial class SidebarSync
             if (states is null || !states.TryGetValue(Fs.Resolve(profile), out var state)) return null;
             return state switch
             {
-                "synced" => "Pinned chats and sort order are synced.",
-                "waiting" => "Quit the linked Claude apps, then open a shortcut to sync the sidebar.",
-                _ => "Sidebar sync could not finish. It will retry when you next open a shortcut.",
+                "synced" => L10n.Text("Pinned chats and sort order are synced."),
+                "waiting" => L10n.Text("Quit the linked Claude apps, then open a shortcut to sync the sidebar."),
+                _ => L10n.Text("Sidebar sync could not finish. It will retry when you next open a shortcut."),
             };
         }
         catch { return null; }

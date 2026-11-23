@@ -42,6 +42,7 @@
 - **The dropdown never runs past its screen:** only the account list scrolls (`DropdownColumn`), and only once it has to; the switches and Quit stay in view.
 - **A running Claude keeps its own Dock icon and name;** the menu bar says which one is in front instead.
 - **A colour is handed out once and never twice** (`IconPreset.next`): a new Claude or lent account takes the first free one; nothing recolours what exists, and an account that is a Claude here wears that Claude's.
+- **On Windows, no English reaches the screen except through `L10n` or `local:Localized`;** a new string needs its Russian in `windows/ClaudeGraft.Core/Localization/ru.json`, and the suite fails without it.
 
 ### Updates and releases — [notes/updates-and-releases.md](../../notes/updates-and-releases.md), [notes/update-relaunch.md](../../notes/update-relaunch.md)
 

@@ -181,3 +181,4 @@ Observing them from the App value invalidates the whole scene on every poll.
 
 - <a id="fitting-the-window"></a><a id="fitting-the-dropdown"></a>[Window and dropdown sizing](interface-guide/window-and-dropdown-sizing.md)
 - <a id="the-dock-the-icon-and-the-claude-in-front"></a><a id="the-help-menu"></a><a id="windows-a-capped-column-inside-a-scrollviewer"></a><a id="windows-textchanged-comes-late"></a><a id="windows-the-title-bar-copies-the-pages-heading"></a>[Dock and platform details](interface-guide/dock-and-platform-details.md)
+- <a id="windows-russian"></a>[Windows in Russian](interface-guide/windows-russian.md)

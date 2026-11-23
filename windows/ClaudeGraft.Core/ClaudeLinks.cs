@@ -81,7 +81,7 @@ public static class ClaudeLinks
         var kind = Classify(value);
         if (kind == ClaudeLinkKind.OpenClaude && chosen is null) return GraftPaths.DefaultProfile;
         if (kind != ClaudeLinkKind.SignIn || chosen is null || !running.Contains(chosen))
-            throw new IOException("The Claude that started this sign-in is no longer open. Start sign-in again from it.");
+            throw new IOException(L10n.Text("The Claude that started this sign-in is no longer open. Start sign-in again from it."));
         return chosen.Profile;
     }
 
@@ -95,6 +95,6 @@ public static class ClaudeLinks
             Launcher.Open(new GraftConfig { ProfileDir = profile, SourceDir = null }, applyGraft: false, link: value);
             return;
         }
-        if (!Launcher.Start(profile, value)) throw new IOException("Claude could not be started.");
+        if (!Launcher.Start(profile, value)) throw new IOException(L10n.Text("Claude could not be started."));
     }
 }

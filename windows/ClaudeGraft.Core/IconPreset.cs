@@ -33,11 +33,21 @@ public static class IconPreset
             ?? HandedOut.MinBy(p => used.Count(u => u == p))!;
     }
 
-    public static string Title(string preset)
+    public static string Title(string preset) => Normalize(preset) switch
     {
-        var p = Normalize(preset);
-        return char.ToUpperInvariant(p[0]) + p[1..];
-    }
+        "blue" => L10n.Text("Blue"),
+        "violet" => L10n.Text("Violet"),
+        "green" => L10n.Text("Green"),
+        "red" => L10n.Text("Red"),
+        "pink" => L10n.Text("Pink"),
+        "teal" => L10n.Text("Teal"),
+        "graphite" => L10n.Text("Graphite"),
+        "work" => L10n.Text("Work"),
+        "personal" => L10n.Text("Personal"),
+        "code" => L10n.Text("Code"),
+        "research" => L10n.Text("Research"),
+        _ => L10n.Text("Original"),
+    };
 
     /// The hue rotation in radians, the saturation, and the badge's glyph, or
     /// null where the preset has none.

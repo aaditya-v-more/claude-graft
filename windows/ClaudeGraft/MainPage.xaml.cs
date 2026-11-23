@@ -91,8 +91,8 @@ public sealed partial class MainPage : Page
         }
         if (Drafting)
         {
-            ClaudeTitle.Text = "New Claude";
-            ClaudeSubtitle.Text = "Not created yet · Not running";
+            ClaudeTitle.Text = L10n.Text("New Claude");
+            ClaudeSubtitle.Text = L10n.Text("Not created yet") + " · " + L10n.Text("Not running");
         }
         else
         {
@@ -290,8 +290,8 @@ public sealed partial class MainPage : Page
         }
         var editing = Drafting || row?.Shortcut is not null;
         DeleteButton.Visibility = editing ? Visibility.Visible : Visibility.Collapsed;
-        DeleteButton.Content = Drafting ? "Discard" : "Delete Shortcut…";
-        AutomationProperties.SetName(DeleteButton, Drafting ? "Discard New Shortcut" : "Delete Shortcut");
+        DeleteButton.Content = Drafting ? L10n.Text("Discard") : L10n.Text("Delete Shortcut…");
+        AutomationProperties.SetName(DeleteButton, Drafting ? L10n.Text("Discard New Shortcut") : L10n.Text("Delete Shortcut"));
         DeleteButton.IsEnabled = !Editor.Busy;
 
         StartButton.Visibility = StartInfoButton.Visibility = row is { SignedIn: true } && !Drafting ? Visibility.Visible : Visibility.Collapsed;
@@ -303,14 +303,14 @@ public sealed partial class MainPage : Page
         if (row is not null) ToolTipService.SetToolTip(StartButton, row.StartTooltip);
 
         OpenButton.Visibility = Drafting || row is null ? Visibility.Collapsed : Visibility.Visible;
-        OpenText.Text = row?.OpenLabel ?? "Open";
+        OpenText.Text = row?.OpenLabel ?? L10n.Text("Open");
         OpenRing.IsActive = row is { Opening: true };
         OpenRing.Visibility = row is { Opening: true } ? Visibility.Visible : Visibility.Collapsed;
-        AutomationProperties.SetName(OpenButton, row is null ? "Open" : Spoken.Act(row.OpenLabel, row.Name));
+        AutomationProperties.SetName(OpenButton, row is null ? L10n.Text("Open") : Spoken.Act(row.OpenLabel, row.Name));
         OpenButton.IsEnabled = row is not { Opening: true } && (!Editor.Busy && row?.Shortcut?.InstalledName is not null || row?.Shortcut is null);
 
         SaveButton.Visibility = editing ? Visibility.Visible : Visibility.Collapsed;
-        var title = Editor.IsNew ? "Create Shortcut" : "Update Shortcut";
+        var title = Editor.IsNew ? L10n.Text("Create Shortcut") : L10n.Text("Update Shortcut");
         SaveText.Text = title;
         AutomationProperties.SetName(SaveButton, title);
         SaveButton.IsEnabled = Editor.IsDirty && !Editor.Busy;
@@ -422,11 +422,11 @@ public sealed partial class MainPage : Page
                 return new LenderLine
                 {
                     Claude = row, Key = key, Name = NameOf(key), First = index == 0,
-                    State = state.Length == 0 ? "Checking its login…" : char.ToUpper(state[0]) + state[1..],
-                    Attention = same || state.Contains("refused") || state.Contains("expired") || state.Contains("not signed in") || state.Contains("unreadable"),
+                    State = state.Length == 0 ? L10n.Text("Checking its login…") : char.ToUpper(state[0]) + state[1..],
+                    Attention = SharingText.Troubled(key, result, same, DateTimeOffset.UtcNow),
                     Icon = PresetIcon(PresetOf(key, accounts)),
                     Figures = profile is not null && UsageMonitor.Peek(profile)?.Usage is { } usage
-                        ? (usage.FiveHour is int five ? $"5h {five}% · " : "") + $"Week {usage.Week}%"
+                        ? usage.FiveHour is int five ? L10n.Format("5h {0}% · Week {1}%", five, usage.Week) : L10n.Format("Week {0}%", usage.Week)
                         : "",
                 };
             }).ToList());
@@ -469,7 +469,7 @@ public sealed partial class MainPage : Page
             next.Save();
             PoolAccounts.ForgetUnused(next);
         }
-        catch (IOException ex) { _ = Warn("Shared usage was left as it was", ex.Message); return; }
+        catch (IOException ex) { _ = Warn(L10n.Text("Shared usage was left as it was"), ex.Message); return; }
         ShowSharing();
         App.Instance.SyncSharingSoon();
     }
@@ -496,7 +496,7 @@ public sealed partial class MainPage : Page
                 Tag = (row, key),
             };
             AutomationProperties.SetAutomationId(item, Spoken.Id("manager", row.Key, "sharing.lender"));
-            AutomationProperties.SetName(item, $"Draw on {name}");
+            AutomationProperties.SetName(item, L10n.Format("Draw on {0}", name));
             item.Click += SharingLender_Click;
             menu.Items.Add(item);
         }
@@ -512,16 +512,16 @@ public sealed partial class MainPage : Page
                 Tag = (row, account.Id),
             };
             AutomationProperties.SetAutomationId(item, Spoken.Id("manager", row.Key, "sharing.account"));
-            AutomationProperties.SetName(item, $"Draw on {account.Name}");
+            AutomationProperties.SetName(item, L10n.Format("Draw on {0}", account.Name));
             item.Click += SharingLender_Click;
             menu.Items.Add(item);
         }
         menu.Items.Add(new MenuFlyoutSeparator());
-        var signIn = new MenuFlyoutItem { Text = "Sign in to another account…" };
+        var signIn = new MenuFlyoutItem { Text = L10n.Text("Sign in to another account…") };
         AutomationProperties.SetAutomationId(signIn, Spoken.Id("manager", row.Key, "sharing.signIn"));
         signIn.Click += async (_, _) => await SignInToLend(row);
         menu.Items.Add(signIn);
-        var about = new MenuFlyoutItem { Text = "About shared usage…" };
+        var about = new MenuFlyoutItem { Text = L10n.Text("About shared usage…") };
         AutomationProperties.SetAutomationId(about, Spoken.Id("manager", row.Key, "sharing.about"));
         about.Click += async (_, _) => await ExplainSharing(agree: false);
         menu.Items.Add(about);
@@ -543,7 +543,7 @@ public sealed partial class MainPage : Page
             next.Save();
             PoolAccounts.ForgetUnused(next);
         }
-        catch (IOException ex) { await Warn("Shared usage was left as it was", ex.Message); return; }
+        catch (IOException ex) { await Warn(L10n.Text("Shared usage was left as it was"), ex.Message); return; }
         ShowSharing();
         App.Instance.SyncSharingSoon();
     }
@@ -561,13 +561,13 @@ public sealed partial class MainPage : Page
         using var cancel = new CancellationTokenSource();
         var waiting = new ContentDialog
         {
-            Title = "Sign in to another account",
+            Title = L10n.Text("Sign in to another account"),
             Content = new TextBlock
             {
-                Text = "Finish signing in in your browser. Choose the account this Claude should draw on; it cannot be the one this Claude already uses.",
+                Text = L10n.Text("Finish signing in in your browser. Choose the account this Claude should draw on; it cannot be the one this Claude already uses."),
                 TextWrapping = TextWrapping.Wrap,
             },
-            CloseButtonText = "Cancel",
+            CloseButtonText = L10n.Text("Cancel"),
         };
         PrepareDialog(waiting);
         waiting.Closed += (_, _) => cancel.Cancel();
@@ -582,14 +582,14 @@ public sealed partial class MainPage : Page
         // Only one dialog may be open at a time, so the warning waits for it to go.
         waiting.Hide();
         await shown;
-        if (failure is not null) await Warn("The account was not added", failure);
+        if (failure is not null) await Warn(L10n.Text("The account was not added"), failure);
         if (account is null) return;
         try
         {
             var stored = PoolAccounts.Add(account);
             SharedChats.SetLender(UsageSharing.Load(), row.SharingKey, stored.Id, true).Save();
         }
-        catch (IOException ex) { await Warn("The account was not added", ex.Message); return; }
+        catch (IOException ex) { await Warn(L10n.Text("The account was not added"), ex.Message); return; }
         ShowSharing();
         App.Instance.SyncSharingSoon();
     }
@@ -600,10 +600,10 @@ public sealed partial class MainPage : Page
     {
         var dialog = new ContentDialog
         {
-            Title = "Shared usage",
+            Title = L10n.Text("Shared usage"),
             Content = new TextBlock { Text = SharingText.Explanation, TextWrapping = TextWrapping.Wrap },
-            PrimaryButtonText = agree ? "Turn On" : "",
-            CloseButtonText = agree ? "Cancel" : "OK",
+            PrimaryButtonText = agree ? L10n.Text("Turn On") : "",
+            CloseButtonText = agree ? L10n.Text("Cancel") : L10n.Text("OK"),
             DefaultButton = agree ? ContentDialogButton.Close : ContentDialogButton.None,
         };
         PrepareDialog(dialog);
@@ -621,22 +621,21 @@ public sealed partial class MainPage : Page
         var names = string.Join(", ", open.Select(o => o.Name).Distinct());
         var dialog = new ContentDialog
         {
-            Title = "Restart Claude to finish updating?",
+            Title = L10n.Text("Restart Claude to finish updating?"),
             Content = new TextBlock
             {
                 TextWrapping = TextWrapping.Wrap,
-                Text = $"These Claudes will close and open again on Claude Desktop {ClaudeUpdateCenter.Installed}: {names}.\n\n"
-                    + "Anything running in them stops — a Claude Code session, a task in progress, an open terminal. "
-                    + "Finish or save that work first. A Claude that will not close is left open, never forced.",
+                Text = L10n.Format("These Claudes will close and open again on Claude Desktop {0}: {1}.\n\nAnything running in them stops — a Claude Code session, a task in progress, an open terminal. Finish or save that work first. A Claude that will not close is left open, never forced.",
+                    ClaudeUpdateCenter.Installed, names),
             },
-            PrimaryButtonText = "Restart",
-            CloseButtonText = "Cancel",
+            PrimaryButtonText = L10n.Text("Restart"),
+            CloseButtonText = L10n.Text("Cancel"),
             DefaultButton = ContentDialogButton.Close,
         };
         PrepareDialog(dialog);
         if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
         if (await ClaudeUpdateCenter.RestartAsync(open) is string problem)
-            await Warn("Some Claudes stayed open", problem);
+            await Warn(L10n.Text("Some Claudes stayed open"), problem);
     }
 
     private async void Start_Click(object sender, RoutedEventArgs e)
@@ -724,6 +723,10 @@ public sealed partial class MainPage : Page
         if (row.Opening) return;
         row.RecheckLinkHandler();
 
+        var neighbours = App.Store.ChatStoreNeighbours(row.Shortcut);
+        var sharers = await Task.Run(() => ChatConflict.OpenSharers(row.ProfileDir, neighbours));
+        if (sharers.Count > 0 && !await AskOpenAnyway(sharers)) return;
+
         // Before opening, never after: Claude builds its sidebar at launch, so the
         // copy has to happen first to land in the window about to open.
         if (row.Shortcut is { } s && row.Elsewhere is { } found
@@ -759,13 +762,12 @@ public sealed partial class MainPage : Page
     /// button of its own. Returns whether to go on and open the window.
     private async Task<bool> AskAboutChats(ShortcutRow row, Shortcut s, Graft.ChatsElsewhere found)
     {
-        var dontAsk = new CheckBox { Content = "Don't ask again for this account" };
+        var dontAsk = new CheckBox { Content = L10n.Text("Don't ask again for this account") };
         var body = new StackPanel { Spacing = 12 };
         body.Children.Add(new TextBlock
         {
-            Text = row.ElsewhereNote
-                   + "\n\nClaude builds its sidebar as it starts, so bringing them over now is what puts "
-                   + "them in the window about to open. Every Claude has to be closed for that.",
+            Text = L10n.Format("{0}\n\nClaude builds its sidebar as it starts, so bringing them over now is what puts them in the window about to open. Every Claude has to be closed for that.",
+                row.ElsewhereNote),
             TextWrapping = TextWrapping.Wrap,
         });
         body.Children.Add(dontAsk);
@@ -773,12 +775,12 @@ public sealed partial class MainPage : Page
         var dialog = new ContentDialog
         {
             Title = found.Merging
-                ? "Merge this account's other chats in first?"
-                : "Bring this account's chats across first?",
+                ? L10n.Text("Merge this account's other chats in first?")
+                : L10n.Text("Bring this account's chats across first?"),
             Content = body,
             PrimaryButtonText = row.AdoptLabel,
-            SecondaryButtonText = "Open Without Them",
-            CloseButtonText = "Cancel",
+            SecondaryButtonText = L10n.Text("Open Without Them"),
+            CloseButtonText = L10n.Text("Cancel"),
             DefaultButton = ContentDialogButton.Primary,
         };
         PrepareDialog(dialog);
@@ -819,23 +821,23 @@ public sealed partial class MainPage : Page
         var profile = row.ProfileDir;
         if (Staging.For(profile)?.ChatsElsewhere is not null)
         {
-            row.CopiedNote = "Nothing copied — this offer was staged from the debug window";
+            row.CopiedNote = L10n.Text("Nothing copied — this offer was staged from the debug window");
             return new Graft.Adoption();
         }
         Graft.Adoption result;
         try { result = await Task.Run(() => Graft.AdoptChats(found.Profile, profile, found.Account)); }
         catch (StateBusyException e)
         {
-            if (Rows.Contains(row)) row.CopiedNote = "Nothing copied — " + e.Message;
+            if (Rows.Contains(row)) row.CopiedNote = L10n.Format("Nothing copied — {0}", e.Message);
             return new Graft.Adoption();
         }
         if (!Rows.Contains(row)) return result;
 
         row.CopiedNote = result.Running.Count > 0
-            ? "Nothing copied — quit " + NamesOf(result.Running) + " first"
+            ? L10n.Format("Nothing copied — quit {0} first", NamesOf(result.Running))
             : result.Copied == 0
-                ? "Nothing was copied"
-                : $"{ShortcutRow.Chats(result.Copied)} copied from {App.Store.NameOfProfile(found.Profile)}";
+                ? L10n.Text("Nothing was copied")
+                : L10n.Plural(result.Copied, "{0} chat copied from {1}", "{0} chats copied from {1}", App.Store.NameOfProfile(found.Profile));
 
         // Once they are here the offer stops being made, and after a partial copy
         // the count drops to whatever is still missing.
@@ -845,17 +847,7 @@ public sealed partial class MainPage : Page
 
     /// A list of profiles as a sentence: "Claude", "Claude and Claude-Work",
     /// "Claude, Claude-Work and Claude-Play".
-    private static string NamesOf(IReadOnlyList<string> profiles)
-    {
-        var names = profiles.Select(App.Store.NameOfProfile).ToList();
-        return names.Count switch
-        {
-            0 => "",
-            1 => names[0],
-            2 => names[0] + " and " + names[1],
-            _ => string.Join(", ", names.Take(names.Count - 1)) + " and " + names[^1],
-        };
-    }
+    private static string NamesOf(IReadOnlyList<string> profiles) => L10n.List(profiles.Select(App.Store.NameOfProfile).ToList());
 
     /// Fills each eligible row's "chats found elsewhere" offer, off the UI thread
     /// because it walks every profile's stores. Only a shortcut keeping its own
@@ -939,29 +931,27 @@ public sealed partial class MainPage : Page
                 catch (IOException) { open = true; }
                 if (open)
                 {
-                    await Warn("Close Claude first",
-                        $"“{existing.Name}” is open. Quit its Claude window before changing the folder — "
-                        + "moving a profile's files while Claude is using them could lose chats.");
+                    await Warn(L10n.Text("Close Claude first"),
+                        L10n.Format("“{0}” is open. Quit its Claude window before changing the folder — moving a profile's files while Claude is using them could lose chats.", existing.Name));
                     return false;
                 }
                 Graft.ProfileMove moved;
                 try { moved = await Task.Run(() => Graft.MoveProfileFolder(previousFolder, shortcut.Folder)); }
                 catch (StateBusyException e)
                 {
-                    await Warn("The profile was not moved", e.Message);
+                    await Warn(L10n.Text("The profile was not moved"), e.Message);
                     return false;
                 }
                 if (moved == Graft.ProfileMove.TargetExists)
                 {
-                    await Warn("That folder is already in use",
-                        $"A folder named “{shortcut.Folder}” already exists. Pick a name that is not in use, "
-                        + "so nothing there is overwritten.");
+                    await Warn(L10n.Text("That folder is already in use"),
+                        L10n.Format("A folder named “{0}” already exists. Pick a name that is not in use, so nothing there is overwritten.", shortcut.Folder));
                     return false;
                 }
                 if (moved == Graft.ProfileMove.Failed)
                 {
-                    await Warn("Could not move the profile",
-                        "Its files could not be moved, so nothing was changed. Make sure its Claude is closed and try again.");
+                    await Warn(L10n.Text("Could not move the profile"),
+                        L10n.Text("Its files could not be moved, so nothing was changed. Make sure its Claude is closed and try again."));
                     return false;
                 }
             }
@@ -974,15 +964,13 @@ public sealed partial class MainPage : Page
             try { await Task.Run(() => Graft.Apply(config)); }
             catch (StateBusyException)
             {
-                await Warn("Chats were not set up yet",
-                    "Graft was still finishing another change, so nothing was moved. "
-                    + "It is set up the next time this profile opens.");
+                await Warn(L10n.Text("Chats were not set up yet"),
+                    L10n.Text("Graft was still finishing another change, so nothing was moved. It is set up the next time this profile opens."));
             }
             catch (UnreadableStateException ex)
             {
-                await Warn("Chats were not set up yet",
-                    $"{Path.GetFileName(ex.Path)} could not be read, so nothing was moved. "
-                    + "It is set up the next time this profile opens with that file readable.");
+                await Warn(L10n.Text("Chats were not set up yet"),
+                    L10n.Format("{0} could not be read, so nothing was moved. It is set up the next time this profile opens with that file readable.", Path.GetFileName(ex.Path)));
             }
 
             try
@@ -999,7 +987,7 @@ public sealed partial class MainPage : Page
             }
             catch (Installer.InstallException ex)
             {
-                await Warn("Could not create the shortcut", ex.Message);
+                await Warn(L10n.Text("Could not create the shortcut"), ex.Message);
             }
             return true;
         }
@@ -1007,21 +995,32 @@ public sealed partial class MainPage : Page
 
     private async Task ConfirmDelete(Shortcut shortcut)
     {
-        var deleteData = new CheckBox { Content = "Also delete its chats and login (cannot be undone)" };
+        // Asked before the question, so it never offers what would leave the
+        // shortcut gone and its folder stranded behind a running Claude.
+        var open = await Task.Run(() => ClaudeProcesses.IsRunning(shortcut.ProfileDir));
+        var deleteData = new CheckBox { Content = L10n.Text("Also delete its chats and login (cannot be undone)"), IsEnabled = !open };
+        AutomationProperties.SetAutomationId(deleteData, "delete.alsoData");
         var body = new StackPanel { Spacing = 10 };
         body.Children.Add(new TextBlock
         {
-            Text = $"“{shortcut.Name}” will be removed from the list.",
+            Text = L10n.Format("“{0}” will be removed from the list.", shortcut.Name),
             TextWrapping = TextWrapping.Wrap,
         });
         body.Children.Add(deleteData);
+        if (open)
+            body.Children.Add(new TextBlock
+            {
+                Text = L10n.Format("“{0}” is open, so its chats and login cannot be deleted now. Quit it first to delete them too.", shortcut.Name),
+                TextWrapping = TextWrapping.Wrap,
+                Foreground = Themed.Brush("TextFillColorSecondaryBrush"),
+            });
 
         var confirm = new ContentDialog
         {
-            Title = "Remove profile?",
+            Title = L10n.Text("Remove profile?"),
             Content = body,
-            PrimaryButtonText = "Remove",
-            CloseButtonText = "Cancel",
+            PrimaryButtonText = L10n.Text("Remove"),
+            CloseButtonText = L10n.Text("Cancel"),
             DefaultButton = ContentDialogButton.Close,
         };
         PrepareDialog(confirm);
@@ -1032,10 +1031,18 @@ public sealed partial class MainPage : Page
         string? problem;
         // Deleting touches a folder Claude may still be letting go of; whatever
         // goes wrong there is a warning to show, never a reason to crash.
-        try { problem = App.Store.Delete(shortcut.Id, deletingProfile: deleteData.IsChecked == true); }
+        var deletingData = deleteData.IsChecked == true;
+        // Asked again: the Claude may have opened while the question was up.
+        if (App.Store.DeletionRefusal(shortcut, deletingData,
+                deletingData && await Task.Run(() => ClaudeProcesses.IsRunning(shortcut.ProfileDir))) is string refusal)
+        {
+            await Warn(L10n.Text("Nothing was removed"), refusal);
+            return;
+        }
+        try { problem = App.Store.Delete(shortcut.Id, deletingProfile: deletingData); }
         catch (StateBusyException e)
         {
-            await Warn("Nothing was removed", e.Message);
+            await Warn(L10n.Text("Nothing was removed"), e.Message);
             return;
         }
         catch (Exception e)
@@ -1044,17 +1051,32 @@ public sealed partial class MainPage : Page
             {
                 ["profile"] = shortcut.Folder, ["error"] = e.GetType().Name + ": " + e.Message,
             });
-            problem = "Something went wrong removing it: " + e.Message;
+            problem = L10n.Format("Something went wrong removing it: {0}", e.Message);
         }
         Installer.Uninstall(shortcut);
         Reload();
 
-        if (problem is not null) await Warn("The profile folder was kept", problem);
+        if (problem is not null) await Warn(L10n.Text("The profile folder was kept"), problem);
     }
 
-    private Task WarnListUnreadable() => Warn("The profile list could not be read",
-        "shortcuts.json in %APPDATA%\\ClaudeGraft would not read, so nothing is saved over it "
-        + "until it does. Your profiles and their chats are untouched.");
+    private Task WarnListUnreadable() => Warn(L10n.Text("The profile list could not be read"),
+        L10n.Text("shortcuts.json in %APPDATA%\\ClaudeGraft would not read, so nothing is saved over it until it does. Your profiles and their chats are untouched."));
+
+    /// Whether to open a Claude while others on the same chats are open.
+    private async Task<bool> AskOpenAnyway(IReadOnlyList<string> sharers)
+    {
+        var dialog = new ContentDialog
+        {
+            Title = ChatConflict.Title,
+            Content = new TextBlock { Text = ChatConflict.Message(sharers), TextWrapping = TextWrapping.Wrap },
+            PrimaryButtonText = L10n.Text("Open Anyway"),
+            CloseButtonText = L10n.Text("Cancel"),
+            DefaultButton = ContentDialogButton.Close,
+        };
+        PrepareDialog(dialog);
+        AutomationProperties.SetAutomationId(dialog, "chatConflict");
+        return await dialog.ShowAsync() == ContentDialogResult.Primary;
+    }
 
     private async Task Warn(string title, string message)
     {
@@ -1062,7 +1084,7 @@ public sealed partial class MainPage : Page
         {
             Title = title,
             Content = message,
-            CloseButtonText = "OK",
+            CloseButtonText = L10n.Text("OK"),
         };
         PrepareDialog(dialog);
         await dialog.ShowAsync();

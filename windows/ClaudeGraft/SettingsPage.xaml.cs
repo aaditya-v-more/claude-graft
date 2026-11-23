@@ -12,7 +12,7 @@ namespace ClaudeGraft;
 /// </summary>
 public sealed partial class SettingsPage : Page
 {
-    private const string AboutLine = "Keeps reporting usage in the notification area after its window is closed; quit it from there";
+    private static string AboutLine => L10n.Text("Keeps reporting usage in the notification area after its window is closed; quit it from there");
     private bool _loading;
     private Updater.Release? _update;
 
@@ -45,6 +45,8 @@ public sealed partial class SettingsPage : Page
         StartHiddenSwitch.IsOn = current.StartHidden;
         HoldUpdatesSwitch.IsOn = current.HoldUpdates;
         TaskbarStripSwitch.IsOn = current.TaskbarStrip;
+        FrontIconSwitch.IsOn = current.FrontIcon;
+        FrontNameSwitch.IsOn = current.FrontName;
         ChimeSwitch.IsOn = current.Chime;
         // Only an install Graft can update by hand can safely stop updating itself.
         ManualClaudeCard.Visibility = ClaudeDesktopUpdates.IsSquirrel ? Visibility.Visible : Visibility.Collapsed;
@@ -67,6 +69,8 @@ public sealed partial class SettingsPage : Page
             StartHidden = StartHiddenSwitch.IsOn,
             HoldUpdates = HoldUpdatesSwitch.IsOn,
             TaskbarStrip = TaskbarStripSwitch.IsOn,
+            FrontIcon = FrontIconSwitch.IsOn,
+            FrontName = FrontNameSwitch.IsOn,
             Chime = ChimeSwitch.IsOn,
             // Set elsewhere, but a save must not drop them.
             KeepMainWarm = current.KeepMainWarm,
@@ -119,8 +123,8 @@ public sealed partial class SettingsPage : Page
             ManualClaudeSwitch.IsOn = !wanted;
             _loading = false;
             ManualClaudeCard.Description = ex is StateBusyException
-                ? "Claude's updates were left as they were: " + ex.Message
-                : "Claude's updates were left as they were: its settings could not be written.";
+                ? L10n.Format("Claude's updates were left as they were: {0}", ex.Message)
+                : L10n.Text("Claude's updates were left as they were: its settings could not be written.");
         }
         ClaudeUpdateCenter.Redraw();
     }
@@ -129,51 +133,54 @@ public sealed partial class SettingsPage : Page
     {
         _update = App.AvailableUpdate;
         CheckButton.IsEnabled = true;
-        CheckButton.Content = _update is null ? "Check for Updates" : $"Install Update {_update.Version}";
-        ShowStatus(_update is null ? null : $"Version {_update.Version} is available.");
+        CheckButton.Content = _update is null ? L10n.Text("Check for Updates") : L10n.Format("Install Update {0}", _update.Version);
+        ShowStatus(_update is null ? null : L10n.Format("Version {0} is available.", _update.Version));
     }
 
     private void ReflectDownload()
     {
         if (App.UpdateDownload is not { } fraction) return;
         CheckButton.IsEnabled = false;
-        CheckButton.Content = $"Downloading… {(int)Math.Round(fraction * 100)}%";
+        CheckButton.Content = L10n.Format("Downloading… {0}%", (int)Math.Round(fraction * 100));
     }
 
     // Unlike the flyout, which stays quiet like the Mac dropdown, this page reports the
     // outcome in words: a person who pressed is owed an answer.
+    private void Email_Click(object sender, RoutedEventArgs e) =>
+        _ = Windows.System.Launcher.LaunchUriAsync(new Uri(Links.Mail()));
+
     private async void Check_Click(object sender, RoutedEventArgs e)
     {
         if (_update is not null)
         {
             CheckButton.IsEnabled = false;
-            CheckButton.Content = "Downloading…";
+            CheckButton.Content = L10n.Text("Downloading…");
             if (!await App.Instance.InstallUpdateAsync(_update))
             {
                 ReflectUpdate();
-                ShowStatus("The update could not be downloaded.");
+                ShowStatus(L10n.Text("The update could not be downloaded."));
             }
             return;
         }
 
         CheckButton.IsEnabled = false;
-        CheckButton.Content = "Checking for Updates…";
+        CheckButton.Content = L10n.Text("Checking for Updates…");
         ShowStatus(null);
         try
         {
             var found = await App.Instance.RunUpdateCheckAsync();
             ReflectUpdate();
-            if (found is null) ShowStatus("You’re up to date.");
+            if (found is null) ShowStatus(L10n.Text("You’re up to date."));
         }
         catch (GraftUpdates.NotInstalledException)
         {
             ReflectUpdate();
-            ShowStatus("This copy wasn’t installed by Claude Graft’s setup, so it can’t update itself.");
+            ShowStatus(L10n.Text("This copy wasn’t installed by Claude Graft’s setup, so it can’t update itself."));
         }
         catch
         {
             ReflectUpdate();
-            ShowStatus("Couldn’t reach the update server.");
+            ShowStatus(L10n.Text("Couldn’t reach the update server."));
         }
     }
 

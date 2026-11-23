@@ -3,6 +3,7 @@
     x:Class="ClaudeGraft.ProjectsPage"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="using:ClaudeGraft"
     Background="Transparent">
     <Grid>
         <Grid.RowDefinitions>
@@ -22,10 +23,10 @@
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
             <FontIcon Glyph="&#xE8B7;" FontSize="16" Foreground="{StaticResource GraftTextFillColorSecondaryBrush}" AutomationProperties.AccessibilityView="Raw" />
-            <TextBlock Grid.Column="1" Text="Projects" Style="{StaticResource BodyStrongTextBlockStyle}" VerticalAlignment="Center" />
+            <TextBlock Grid.Column="1" local:Localized.Text="Projects" Style="{StaticResource BodyStrongTextBlockStyle}" VerticalAlignment="Center" />
             <Button Style="{StaticResource InfoGlyphButton}" Grid.Column="2"
-                    AutomationProperties.Name="About Projects" AutomationProperties.AutomationId="projects.info"
-                    ToolTipService.ToolTip="About Projects">
+                    local:Localized.AutomationName="About Projects" AutomationProperties.AutomationId="projects.info"
+                    local:Localized.ToolTip="About Projects">
                 <FontIcon Glyph="&#xE946;" FontSize="14" />
                 <Button.Flyout>
                     <Flyout>
@@ -38,20 +39,20 @@
                 <StackPanel x:Name="AccountChips" Orientation="Horizontal" Spacing="6" />
             </ScrollViewer>
             <Button Grid.Column="4" x:Name="AddAccountButton" Click="AddAccount_Click"
-                    AutomationProperties.AutomationId="projects.addAccount" AutomationProperties.Name="Add Account"
-                    ToolTipService.ToolTip="Sign in to another claude.ai account">
+                    AutomationProperties.AutomationId="projects.addAccount" local:Localized.AutomationName="Add Account"
+                    local:Localized.ToolTip="Sign in to another claude.ai account">
                 <StackPanel Orientation="Horizontal" Spacing="8">
                     <FontIcon Glyph="&#xE710;" FontSize="14" />
-                    <TextBlock x:Name="AddAccountText" Text="Add Account…" />
+                    <TextBlock x:Name="AddAccountText" local:Localized.Text="Add Account…" />
                 </StackPanel>
             </Button>
             <Button Grid.Column="5" x:Name="RefreshButton" Click="Refresh_Click" Padding="8" Style="{StaticResource SubtleButtonStyle}"
-                    ToolTipService.ToolTip="Ask claude.ai for every account's projects again"
-                    AutomationProperties.Name="Refresh Projects" AutomationProperties.AutomationId="projects.refresh">
+                    local:Localized.ToolTip="Ask claude.ai for every account's projects again"
+                    local:Localized.AutomationName="Refresh Projects" AutomationProperties.AutomationId="projects.refresh">
                 <Grid>
                     <FontIcon x:Name="RefreshIcon" Glyph="&#xE72C;" FontSize="14" />
                     <ProgressRing x:Name="RefreshRing" Width="16" Height="16" IsActive="False" Visibility="Collapsed"
-                                  AutomationProperties.Name="Asking claude.ai" />
+                                  local:Localized.AutomationName="Asking claude.ai" />
                 </Grid>
             </Button>
         </Grid>
@@ -61,8 +62,8 @@
                 <ColumnDefinition Width="220" />
                 <ColumnDefinition Width="*" />
             </Grid.ColumnDefinitions>
-            <TextBox x:Name="FilterBox" PlaceholderText="Filter" TextChanged="Filter_Changed"
-                     AutomationProperties.Name="Filter Projects" AutomationProperties.AutomationId="projects.filter" />
+            <TextBox x:Name="FilterBox" local:Localized.PlaceholderText="Filter" TextChanged="Filter_Changed"
+                     local:Localized.AutomationName="Filter Projects" AutomationProperties.AutomationId="projects.filter" />
             <TextBlock Grid.Column="1" x:Name="CountText" HorizontalAlignment="Right" VerticalAlignment="Center"
                        Style="{StaticResource CaptionTextBlockStyle}" Foreground="{StaticResource GraftTextFillColorSecondaryBrush}"
                        AutomationProperties.AutomationId="projects.count" />
@@ -70,8 +71,8 @@
 
         <StackPanel Grid.Row="2" x:Name="SignedOutPanel" Spacing="10" HorizontalAlignment="Center" VerticalAlignment="Center" Visibility="Collapsed">
             <FontIcon Glyph="&#xE8B7;" FontSize="34" Foreground="{StaticResource GraftTextFillColorTertiaryBrush}" AutomationProperties.AccessibilityView="Raw" />
-            <TextBlock Text="Sign in to see projects" HorizontalAlignment="Center" AutomationProperties.AutomationId="projects.signInNote" />
-            <Button Content="Sign In…" HorizontalAlignment="Center" Click="AddAccount_Click" AutomationProperties.AutomationId="projects.signIn" />
+            <TextBlock local:Localized.Text="Sign in to see projects" HorizontalAlignment="Center" AutomationProperties.AutomationId="projects.signInNote" />
+            <Button local:Localized.Content="Sign In…" HorizontalAlignment="Center" Click="AddAccount_Click" AutomationProperties.AutomationId="projects.signIn" />
             <TextBlock x:Name="SignInHint" HorizontalAlignment="Center" Style="{StaticResource CaptionTextBlockStyle}"
                        Foreground="{StaticResource GraftTextFillColorSecondaryBrush}" AutomationProperties.AutomationId="projects.signInHint" />
         </StackPanel>

@@ -1,3 +1,5 @@
+using ClaudeGraft.Core;
+
 namespace ClaudeGraft;
 
 /// <summary>
@@ -12,5 +14,9 @@ public static class Spoken
 
     public static string Act(string action, string name) => $"{action} {name}";
 
-    public static string KeepWarm(string name) => $"Keep {name}'s 5-hour window open automatically";
+    public static string StartIn(string name) => L10n.Format("Start Session in {0}", name);
+
+    public static string RefreshFor(string name) => L10n.Format("Refresh Usage for {0}", name);
+
+    public static string KeepWarm(string name) => L10n.Format("Keep {0}'s 5-hour window open automatically", name);
 }

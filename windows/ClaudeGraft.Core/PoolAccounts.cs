@@ -25,7 +25,7 @@ public sealed record PoolAccount
     /// The colour it wears beside its name, handed out once; null until given one.
     public string? IconPreset { get; init; }
 
-    public string Name => Email ?? OrganizationName ?? "Signed-in account";
+    public string Name => Email ?? OrganizationName ?? L10n.Text("Signed-in account");
     public static bool IsAccount(string key) => key.StartsWith(Prefix, StringComparison.Ordinal);
 }
 

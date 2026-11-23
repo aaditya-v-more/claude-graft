@@ -45,7 +45,9 @@ Windows, clean machine:
 7. Download `ClaudeGraftApp-win-Setup.exe` from the prerelease page in a
    browser and run it.
    Expect: Graft installs and starts, its notification-area icon appears, and
-   Settings › About says X.Y.Z.
+   Settings › About says X.Y.Z. The Startup folder's `Claude Graft` shortcut
+   runs `ClaudeGraft.exe --autostart`, and opening Graft from Start shows its
+   window on the first try.
 
 Windows, previous machine:
 8. Quit Graft with `ClaudeGraft.exe --quit`. From PowerShell start it on the
