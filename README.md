@@ -6,13 +6,14 @@
 
 <p>
   <b>1× is less but 5× is too much.</b> <i>(Or 20× is less, lol.)</i><br>
-  Run multiple Claude accounts on one Mac, at once.
+  Run multiple Claude Desktop accounts side by side on Mac or Windows.
 </p>
 
 <p>
   <a href="https://github.com/aaditya-v-more/claude-graft/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/aaditya-v-more/claude-graft?style=for-the-badge&logo=github&logoColor=white&labelColor=1C1A17&color=C2410C"></a>
   <a href="https://github.com/aaditya-v-more/claude-graft/releases"><img alt="Total downloads" src="https://img.shields.io/github/downloads/aaditya-v-more/claude-graft/total?style=for-the-badge&logo=github&logoColor=white&label=Total%20downloads&labelColor=1C1A17&color=C2410C"></a>
   <a href="https://github.com/aaditya-v-more/homebrew-claude-graft"><img alt="Homebrew cask" src="https://img.shields.io/badge/Homebrew-cask-C2410C?style=for-the-badge&logo=homebrew&logoColor=white&labelColor=1C1A17"></a>
+  <a href="windows/README.md#install"><img alt="Windows x64" src="https://img.shields.io/badge/Windows-x64-C2410C?style=for-the-badge&labelColor=1C1A17"></a>
   <img alt="macOS 13+" src="https://img.shields.io/badge/macOS-13%2B-C2410C?style=for-the-badge&logo=apple&logoColor=white&labelColor=1C1A17">
   <a href="https://github.com/aaditya-v-more/claude-graft/stargazers"><img alt="Stars" src="https://img.shields.io/github/stars/aaditya-v-more/claude-graft?style=for-the-badge&logo=github&logoColor=white&labelColor=1C1A17&color=C2410C"></a>
   <a href="LICENSE"><img alt="MIT licence" src="https://img.shields.io/github/license/aaditya-v-more/claude-graft?style=for-the-badge&labelColor=1C1A17&color=C2410C"></a>
@@ -37,11 +38,17 @@ One Claude login is never quite the right amount. Claude Graft runs all your
 Claude accounts at the same time, each in its own Claude Desktop and signed in
 on its own, so switching never means signing out. They share their usage too:
 when one account nears its five-hour or weekly limit, Claude Code carries on
-with another's. It lives in the menu bar, and it is free and open source.
+with another's. Graft lives in the Mac menu bar or the Windows notification area. It is free and open source.
 
-Claude Graft also runs on Windows, from the notification area, ported by [Tyler](https://github.com/snowtyler) with parts of [James](https://github.com/jamesql)'s port. The [Windows guide](windows/README.md) covers installing it, building it and how it differs.
+The Windows app was ported by [Tyler](https://github.com/snowtyler) with parts of [James](https://github.com/jamesql)'s port. The [Windows guide](windows/README.md) covers installing it, building it and how it differs.
 
 ## Install
+
+Install Claude Desktop first on either platform.
+
+**Windows (x64):** Download `ClaudeGraftApp-win-Setup.exe` from [Releases](https://github.com/aaditya-v-more/claude-graft/releases), run it, then open **Claude Graft** from Start. The installer also sets up automatic updates. See the [Windows guide](windows/README.md#install).
+
+**Mac (Intel or Apple silicon):** Install with Homebrew:
 
 ```sh
 brew install --cask aaditya-v-more/claude-graft/claude-graft
@@ -77,7 +84,7 @@ reading another Claude's chats is a choice you make.
 
 <img src="docs/images/02-new-claude.png" width="820" alt="A new Claude, reading its own chats">
 
-## The menu bar
+## The Mac menu bar
 
 The menu bar says which Claude is in front, with its icon and its account's
 usage, and its name too if you like. While a Claude shares usage, the bar shows
