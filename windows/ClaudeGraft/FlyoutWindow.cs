@@ -22,7 +22,9 @@ public sealed class FlyoutWindow : Window
     private readonly FlyoutView _view = new();
     private bool _shown;
     private bool _hiding;
-    private bool _animating;
+    private bool _animating, _stopping;
+    private int _slideId;
+    private Task _slide = Task.CompletedTask;
     private bool _refitPending;
     private PointInt32 _anchor;
     private FlyoutEdge _edge;
@@ -81,6 +83,9 @@ public sealed class FlyoutWindow : Window
         // hover anywhere over the view.
         _view.KeyboardAcceleratorPlacementMode = Microsoft.UI.Xaml.Input.KeyboardAcceleratorPlacementMode.Hidden;
 
+        // Alt+F4 dismisses the flyout too; its next opening reuses this window.
+        AppWindow.Closing += DismissOnClose;
+
         // Losing focus is the light-dismiss: a click anywhere else takes it away.
         Activated += (_, e) =>
         {
@@ -88,10 +93,17 @@ public sealed class FlyoutWindow : Window
         };
     }
 
+    private void DismissOnClose(AppWindow sender, AppWindowClosingEventArgs args)
+    {
+        args.Cancel = true;
+        Hide();
+    }
+
     private bool _centred, _pendingCentred;
 
     public void Toggle(PointInt32 anchor, nint priorForeground, bool centred = false)
     {
+        if (_stopping) return;
         _pendingCentred = centred;
         if (_shown) Hide();
         else Show(anchor, priorForeground);
@@ -230,16 +242,21 @@ public sealed class FlyoutWindow : Window
     // front, WinUI stops ticking this window and the slide ran as one frame.
     private void SlideWindow(PointInt32 from, PointInt32 to, int ms, bool easeIn, Action onDone)
     {
+        if (_stopping) return;
         _animating = true;
         var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
         var rest = _rect;
         var ui = DispatcherQueue;
-        new Thread(() =>
+        var id = Interlocked.Increment(ref _slideId);
+        var previous = _slide;
+        _slide = Task.Run(async () =>
         {
+            await previous.ConfigureAwait(false);
             var clock = Stopwatch.StartNew();
             double t;
             do
             {
+                if (id != Volatile.Read(ref _slideId)) return;
                 t = Math.Min(1.0, clock.Elapsed.TotalMilliseconds / ms);
                 // Power-5 in or out, to match EverythingToolbar's feel.
                 var eased = easeIn ? Math.Pow(t, 5) : 1 - Math.Pow(1 - t, 5);
@@ -248,8 +265,13 @@ public sealed class FlyoutWindow : Window
                 SetWindowPos(hwnd, 0, rest.X + dx, rest.Y + dy, 0, 0, SwpNoSize | SwpNoZOrder | SwpNoActivate);
                 DwmFlush();
             } while (t < 1.0);
-            ui.TryEnqueue(() => { _animating = false; onDone(); });
-        }) { IsBackground = true, Name = "flyout slide" }.Start();
+            ui.TryEnqueue(() =>
+            {
+                if (id != _slideId) return;
+                _animating = false;
+                onDone();
+            });
+        });
     }
 
     /// Sizes the window to the content and tucks it against the taskbar. Held off
@@ -321,7 +343,7 @@ public sealed class FlyoutWindow : Window
         // rebuilding one that has not changed is wasted work.
         if (_appliedBackdrop != App.Settings.Backdrop)
         {
-            _backdrop?.Dispose();
+            ReleaseBackdrop();
             _backdrop = BuildController(App.Settings.Backdrop);
             if (_backdrop is not null)
             {
@@ -335,6 +357,35 @@ public sealed class FlyoutWindow : Window
             }
             _appliedBackdrop = App.Settings.Backdrop;
         }
+    }
+
+    internal async Task PrepareForExitAsync()
+    {
+        _stopping = true;
+        _shown = false;
+        Interlocked.Increment(ref _slideId);
+        App.SettingsChanged -= ApplyAppearance;
+        // A move already sent to this HWND must finish while its dispatcher can still answer.
+        try
+        {
+            await _slide;
+            AppWindow.Hide();
+        }
+        finally
+        {
+            AppWindow.Closing -= DismissOnClose;
+            ReleaseBackdrop();
+        }
+    }
+
+    private void ReleaseBackdrop()
+    {
+        if (_backdrop is null) return;
+        // Detaching clears the window's brush; once XAML has exited there is no window to clear.
+        var controller = _backdrop;
+        _backdrop = null;
+        try { controller.RemoveAllSystemBackdropTargets(); }
+        finally { controller.Dispose(); }
     }
 
     private void SyncBackdropTheme()

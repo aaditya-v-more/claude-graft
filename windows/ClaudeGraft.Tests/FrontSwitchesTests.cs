@@ -30,6 +30,7 @@ public class FrontSwitchesTests
         Assert.Contains("updated.FrontName == Settings.FrontName", app);
         Assert.Contains("Settings.FrontIcon ? marks :", app);
         Assert.Contains("Settings.FrontName ?", app);
+        Assert.Contains("a.Name == b.Name", Read("TaskbarStrip.cs"));
     }
 
     private static string WindowsRoot([CallerFilePath] string here = "") =>
