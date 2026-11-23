@@ -10,15 +10,23 @@ Setup: Graft installed from the build under test. Quit it with
    Expect: the sidebar, Claude's page with its plan usage card and
    countdowns, and the bottom buttons are in Russian. Nothing is cut off
    mid-word or overlaps; Update/Обновить stays visible at the smallest size.
-   Take a picture at each size.
+   Read the full freshness line without hovering. At minimum height, Claude,
+   the two test shortcuts, New Shortcut and Settings stay in view together
+   with the sidebar expanded. Take a picture at each size. If there is no
+   real Update button, in Settings › About press the Graft version card's
+   icon seven times to open the debug window. Set Claude Desktop to
+   “Update available”, inspect the sidebar, then put it back to “As it is”
+   and close that window. Label that picture staged; do not install anything.
 2. Select Test A, then open its editor (name, folder, reads chats from), then
    press Delete without confirming.
    Expect: every label, the source list and the delete question are Russian.
    Cancel.
-3. Open Settings and scroll through it.
+3. In Settings visit each section from the picker, including О программе.
    Expect: every card, switch label ("Вкл."/"Выкл." or the like), combo box,
    the Help and feedback card's four links and About are Russian and fit.
-   Take a picture of the top and of About.
+   At minimum width, the Help and feedback heading and description must be
+   readable along with all four links, not a mostly empty card. Take pictures
+   of Appearance and About. Use the fit check in [smoke.md](smoke.md).
 4. Open the flyout from the taskbar strip, not the notification area.
    Expect: the account rows, Запустить сессию and Открыть, the 5-hour, week
    and Fable bars, the status lines and the bottom menu are Russian, and the

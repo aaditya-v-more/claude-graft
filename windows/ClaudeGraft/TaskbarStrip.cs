@@ -21,9 +21,7 @@ internal sealed class TaskbarStrip : IDisposable
     public sealed record Face(IReadOnlyList<Mark> Marks, string? Usage, string? Title, Signal Signal = Signal.None, string? Name = null);
 
     private readonly Action<Windows.Graphics.PointInt32> _click;
-    private readonly WndProc _proc;
-    private readonly nint _instance;
-    private nint _hwnd, _parent;
+    private readonly TaskbarStripWindow _window;
     private readonly System.Threading.Timer _place;
     private readonly Microsoft.UI.Dispatching.DispatcherQueue _ui;
     private System.Threading.Timer? _scroll;
@@ -50,14 +48,7 @@ internal sealed class TaskbarStrip : IDisposable
     {
         _click = click;
         _ui = Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread();
-        _proc = Proc;
-        var wc = new WNDCLASSEX
-        {
-            cbSize = (uint)Marshal.SizeOf<WNDCLASSEX>(), lpfnWndProc = Marshal.GetFunctionPointerForDelegate(_proc),
-            hInstance = GetModuleHandle(null), lpszClassName = "ClaudeGraftTaskbarStrip", hCursor = LoadCursor(0, 32512),
-        };
-        RegisterClassEx(ref wc);
-        _instance = wc.hInstance;
+        _window = new TaskbarStripWindow(Proc);
         // The taskbar moves and resizes without telling anyone, so it is asked again.
         _place = new System.Threading.Timer(_ =>
         {
@@ -76,34 +67,19 @@ internal sealed class TaskbarStrip : IDisposable
     }
 
     private static bool Same(Face a, Face b) =>
-        a.Usage == b.Usage && a.Title == b.Title && a.Signal == b.Signal && a.Marks.SequenceEqual(b.Marks);
+        a.Name == b.Name && a.Usage == b.Usage && a.Title == b.Title && a.Signal == b.Signal && a.Marks.SequenceEqual(b.Marks);
 
     // MARK: Placement
 
-    // A child of the taskbar rather than a topmost window over it: the taskbar lifts
-    // itself over every topmost window whenever it takes focus, and the strip blinked.
-    // A taskbar restarted with Explorer takes its children with it, so the strip is
-    // made again whenever the one it sat in is gone.
-    private void Adopt()
-    {
-        var bar = FindWindow("Shell_TrayWnd", null);
-        if (bar == _parent && IsWindow(_hwnd)) return;
-        if (_hwnd != 0 && IsWindow(_hwnd)) DestroyWindow(_hwnd);
-        _parent = bar;
-        _shown = false;
-        _hwnd = bar == 0 ? 0 : CreateWindowEx(WS_EX_LAYERED | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
-            "ClaudeGraftTaskbarStrip", "Claude Graft", WS_CHILD | WS_CLIPSIBLINGS, 0, 0, 1, 1, bar, 0, _instance, 0);
-    }
-
     private void Place()
     {
-        Adopt();
-        if (_hwnd == 0) return;
+        if (_window.Attach(FindWindow("Shell_TrayWnd", null))) _shown = false;
+        if (_window.Handle == 0) return;
         var where = Where();
         // The tray icon stays whatever runs; the strip is only for a Claude to report on.
         if (where is not RECT at || _face is null || System.Diagnostics.Process.GetProcessesByName("claude").Length == 0)
         {
-            if (_shown) { ShowWindow(_hwnd, 0); _shown = false; }
+            if (_shown) { ShowWindow(_window.Handle, 0); _shown = false; }
             StopScroll();
             return;
         }
@@ -112,7 +88,7 @@ internal sealed class TaskbarStrip : IDisposable
             _at = at;
             Draw();
         }
-        if (!_shown) { ShowWindow(_hwnd, 8); _shown = true; }
+        if (!_shown) { ShowWindow(_window.Handle, 8); _shown = true; }
     }
 
     /// The band left of the notification area on a top or bottom taskbar, or null where
@@ -174,7 +150,7 @@ internal sealed class TaskbarStrip : IDisposable
 
     private void Draw()
     {
-        if (_face is not { } face || _at.Right <= _at.Left) return;
+        if (_window.Handle == 0 || _face is not { } face || _at.Right <= _at.Left) return;
         var scale = Scale(FindWindow("Shell_TrayWnd", null));
         int Px(double dip) => (int)Math.Round(dip * scale);
         var light = TaskbarIsLight();
@@ -288,9 +264,9 @@ internal sealed class TaskbarStrip : IDisposable
 
         var left = _at.Right - width - Px(8);
         var top = _at.Top + (_at.Bottom - _at.Top - height) / 2;
-        if (left < _at.Left || _hwnd == 0) return;
+        if (left < _at.Left) return;
         // A child is placed in the taskbar's own coordinates.
-        SetWindowPos(_hwnd, 0, left - _at.Left, top - _at.Top, bitmap.Width, bitmap.Height, SWP_NOACTIVATE);
+        SetWindowPos(_window.Handle, 0, left - _at.Left, top - _at.Top, bitmap.Width, bitmap.Height, SWP_NOACTIVATE);
         Push(bitmap);
     }
 
@@ -352,7 +328,7 @@ internal sealed class TaskbarStrip : IDisposable
             var size = new SIZE { cx = bitmap.Width, cy = bitmap.Height };
             var from = new POINT();
             var blend = new BLENDFUNCTION { BlendOp = 0, SourceConstantAlpha = 255, AlphaFormat = 1 };
-            UpdateLayeredWindow(_hwnd, screen, 0, ref size, memory, ref from, 0, ref blend, 2);
+            UpdateLayeredWindow(_window.Handle, screen, 0, ref size, memory, ref from, 0, ref blend, 2);
         }
         finally
         {
@@ -437,7 +413,7 @@ internal sealed class TaskbarStrip : IDisposable
 
     // MARK: Window
 
-    private nint Proc(nint hwnd, uint msg, nint w, nint l)
+    private nint? Proc(nint hwnd, uint msg, nint w, nint l)
     {
         switch (msg)
         {
@@ -465,28 +441,26 @@ internal sealed class TaskbarStrip : IDisposable
             case WM_MOUSEACTIVATE:
                 return 3;   // MA_NOACTIVATE: a click here must not take focus from the app in front
         }
-        return DefWindowProc(hwnd, msg, w, l);
+        return null;
     }
 
     public void Dispose()
     {
+        _window.Dispose();
+        _face = null;
+        _washClock = null;
         _place.Dispose();
         _washTimer?.Dispose();
         StopScroll();
-        if (IsWindow(_hwnd)) DestroyWindow(_hwnd);
         foreach (var image in _icons.Values) image?.Dispose();
+        _icons.Clear();
     }
 
     // MARK: Win32
 
-    private const int WS_EX_LAYERED = 0x80000, WS_EX_TOOLWINDOW = 0x80, WS_EX_NOACTIVATE = 0x8000000;
     private const uint WM_MOUSEMOVE = 0x200, WM_LBUTTONDOWN = 0x201, WM_LBUTTONUP = 0x202, WM_MOUSELEAVE = 0x2A3, WM_MOUSEACTIVATE = 0x21;
     private const uint TME_LEAVE = 2, ABM_GETSTATE = 4, ABS_AUTOHIDE = 1;
     private const uint SWP_NOSIZE = 1, SWP_NOMOVE = 2, SWP_NOACTIVATE = 0x10;
-
-    private delegate nint WndProc(nint hwnd, uint msg, nint w, nint l);
-    [DllImport("user32.dll")] private static extern bool IsWindow(nint hwnd);
-    private const uint WS_CHILD = 0x40000000, WS_CLIPSIBLINGS = 0x04000000;
 
     [StructLayout(LayoutKind.Sequential)] private struct RECT { public int Left, Top, Right, Bottom; }
     [StructLayout(LayoutKind.Sequential)] private struct POINT { public int x, y; }
@@ -495,17 +469,7 @@ internal sealed class TaskbarStrip : IDisposable
     [StructLayout(LayoutKind.Sequential)] private struct TRACKMOUSEEVENT { public uint cbSize, dwFlags; public nint hwndTrack; public uint dwHoverTime; }
     [StructLayout(LayoutKind.Sequential)] private struct APPBARDATA { public uint cbSize; public nint hWnd; public uint uCallbackMessage, uEdge; public RECT rc; public nint lParam; }
     [StructLayout(LayoutKind.Sequential)] private struct MONITORINFO { public uint cbSize; public RECT rcMonitor, rcWork; public uint dwFlags; }
-    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
-    private struct WNDCLASSEX
-    {
-        public uint cbSize, style; public nint lpfnWndProc; public int cbClsExtra, cbWndExtra;
-        public nint hInstance, hIcon, hCursor, hbrBackground; public string? lpszMenuName; public string lpszClassName; public nint hIconSm;
-    }
 
-    [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern ushort RegisterClassEx(ref WNDCLASSEX wc);
-    [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern nint CreateWindowEx(int exStyle, string cls, string name, uint style, int x, int y, int w, int h, nint parent, nint menu, nint instance, nint param);
-    [DllImport("user32.dll")] private static extern nint DefWindowProc(nint hwnd, uint msg, nint w, nint l);
-    [DllImport("user32.dll")] private static extern bool DestroyWindow(nint hwnd);
     [DllImport("user32.dll")] private static extern bool ShowWindow(nint hwnd, int cmd);
     [DllImport("user32.dll")] private static extern bool SetWindowPos(nint hwnd, nint after, int x, int y, int cx, int cy, uint flags);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern nint FindWindow(string cls, string? name);
@@ -515,7 +479,6 @@ internal sealed class TaskbarStrip : IDisposable
     [DllImport("user32.dll")] private static extern nint MonitorFromWindow(nint hwnd, uint flags);
     [DllImport("user32.dll")] private static extern bool GetMonitorInfo(nint monitor, ref MONITORINFO info);
     [DllImport("user32.dll")] private static extern bool TrackMouseEvent(ref TRACKMOUSEEVENT e);
-    [DllImport("user32.dll")] private static extern nint LoadCursor(nint instance, int id);
     [DllImport("user32.dll")] private static extern nint GetDC(nint hwnd);
     [DllImport("user32.dll")] private static extern int ReleaseDC(nint hwnd, nint dc);
     [DllImport("user32.dll")] private static extern bool UpdateLayeredWindow(nint hwnd, nint dst, nint to, ref SIZE size, nint src, ref POINT from, int key, ref BLENDFUNCTION blend, int flags);
@@ -523,7 +486,6 @@ internal sealed class TaskbarStrip : IDisposable
     [DllImport("gdi32.dll")] private static extern bool DeleteDC(nint dc);
     [DllImport("gdi32.dll")] private static extern nint SelectObject(nint dc, nint obj);
     [DllImport("gdi32.dll")] private static extern bool DeleteObject(nint obj);
-    [DllImport("kernel32.dll", CharSet = CharSet.Unicode)] private static extern nint GetModuleHandle(string? name);
     [DllImport("shell32.dll")] private static extern uint SHAppBarMessage(uint msg, ref APPBARDATA data);
     [DllImport("shell32.dll")] private static extern int SHQueryUserNotificationState(out int state);
 }

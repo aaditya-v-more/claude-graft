@@ -14,6 +14,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Compile Include="..\ClaudeGraft\TaskbarStripWindow.cs" Link="TaskbarStripWindow.cs" />
     <ProjectReference Include="..\ClaudeGraft.Core\ClaudeGraft.Core.csproj" />
     <!-- Built, not referenced: the loopback tests run it as its own process. -->
     <ProjectReference Include="..\GraftRelay\GraftRelay.csproj" ReferenceOutputAssembly="false" SkipGetTargetFrameworkProperties="true" />

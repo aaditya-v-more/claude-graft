@@ -89,6 +89,7 @@ public partial class App : Application
         if (!done) Diagnostics.Note("chime.hook-unchanged", new Dictionary<string, object?> { ["wanted"] = Settings.Chime, ["launcher"] = launcher });
     }
 
+    private bool _quitting;
     private TaskbarIcon? _tray;
     private MainWindow? _window;
     private FlyoutWindow? _flyout;
@@ -547,7 +548,7 @@ public partial class App : Application
     /// wearing that shortcut's icon; with none in front it is Graft's own.
     private void ShowTray()
     {
-        if (_tray is null) return;
+        if (_quitting || _tray is null) return;
         var front = FrontClaude.Profile;
         var shortcut = front is null ? null : Store.Shortcuts.FirstOrDefault(s => Fs.SamePath(s.ProfileDir, front));
         if (UpdateDownload is { } f)
@@ -657,7 +658,7 @@ public partial class App : Application
         // The Mac's wording: "Version X is available" installs it, otherwise the
         // plain "Check for Updates".
         items.Add(AvailableUpdate is { } ready
-            ? (L10n.Format("Version {0} is available", ready.Version), true, () => _ = InstallUpdateAsync(ready))
+            ? (L10n.Format("Version {0} is available", ready.Version), true, () => OnUi(() => _ = InstallUpdateAsync(ready)))
             : (L10n.Text("Check for Updates"), true, () => _ = CheckForUpdates()));
         items.Add((L10n.Text("Manage Profiles…"), true, ShowManager));
         items.Add((L10n.Text("Settings…"), true, ShowSettings));
@@ -721,8 +722,16 @@ public partial class App : Application
     // Explorer until Windows notices. The manager goes as a close does, hidden first.
     private async Task ShutDown()
     {
+        if (_quitting) return;
+        _quitting = true;
+        Diagnostics.Note("app.quit", new Dictionary<string, object?> { ["pid"] = Environment.ProcessId });
         _strip?.Dispose();
         _strip = null;
+        if (_flyout is not null)
+        {
+            try { await _flyout.PrepareForExitAsync(); }
+            catch (Exception e) { Record("flyout.shutdown", e); }
+        }
         if (_window is { } window && window.AppWindow.IsVisible)
         {
             window.AppWindow.Hide();
@@ -731,6 +740,8 @@ public partial class App : Application
         _tray?.Dispose();
         WindowIdentity.Stop();
         FrontClaude.Stop();
+        _window?.CloseForExit();
+        _flyout?.Close();
         Exit();
     }
 
@@ -738,8 +749,9 @@ public partial class App : Application
     /// tray's message-window thread.
     private void OnUi(Action action)
     {
-        if (_ui is null || _ui.HasThreadAccess) action();
-        else _ui.TryEnqueue(() => action());
+        void Run() { if (!_quitting) action(); }
+        if (_ui is null || _ui.HasThreadAccess) Run();
+        else _ui.TryEnqueue(Run);
     }
 }
 

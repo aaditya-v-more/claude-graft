@@ -146,10 +146,10 @@ developer's LinkedIn profile, the source and the tip jar. The menu is only on
 screen while the window is, since the app is an accessory the rest of the
 time; the dropdown keeps its own Donate item for that reason.
 
-The tip jar is called Donate on both systems, with a filled heart in the same
-red: #E0492B on a light background and #EE5A3A on a dark one, where the deeper
-red loses its weight. The heart is coloured and the word is not, so it reads
-as the link beside Source rather than a warning.
+The tip jar is called Donate on both systems. On Mac only the filled heart is
+coloured: #E0492B on a light background, #EE5A3A on a dark one. Windows uses
+an outline heart in the text colour. Its [flyout case](../../Tests/manual/windows-flyout-rows-and-donate.md)
+opens Donate before the manager has been shown.
 
 The email opens already addressed, with a subject naming the Graft version
 and a body ending in the Graft and macOS versions. The first reply to a
@@ -164,10 +164,19 @@ in measure, not the width it was arranged at. Settings' column is capped at
 1064 and asked for only what its widest card needed (846 at 100%), so once the
 window was wide enough for the cap to apply (about 1300 DIPs), the column was
 centred as if it were 846 wide: 109 px right of centre, its right side past the
-window. `HorizontalScrollMode="Disabled"` made no difference. Giving the
-column a fixed `Width` of `min(cap, viewport)` on every resize makes the two
-widths agree (`SettingsPage.Scroller_SizeChanged`). Measured on the second PC
-with a probe build at 1100, 1360 and maximised, 18 Nov 2026.
+window. Disabling horizontal scrolling made no difference; the old single
+column needed an explicit width on resize. Settings now caps the grid *outside*
+the scroller. The section picker stays above it, and only the selected section
+takes space. The ordinary sections should fit the smallest window; scrolling
+remains available on a short screen or with enlarged text.
+
+The Russian Help links used up the card's trailing Auto column, leaving its
+title and description in a nearly zero-width column. They now follow the
+description instead of competing with it. The usage heading likewise gives
+its freshness line a row when the words would otherwise be cut off. At short
+heights the sidebar gives the space from its captions back to the shortcuts.
+[The manager fit check](../../Tests/Layout/windows-manager.ps1) reads bounds
+and scroll ranges without bringing an off-screen item into view.
 
 ## Windows: TextChanged comes late
 

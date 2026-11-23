@@ -246,6 +246,7 @@
   "Sends one short message on its own whenever this account's five-hour window is found closed, so its five hours are always running. Nothing appears on screen.": "Сам отправляет одно короткое сообщение, когда пятичасовой лимит этой учётной записи оказывается закрыт, чтобы её пять часов всегда шли. На экране ничего не появляется.",
   "Sends one short message to this account so its five-hour window opens. Nothing appears on screen.\n\nIt uses that profile's own login, borrowed the same way the usage figures are, so each account can be started separately.": "Отправляет одно короткое сообщение от этой учётной записи, чтобы открыть её пятичасовой лимит. На экране ничего не появляется.\n\nИспользуются собственные данные входа профиля — так же, как при получении данных об использовании, — поэтому каждую учётную запись можно запускать отдельно.",
   "Settings": "Параметры",
+  "Settings section": "Раздел параметров",
   "Shared usage": "Общие лимиты",
   "Shared with You": "Доступные вам",
   "Shortcut icon": "Иконка ярлыка",
