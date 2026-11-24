@@ -188,7 +188,6 @@ internal sealed class TaskbarStrip : IDisposable
             g.InterpolationMode = InterpolationMode.HighQualityBicubic;
             // Never fully clear, or clicks fall through to the taskbar.
             var alpha = Math.Max(1, (int)Math.Round(_wash));
-            var wash = light ? 0 : 255;
             // Edges on pixel boundaries: centred on them, the 1 px top line spread over
             // two rows at half strength and vanished.
             g.PixelOffsetMode = PixelOffsetMode.Half;
@@ -198,8 +197,9 @@ internal sealed class TaskbarStrip : IDisposable
             // One shape, border included: Explorer's border is the fill's own alpha on
             // hover and press, and a fill meeting a ring left a faint seam at each corner.
             using (var path = Rounded(outer, Px(4)))
-            using (var brush = new SolidBrush(Color.FromArgb(alpha, wash, wash, wash))) g.FillPath(brush, path);
-            if (_hover && !_pressed && !light) DrawEdge(g, outer, inner, Px(4), line, Px(3));
+            using (var brush = new SolidBrush(Color.FromArgb(alpha, 255, 255, 255))) g.FillPath(brush, path);
+            if (_hover && light) DrawLightEdge(g, outer, inner, Px(4), line, _pressed ? 0 : Px(3));
+            else if (_hover && !_pressed) DrawEdge(g, outer, inner, Px(4), line, Px(3));
             g.PixelOffsetMode = PixelOffsetMode.Default;
 
             var x = pad;
@@ -273,7 +273,7 @@ internal sealed class TaskbarStrip : IDisposable
 
     // Explorer's dark-bar hover lights the border's top: #1A white over the first third
     // of a 3px gradient, settling to the #0F fill below. Laid over the fill rather than
-    // replacing it, so its edges cannot dip below the fill. Light bar unmeasured.
+    // replacing it, so its edges cannot dip below the fill.
     private static void DrawEdge(Graphics g, Rectangle outer, Rectangle inner, int radius, int line, int glow)
     {
         using var ring = Rounded(outer, radius);
@@ -292,6 +292,32 @@ internal sealed class TaskbarStrip : IDisposable
         var clip = g.Clip;
         g.SetClip(new Rectangle(outer.Left, outer.Top, outer.Width, glow));
         g.FillPath(lit, ring);
+        g.Clip = clip;
+    }
+
+    // Explorer's light-bar border is the dark one flipped: #05 black all round, deepening
+    // to #0F over the bottom third of a 3px gradient on hover. Flat #05 when pressed.
+    private static void DrawLightEdge(Graphics g, Rectangle outer, Rectangle inner, int radius, int line, int shade)
+    {
+        using var ring = Rounded(outer, radius);
+        ring.AddPath(Rounded(inner, Math.Max(1, radius - line)), false);
+        ring.FillMode = FillMode.Alternate;
+        using (var flat = new SolidBrush(Color.FromArgb(5, 0, 0, 0))) g.FillPath(flat, ring);
+        if (shade == 0) return;
+        // 10 over 5 makes 15: (15 - 5) / (255 - 5) of full black.
+        var deep = Color.FromArgb(10, 0, 0, 0);
+        var band = new Rectangle(outer.Left, outer.Bottom - shade, outer.Width, shade);
+        using var dark = new LinearGradientBrush(new Rectangle(0, band.Top - 1, 1, shade + 1), Color.Empty, Color.Empty, LinearGradientMode.Vertical)
+        {
+            InterpolationColors = new ColorBlend
+            {
+                Colors = [Color.FromArgb(0, 0, 0, 0), deep, deep],
+                Positions = [0f, 0.67f, 1f],
+            },
+        };
+        var clip = g.Clip;
+        g.SetClip(band);
+        g.FillPath(dark, ring);
         g.Clip = clip;
     }
 
@@ -385,11 +411,12 @@ internal sealed class TaskbarStrip : IDisposable
         _scroll = null;
     }
 
-    // Alphas from Explorer's TaskListButton: hover #0F, pressed #0A on a dark bar.
+    // White alphas from Explorer's TaskListButton: hover #0F, pressed #0A on a dark bar;
+    // hover #B3, pressed #4C on a light one.
     private double WashTarget()
     {
         var light = TaskbarIsLight();
-        return !_hover ? 0 : _pressed ? (light ? 6 : 10) : (light ? 9 : 15);
+        return !_hover ? 0 : _pressed ? (light ? 76 : 10) : (light ? 179 : 15);
     }
 
     // A frame every 16 ms while the wash moves, and no timer once it has arrived.
