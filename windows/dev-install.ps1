@@ -7,7 +7,7 @@
 # the full setup: applying an update runs neither.
 
 param(
-    # The Electron the sidebar helper runs on; the version staged beside the installed copy by default.
+    # The Electron the sidebar helper runs on; electron-version.txt by default.
     [string]$ElectronVersion
 )
 
@@ -21,20 +21,17 @@ if (-not (Test-Path $update)) { throw "Graft is not installed with its setup. Ru
 # A Python vpk on PATH is a different program, so the .NET tool is named by its path.
 if (-not (Test-Path $vpk)) { throw "vpk not found. Install it with: dotnet tool install -g vpk --version 1.2.161" }
 
-if (-not $ElectronVersion) {
-    $staged = Join-Path $root 'current\electron\version'
-    $ElectronVersion = if (Test-Path $staged) { (Get-Content $staged -Raw).Trim().TrimStart('v') } else { '44.4.4' }
-}
+# Below the release it leads to, so the real one still installs over a development build.
+$base = (Get-Content (Join-Path $here '..\VERSION') -Raw).Trim()
+$suffix = "-dev.$(Get-Date -Format 'yyyyMMddHHmmss')"
+$version = "$base$suffix"
 
 Write-Host "Publishing..."
-dotnet publish (Join-Path $here 'ClaudeGraft\ClaudeGraft.csproj') -c Release -p:Platform=x64 -o (Join-Path $here 'dist\ClaudeGraft') -nologo -v q
+# The same suffix goes into the build, so Graft shows the package it was installed from.
+dotnet publish (Join-Path $here 'ClaudeGraft\ClaudeGraft.csproj') -c Release -p:Platform=x64 "-p:GraftVersionSuffix=$suffix" -o (Join-Path $here 'dist\ClaudeGraft') -nologo -v q
 if ($LASTEXITCODE -ne 0) { throw "publish failed" }
 & (Join-Path $here 'fetch-electron.ps1') -Version $ElectronVersion | Out-Null
 if (-not (Test-Path (Join-Path $here 'dist\ClaudeGraft\electron\resources\default_app.asar'))) { throw "Electron was not staged" }
-
-# Below the release it leads to, so the real one still installs over a development build.
-$base = (Get-Content (Join-Path $here '..\VERSION') -Raw).Trim()
-$version = "$base-dev.$(Get-Date -Format 'yyyyMMddHHmmss')"
 # A fresh folder each time: a virus scan of the last package can hold it for a moment.
 $out = Join-Path $here "dist\dev-packages\$version"
 Write-Host "Packing $version..."
