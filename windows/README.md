@@ -21,6 +21,10 @@ among them the sign-in routing and the rollback of a project order write that
 fails partway. That port is
 [aaditya-v-more/claude-graft#9](https://github.com/aaditya-v-more/claude-graft/pull/9).
 
+## Install
+
+Install Claude Desktop on your Windows PC. From [Claude Graft releases](https://github.com/aaditya-v-more/claude-graft/releases), download `ClaudeGraftApp-win-Setup.exe` (x64), not an `.nupkg` update package. Run the installer, then open **Claude Graft** from Start. Choose **New Shortcut** to add another Claude profile.
+
 ## Layout
 
 - `ClaudeGraft.Core` — the graft itself, with no UI: profiles, the stash, the
