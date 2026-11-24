@@ -594,8 +594,7 @@ public sealed partial class MainPage : Page
         App.Instance.SyncSharingSoon();
     }
 
-    /// Said once, before the first account is added, since what it does to a
-    /// conversation and what the plans' terms say are for the person to weigh.
+    /// Before the first account is added, explain where a shared request goes.
     private async Task<bool> ExplainSharing(bool agree)
     {
         var dialog = new ContentDialog

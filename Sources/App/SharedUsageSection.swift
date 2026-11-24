@@ -21,8 +21,7 @@ struct SharedUsageSection: View {
         own account, and the Chat tab is never shared.
 
         A request answered by another account carries the conversation to that \
-        account. Anthropic's terms for Claude plans may not allow one person to \
-        combine subscriptions this way, so read them before adding one.
+        account.
         """)
 
     var body: some View {
