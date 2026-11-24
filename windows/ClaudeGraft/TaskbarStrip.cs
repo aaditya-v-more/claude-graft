@@ -134,7 +134,8 @@ internal sealed class TaskbarStrip : IDisposable
         if (front == 0 || !GetWindowRect(front, out var r)) return false;
         var name = new System.Text.StringBuilder(64);
         GetClassName(front, name, name.Capacity);
-        if (name.ToString() is "Progman" or "WorkerW" or "Shell_TrayWnd" or "Shell_SecondaryTrayWnd") return false;
+        // The WinUI search flyout's frame spans the whole monitor though it draws only a panel.
+        if (name.ToString() is "Progman" or "WorkerW" or "Shell_TrayWnd" or "Shell_SecondaryTrayWnd" or "ShellUXFrameWindowClass") return false;
         var info = new MONITORINFO { cbSize = (uint)Marshal.SizeOf<MONITORINFO>() };
         return GetMonitorInfo(MonitorFromWindow(front, 2), ref info)
             && r.Left <= info.rcMonitor.Left && r.Top <= info.rcMonitor.Top
