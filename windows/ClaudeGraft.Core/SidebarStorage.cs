@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 
@@ -27,6 +28,40 @@ public static class SidebarStorage
         return null;
     }
 
+    /// The Electron major of the bundled runtime. A newer Chromium than Claude's may
+    /// upgrade the IndexedDB on disk to a format Claude cannot read back.
+    public static int? BundledElectronMajor(string electronExe) =>
+        MajorOf(FileVersionInfo.GetVersionInfo(electronExe).FileVersion);
+
+    /// Claude's own exe version resource is Claude's version, not Electron's; the
+    /// <c>version</c> file Electron ships beside its exe is the one that names it.
+    public static int? ClaudeElectronMajor(string claudeExe)
+    {
+        try { return MajorOf(File.ReadAllText(Path.Combine(Path.GetDirectoryName(claudeExe)!, "version"))); }
+        catch { return null; }
+    }
+
+    public static int? MajorOf(string? version)
+    {
+        var head = version?.Trim().TrimStart('v').Split('.')[0];
+        return int.TryParse(head, NumberStyles.None, CultureInfo.InvariantCulture, out var major) ? major : null;
+    }
+
+    /// Null when the two runtimes share a Chromium major; otherwise the reason to refuse.
+    public static string? RuntimeMismatch(int? bundled, int? claude) =>
+        bundled is null || claude is null || bundled != claude
+            ? $"runtime-mismatch (bundled Electron {bundled?.ToString() ?? "unknown"}, Claude's {claude?.ToString() ?? "unknown"})"
+            : null;
+
+    private static string RuntimeForSync()
+    {
+        var electron = ElectronExe() ?? throw new SidebarSync.Failure("runtime-unavailable");
+        var claude = ClaudeInstallation.Current?.Exe;
+        if (RuntimeMismatch(BundledElectronMajor(electron), claude is null ? null : ClaudeElectronMajor(claude)) is { } reason)
+            throw new SidebarSync.Failure(reason);
+        return electron;
+    }
+
     private static string PrepareApp()
     {
         var dir = Path.Combine(GraftPaths.OwnData, "sidebar-helper");
@@ -46,7 +81,7 @@ public static class SidebarStorage
     public static Dictionary<string, SidebarSnapshot> Run(IReadOnlyList<string> profiles,
         Dictionary<string, SidebarSnapshot>? changes, Dictionary<string, HashSet<string>> shared)
     {
-        var electron = ElectronExe() ?? throw new SidebarSync.Failure("runtime-unavailable");
+        var electron = RuntimeForSync();
         var appDir = PrepareApp();
         var scratch = Path.Combine(GraftPaths.OwnData, ".sidebar-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(scratch);
@@ -110,7 +145,7 @@ public static class SidebarStorage
     /// writes the entries given, and returns each profile's values by path.
     public static Dictionary<string, Dictionary<string, string>> Projects(string action, JsonArray profiles)
     {
-        var electron = ElectronExe() ?? throw new SidebarSync.Failure("runtime-unavailable");
+        var electron = RuntimeForSync();
         var appDir = PrepareApp();
         var scratch = Path.Combine(GraftPaths.OwnData, ".projects-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(scratch);
