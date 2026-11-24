@@ -23,7 +23,7 @@ fails partway. That port is
 
 ## Install
 
-Install Claude Desktop on your Windows PC. From [Claude Graft releases](https://github.com/aaditya-v-more/claude-graft/releases), download `ClaudeGraftApp-win-Setup.exe` (x64), not an `.nupkg` update package. Run the installer, then open **Claude Graft** from Start. Choose **New Shortcut** to add another Claude profile.
+Install Claude Desktop on your Windows PC. Download and run [ClaudeGraftApp-win-Setup.exe](https://github.com/aaditya-v-more/claude-graft/releases/latest/download/ClaudeGraftApp-win-Setup.exe) (x64), then open **Claude Graft** from Start. Choose **New Shortcut** to add another Claude profile.
 
 ## Layout
 

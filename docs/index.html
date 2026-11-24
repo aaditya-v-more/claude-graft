@@ -3,28 +3,28 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Claude Graft — run multiple Claude accounts on Mac or Windows</title>
-<meta name="description" content="Run multiple Claude Desktop accounts at once on Mac or Windows. When one hits its usage limit, Claude Code carries on with another's. Free and open source.">
+<title>Claude Graft | Run multiple Claude accounts on Mac and Windows</title>
+<meta name="description" content="Run multiple Claude Desktop accounts on macOS and Windows. When one hits its usage limit, Claude Code continues with another account. Free and open source.">
 <meta name="robots" content="max-image-preview:large">
 <link rel="canonical" href="https://graft.aadityamore.com/">
 <meta name="color-scheme" content="light dark">
 <meta name="theme-color" content="#faf8f5" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#12100d" media="(prefers-color-scheme: dark)">
-<meta property="og:title" content="Claude Graft — run multiple Claude accounts on Mac or Windows">
-<meta property="og:description" content="1× is less but 5× is too much. Run multiple Claude accounts at once on Mac or Windows, and let Claude Code carry on with another's usage when one hits its limit.">
+<meta property="og:title" content="Claude Graft | Run multiple Claude accounts on Mac and Windows">
+<meta property="og:description" content="Run multiple Claude Desktop accounts on macOS and Windows. When one hits its usage limit, Claude Code continues with another account. Free and open source.">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://graft.aadityamore.com/">
 <meta property="og:image" content="https://graft.aadityamore.com/images/00-shared-usage.png">
 <meta property="og:image:width" content="1640">
 <meta property="og:image:height" content="1120">
-<meta property="og:image:alt" content="Claude Graft's window, with a Claude drawing on Claude 2 and another account under Shared usage">
+<meta property="og:image:alt" content="Claude Graft on macOS showing three Claude accounts and their shared usage">
 <meta property="og:site_name" content="Claude Graft">
 <meta property="og:locale" content="en_US">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="Claude Graft — run multiple Claude accounts on Mac or Windows">
-<meta name="twitter:description" content="1× is less but 5× is too much. Run multiple Claude accounts at once on Mac or Windows, and let Claude Code carry on with another's usage when one hits its limit.">
+<meta name="twitter:title" content="Claude Graft | Run multiple Claude accounts on Mac and Windows">
+<meta name="twitter:description" content="Run multiple Claude Desktop accounts on macOS and Windows. When one hits its usage limit, Claude Code continues with another account. Free and open source.">
 <meta name="twitter:image" content="https://graft.aadityamore.com/images/00-shared-usage.png">
-<meta name="twitter:image:alt" content="Claude Graft's window, with a Claude drawing on Claude 2 and another account under Shared usage">
+<meta name="twitter:image:alt" content="Claude Graft on macOS showing three Claude accounts and their shared usage">
 <script type="application/ld+json">
 {
   "@context": "https://schema.org",
@@ -50,14 +50,17 @@
       "featureList": [
         "Run multiple Claude Desktop accounts at the same time, each signed in on a profile of its own",
         "Share usage, so Claude Code carries on with another account when one hits its limit",
-        "Every account's five-hour and weekly usage in the menu bar",
+        "See each account's five-hour and weekly usage in the Mac menu bar or the Windows taskbar flyout",
         "Artifacts, projects and chats from every account in one place"
       ],
       "screenshot": [
         "https://graft.aadityamore.com/images/00-shared-usage.png",
         "https://graft.aadityamore.com/images/03-dropdown.png"
       ],
-      "downloadUrl": "https://github.com/aaditya-v-more/claude-graft/releases/latest",
+      "downloadUrl": [
+        "https://github.com/aaditya-v-more/claude-graft/releases/download/v2.2.0/ClaudeGraft-2.2.0.dmg",
+        "https://github.com/aaditya-v-more/claude-graft/releases/latest/download/ClaudeGraftApp-win-Setup.exe"
+      ],
       "license": "https://opensource.org/licenses/MIT",
       "isAccessibleForFree": true,
       "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
@@ -91,7 +94,7 @@
         },
         {
           "@type": "Question",
-          "name": "Is this the same as duplicating Claude.app?",
+          "name": "Do I need to install a separate copy of Claude Desktop for every account?",
           "acceptedAnswer": { "@type": "Answer", "text": "No copy is made. Every shortcut opens the Claude Desktop you already have on a profile of its own, so every account stays on the current version and one update reaches them all. Each shortcut carries its own launcher and opens whether or not Graft is running." }
         },
         {
@@ -106,8 +109,8 @@
         },
         {
           "@type": "Question",
-          "name": "What does it need?",
-          "acceptedAnswer": { "@type": "Answer", "text": "Install Claude Desktop first. Graft runs on macOS 13 or later (Intel or Apple silicon) and Windows (x64). On Mac, sharing usage needs macOS 15 or later." }
+          "name": "How do I install Claude Graft on Mac or Windows?",
+          "acceptedAnswer": { "@type": "Answer", "text": "Install Claude Desktop first. On Windows (x64), run ClaudeGraftApp-win-Setup.exe and open Claude Graft from Start. On Mac, use the disk image or Homebrew. The Mac app requires macOS 13 or later, and shared usage on Mac requires macOS 15 or later." }
         },
         {
           "@type": "Question",
@@ -731,6 +734,7 @@ code.inline { font: .86em/1.4 var(--mono); background: var(--bg-deep); border: 1
 }
 .install .lead { margin-inline: auto; font-size: 1.05rem; }
 .steps { display: grid; grid-template-columns: minmax(0, 1fr); justify-items: center; gap: .9rem; max-width: 40rem; margin: 2rem auto 0; }
+.steps p { max-width: 34rem; color: var(--ink-soft); }
 .steps .cmd { width: 100%; text-align: left; }
 .or { display: flex; align-items: center; gap: .8rem; width: 100%; color: var(--ink-faint); font-size: .85rem; }
 .or::before, .or::after { content: ""; flex: 1; height: 1px; background: var(--line); }
@@ -835,7 +839,6 @@ html.js .reveal.in { opacity: 1; transform: none; }
   <symbol id="i-ring" viewBox="0 0 24 24"><rect x="2.8" y="7.2" width="9.6" height="9.6" rx="2.8"/><rect x="15" y="9" width="6.2" height="6.2" rx="1.8"/></symbol>
   <symbol id="i-marquee" viewBox="0 0 24 24"><path d="M3.5 9h11M3.5 15h17M17.5 6.5 20.5 9l-3 2.5"/></symbol>
   <symbol id="i-archive" viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="17" height="4.5" rx="1.4"/><path d="M5 9v8.6A2 2 0 0 0 7 19.5h10a2 2 0 0 0 2-1.9V9M10 12.5h4"/></symbol>
-  <symbol id="i-sparkle" viewBox="0 0 24 24"><path d="M12 3.5c.6 4.2 2.3 6 6.5 6.5-4.2.6-5.9 2.3-6.5 6.5-.6-4.2-2.3-5.9-6.5-6.5 4.2-.5 5.9-2.3 6.5-6.5Z"/><path d="M18.5 15.5c.2 1.6.9 2.3 2.5 2.5-1.6.2-2.3.9-2.5 2.5-.2-1.6-.9-2.3-2.5-2.5 1.6-.2 2.3-.9 2.5-2.5Z"/></symbol>
   <symbol id="i-cpu" viewBox="0 0 24 24"><rect x="6.5" y="6.5" width="11" height="11" rx="2.2"/><path d="M9.5 3.5v3M14.5 3.5v3M9.5 17.5v3M14.5 17.5v3M3.5 9.5h3M3.5 14.5h3M17.5 9.5h3M17.5 14.5h3"/></symbol>
   <symbol id="i-code" viewBox="0 0 24 24"><path d="m8.5 7.5-5 4.5 5 4.5M15.5 7.5l5 4.5-5 4.5M13.5 5l-3 14"/></symbol>
   <symbol id="i-wifi" viewBox="0 0 24 24"><path d="M2.6 9.2a13.5 13.5 0 0 1 18.8 0M5.7 12.4a9 9 0 0 1 12.6 0M8.8 15.6a4.6 4.6 0 0 1 6.4 0"/><circle cx="12" cy="18.6" r="1.1"/></symbol>
@@ -848,7 +851,7 @@ html.js .reveal.in { opacity: 1; transform: none; }
     <a class="brand" href="#top"><img src="assets/icon.png" width="28" height="28" alt=""><span>Claude Graft</span></a>
     <nav class="nav-links" aria-label="Sections">
       <a href="#shared">Shared usage</a>
-      <a href="#menu-bar">Menu bar</a>
+      <a href="#menu-bar">Usage display</a>
       <a href="#claudes">Shortcuts</a>
       <a href="#everything">Artifacts</a>
       <a href="#safe">Safety</a>
@@ -867,7 +870,7 @@ html.js .reveal.in { opacity: 1; transform: none; }
 <section class="hero" id="top">
   <div class="wrap hero-copy">
     <a class="pill" href="#shared"><span class="tag">New in 2.0</span><span class="txt">Claude Code carries on when an account runs out</span><svg class="i"><use href="#i-arrow"/></svg></a>
-    <h1><b>Claude Graft:</b> run multiple Claude accounts on Mac or Windows</h1>
+    <h1><b>Claude Graft:</b> run multiple Claude accounts on Mac and Windows</h1>
     <p class="display">1× is less but 5× is <em>too&nbsp;much.</em></p>
     <p class="aside">Or 20× is less, lol.</p>
     <p class="lead">One Claude login is never quite the right amount. <strong>Claude Graft</strong> runs
@@ -875,10 +878,10 @@ html.js .reveal.in { opacity: 1; transform: none; }
     so switching never means signing out. And they share their usage: when one hits its limit, Claude
     Code carries on with another's.</p>
     <div class="cta">
-      <a class="btn btn-primary" data-dmg href="https://github.com/aaditya-v-more/claude-graft/releases/download/v2.0.1/ClaudeGraft-2.0.1.dmg">
+      <a class="btn btn-primary" data-dmg href="https://github.com/aaditya-v-more/claude-graft/releases/download/v2.2.0/ClaudeGraft-2.2.0.dmg">
         <svg class="i"><use href="#i-download"/></svg> Download for Mac
       </a>
-      <a class="btn btn-primary" data-windows href="https://github.com/aaditya-v-more/claude-graft/releases/download/v2.1.1/ClaudeGraftApp-win-Setup.exe">
+      <a class="btn btn-primary" href="https://github.com/aaditya-v-more/claude-graft/releases/latest/download/ClaudeGraftApp-win-Setup.exe">
         <svg class="i"><use href="#i-download"/></svg> Download for Windows
       </a>
       <div class="cmd">
@@ -890,7 +893,6 @@ html.js .reveal.in { opacity: 1; transform: none; }
       </div>
     </div>
     <p class="meta">
-      <span><svg class="i"><use href="#i-sparkle"/></svg><span>Mac version <span data-version>2.0.1</span></span></span>
       <span><svg class="i"><use href="#i-cpu"/></svg>macOS 13+ · Windows (x64)</span>
       <span><svg class="i"><use href="#i-code"/></svg>Free and open source</span>
     </p>
@@ -989,7 +991,7 @@ html.js .reveal.in { opacity: 1; transform: none; }
       <div class="fact reveal">
         <span class="n"><svg class="i"><use href="#i-hand"/></svg></span>
         <h3>Lets you choose</h3>
-        <p>Pick the account for any conversation from the menu bar. Your choice holds until it has been quiet for a day.</p>
+        <p>Pick the account for a conversation from the Mac menu bar or Windows flyout. Your choice holds until the conversation has been quiet for a day.</p>
       </div>
       <div class="fact reveal">
         <span class="n"><svg class="i"><use href="#i-layers"/></svg></span>
@@ -1004,11 +1006,10 @@ html.js .reveal.in { opacity: 1; transform: none; }
 <section class="sec dark" id="menu-bar">
   <div class="wrap">
     <div class="head center reveal">
-      <p class="kicker">Usage in the menu bar</p>
+      <p class="kicker">Usage at a glance</p>
       <h2>Always know <em>who's answering.</em></h2>
-      <p class="lead">Graft's item shows the Claude in front and its account's usage. While it shares,
-      every account it draws on sits beside it, the one answering ringed in red, and the conversation on
-      screen runs across the bar.</p>
+      <p class="lead">Check account usage from the Mac menu bar or the Windows taskbar flyout.
+      The Mac preview below shows which account is answering and the title of the current conversation.</p>
     </div>
 
     <div class="stage reveal">
@@ -1214,7 +1215,7 @@ html.js .reveal.in { opacity: 1; transform: none; }
       <div class="card reveal">
         <span class="ci"><svg class="i"><use href="#i-out"/></svg></span>
         <h3>Leaves cleanly</h3>
-        <p>Remove the Homebrew cask and Graft takes its sharing back out of every Claude before it goes.</p>
+        <p>Uninstall through Homebrew on Mac or from Windows Settings. Graft removes its sharing settings from each Claude profile.</p>
       </div>
     </div>
   </div>
@@ -1245,7 +1246,7 @@ html.js .reveal.in { opacity: 1; transform: none; }
         the other one.</p>
       </div>
       <div class="qa reveal">
-        <h3>Is this the same as duplicating Claude.app?</h3>
+        <h3>Do I need to install a separate copy of Claude Desktop for every account?</h3>
         <p>No copy is made. Every shortcut opens the Claude Desktop you already have on a profile of its
         own, so every account stays on the current version and one update reaches them all. Each shortcut
         carries its own launcher and opens whether or not Graft is running.</p>
@@ -1262,8 +1263,10 @@ html.js .reveal.in { opacity: 1; transform: none; }
         puts each Claude's Code settings back as they were.</p>
       </div>
       <div class="qa reveal">
-        <h3>What does it need?</h3>
-        <p>Install Claude Desktop first. Graft runs on macOS 13 or later (Intel or Apple silicon) and Windows (x64). On Mac, sharing usage needs macOS 15 or later.</p>
+        <h3>How do I install Claude Graft on Mac or Windows?</h3>
+        <p>Install Claude Desktop first. On Windows (x64), run ClaudeGraftApp-win-Setup.exe and open
+        Claude Graft from Start. On Mac, use the disk image or Homebrew. The Mac app requires macOS 13
+        or later, and shared usage on Mac requires macOS 15 or later.</p>
       </div>
       <div class="qa reveal">
         <h3>Is Claude Graft made by Anthropic?</h3>
@@ -1277,11 +1280,16 @@ html.js .reveal.in { opacity: 1; transform: none; }
 <section class="sec" id="install">
   <div class="wrap">
     <div class="install reveal">
-      <p class="kicker">Install</p>
-      <h2>Two minutes, <em>no account.</em></h2>
-      <p class="lead">Install Claude Desktop first. On Windows, run the x64 installer and open Graft from Start. On Mac, use the disk image or Homebrew.</p>
-      <div class="steps">
-        <a class="btn btn-ghost" data-windows href="https://github.com/aaditya-v-more/claude-graft/releases/download/v2.1.1/ClaudeGraftApp-win-Setup.exe"><svg class="i"><use href="#i-download"/></svg>Download the Windows installer (.exe)</a>
+      <h2>Install Claude Graft</h2>
+      <p class="lead">Install Claude Desktop first, then choose the download for your computer.</p>
+      <section class="steps" id="install-windows" aria-labelledby="install-windows-title">
+        <h3 id="install-windows-title">Windows (x64)</h3>
+        <p>Run the installer, then open Claude Graft from Start.</p>
+        <a class="btn btn-ghost" href="https://github.com/aaditya-v-more/claude-graft/releases/latest/download/ClaudeGraftApp-win-Setup.exe"><svg class="i"><use href="#i-download"/></svg>Download the Windows installer (.exe)</a>
+      </section>
+      <section class="steps" id="install-mac" aria-labelledby="install-mac-title">
+        <h3 id="install-mac-title">Mac (Intel or Apple silicon)</h3>
+        <p>Requires macOS 13 or later. Shared usage on Mac requires macOS 15 or later.</p>
         <div class="cmd">
           <span class="prompt" aria-hidden="true">$</span>
           <code id="brew-install">brew install --cask aaditya-v-more/claude-graft/claude-graft</code>
@@ -1290,10 +1298,10 @@ html.js .reveal.in { opacity: 1; transform: none; }
           </button>
         </div>
         <div class="or">or</div>
-        <a class="btn btn-ghost" data-dmg href="https://github.com/aaditya-v-more/claude-graft/releases/download/v2.0.1/ClaudeGraft-2.0.1.dmg">
-          <svg class="i"><use href="#i-download"/></svg><span>Mac disk image · <span data-version>2.0.1</span></span>
+        <a class="btn btn-ghost" data-dmg href="https://github.com/aaditya-v-more/claude-graft/releases/download/v2.2.0/ClaudeGraft-2.2.0.dmg">
+          <svg class="i"><use href="#i-download"/></svg>Download the Mac disk image (.dmg)
         </a>
-      </div>
+      </section>
       <p class="fine">On Mac, Graft is ad-hoc signed rather than notarised, so the first open goes through
       <b>System Settings › Privacy &amp; Security</b>; the cask does that for you. Every release is on
       <a href="https://github.com/aaditya-v-more/claude-graft/releases">GitHub</a>.</p>
@@ -1366,26 +1374,16 @@ html.js .reveal.in { opacity: 1; transform: none; }
     });
   });
 
-  // The newest release, so the download stays current without editing this page.
+  // The Mac disk image's name includes its version.
   function useRelease(release) {
-    if (!release || !release.tag_name) return;
-    var version = String(release.tag_name).replace(/^v/, '');
-    var image = (release.assets || []).filter(function (a) { return /\.dmg$/i.test(a.name); })[0];
-    var setup = (release.assets || []).find(function (a) { return a.name === 'ClaudeGraftApp-win-Setup.exe'; });
-    if (setup) document.querySelectorAll('[data-windows]').forEach(function (a) { a.href = setup.browser_download_url; });
-    if (image) document.querySelectorAll('[data-version]').forEach(function (el) { el.textContent = version; });
+    if (!release) return;
+    var image = (release.assets || []).find(function (a) { return /\.dmg$/i.test(a.name); });
     if (image) document.querySelectorAll('[data-dmg]').forEach(function (a) { a.href = image.browser_download_url; });
   }
-  try { useRelease(JSON.parse(sessionStorage.getItem('graft-release'))); } catch (e) {}
   if (window.fetch) {
     fetch('https://api.github.com/repos/aaditya-v-more/claude-graft/releases/latest', { headers: { Accept: 'application/vnd.github+json' } })
       .then(function (r) { return r.ok ? r.json() : null; })
-      .then(function (json) {
-        if (!json) return;
-        var slim = { tag_name: json.tag_name, assets: (json.assets || []).map(function (a) { return { name: a.name, browser_download_url: a.browser_download_url }; }) };
-        useRelease(slim);
-        try { sessionStorage.setItem('graft-release', JSON.stringify(slim)); } catch (e) {}
-      })
+      .then(useRelease)
       .catch(function () {});
   }
 

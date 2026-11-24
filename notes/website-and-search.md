@@ -30,16 +30,16 @@ instead of to the address the site names as its own.
 - `docs/robots.txt` names `https://graft.aadityamore.com/sitemap.xml` and keeps
   `release-notes/` out. Those files are fragments the update dialog shows, with
   no `<head>`, and they would turn up in results as untitled pages.
-- `docs/sitemap.xml` lists every page at the top of `docs/`. Today that is the
-  home page alone; the suite fails if an `.html` file sits there unlisted.
+- `docs/sitemap.xml` lists the canonical home page. Set its `lastmod` to the date
+  of a meaningful update to that page. The suite checks that every HTML page
+  at the top of `docs/` is listed.
 - The home page names `https://graft.aadityamore.com/` as its canonical address
   and carries `WebSite` and `SoftwareApplication` structured data. The author is
   the portfolio's `https://aadityamore.com/#person`, so the two sites read as
   one person's. Nothing in it claims a rating, review or download count.
-- The title leads with the name and then says what the app does —
-  "multiple Claude accounts, side by side on Mac" — because the name alone
-  collides with the other Graft and the description is what a person searching
-  without knowing the name types.
+- The title, heading, social metadata and software markup name both Mac and
+  Windows. The home page includes platform-specific install instructions so
+  links from the portfolio can take visitors to the right download.
 
 ## What people search for
 
@@ -64,7 +64,7 @@ bare name, the first page held a different Graft for Claude Code, a hook that
 trims tokens and has articles of its own, with the portfolio's project page
 fourth.
 
-What the page does about it:
+What changed on 15 November 2026:
 
 - The title and the one `<h1>` lead with the name and then say "run multiple
   Claude accounts on one Mac", the phrase the paid app and the guides rank
