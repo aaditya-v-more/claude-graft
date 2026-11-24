@@ -219,7 +219,11 @@ final class UsagePoolController: ObservableObject {
     private var syncing = false
     private var syncAgain = false
     private var observers: [NSObjectProtocol] = []
-    private let queue = DispatchQueue(label: "graft.usage-pool")
+    // Drained after every block: the record walk runs here every two seconds
+    // and on each change in a store, and with the default frequency the
+    // Foundation objects it reads go on piling up until the thread retires,
+    // which a queue this busy never lets it do.
+    private let queue = DispatchQueue(label: "graft.usage-pool", autoreleaseFrequency: .workItem)
     /// Touched on `queue` alone.
     private var children: [pid_t: DispatchSourceProcess] = [:]
     /// Touched on `queue` alone: each Claude's last login read whole, by key.
@@ -865,9 +869,9 @@ final class UsagePoolController: ObservableObject {
                     // over every record of every Claude every two seconds:
                     // seven hundred on the development machine.
                     let orgPath = orgDir.path
-                    for name in list(orgDir) {
-                        if name.hasPrefix("deleted_") { markers.insert(String(name.dropFirst(8))); continue }
-                        guard name.hasPrefix("local_"), name.hasSuffix(".json") else { continue }
+                    for name in list(orgDir) { autoreleasepool {
+                        if name.hasPrefix("deleted_") { markers.insert(String(name.dropFirst(8))); return }
+                        guard name.hasPrefix("local_"), name.hasSuffix(".json") else { return }
                         let path = orgPath + "/" + name
                         walked.insert(path)
                         let stamp = Graft.modificationDate(atPath: path) ?? .distantPast
@@ -883,12 +887,12 @@ final class UsagePoolController: ObservableObject {
                                            focusedAt: focused))
                             recordCache[path] = entry
                         }
-                        guard let entry, let session = entry.session else { continue }
+                        guard let entry, let session = entry.session else { return }
                         if entry.filed.focusedAt ?? .distantPast
                             >= held[key]?[session]?.focusedAt ?? .distantPast {
                             held[key, default: [:]][session] = entry.filed
                         }
-                        guard let owner = from[session] else { continue }
+                        guard let owner = from[session] else { return }
                         if owner == key {
                             own[session, default: []].append(entry.filed)
                             everOwn.insert(session)
@@ -896,7 +900,7 @@ final class UsagePoolController: ObservableObject {
                             elsewhere[session, default: []].append(entry.filed)
                             everElsewhere.insert(session)
                         }
-                    }
+                    } }
                 }
             }
         }
@@ -923,8 +927,14 @@ final class UsagePoolController: ObservableObject {
         var focused: [String: Focus] = [:]
         for (key, records) in held {
             for (session, record) in records {
-                guard let at = record.focusedAt, at > focused[key]?.at ?? .distantPast,
-                      origins[Stamp(session: session, at: at)]?.contains(key) == true else { continue }
+                // Two records with the same focus, as a mirrored pair carries,
+                // must pick the same one every pass. Left to the order the
+                // dictionary happens to iterate in, the bar swapped between
+                // them every two seconds and drew itself again each time.
+                guard let at = record.focusedAt, origins[Stamp(session: session, at: at)]?.contains(key) == true
+                else { continue }
+                if let current = focused[key],
+                   at < current.at || (at == current.at && session >= current.session) { continue }
                 focused[key] = Focus(session: session, at: at, title: record.title, putAway: record.archived)
             }
         }
