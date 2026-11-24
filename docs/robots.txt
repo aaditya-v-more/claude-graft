@@ -1,5 +1,5 @@
 User-agent: *
-Allow: /
 Disallow: /release-notes/
+Allow: /
 
 Sitemap: https://graft.aadityamore.com/sitemap.xml
