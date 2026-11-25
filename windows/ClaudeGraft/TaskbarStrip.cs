@@ -26,6 +26,7 @@ internal sealed class TaskbarStrip : IDisposable
     private readonly System.Threading.Timer _place;
     private readonly Microsoft.UI.Dispatching.DispatcherQueue _ui;
     private bool _scrolling;
+    private DateTime _scrolledAt;
     private readonly FrameClock _clock;
     private Face? _face;
     private bool _hover, _pressed, _shown;
@@ -621,9 +622,18 @@ internal sealed class TaskbarStrip : IDisposable
         if (!_scrolling) return false;
         var now = DateTime.UtcNow;
         if (now < _scrollFrom) return false;
+        // Energy saver holds the scroll near 60 a second; it costs nearly twice as much at 180 Hz.
+        if (_scrollAt is not null && (now - _scrolledAt).TotalMilliseconds < 15 && EnergySaverOn()) return false;
+        _scrolledAt = now;
         if (_scrollAt is null) { _scrollAt = now; _scrollBase = _offset; }
         _offset = _scrollBase + (now - _scrollAt.Value).TotalSeconds * ScrollSpeed;
         return true;
+    }
+
+    private static bool EnergySaverOn()
+    {
+        try { return Microsoft.Windows.System.Power.PowerManager.EnergySaverStatus == Microsoft.Windows.System.Power.EnergySaverStatus.On; }
+        catch { return false; }
     }
 
     // A tick that only moves the title: the cached face with the cached title cut at the
