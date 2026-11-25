@@ -26,7 +26,6 @@ internal sealed class TaskbarStrip : IDisposable
     private readonly System.Threading.Timer _place;
     private readonly Microsoft.UI.Dispatching.DispatcherQueue _ui;
     private bool _scrolling;
-    private long _scrolledAt;
     private readonly FrameClock _clock;
     private Face? _face;
     private bool _hover, _pressed, _shown;
@@ -617,16 +616,11 @@ internal sealed class TaskbarStrip : IDisposable
         _cache = null;
     }
 
-    // Steps on every Nth vblank, so a 120 or 144 Hz display costs no more than 60 Hz
-    // and the steps stay even.
     private bool StepScroll()
     {
         if (!_scrolling) return false;
         var now = DateTime.UtcNow;
         if (now < _scrollFrom) return false;
-        var count = _clock.Vblanks;
-        if (_scrollAt is not null && count - _scrolledAt < _clock.Every) return false;
-        _scrolledAt = count;
         if (_scrollAt is null) { _scrollAt = now; _scrollBase = _offset; }
         _offset = _scrollBase + (now - _scrollAt.Value).TotalSeconds * ScrollSpeed;
         return true;
@@ -720,15 +714,8 @@ internal sealed class TaskbarStrip : IDisposable
         private readonly Action _tick;
         private CancellationTokenSource? _run;
         private int _posted;
-        private long _vblanks;
-        private volatile int _every = 1;
 
         public FrameClock(Microsoft.UI.Dispatching.DispatcherQueue ui, Action tick) { _ui = ui; _tick = tick; }
-
-        public long Vblanks => Interlocked.Read(ref _vblanks);
-
-        // Vblanks between scroll steps that keep it near 60 a second.
-        public int Every => _every;
 
         public void Start()
         {
@@ -747,7 +734,6 @@ internal sealed class TaskbarStrip : IDisposable
         {
             var watch = System.Diagnostics.Stopwatch.StartNew();
             var last = 0.0;
-            var interval = 16.67;
             while (!stop.IsCancellationRequested)
             {
                 // With composition off or in a remote session DwmFlush fails or returns at once; wait out a frame instead.
@@ -756,11 +742,7 @@ internal sealed class TaskbarStrip : IDisposable
                     var wait = 16 - (watch.Elapsed.TotalMilliseconds - last);
                     if (wait > 0) Thread.Sleep((int)wait);
                 }
-                var now = watch.Elapsed.TotalMilliseconds;
-                if (last > 0) interval = interval * 0.9 + (now - last) * 0.1;
-                last = now;
-                _every = Math.Max(1, (int)Math.Round(16.67 / Math.Max(1, interval)));
-                Interlocked.Increment(ref _vblanks);
+                last = watch.Elapsed.TotalMilliseconds;
                 if (stop.IsCancellationRequested) break;
                 if (Interlocked.Exchange(ref _posted, 1) == 1) continue;
                 if (!_ui.TryEnqueue(() => { Volatile.Write(ref _posted, 0); if (!stop.IsCancellationRequested) _tick(); }))
