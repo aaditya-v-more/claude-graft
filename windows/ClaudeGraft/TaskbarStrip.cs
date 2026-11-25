@@ -19,7 +19,7 @@ internal sealed class TaskbarStrip : IDisposable
 {
     public sealed record Mark(string? IconFile, bool Answering);
     public enum Signal { None, Done, NeedsPerson }
-    public sealed record Face(IReadOnlyList<Mark> Marks, string? Usage, string? Title, Signal Signal = Signal.None, string? Name = null);
+    public sealed record Face(IReadOnlyList<Mark> Marks, string? Usage, string? Title, Signal Signal = Signal.None, string? Name = null, string? Profile = null);
 
     private readonly Action<Windows.Graphics.PointInt32> _click;
     private readonly TaskbarStripWindow _window;
@@ -35,6 +35,11 @@ internal sealed class TaskbarStrip : IDisposable
     private System.Threading.Timer? _washTimer;
     private const double WashMs = 83;
     private double _offset, _fromOffset;
+    // The widest title this profile has shown, so the title area holds its width while
+    // chats are switched but carries no empty space for short ones.
+    private string? _reachProfile;
+    private int _reachPx;
+    private double _reachScale;
     private DateTime _scrollFrom;
     // The title, icons and usage sliding out, and the dot and rings easing in or out,
     // each against its own clock; one frame timer serves all and stops when they are done.
@@ -86,7 +91,7 @@ internal sealed class TaskbarStrip : IDisposable
     }
 
     private static bool Same(Face a, Face b) =>
-        a.Name == b.Name && a.Usage == b.Usage && a.Title == b.Title && a.Signal == b.Signal && a.Marks.SequenceEqual(b.Marks);
+        a.Name == b.Name && a.Profile == b.Profile && a.Usage == b.Usage && a.Title == b.Title && a.Signal == b.Signal && a.Marks.SequenceEqual(b.Marks);
 
     // MARK: Placement
 
@@ -207,10 +212,20 @@ internal sealed class TaskbarStrip : IDisposable
         // Each slot is sized for its fullest form, so switching chats leaves the width alone.
         var usage = face.Usage is null ? Size.Empty : Measure(StripFace.WidestUsage(face.Usage), bold);
         var title = string.IsNullOrWhiteSpace(face.Title) ? Size.Empty : Measure(face.Title!, font);
-        var room = title.Width > 0 ? Px(TextRoom) : 0;
+        if (_reachScale != scale || !string.Equals(_reachProfile, face.Profile, StringComparison.OrdinalIgnoreCase))
+        {
+            _reachProfile = face.Profile;
+            _reachScale = scale;
+            _reachPx = 0;
+        }
+        _reachPx = Math.Max(_reachPx, title.Width);
+        var room = Math.Min(_reachPx, Px(TextRoom));
         var dot = Px(8);
-        var width = pad + face.Marks.Count * (icon + gap) + (name.Width > 0 ? name.Width + gap : 0) + (usage.Width > 0 ? usage.Width + gap : 0) + dot + gap + (room > 0 ? room + gap : 0) - gap + pad;
-        width = Math.Max(width, height);
+        // The signal sits on the first icon; with no icon shown it has a slot of its own.
+        var badged = face.Marks.Count > 0;
+        var slots = Enumerable.Repeat(icon, face.Marks.Count)
+            .Concat(new[] { name.Width, usage.Width, badged ? 0 : dot, room }.Where(w => w > 0)).ToList();
+        var width = Math.Max(pad * 2 + slots.Sum() + gap * Math.Max(0, slots.Count - 1), height);
 
         using var bitmap = new Bitmap(width, height, PixelFormat.Format32bppPArgb);
         using (var g = Graphics.FromImage(bitmap))
@@ -236,13 +251,13 @@ internal sealed class TaskbarStrip : IDisposable
 
             var x = pad;
             var y = (height - icon) / 2;
+            var firstIcon = Rectangle.Empty;
             for (var i = 0; i < face.Marks.Count; i++)
             {
                 var mark = face.Marks[i];
                 var slot = new Rectangle(x, y, icon, icon);
-                if (_iconClock is { } iconClock && _iconsFrom is { } was && i < was.Length && was[i] != mark.IconFile)
+                if (Slide(_iconClock) is { } e && _iconsFrom is { } was && i < was.Length && was[i] != mark.IconFile)
                 {
-                    var e = (float)StripFace.OutCubic(iconClock.Elapsed.TotalMilliseconds / SlideMs);
                     var clip = g.Clip;
                     g.SetClip(slot);
                     if (Icon(was[i]) is { } old) g.DrawImage(old, new Rectangle(x, y - (int)Math.Round(icon * e), icon, icon));
@@ -269,6 +284,7 @@ internal sealed class TaskbarStrip : IDisposable
                         g.DrawPath(ring, path);
                     }
                 }
+                if (i == 0) firstIcon = slot;
                 x += icon + gap;
             }
             using var inkBrush = new SolidBrush(ink);
@@ -280,14 +296,13 @@ internal sealed class TaskbarStrip : IDisposable
             if (usage.Width > 0)
             {
                 var uy = (height - usage.Height) / 2f;
-                if (_usageClock is { } usageClock && _usageFrom is not null)
+                if (Slide(_usageClock) is { } e && _usageFrom is not null)
                 {
-                    var e = (float)StripFace.OutCubic(usageClock.Elapsed.TotalMilliseconds / SlideMs);
                     var way = _usageFell ? -1 : 1;
                     var clip = g.Clip;
                     g.SetClip(new RectangleF(x, uy, usage.Width, usage.Height));
-                    g.DrawString(_usageFrom, bold, inkBrush, x, uy - way * usage.Height * e, StringFormat.GenericTypographic);
-                    g.DrawString(face.Usage, bold, inkBrush, x, uy + way * usage.Height * (1 - e), StringFormat.GenericTypographic);
+                    g.DrawString(_usageFrom, bold, inkBrush, x, uy - (float)(way * usage.Height * e), StringFormat.GenericTypographic);
+                    g.DrawString(face.Usage, bold, inkBrush, x, uy + (float)(way * usage.Height * (1 - e)), StringFormat.GenericTypographic);
                     g.Clip = clip;
                 }
                 else g.DrawString(face.Usage, bold, inkBrush, x, uy, StringFormat.GenericTypographic);
@@ -301,33 +316,43 @@ internal sealed class TaskbarStrip : IDisposable
                 if (shown == Signal.None) { shown = _dotFrom; dotAlpha = 1 - Math.Min(1, t); }
                 else dotScale = StripFace.Pop(t);
             }
-            if (shown != Signal.None)
+            if (shown != Signal.None && dotAlpha > 0)
             {
                 // Windows' own success and caution colours, for the bar's light or dark.
                 var colour = shown == Signal.Done
                     ? (light ? Color.FromArgb(255, 15, 123, 15) : Color.FromArgb(255, 108, 203, 95))
                     : (light ? Color.FromArgb(255, 157, 93, 0) : Color.FromArgb(255, 252, 225, 0));
-                using var signal = new SolidBrush(Color.FromArgb((int)Math.Round(255 * dotAlpha), colour));
+                var alpha8 = (int)Math.Round(255 * dotAlpha);
                 var size = (float)(dot * dotScale);
-                g.FillEllipse(signal, x + (dot - size) / 2, (height - size) / 2, size, size);
+                // On the icon's lower-right corner, cut out of it by a ring in the bar's own colour.
+                var centre = badged ? new PointF(firstIcon.Right - Px(1), firstIcon.Bottom - Px(1)) : new PointF(x + dot / 2f, height / 2f);
+                if (badged)
+                {
+                    var cut = Math.Max(1, Px(1));
+                    using var ringBrush = new SolidBrush(Color.FromArgb(alpha8, light ? Color.FromArgb(243, 243, 243) : Color.FromArgb(32, 32, 32)));
+                    g.FillEllipse(ringBrush, centre.X - size / 2 - cut, centre.Y - size / 2 - cut, size + 2 * cut, size + 2 * cut);
+                }
+                using var signal = new SolidBrush(Color.FromArgb(alpha8, colour));
+                g.FillEllipse(signal, centre.X - size / 2, centre.Y - size / 2, size, size);
             }
-            x += dot + gap;
+            if (!badged) x += dot + gap;
             if (room > 0)
             {
                 // Drawn apart and faded there, so the fade thins the letters and not the wash behind.
                 using var text = new Bitmap(room, height, PixelFormat.Format32bppPArgb);
-                var sliding = _titleClock is not null && _titleFrom is not null;
+                var slide = _titleFrom is null ? null : Slide(_titleClock);
+                var sliding = slide is not null;
                 using (var t = Graphics.FromImage(text))
                 {
                     t.TextRenderingHint = TextRenderingHint.AntiAliasGridFit;
                     if (sliding)
                     {
                         var travel = (height + title.Height) / 2f;
-                        var e = (float)StripFace.OutCubic(_titleClock!.Elapsed.TotalMilliseconds / SlideMs);
+                        var e = (float)slide!.Value;
                         DrawTitle(t, _titleFrom!, Measure(_titleFrom!, font).Width, _fromOffset, -travel * e);
                         DrawTitle(t, face.Title!, title.Width, _offset, travel * (1 - e));
                     }
-                    else DrawTitle(t, face.Title!, title.Width, _offset, 0);
+                    else if (title.Width > 0) DrawTitle(t, face.Title!, title.Width, _offset, 0);
                 }
                 if (sliding || title.Width > room) Fade(text, new Rectangle(0, 0, room, height), Px(10));
                 g.DrawImageUnscaled(text, x, 0);
@@ -497,11 +522,17 @@ internal sealed class TaskbarStrip : IDisposable
         if (before.Usage is not null && now.Usage is not null && before.Usage != now.Usage)
         {
             _usageFrom = before.Usage;
-            _usageFell = StripFace.UsageFell(before.Usage, now.Usage);
+            // Only the same Claude's own figure falling slides down; another Claude comes in from below like the rest.
+            _usageFell = string.Equals(before.Profile, now.Profile, StringComparison.OrdinalIgnoreCase) && StripFace.UsageFell(before.Usage, now.Usage);
             _usageClock = System.Diagnostics.Stopwatch.StartNew();
         }
         if (Animating) _frames ??= new System.Threading.Timer(_ => _ui.TryEnqueue(Frame), null, 0, 16);
     }
+
+    // How far a slide has gone, or null once it is over, so a finished one draws the settled
+    // face whether or not a frame has cleared it.
+    private static double? Slide(System.Diagnostics.Stopwatch? clock) =>
+        clock is { } c && c.Elapsed.TotalMilliseconds < SlideMs ? StripFace.OutCubic(c.Elapsed.TotalMilliseconds / SlideMs) : null;
 
     private bool Animating => _titleClock is not null || _dotClock is not null || _iconClock is not null || _usageClock is not null || _ringClocks.Count > 0;
 

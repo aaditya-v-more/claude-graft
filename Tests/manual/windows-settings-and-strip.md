@@ -48,8 +48,13 @@ to quit Graft.
 8. With the usage figure and the conversation title on, switch between two or
    three chats in Claude's sidebar, one with a short title and one long enough
    to run, and note the strip's left edge each time.
-   Expect: the strip keeps its width and its left edge; a short title sits at
-   the left of its area with the rest empty, and a long one still runs.
+   Expect: the strip keeps its width and its left edge across chats of the same
+   Claude. Its title area is as wide as the widest title that Claude has shown
+   since the strip appeared (never more than the 190-pixel limit), so a short
+   title sits at the left with no more room than the longest one needed, and a
+   long one still runs. Switching to another Claude's window starts that
+   measure afresh. The usage figure's slot is two digits wide, growing only once
+   the figure reaches 100%, and there is no empty slot between it and the title.
 9. Switch chats again with Windows' Animation effects on (Settings,
    Accessibility, Visual effects).
    Expect: the old title slides up and out while the new one slides up into
@@ -58,15 +63,22 @@ to quit Graft.
 10. Make the strip's dot appear (step 4 of
     [the taskbar badges case](windows-taskbar-badges.md)), then change it
     between green and amber.
-    Expect: the dot pops to a little over full size and settles back; when it
-    goes it fades out. The strip does not widen or narrow as it comes and goes.
+    Expect: the dot sits as a badge on the lower-right corner of the first
+    Claude icon, with a thin ring in the taskbar's own colour round it so it
+    reads over the icon; it pops to a little over full size and settles back, and
+    when it goes it fades out. The strip does not widen or narrow as it comes and
+    goes. With the icon switch off the dot has a small slot of its own at the left.
 11. With Animation effects on, change which Claude is in front (a different
     account's window), and let a usage figure change, once rising and once
     falling where a window resets.
-    Expect: the old icon slides up and out of its slot while the new one slides
-    up in; a mark's red ring pops when it appears and fades when it goes. The
-    usage figure slides up inside its own slot, or downward when the number
-    went down. A change in the count of icons snaps without sliding.
+    Expect: changing which Claude is in front slides everything that differs
+    upward together: the old icon up and out of its slot while the new one slides
+    up in, the usage figure up, and the title up, even where the new figure is
+    lower. A mark's red ring pops when it appears and fades when it goes. Within
+    one Claude the usage figure slides up as it rises and downward only when the
+    same Claude's number went down. A change in the count of icons snaps without
+    sliding. When every slide has ended the strip shows exactly the current icon,
+    figure and title, with no trace of the old ones.
 12. Turn Animation effects off, then repeat steps 9 to 11. Turn it back on.
     Expect: titles, icons, usage figures, the dot and the rings change at once,
     with no slide, pop or fade. The first appearance of the strip and a light or

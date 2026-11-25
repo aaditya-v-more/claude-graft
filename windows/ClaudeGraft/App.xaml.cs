@@ -558,7 +558,7 @@ public partial class App : Application
             _ => TaskbarStrip.Signal.None,
         };
         var name = Settings.FrontName ? shortcut?.Name ?? "Claude" : null;
-        _strip.Show(new TaskbarStrip.Face(Settings.FrontIcon ? marks : new List<TaskbarStrip.Mark>(), figure, ChatOnScreen.TitleFor(front), signal, name));
+        _strip.Show(new TaskbarStrip.Face(Settings.FrontIcon ? marks : new List<TaskbarStrip.Mark>(), figure, ChatOnScreen.TitleFor(front), signal, name, front));
     }
 
     /// The tray says which Claude is in front and what its account has spent,

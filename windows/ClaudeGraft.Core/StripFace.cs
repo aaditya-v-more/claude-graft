@@ -5,8 +5,10 @@ namespace ClaudeGraft.Core;
 /// <summary>The arithmetic behind the taskbar strip's steady width and its short animations.</summary>
 public static class StripFace
 {
-    /// The usage text at its widest, so the strip keeps one width as the figure climbs.
-    public static string WidestUsage(string usage) => Regex.Replace(usage, @"\d+", "100");
+    /// The usage text at its widest, so the strip keeps one width as the figure climbs:
+    /// two digits, and a third only once the figure has one.
+    public static string WidestUsage(string usage) =>
+        Regex.Replace(usage, @"\d+", m => new string('8', Math.Max(2, m.Value.Length)));
 
     /// True when the figure went down, as when a usage window resets, so it slides the other way.
     public static bool UsageFell(string? before, string? now)

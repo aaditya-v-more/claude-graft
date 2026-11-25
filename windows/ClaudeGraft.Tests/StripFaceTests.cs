@@ -5,11 +5,13 @@ namespace ClaudeGraft.Tests;
 
 public class StripFaceTests
 {
-    [Theory(DisplayName = "usage is measured at its widest so a climbing figure does not move the strip")]
-    [InlineData("5%", "100%")]
-    [InlineData("45%", "100%")]
-    [InlineData("W 7%", "W 100%")]
-    public void UsageReservesThreeDigits(string usage, string widest) =>
+    [Theory(DisplayName = "usage is measured at two of its widest digits, and a third only when the figure has one")]
+    [InlineData("5%", "88%")]
+    [InlineData("45%", "88%")]
+    [InlineData("100%", "888%")]
+    [InlineData("W 7%", "W 88%")]
+    [InlineData("W 100%", "W 888%")]
+    public void UsageReservesTwoDigits(string usage, string widest) =>
         Assert.Equal(widest, StripFace.WidestUsage(usage));
 
     [Theory(DisplayName = "a usage figure that went down is told apart from one that did not")]
