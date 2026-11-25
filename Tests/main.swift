@@ -1781,13 +1781,55 @@ do {
           "the feed and the release assets agree on whose account they are")
     check(release.contains("github.com/\(owner)/claude-graft/releases/download/"),
           "so a download the feed advertises resolves to something")
-    // A release is installed from what people fetch before anyone is offered it.
-    check(release.contains("--prerelease") && release.contains("appcast-staged.xml")
-            && release.contains("HEAD:release-$VERSION"),
-          "a release is staged as a prerelease, with its feed beside it and its cask on a branch")
-    check(read(".github/workflows/windows-release.yml").contains("--prerelease")
+    // A release is installed from what people fetch before anyone is offered
+    // it. Nothing can be added to a published release here, a prerelease
+    // included: 2.2.1 was staged as one and refused the Windows files.
+    func creation(in text: String) -> String {
+        guard let start = text.range(of: "gh release create") else { return "" }
+        var command = ""
+        for line in text[start.lowerBound...].split(separator: "\n", omittingEmptySubsequences: false) {
+            command += line
+            if !line.hasSuffix("\\") { break }
+        }
+        return command
+    }
+    let staging = creation(in: release)
+    check(staging.contains("--draft") && !staging.contains("--prerelease")
+            && staging.contains("appcast-staged.xml") && release.contains("HEAD:release-$VERSION"),
+          "a release is staged as a draft, with its feed beside it and its cask on a branch")
+    check(release.contains("--draft=false --prerelease") && !release.contains("delete-asset"),
+          "and made a prerelease to be tried once both systems' files are on it, since nothing comes off it after")
+    let windowsStaging = creation(in: read(".github/workflows/windows-release.yml"))
+    check(windowsStaging.contains("--draft") && !windowsStaging.contains("--prerelease")
             && read("windows/ClaudeGraft/GraftUpdates.cs").contains("new GithubSource(Updater.RepoUrl, null, false)"),
-          "and the Windows release starts as one too, which an installed Windows Graft is not offered")
+          "the Windows workflow starts a release as a draft too, and an installed Windows Graft is offered no prerelease")
+
+    // 2.2.1 went out for the Mac alone and was made latest, which turned every
+    // `releases/latest/download/` link to the Windows setup into a 404.
+    func links(_ pattern: String) -> [String] {
+        let regex = try! NSRegularExpression(pattern: pattern)
+        return ["README.md", "windows/README.md", "docs/index.html"].flatMap { page -> [String] in
+            let text = read(page) as NSString
+            return regex.matches(in: text as String, range: NSRange(location: 0, length: text.length))
+                .map { text.substring(with: $0.range) }
+        }
+    }
+    func pinned(_ link: String) -> String? {
+        link.components(separatedBy: "/download/v").dropFirst().first?.components(separatedBy: "/").first
+    }
+    // The Windows workflow will not build a version without its notes.
+    func shipsOnWindows(_ version: String) -> Bool { !read("windows/release-notes/\(version).md").isEmpty }
+    let releasing = read("VERSION").trimmingCharacters(in: .whitespacesAndNewlines)
+    let setups = links(#"releases/(latest/download|download/v[0-9.]+)/ClaudeGraftApp-win-Setup\.exe"#)
+    check(!setups.isEmpty && Set(setups).count == 1,
+          "every Windows download on the site and in both READMEs is the same setup")
+    check(setups.first.map { pinned($0).map(shipsOnWindows) ?? shipsOnWindows(releasing) } == true,
+          "from a release that carries one: a version the Mac ships alone is pinned past, not left to latest")
+    let images = links(#"releases/download/v[0-9.]+/ClaudeGraft-[0-9.]+\.dmg"#)
+    let feed = read("docs/appcast.xml")
+    check(!images.isEmpty && Set(images).count == 1 && images.first.flatMap(pinned).map {
+              feed.contains("<sparkle:shortVersionString>\($0)</sparkle:shortVersionString>") } == true,
+          "and every Mac download is the same disk image, of a version the update feed offers")
     check(read(".github/workflows/distribution-checks.yml").contains("Tools/check-distribution.py"),
           "what people download is checked where they download it from")
 
