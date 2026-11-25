@@ -23,7 +23,13 @@ strip, quit with `ClaudeGraft.exe --quit`, then run the Startup shortcut with
    at once, and the actions do not scroll away. Capture the top and bottom.
    On a shorter work area the list may scroll sooner to keep Quit reachable.
    Record any screen sizes or populated row counts not exercised.
-5. Remove only the disposable fixtures, restore the strip and Start hidden.
+5. On a profile whose usage can be made to read 74, 75, 89 and 90 percent (or
+   compare profiles that already sit in those bands), look at the flyout bars,
+   then the manager's, in light, dark and a contrast theme.
+   Expect: below 75 the usual green; from 75 up to 90 the system caution
+   colour; from 90 the system critical colour. The percentage beside a bar
+   agrees with its colour. Record the figures seen.
+6. Remove only the disposable fixtures, restore the strip and Start hidden.
    Check Windows' Application log over the run as in
    [the strip lifetime case](windows-strip-lifetime.md).
    Expect: no new Graft crash. Empty or signed-out rows do not establish the

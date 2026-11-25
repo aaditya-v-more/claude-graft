@@ -203,7 +203,7 @@
                                                 <RowDefinition Height="Auto" />
                                             </Grid.RowDefinitions>
                                             <TextBlock local:Localized.Text="5 hours" />
-                                            <ProgressBar Grid.Column="1" Style="{StaticResource UsageMeter}" Maximum="100" Value="{x:Bind FiveHour, Mode=OneWay}"
+                                            <ProgressBar Grid.Column="1" Style="{StaticResource UsageMeter}" Maximum="100" Value="{x:Bind FiveHour, Mode=OneWay}" Foreground="{x:Bind FiveHourBrush, Mode=OneWay}"
                                                          Visibility="{x:Bind FiveHourBarVisibility, Mode=OneWay}"
                                                          AutomationProperties.Name="{x:Bind FiveHourText, Mode=OneWay}"
                                                          AutomationProperties.AutomationId="{x:Bind local:Spoken.Id('manager', Key, 'fiveHour')}" />
@@ -215,7 +215,7 @@
                                                        Foreground="{StaticResource GraftTextFillColorSecondaryBrush}" AutomationProperties.AccessibilityView="Raw" />
 
                                             <TextBlock Grid.Row="1" local:Localized.Text="Week" />
-                                            <ProgressBar Grid.Row="1" Grid.Column="1" Style="{StaticResource UsageMeter}" Maximum="100" Value="{x:Bind Week, Mode=OneWay}"
+                                            <ProgressBar Grid.Row="1" Grid.Column="1" Style="{StaticResource UsageMeter}" Maximum="100" Value="{x:Bind Week, Mode=OneWay}" Foreground="{x:Bind WeekBrush, Mode=OneWay}"
                                                          AutomationProperties.Name="{x:Bind WeekText, Mode=OneWay}"
                                                          AutomationProperties.AutomationId="{x:Bind local:Spoken.Id('manager', Key, 'week')}" />
                                             <TextBlock Grid.Row="1" Grid.Column="2" Text="{x:Bind WeekPercent, Mode=OneWay}" HorizontalAlignment="Right"
@@ -224,7 +224,7 @@
                                                        Foreground="{StaticResource GraftTextFillColorSecondaryBrush}" AutomationProperties.AccessibilityView="Raw" />
 
                                             <TextBlock Grid.Row="2" local:Localized.Text="Fable" Visibility="{x:Bind FableVisibility, Mode=OneWay}" />
-                                            <ProgressBar Grid.Row="2" Grid.Column="1" Style="{StaticResource UsageMeter}" Maximum="100" Value="{x:Bind Fable, Mode=OneWay}"
+                                            <ProgressBar Grid.Row="2" Grid.Column="1" Style="{StaticResource UsageMeter}" Maximum="100" Value="{x:Bind Fable, Mode=OneWay}" Foreground="{x:Bind FableBrush, Mode=OneWay}"
                                                          Visibility="{x:Bind FableVisibility, Mode=OneWay}"
                                                          AutomationProperties.Name="{x:Bind FableText, Mode=OneWay}"
                                                          AutomationProperties.AutomationId="{x:Bind local:Spoken.Id('manager', Key, 'fable')}" />

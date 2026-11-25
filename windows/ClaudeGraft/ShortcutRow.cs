@@ -167,6 +167,7 @@ public sealed class ShortcutRow : INotifyPropertyChanged
         foreach (var name in new[]
         {
             nameof(FiveHour), nameof(FiveHourBarVisibility), nameof(Week), nameof(FiveHourText), nameof(WeekText),
+            nameof(FiveHourBrush), nameof(WeekBrush), nameof(FableBrush),
             nameof(Fable), nameof(FableText), nameof(FableVisibility), nameof(FiveHourPercent), nameof(FiveHourLeft), nameof(WeekPercent), nameof(WeekLeft), nameof(FablePercent), nameof(FableLeft), nameof(FiveHourNoLimitVisibility),
             nameof(FiveHourResets), nameof(WeekResets), nameof(FableResets), nameof(FiveHourResetsVisibility), nameof(WeekResetsVisibility), nameof(FableResetsVisibility),
             nameof(BarsVisibility), nameof(NoUsageVisibility), nameof(BarsOpacity),
@@ -191,6 +192,7 @@ public sealed class ShortcutRow : INotifyPropertyChanged
         foreach (var name in new[]
         {
             nameof(FiveHour), nameof(FiveHourBarVisibility), nameof(Week), nameof(Fable), nameof(FiveHourText), nameof(WeekText),
+            nameof(FiveHourBrush), nameof(WeekBrush), nameof(FableBrush),
             nameof(FableText), nameof(BarsOpacity), nameof(StartEnabled), nameof(StartTooltip), nameof(FiveHourLeft), nameof(WeekLeft), nameof(FableLeft),
         }) Notify(name);
         NotifyStatus();
@@ -256,6 +258,17 @@ public sealed class ShortcutRow : INotifyPropertyChanged
     public int Fable => Current?.Fable ?? 0;
     public string FableText => Line(L10n.Text("Fable"), Fable, Current?.FableReset);
     public Visibility FableVisibility => _usage?.Usage?.Fable is not null ? Visibility.Visible : Visibility.Collapsed;
+
+    public Brush FiveHourBrush => MeterBrush(FiveHour);
+    public Brush WeekBrush => MeterBrush(Week);
+    public Brush FableBrush => MeterBrush(Fable);
+
+    private static Brush MeterBrush(int percent) => Themed.Brush(UsageLevels.For(percent) switch
+    {
+        UsageLevel.Critical => "SystemFillColorCriticalBrush",
+        UsageLevel.Warning => "SystemFillColorCautionBrush",
+        _ => "GraftMeterBrush",
+    });
 
     // The Mac's rows: the label, the bar, the figure and the time left, each in a column of its own.
     public string FiveHourPercent => $"{FiveHour}%";

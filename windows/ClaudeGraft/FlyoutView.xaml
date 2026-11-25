@@ -145,7 +145,7 @@
                                 </Grid.RowDefinitions>
 
                                 <TextBlock local:Localized.Text="5 hours" Foreground="{StaticResource GraftTextFillColorSecondaryBrush}" />
-                                <ProgressBar Grid.Column="1" Style="{StaticResource UsageMeter}" Maximum="100" Value="{x:Bind FiveHour, Mode=OneWay}"
+                                <ProgressBar Grid.Column="1" Style="{StaticResource UsageMeter}" Maximum="100" Value="{x:Bind FiveHour, Mode=OneWay}" Foreground="{x:Bind FiveHourBrush, Mode=OneWay}"
                                              Visibility="{x:Bind FiveHourBarVisibility, Mode=OneWay}" local:BarPulse.Key="{x:Bind Pulse, Mode=OneWay}"
                                              AutomationProperties.Name="{x:Bind FiveHourText, Mode=OneWay}"
                                              AutomationProperties.AutomationId="{x:Bind local:Spoken.Id('flyout', Key, 'fiveHour')}" />
@@ -157,7 +157,7 @@
                                            Visibility="{x:Bind FiveHourResetsVisibility, Mode=OneWay}" Margin="0,0,0,6" />
 
                                 <TextBlock Grid.Row="2" local:Localized.Text="Week" Foreground="{StaticResource GraftTextFillColorSecondaryBrush}" />
-                                <ProgressBar Grid.Row="2" Grid.Column="1" Style="{StaticResource UsageMeter}" Maximum="100" Value="{x:Bind Week, Mode=OneWay}"
+                                <ProgressBar Grid.Row="2" Grid.Column="1" Style="{StaticResource UsageMeter}" Maximum="100" Value="{x:Bind Week, Mode=OneWay}" Foreground="{x:Bind WeekBrush, Mode=OneWay}"
                                              local:BarPulse.Key="{x:Bind Pulse, Mode=OneWay}"
                                              AutomationProperties.Name="{x:Bind WeekText, Mode=OneWay}"
                                              AutomationProperties.AutomationId="{x:Bind local:Spoken.Id('flyout', Key, 'week')}" />
@@ -168,7 +168,7 @@
 
                                 <TextBlock Grid.Row="4" local:Localized.Text="Fable" Visibility="{x:Bind FableVisibility, Mode=OneWay}"
                                            Foreground="{StaticResource GraftTextFillColorSecondaryBrush}" />
-                                <ProgressBar Grid.Row="4" Grid.Column="1" Style="{StaticResource UsageMeter}" Maximum="100" Value="{x:Bind Fable, Mode=OneWay}"
+                                <ProgressBar Grid.Row="4" Grid.Column="1" Style="{StaticResource UsageMeter}" Maximum="100" Value="{x:Bind Fable, Mode=OneWay}" Foreground="{x:Bind FableBrush, Mode=OneWay}"
                                              Visibility="{x:Bind FableVisibility, Mode=OneWay}" local:BarPulse.Key="{x:Bind Pulse, Mode=OneWay}"
                                              AutomationProperties.Name="{x:Bind FableText, Mode=OneWay}"
                                              AutomationProperties.AutomationId="{x:Bind local:Spoken.Id('flyout', Key, 'fable')}" />
