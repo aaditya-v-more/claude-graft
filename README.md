@@ -46,7 +46,7 @@ The Windows app was ported by [Tyler](https://github.com/snowtyler) with parts o
 
 Install Claude Desktop first on either platform.
 
-**Windows (x64).** Download [ClaudeGraftApp-win-Setup.exe](https://github.com/aaditya-v-more/claude-graft/releases/latest/download/ClaudeGraftApp-win-Setup.exe), run it, then open **Claude Graft** from Start. The installer also sets up automatic updates. See the [Windows guide](windows/README.md#install).
+**Windows (x64).** Download [ClaudeGraftApp-win-Setup.exe](https://github.com/aaditya-v-more/claude-graft/releases/download/v2.2.0/ClaudeGraftApp-win-Setup.exe), run it, then open **Claude Graft** from Start. The installer also sets up automatic updates. See the [Windows guide](windows/README.md#install).
 
 **Mac (Intel or Apple silicon):** Install with Homebrew:
 

@@ -3,6 +3,39 @@
     <channel>
         <title>Claude Graft</title>
         <item>
+            <title>2.2.1</title>
+            <pubDate>Wed, 25 Nov 2026 14:13:33 +0530</pubDate>
+            <link>https://github.com/aaditya-v-more/claude-graft</link>
+            <sparkle:version>2.2.1</sparkle:version>
+            <sparkle:shortVersionString>2.2.1</sparkle:shortVersionString>
+            <sparkle:minimumAutoupdateVersion>1.1.0</sparkle:minimumAutoupdateVersion>
+            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+            <description><![CDATA[<h2>Long chat histories no longer run Graft out of memory</h2>
+
+<p>With chats shared between Claudes and a long history behind them, Graft
+2.2.0 could grow to tens of gigabytes within minutes of starting, until macOS
+stopped it. Graft now lets go of each chat before it reads the next while it
+keeps shared chats in step, files sessions and finds the conversation on
+screen, and tells a chat outside any project without reading the whole of
+it.</p>
+
+<p>With a fix from manuel-singh.</p>
+
+<h2>On Windows</h2>
+
+<p>Windows is not affected and stays on 2.2.0.</p>
+
+<h3>Upgrading from 1.0.x</h3>
+
+<p>As with 1.1.0, shared profiles merge their chat histories on their next
+launch. Going back to a profile's own chats preserves what it brought, but
+copies already merged into the source stay there. If you need an untouched
+copy, back up your Claude profile folders in <code>~/Library/Application
+Support</code> before upgrading.</p>
+]]></description>
+            <enclosure url="https://github.com/aaditya-v-more/claude-graft/releases/download/v2.2.1/ClaudeGraft-2.2.1.zip" length="8414681" type="application/octet-stream" sparkle:edSignature="+Hb00P+NO5VgMbOEdBJ0rDAkVIrAA8D8wh+v9MA7ThkkYEPkKyevi/PV0VsJuovzM/quY0RXJe0Y3KH1wlUZBA=="/>
+        </item>
+        <item>
             <title>2.2.0</title>
             <pubDate>Tue, 24 Nov 2026 04:16:37 +0530</pubDate>
             <link>https://github.com/aaditya-v-more/claude-graft</link>

@@ -49,6 +49,21 @@ was withdrawn on 18 Nov 2026 and its number can never carry a build, so Windows
 went out as 2.1.1. A release is for keeps; withdraw one only when a new number is
 acceptable.
 
+**A prerelease is frozen the moment it is made.** Immutability covers
+prereleases too, so a release made with `--prerelease` takes no more files:
+2.2.1 was staged that way with the Mac's files, and the Windows workflow's
+upload was refused with `Cannot upload assets to an immutable release`. Stage
+a release as a draft, let the Windows workflow add its files to the draft, and
+only then publish it as a prerelease. `appcast-staged.xml` cannot be taken off
+afterwards either, which is why 2.2.0 still carries it.
+
+**2.2.1 went out for the Mac alone,** since Windows was not affected and the
+release could no longer take its files. It was still made latest, so the Mac
+download on the site and the README's badge name it, and every Windows link
+on the site and in both READMEs names v2.2.0's setup instead of
+`releases/latest/download/`, which would have answered 404. Put them back to
+`latest` with the next release that carries Windows.
+
 The Mac's update feed and cask name their version explicitly, so a release
 that carries only Windows packages offers the Mac nothing, and Velopack passes
 over a release without `releases.win.json` in the same way.
