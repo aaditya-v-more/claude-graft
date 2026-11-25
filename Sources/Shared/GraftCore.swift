@@ -1143,11 +1143,15 @@ enum Graft {
         }
         recordCacheLock.unlock()
 
-        let record = (try? Data(contentsOf: url))
-            .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
-        let sessions = RecordSessions(cliSessionId: record?["cliSessionId"] as? String,
-                                      prior: (record?["priorCliSessionIds"] as? [String]) ?? [],
-                                      forkedFrom: record?["forkedFromSessionId"] as? String)
+        // The first walk reads every record on the machine whole, and on a
+        // utility queue nothing else drains the parse before the walk ends.
+        let sessions = autoreleasepool { () -> RecordSessions in
+            let record = (try? Data(contentsOf: url))
+                .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+            return RecordSessions(cliSessionId: record?["cliSessionId"] as? String,
+                                  prior: (record?["priorCliSessionIds"] as? [String]) ?? [],
+                                  forkedFrom: record?["forkedFromSessionId"] as? String)
+        }
 
         recordCacheLock.lock()
         recordCache[url.path] = (stamp, size, sessions)
@@ -2142,6 +2146,9 @@ enum Graft {
     /// Claude identifies an unfiled chat by an origin under its own profile.
     /// Its actual cwd must stay shared so resuming still finds the transcript.
     private static func scratchRecord(_ data: Data) -> (record: [String: Any], cwd: URL, suffix: String)? {
+        // Asked of every record on every pass, so one that cannot be unfiled is
+        // never parsed. Neither Claude nor Graft escapes a letter or `-` in JSON.
+        guard data.range(of: scratchKeyMark) != nil, data.range(of: scratchFolderMark) != nil else { return nil }
         guard let record = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
               record["sessionId"] is String,
               record["sshConfig"] == nil, record["wslConfig"] == nil,
@@ -2160,6 +2167,9 @@ enum Graft {
         guard let relative = suffix(cwd), suffix(origin) == relative else { return nil }
         return (record, URL(fileURLWithPath: cwd), relative)
     }
+
+    private static let scratchKeyMark = Data(#""originCwd""#.utf8)
+    private static let scratchFolderMark = Data("scratch-workspaces".utf8)
 
     /// A local origin alias is not an edit to a shared conversation.
     private static func mirrorData(_ data: Data) -> Data {
@@ -2412,6 +2422,12 @@ enum Graft {
     /// all rather than half a sync.
     @discardableResult
     static func mirrorChatFolders(_ one: URL, _ other: URL) -> Int {
+        // A pass parses the state file and the pair's fields, and a sweep runs
+        // pass after pass on a queue that drains nothing until it ends.
+        autoreleasepool { mirrorChatFoldersUnpooled(one, other) }
+    }
+
+    private static func mirrorChatFoldersUnpooled(_ one: URL, _ other: URL) -> Int {
         guard !samePath(one, other) else { return 0 }
         enterStateLock()
         defer { leaveStateLock() }
@@ -2609,7 +2625,7 @@ enum Graft {
         }
 
         let names = Set(oneNames.filter(isMirrored)).union(otherNames.filter(isMirrored))
-        for name in names.sorted() {
+        func mirrorName(_ name: String) {
             let here = read(one, name), there = read(other, name)
             // Fields taken from this baseline and no other.
             let known = records[name].flatMap { $0.digest == baseline[name] ? $0 : nil }
@@ -2626,7 +2642,7 @@ enum Graft {
                 case (.some, nil): action = .copyToOther
                 case let (.some(here), .some(there)):
                     merge(name, here, there, base: known)
-                    continue
+                    return
                 case (nil, nil): action = .nothing
                 }
             }
@@ -2669,6 +2685,8 @@ enum Graft {
                 break
             }
         }
+        // Every record is read whole; a pool per name lets each go before the next.
+        for name in names.sorted() { autoreleasepool { mirrorName(name) } }
 
         // A name neither side holds any more is never visited by the loop
         // above, so its entry sat in the baseline for good — growing the state

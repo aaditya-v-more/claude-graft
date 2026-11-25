@@ -873,15 +873,19 @@ final class UsagePoolController: ObservableObject {
                         let stamp = Graft.modificationDate(atPath: path) ?? .distantPast
                         var entry = recordCache[path]
                         if entry?.stamp != stamp {
-                            let record = (try? Data(contentsOf: URL(fileURLWithPath: path)))
-                                .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
-                            let focused = (record?["lastFocusedAt"] as? NSNumber)
-                                .map { Date(timeIntervalSince1970: $0.doubleValue / 1000) }
-                            entry = (stamp, record?["cliSessionId"] as? String,
-                                     Filed(title: (record?["title"] as? String).flatMap { $0.isEmpty ? nil : $0 },
-                                           archived: record?["isArchived"] as? Bool ?? false,
-                                           focusedAt: focused))
-                            recordCache[path] = entry
+                            // The first look reads every record of every Claude whole.
+                            let fresh = autoreleasepool { () -> (stamp: Date, session: String?, filed: Filed) in
+                                let record = (try? Data(contentsOf: URL(fileURLWithPath: path)))
+                                    .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+                                let focused = (record?["lastFocusedAt"] as? NSNumber)
+                                    .map { Date(timeIntervalSince1970: $0.doubleValue / 1000) }
+                                return (stamp, record?["cliSessionId"] as? String,
+                                        Filed(title: (record?["title"] as? String).flatMap { $0.isEmpty ? nil : $0 },
+                                              archived: record?["isArchived"] as? Bool ?? false,
+                                              focusedAt: focused))
+                            }
+                            entry = fresh
+                            recordCache[path] = fresh
                         }
                         guard let entry, let session = entry.session else { continue }
                         if entry.filed.focusedAt ?? .distantPast

@@ -1,0 +1,23 @@
+<h2>Long chat histories no longer run Graft out of memory</h2>
+
+<p>With chats shared between Claudes and a long history behind them, Graft
+2.2.0 could grow to tens of gigabytes within minutes of starting, until macOS
+stopped it. Graft now lets go of each chat before it reads the next while it
+keeps shared chats in step, files sessions and finds the conversation on
+screen, and tells a chat outside any project without reading the whole of
+it.</p>
+
+<p>With a fix from manuel-singh.</p>
+
+<h2>On Windows</h2>
+
+<p>Nothing changes on Windows. The number moves with the Mac's so both stay on
+one version.</p>
+
+<h3>Upgrading from 1.0.x</h3>
+
+<p>As with 1.1.0, shared profiles merge their chat histories on their next
+launch. Going back to a profile's own chats preserves what it brought, but
+copies already merged into the source stay there. If you need an untouched
+copy, back up your Claude profile folders in <code>~/Library/Application
+Support</code> before upgrading.</p>

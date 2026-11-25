@@ -8282,6 +8282,54 @@ do {
           "ordinary project records remain byte-for-byte unchanged")
 }
 
+section("A large history is mirrored a record at a time")
+do {
+    // 2.2.0 kept every record it parsed until the pass ended, and a history of
+    // 66,000 records took Graft past 40 GB before macOS killed it.
+    func footprint() -> Int? {
+        var info = task_vm_info_data_t()
+        var count = mach_msg_type_number_t(MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<natural_t>.size)
+        let status = withUnsafeMutablePointer(to: &info) {
+            $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
+                task_info(mach_task_self_, task_flavor_t(TASK_VM_INFO), $0, &count)
+            }
+        }
+        return status == KERN_SUCCESS ? Int(info.phys_footprint) : nil
+    }
+    func growth(_ work: () -> Void) -> Int {
+        var grown = Int.max
+        // Measured before this pool drains, so whatever the work left to one is counted.
+        autoreleasepool {
+            let before = footprint()
+            work()
+            if let before, let after = footprint() { grown = after - before }
+        }
+        return grown
+    }
+    let previous = Graft.applicationSupportOverride
+    let isolated = root.appending(path: "large-history-support")
+    Graft.applicationSupportOverride = isolated
+    defer { Graft.applicationSupportOverride = previous }
+    let one = isolated.appending(path: "Claude-Second/claude-code-sessions/OWNACC/OWNORG")
+    let other = isolated.appending(path: "Claude/claude-code-sessions/SRCACC/SRCORG")
+    for folder in [one, other] { try! fm.createDirectory(at: folder, withIntermediateDirectories: true) }
+    // A hundred long chats of about 200 KB each.
+    let turn = ["type": "assistant", "text": String(repeating: "A reply in a long chat. ", count: 40)]
+    for index in 0..<100 {
+        let record: [String: Any] = ["sessionId": "local_\(index)", "cliSessionId": "large-\(index)",
+            "cwd": "/a/project", "originCwd": "/a/project", "title": "Chat \(index)",
+            "lastActivityAt": 100, "turns": Array(repeating: turn, count: 200)]
+        try! JSONSerialization.data(withJSONObject: record).write(to: other.appending(path: "local_\(index).json"))
+    }
+    // 2.2.0 left 30 MB behind here; a pass that lets each record go leaves well under one.
+    check(growth { Graft.mirrorChatFolders(one, other) } < 8_000_000,
+          "mirroring a large history leaves none of its records in memory")
+    check(Graft.mirrorChatFolders(one, other) == 0
+            && (try? fm.contentsOfDirectory(atPath: one.path))?.count == 100,
+          "and every record still arrives, settled")
+    try? fm.removeItem(at: isolated)
+}
+
 section("Project order follows the most recently reordered account")
 do {
     func value(_ order: [String], _ time: Int) -> String {

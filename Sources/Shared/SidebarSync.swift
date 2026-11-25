@@ -215,10 +215,13 @@ enum SidebarSync {
             for pair in pairs {
                 for folder in [pair.borrowerStore, pair.sourceStore] {
                     for id in pair.shared {
-                        let file = folder.appending(path: id + ".json")
-                        guard !Graft.isSymlink(file),
-                              (try JSONSerialization.jsonObject(with: Data(contentsOf: file))) is [String: Any]
-                        else { throw Failure("unreadable-session") }
+                        // Every shared record is read whole, so each goes before the next.
+                        try autoreleasepool {
+                            let file = folder.appending(path: id + ".json")
+                            guard !Graft.isSymlink(file),
+                                  (try JSONSerialization.jsonObject(with: Data(contentsOf: file))) is [String: Any]
+                            else { throw Failure("unreadable-session") }
+                        }
                     }
                 }
             }
@@ -251,15 +254,18 @@ enum SidebarSync {
 
     private static func updateRecordFlags(_ folder: URL, shared: Set<String>, pins: Set<String>) throws {
         for id in shared.sorted() {
-            let file = folder.appending(path: id + ".json")
-            guard !Graft.isSymlink(file),
-                  var record = try JSONSerialization.jsonObject(with: Data(contentsOf: file)) as? [String: Any]
-            else { throw Failure("unreadable-session") }
-            let pinned = pins.contains(id)
-            if record["isStarred"] as? Bool == pinned { continue }
-            record["isStarred"] = pinned
-            try JSONSerialization.data(withJSONObject: record, options: [.sortedKeys])
-                .write(to: file, options: .atomic)
+            // Every shared record is read whole, so each goes before the next.
+            try autoreleasepool {
+                let file = folder.appending(path: id + ".json")
+                guard !Graft.isSymlink(file),
+                      var record = try JSONSerialization.jsonObject(with: Data(contentsOf: file)) as? [String: Any]
+                else { throw Failure("unreadable-session") }
+                let pinned = pins.contains(id)
+                if record["isStarred"] as? Bool == pinned { return }
+                record["isStarred"] = pinned
+                try JSONSerialization.data(withJSONObject: record, options: [.sortedKeys])
+                    .write(to: file, options: .atomic)
+            }
         }
     }
 
