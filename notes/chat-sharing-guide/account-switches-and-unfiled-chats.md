@@ -76,3 +76,22 @@ are compared, `originCwd` is set back to `cwd` before hashing, so the local
 alias is not an edit and nothing is copied for it. Records that are not scratch
 records, and any whose `cwd` and `originCwd` disagree about which scratch folder
 they mean, are left exactly as they are.
+
+**Asking costs a parse, so most records are never asked.** Every pass puts the
+question to every record on both sides of every pair, several times over, and
+2.2.0 answered it by parsing the whole record each time with nothing draining
+the results until the pass ended. A machine with 8 profiles, 18 pairs and about
+66,000 records (16 GB of JSON, 2 % of it unfiled chats) grew Graft to 40–84 GB
+within minutes of launch, and macOS killed it each time; 2.0.1, which only
+hashed the bytes, had stayed small. Now a record is parsed only when its bytes
+hold both `"originCwd"` and `scratch-workspaces`. Neither Claude's
+`JSON.stringify` nor `JSONSerialization` escapes a letter or `-`, and an escaped
+slash leaves `scratch-workspaces` whole, so no unfiled chat is passed over. Each
+name is mirrored in a pool of its own, and so is every pass, as are the
+sweep's, the menu bar's and sidebar sync's reads of a record: the reporter's
+copy of that change stayed near 0.3 GB through a whole first pass.
+
+What it leaves alone is the reading. Every pass still reads and hashes every
+record on both sides while holding the state lock, so at that size a pass costs
+minutes of disk and CPU. Remembering each file's inode, size and modification
+time against its digest would make a quiet pass a series of `lstat` calls.
