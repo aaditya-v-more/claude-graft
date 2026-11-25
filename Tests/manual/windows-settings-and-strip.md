@@ -67,7 +67,7 @@ to quit Graft.
 10. Make the strip's dot appear (step 4 of
     [the taskbar badges case](windows-taskbar-badges.md)), then change it
     between green and amber.
-    Expect: the dot sits as a badge on the lower-right corner of the first
+    Expect: the dot sits as a badge on the upper-right corner of the first
     Claude icon, with a thin ring in the taskbar's own colour round it so it
     reads over the icon; it pops to a little over full size and settles back, and
     when it goes it fades out. The strip does not widen or narrow as it comes and

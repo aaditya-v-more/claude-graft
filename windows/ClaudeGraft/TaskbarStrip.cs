@@ -325,8 +325,8 @@ internal sealed class TaskbarStrip : IDisposable
                     : (light ? Color.FromArgb(255, 157, 93, 0) : Color.FromArgb(255, 252, 225, 0));
                 var alpha8 = (int)Math.Round(255 * dotAlpha);
                 var size = (float)(dot * dotScale);
-                // On the icon's lower-right corner, cut out of it by a ring in the bar's own colour.
-                var centre = badged ? new PointF(firstIcon.Right - Px(1), firstIcon.Bottom - Px(1)) : new PointF(x + dot / 2f, height / 2f);
+                // On the icon's upper-right corner, cut out of it by a ring in the bar's own colour.
+                var centre = badged ? new PointF(firstIcon.Right - Px(1), firstIcon.Top + Px(1)) : new PointF(x + dot / 2f, height / 2f);
                 if (badged)
                 {
                     var cut = Math.Max(1, Px(1));
