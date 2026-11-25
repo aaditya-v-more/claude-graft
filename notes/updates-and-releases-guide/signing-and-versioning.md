@@ -62,7 +62,9 @@ release could no longer take its files. It was still made latest, so the Mac
 download on the site and the README's badge name it, and every Windows link
 on the site and in both READMEs names v2.2.0's setup instead of
 `releases/latest/download/`, which would have answered 404. Put them back to
-`latest` with the next release that carries Windows.
+`latest` with the next release that carries Windows. Windows Checks asks for
+`windows/release-notes/<VERSION>.md` only while that version is untagged, since
+it failed every pull request after 2.2.1 for want of notes Windows never needed.
 
 The Mac's update feed and cask name their version explicitly, so a release
 that carries only Windows packages offers the Mac nothing, and Velopack passes
