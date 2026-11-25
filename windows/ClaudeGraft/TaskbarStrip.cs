@@ -3,6 +3,7 @@ using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
 using System.Drawing.Text;
 using System.Runtime.InteropServices;
+using ClaudeGraft.Core;
 using Microsoft.Win32;
 
 namespace ClaudeGraft;
