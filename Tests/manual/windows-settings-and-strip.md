@@ -45,10 +45,30 @@ to quit Graft.
 7. Close and reopen the flyout.
    Expect: the line is gone once a pass has filed nothing new.
 
-Restore the three switches as found. If Claude had already written its own
+8. With the usage figure and the conversation title on, switch between two or
+   three chats in Claude's sidebar, one with a short title and one long enough
+   to run, and note the strip's left edge each time.
+   Expect: the strip keeps its width and its left edge; a short title sits at
+   the left of its area with the rest empty, and a long one still runs.
+9. Switch chats again with Windows' Animation effects on (Settings,
+   Accessibility, Visual effects).
+   Expect: the old title slides up and out while the new one slides up into
+   place in about a fifth of a second, inside the title area. A running title
+   does not restart its scroll on every frame.
+10. Make the strip's dot appear (step 4 of
+    [the taskbar badges case](windows-taskbar-badges.md)), then change it
+    between green and amber.
+    Expect: the dot pops to a little over full size and settles back; when it
+    goes it fades out. The strip does not widen or narrow as it comes and goes.
+11. Turn Animation effects off, then repeat steps 9 and 10. Turn it back on.
+    Expect: titles and the dot change at once, with no slide, pop or fade. The
+    first appearance of the strip and a light or dark change never animate.
+
+Restore the three switches as found, and Animation effects too. If Claude had already written its own
 record and there was no `sweep.file`, report the positive recovery check as
 not exercised; do not remove a real record to manufacture it.
 
 Pass when: each link opens what it names, the two switches each change only
-their own part of the strip and are remembered, and a recovered session is
-reported once in the flyout.
+their own part of the strip and are remembered, a recovered session is
+reported once in the flyout, the strip keeps its width across chats, and the
+title and dot animate only while Animation effects is on.

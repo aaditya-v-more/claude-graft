@@ -33,8 +33,15 @@ internal sealed class TaskbarStrip : IDisposable
     private System.Diagnostics.Stopwatch? _washClock;
     private System.Threading.Timer? _washTimer;
     private const double WashMs = 83;
-    private double _offset;
+    private double _offset, _fromOffset;
     private DateTime _scrollFrom;
+    // The title sliding out and the dot easing in or out, each against its own clock;
+    // one frame timer serves both and stops when they are done.
+    private string? _titleFrom;
+    private Signal _dotFrom;
+    private System.Diagnostics.Stopwatch? _titleClock, _dotClock;
+    private System.Threading.Timer? _frames;
+    private const double SlideMs = 200, PopMs = 250, FadeMs = 150;
     private RECT _at;
     // From the timer's thread: 0 where Widgets is not beside the tray, -1 where it is
     // but could not be found, otherwise its left edge.
@@ -59,9 +66,17 @@ internal sealed class TaskbarStrip : IDisposable
 
     public void Show(Face? face)
     {
-        var changed = face != _face && !(face is not null && _face is not null && Same(face, _face));
+        var before = _face;
+        var changed = face != before && !(face is not null && before is not null && Same(face, before));
         _face = face;
-        if (changed) { _offset = 0; _scrollFrom = DateTime.UtcNow.AddSeconds(2); }
+        if (changed)
+        {
+            // The first show and a theme change take no part: only a face that was already up.
+            if (_shown && before is not null && face is not null && ClientAreaAnimation()) Animate(before, face);
+            _fromOffset = _offset;
+            _offset = 0;
+            _scrollFrom = DateTime.UtcNow.AddSeconds(2);
+        }
         Place();
         if (changed) Draw();
     }
@@ -81,6 +96,7 @@ internal sealed class TaskbarStrip : IDisposable
         {
             if (_shown) { ShowWindow(_window.Handle, 0); _shown = false; }
             StopScroll();
+            StopFrames();
             return;
         }
         if (!_shown || !at.Equals(_at))
@@ -172,12 +188,24 @@ internal sealed class TaskbarStrip : IDisposable
             var size = g.MeasureString(text, f, int.MaxValue, StringFormat.GenericTypographic);
             return new Size((int)Math.Ceiling(size.Width), (int)Math.Ceiling(size.Height));
         }
+        void DrawTitle(Graphics t, string text, int textWidth, double offset, float dy)
+        {
+            using var brush = new SolidBrush(ink);
+            var ty = (height - Measure(text, font).Height) / 2f + dy;
+            if (textWidth <= Px(TextRoom)) { t.DrawString(text, font, brush, 0, ty, StringFormat.GenericTypographic); return; }
+            // Round and round: the title, a gap, the title again.
+            var loop = textWidth + Px(40);
+            var shift = (float)(offset * scale % loop);
+            t.DrawString(text, font, brush, -shift, ty, StringFormat.GenericTypographic);
+            t.DrawString(text, font, brush, -shift + loop, ty, StringFormat.GenericTypographic);
+        }
         var name = string.IsNullOrWhiteSpace(face.Name) ? Size.Empty : Measure(face.Name!, font);
-        var usage = face.Usage is null ? Size.Empty : Measure(face.Usage, bold);
+        // Each slot is sized for its fullest form, so switching chats leaves the width alone.
+        var usage = face.Usage is null ? Size.Empty : Measure(StripFace.WidestUsage(face.Usage), bold);
         var title = string.IsNullOrWhiteSpace(face.Title) ? Size.Empty : Measure(face.Title!, font);
-        var room = Math.Min(title.Width, Px(TextRoom));
-        var dot = face.Signal == Signal.None ? 0 : Px(8);
-        var width = pad + face.Marks.Count * (icon + gap) + (name.Width > 0 ? name.Width + gap : 0) + (usage.Width > 0 ? usage.Width + gap : 0) + (dot > 0 ? dot + gap : 0) + (room > 0 ? room + gap : 0) - gap + pad;
+        var room = title.Width > 0 ? Px(TextRoom) : 0;
+        var dot = Px(8);
+        var width = pad + face.Marks.Count * (icon + gap) + (name.Width > 0 ? name.Width + gap : 0) + (usage.Width > 0 ? usage.Width + gap : 0) + dot + gap + (room > 0 ? room + gap : 0) - gap + pad;
         width = Math.Max(width, height);
 
         using var bitmap = new Bitmap(width, height, PixelFormat.Format32bppPArgb);
@@ -226,39 +254,44 @@ internal sealed class TaskbarStrip : IDisposable
                 g.DrawString(face.Usage, bold, inkBrush, x, (height - usage.Height) / 2f, StringFormat.GenericTypographic);
                 x += usage.Width + gap;
             }
-            if (dot > 0)
+            var shown = face.Signal;
+            double dotScale = 1, dotAlpha = 1;
+            if (_dotClock is { } dotClock)
+            {
+                var t = dotClock.Elapsed.TotalMilliseconds / (shown == Signal.None ? FadeMs : PopMs);
+                if (shown == Signal.None) { shown = _dotFrom; dotAlpha = 1 - Math.Min(1, t); }
+                else dotScale = StripFace.Pop(t);
+            }
+            if (shown != Signal.None)
             {
                 // Windows' own success and caution colours, for the bar's light or dark.
-                var colour = face.Signal == Signal.Done
+                var colour = shown == Signal.Done
                     ? (light ? Color.FromArgb(255, 15, 123, 15) : Color.FromArgb(255, 108, 203, 95))
                     : (light ? Color.FromArgb(255, 157, 93, 0) : Color.FromArgb(255, 252, 225, 0));
-                using var signal = new SolidBrush(colour);
-                g.FillEllipse(signal, x, (height - dot) / 2, dot, dot);
-                x += dot + gap;
+                using var signal = new SolidBrush(Color.FromArgb((int)Math.Round(255 * dotAlpha), colour));
+                var size = (float)(dot * dotScale);
+                g.FillEllipse(signal, x + (dot - size) / 2, (height - size) / 2, size, size);
             }
+            x += dot + gap;
             if (room > 0)
             {
-                var clip = new Rectangle(x, 0, room, height);
-                g.SetClip(clip);
-                var ty = (height - title.Height) / 2f;
-                if (title.Width <= room) g.DrawString(face.Title, font, inkBrush, x, ty, StringFormat.GenericTypographic);
-                else
+                // Drawn apart and faded there, so the fade thins the letters and not the wash behind.
+                using var text = new Bitmap(room, height, PixelFormat.Format32bppPArgb);
+                var sliding = _titleClock is not null && _titleFrom is not null;
+                using (var t = Graphics.FromImage(text))
                 {
-                    // Round and round: the title, a gap, the title again. Drawn apart and
-                    // faded there, so the fade thins the letters and not the wash behind.
-                    var loop = title.Width + Px(40);
-                    var shift = (float)(_offset * scale % loop);
-                    using var text = new Bitmap(room, height, PixelFormat.Format32bppPArgb);
-                    using (var t = Graphics.FromImage(text))
+                    t.TextRenderingHint = TextRenderingHint.AntiAliasGridFit;
+                    if (sliding)
                     {
-                        t.TextRenderingHint = TextRenderingHint.AntiAliasGridFit;
-                        t.DrawString(face.Title, font, inkBrush, -shift, ty, StringFormat.GenericTypographic);
-                        t.DrawString(face.Title, font, inkBrush, -shift + loop, ty, StringFormat.GenericTypographic);
+                        var travel = (height + title.Height) / 2f;
+                        var e = (float)StripFace.OutCubic(_titleClock!.Elapsed.TotalMilliseconds / SlideMs);
+                        DrawTitle(t, _titleFrom!, Measure(_titleFrom!, font).Width, _fromOffset, -travel * e);
+                        DrawTitle(t, face.Title!, title.Width, _offset, travel * (1 - e));
                     }
-                    Fade(text, new Rectangle(0, 0, room, height), Px(10));
-                    g.DrawImageUnscaled(text, x, 0);
+                    else DrawTitle(t, face.Title!, title.Width, _offset, 0);
                 }
-                g.ResetClip();
+                if (sliding || title.Width > room) Fade(text, new Rectangle(0, 0, room, height), Px(10));
+                g.DrawImageUnscaled(text, x, 0);
             }
         }
         if (title.Width > room) StartScroll(); else StopScroll();
@@ -393,6 +426,44 @@ internal sealed class TaskbarStrip : IDisposable
         return key?.GetValue("SystemUsesLightTheme") is int v && v == 1;
     }
 
+    // MARK: Animation, only where Windows' "Animation effects" is on.
+
+    private static bool ClientAreaAnimation() => SystemParametersInfo(SPI_GETCLIENTAREAANIMATION, 0, out var on, 0) && on != 0;
+
+    private void Animate(Face before, Face now)
+    {
+        if (!string.IsNullOrWhiteSpace(before.Title) && !string.IsNullOrWhiteSpace(now.Title) && before.Title != now.Title)
+        {
+            _titleFrom = before.Title;
+            _titleClock = System.Diagnostics.Stopwatch.StartNew();
+        }
+        if (before.Signal != now.Signal)
+        {
+            _dotFrom = before.Signal;
+            _dotClock = System.Diagnostics.Stopwatch.StartNew();
+        }
+        if (_titleClock is null && _dotClock is null) return;
+        _frames ??= new System.Threading.Timer(_ => _ui.TryEnqueue(Frame), null, 0, 16);
+    }
+
+    private void Frame()
+    {
+        if (_titleClock?.Elapsed.TotalMilliseconds >= SlideMs) { _titleClock = null; _titleFrom = null; }
+        var dotMs = _face?.Signal == Signal.None ? FadeMs : PopMs;
+        if (_dotClock?.Elapsed.TotalMilliseconds >= dotMs) _dotClock = null;
+        // The last frame is drawn settled, then the timer goes.
+        Draw();
+        if (_titleClock is null && _dotClock is null) StopFrames();
+    }
+
+    private void StopFrames()
+    {
+        _frames?.Dispose();
+        _frames = null;
+        _titleClock = _dotClock = null;
+        _titleFrom = null;
+    }
+
     // MARK: Scrolling, with a timer only while a title is too long to stand still.
 
     private void StartScroll()
@@ -480,6 +551,7 @@ internal sealed class TaskbarStrip : IDisposable
         _place.Dispose();
         _washTimer?.Dispose();
         StopScroll();
+        StopFrames();
         foreach (var image in _icons.Values) image?.Dispose();
         _icons.Clear();
     }
@@ -488,6 +560,7 @@ internal sealed class TaskbarStrip : IDisposable
 
     private const uint WM_MOUSEMOVE = 0x200, WM_LBUTTONDOWN = 0x201, WM_LBUTTONUP = 0x202, WM_MOUSELEAVE = 0x2A3, WM_MOUSEACTIVATE = 0x21;
     private const uint TME_LEAVE = 2, ABM_GETSTATE = 4, ABS_AUTOHIDE = 1;
+    private const uint SPI_GETCLIENTAREAANIMATION = 0x1042;
     private const uint SWP_NOSIZE = 1, SWP_NOMOVE = 2, SWP_NOACTIVATE = 0x10;
 
     [StructLayout(LayoutKind.Sequential)] private struct RECT { public int Left, Top, Right, Bottom; }
@@ -498,6 +571,7 @@ internal sealed class TaskbarStrip : IDisposable
     [StructLayout(LayoutKind.Sequential)] private struct APPBARDATA { public uint cbSize; public nint hWnd; public uint uCallbackMessage, uEdge; public RECT rc; public nint lParam; }
     [StructLayout(LayoutKind.Sequential)] private struct MONITORINFO { public uint cbSize; public RECT rcMonitor, rcWork; public uint dwFlags; }
 
+    [DllImport("user32.dll")] private static extern bool SystemParametersInfo(uint action, uint param, out int value, uint winIni);
     [DllImport("user32.dll")] private static extern bool ShowWindow(nint hwnd, int cmd);
     [DllImport("user32.dll")] private static extern bool SetWindowPos(nint hwnd, nint after, int x, int y, int cx, int cy, uint flags);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern nint FindWindow(string cls, string? name);
