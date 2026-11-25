@@ -25,14 +25,15 @@ internal sealed class TaskbarStrip : IDisposable
     private readonly TaskbarStripWindow _window;
     private readonly System.Threading.Timer _place;
     private readonly Microsoft.UI.Dispatching.DispatcherQueue _ui;
-    private System.Threading.Timer? _scroll;
+    private bool _scrolling;
+    private long _scrolledAt;
+    private readonly FrameClock _clock;
     private Face? _face;
     private bool _hover, _pressed, _shown;
     // The fill's alpha, fading toward what the pointer asks for. Explorer's own
     // buttons fade only the fill, linearly over 83 ms; their border swaps at once.
     private double _wash, _washFrom;
     private System.Diagnostics.Stopwatch? _washClock;
-    private System.Threading.Timer? _washTimer;
     private const double WashMs = 83;
     private double _offset, _fromOffset;
     private DateTime _scrollFrom;
@@ -49,7 +50,6 @@ internal sealed class TaskbarStrip : IDisposable
     private Signal _dotFrom;
     private System.Diagnostics.Stopwatch? _titleClock, _dotClock, _iconClock, _usageClock;
     private readonly Dictionary<int, System.Diagnostics.Stopwatch> _ringClocks = [];
-    private System.Threading.Timer? _frames;
     private const double SlideMs = 200, PopMs = 250, FadeMs = 150;
     private RECT _at;
     // From the timer's thread: 0 where Widgets is not beside the tray, -1 where it is
@@ -58,12 +58,15 @@ internal sealed class TaskbarStrip : IDisposable
     private readonly Dictionary<string, Image?> _icons = new(StringComparer.OrdinalIgnoreCase);
 
     private const int TextRoom = 190;   // device-independent, before scale
+    // Grid-fitted glyphs snap to whole pixels, so a sub-pixel glide needs them unhinted.
+    private const TextRenderingHint ScrollHint = TextRenderingHint.AntiAlias;
     private const double ScrollSpeed = 30;   // device-independent pixels a second
 
     public TaskbarStrip(Action<Windows.Graphics.PointInt32> click)
     {
         _click = click;
         _ui = Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread();
+        _clock = new FrameClock(_ui, Tick);
         _window = new TaskbarStripWindow(Proc);
         // The taskbar moves and resizes without telling anyone, so it is asked again.
         _place = new System.Threading.Timer(_ =>
@@ -109,7 +112,7 @@ internal sealed class TaskbarStrip : IDisposable
         {
             if (_shown) { ShowWindow(_window.Handle, 0); _shown = false; }
             StopScroll();
-            StopFrames();
+            ClearSlides();
             return;
         }
         if (!_shown || !at.Equals(_at))
@@ -349,10 +352,10 @@ internal sealed class TaskbarStrip : IDisposable
                 var key = new CacheKey(face, light, scale, _hover, _pressed, _wash, _at);
                 var loop = title.Width + Px(40);
                 _cache?.Dispose();
-                _cache = ScrollCache.Build(key, bitmap, x, room, Math.Min(Px(10), room / 2), loop, t =>
+                _cache = ScrollCache.Build(key, bitmap, x, room, Math.Min(Px(10), room / 2), loop, (t, phase) =>
                 {
-                    t.TextRenderingHint = TextRenderingHint.AntiAliasGridFit;
-                    DrawTitle(t, face.Title!, title.Width, room, 0, 0, 1);
+                    t.TextRenderingHint = ScrollHint;
+                    DrawTitle(t, face.Title!, title.Width, room, phase / (double)ScrollCache.Phases / scale, 0, 1);
                 });
             }
             if (room > 0)
@@ -363,7 +366,7 @@ internal sealed class TaskbarStrip : IDisposable
                 var feather = title.Width > room ? 1.0 : 0;
                 using (var t = Graphics.FromImage(text))
                 {
-                    t.TextRenderingHint = TextRenderingHint.AntiAliasGridFit;
+                    t.TextRenderingHint = title.Width > room ? ScrollHint : TextRenderingHint.AntiAliasGridFit;
                     if (slide is { } t2)
                     {
                         var e = (float)StripFace.OutCubic(t2);
@@ -547,7 +550,7 @@ internal sealed class TaskbarStrip : IDisposable
             _usageFell = string.Equals(before.Profile, now.Profile, StringComparison.OrdinalIgnoreCase) && StripFace.UsageFell(before.Usage, now.Usage);
             _usageClock = System.Diagnostics.Stopwatch.StartNew();
         }
-        if (Animating) _frames ??= new System.Threading.Timer(_ => _ui.TryEnqueue(Frame), null, 0, 16);
+        if (Animating) _clock.Start();
     }
 
     // How far a slide has gone, or null once it is over, so a finished one draws the settled
@@ -557,7 +560,25 @@ internal sealed class TaskbarStrip : IDisposable
 
     private bool Animating => _titleClock is not null || _dotClock is not null || _iconClock is not null || _usageClock is not null || _ringClocks.Count > 0;
 
-    private void Frame()
+    private void Tick()
+    {
+        var moving = Animating || _washClock is not null;
+        if (_washClock is not null)
+        {
+            var t = Math.Min(1, _washClock.Elapsed.TotalMilliseconds / WashMs);
+            _wash = _washFrom + (WashTarget() - _washFrom) * t;
+            if (t >= 1) _washClock = null;
+        }
+        if (Animating) Expire();
+        var scrolled = StepScroll();
+        // The last frame is drawn settled, then the clock goes.
+        if (moving) Draw();
+        else if (scrolled && !ScrollFrame()) Draw();
+        if (!Animating) ClearSlides();
+        if (!Animating && _washClock is null && !_scrolling) _clock.Stop();
+    }
+
+    private void Expire()
     {
         if (_titleClock?.Elapsed.TotalMilliseconds >= SlideMs) { _titleClock = null; _titleFrom = null; }
         if (_iconClock?.Elapsed.TotalMilliseconds >= SlideMs) { _iconClock = null; _iconsFrom = null; }
@@ -569,15 +590,10 @@ internal sealed class TaskbarStrip : IDisposable
             var answering = _face is not null && i < _face.Marks.Count && _face.Marks[i].Answering;
             if (clock.Elapsed.TotalMilliseconds >= (answering ? PopMs : FadeMs)) _ringClocks.Remove(i);
         }
-        // The last frame is drawn settled, then the timer goes.
-        Draw();
-        if (!Animating) StopFrames();
     }
 
-    private void StopFrames()
+    private void ClearSlides()
     {
-        _frames?.Dispose();
-        _frames = null;
         _titleClock = _dotClock = _iconClock = _usageClock = null;
         _titleFrom = _usageFrom = null;
         _iconsFrom = null;
@@ -588,23 +604,32 @@ internal sealed class TaskbarStrip : IDisposable
 
     private void StartScroll()
     {
-        _scroll ??= new System.Threading.Timer(_ => _ui.TryEnqueue(() =>
-        {
-            var now = DateTime.UtcNow;
-            if (now < _scrollFrom) return;
-            if (_scrollAt is null) { _scrollAt = now; _scrollBase = _offset; }
-            _offset = _scrollBase + (now - _scrollAt.Value).TotalSeconds * ScrollSpeed;
-            if (!ScrollFrame()) Draw();
-        }), null, 0, 33);
+        if (_scrolling) return;
+        _scrolling = true;
+        _clock.Start();
     }
 
     private void StopScroll()
     {
-        _scroll?.Dispose();
-        _scroll = null;
+        _scrolling = false;
         _scrollAt = null;
         _cache?.Dispose();
         _cache = null;
+    }
+
+    // Steps on every Nth vblank, so a 120 or 144 Hz display costs no more than 60 Hz
+    // and the steps stay even.
+    private bool StepScroll()
+    {
+        if (!_scrolling) return false;
+        var now = DateTime.UtcNow;
+        if (now < _scrollFrom) return false;
+        var count = _clock.Vblanks;
+        if (_scrollAt is not null && count - _scrolledAt < _clock.Every) return false;
+        _scrolledAt = count;
+        if (_scrollAt is null) { _scrollAt = now; _scrollBase = _offset; }
+        _offset = _scrollBase + (now - _scrollAt.Value).TotalSeconds * ScrollSpeed;
+        return true;
     }
 
     // A tick that only moves the title: the cached face with the cached title cut at the
@@ -618,7 +643,7 @@ internal sealed class TaskbarStrip : IDisposable
             || !_at.Equals(k.At) || TaskbarIsLight() != k.Light || Scale(FindWindow("Shell_TrayWnd", null)) != k.Scale) return false;
         var surface = _surface is { } s && s.Width == c.Width && s.Height == c.Height ? s : (_surface = DibSurface.Replace(_surface, c.Width, c.Height));
         if (surface is null) return false;
-        c.Paint(surface, (int)Math.Round(_offset * k.Scale % c.Loop));
+        c.Paint(surface, _offset * k.Scale % c.Loop);
         surface.Push(_window.Handle);
         return true;
     }
@@ -631,24 +656,11 @@ internal sealed class TaskbarStrip : IDisposable
         return !_hover ? 0 : _pressed ? (light ? 76 : 10) : (light ? 179 : 15);
     }
 
-    // A frame every 16 ms while the wash moves, and no timer once it has arrived.
     private void Ease()
     {
         _washFrom = _wash;
         _washClock = System.Diagnostics.Stopwatch.StartNew();
-        _washTimer ??= new System.Threading.Timer(_ => _ui.TryEnqueue(() =>
-        {
-            if (_washClock is null) return;
-            var t = Math.Min(1, _washClock.Elapsed.TotalMilliseconds / WashMs);
-            _wash = _washFrom + (WashTarget() - _washFrom) * t;
-            Draw();
-            if (t >= 1)
-            {
-                _washClock = null;
-                _washTimer?.Dispose();
-                _washTimer = null;
-            }
-        }), null, 0, 16);
+        _clock.Start();
     }
 
     // MARK: Window
@@ -690,14 +702,76 @@ internal sealed class TaskbarStrip : IDisposable
         _face = null;
         _washClock = null;
         _place.Dispose();
-        _washTimer?.Dispose();
+        _clock.Dispose();
         StopScroll();
-        StopFrames();
+        ClearSlides();
         _surface?.Dispose();
         _surface = null;
         foreach (var image in _icons.Values) image?.Dispose();
         _icons.Clear();
     }
+
+    // One tick per display refresh while anything moves, so frames land with the screen
+    // and not on the system timer's uneven 15.6 ms grid. A tick is dropped, not queued,
+    // while the last one is still undrawn.
+    private sealed class FrameClock : IDisposable
+    {
+        private readonly Microsoft.UI.Dispatching.DispatcherQueue _ui;
+        private readonly Action _tick;
+        private CancellationTokenSource? _run;
+        private int _posted;
+        private long _vblanks;
+        private volatile int _every = 1;
+
+        public FrameClock(Microsoft.UI.Dispatching.DispatcherQueue ui, Action tick) { _ui = ui; _tick = tick; }
+
+        public long Vblanks => Interlocked.Read(ref _vblanks);
+
+        // Vblanks between scroll steps that keep it near 60 a second.
+        public int Every => _every;
+
+        public void Start()
+        {
+            if (_run is not null) return;
+            var run = _run = new CancellationTokenSource();
+            new Thread(() => Loop(run.Token)) { IsBackground = true, Name = "strip frames" }.Start();
+        }
+
+        public void Stop()
+        {
+            _run?.Cancel();
+            _run = null;
+        }
+
+        private void Loop(CancellationToken stop)
+        {
+            var watch = System.Diagnostics.Stopwatch.StartNew();
+            var last = 0.0;
+            var interval = 16.67;
+            while (!stop.IsCancellationRequested)
+            {
+                // With composition off or in a remote session DwmFlush fails or returns at once; wait out a frame instead.
+                if (DwmFlush() != 0 || watch.Elapsed.TotalMilliseconds - last < 2)
+                {
+                    var wait = 16 - (watch.Elapsed.TotalMilliseconds - last);
+                    if (wait > 0) Thread.Sleep((int)wait);
+                }
+                var now = watch.Elapsed.TotalMilliseconds;
+                if (last > 0) interval = interval * 0.9 + (now - last) * 0.1;
+                last = now;
+                _every = Math.Max(1, (int)Math.Round(16.67 / Math.Max(1, interval)));
+                Interlocked.Increment(ref _vblanks);
+                if (stop.IsCancellationRequested) break;
+                if (Interlocked.Exchange(ref _posted, 1) == 1) continue;
+                if (!_ui.TryEnqueue(() => { Volatile.Write(ref _posted, 0); if (!stop.IsCancellationRequested) _tick(); }))
+                    Volatile.Write(ref _posted, 0);
+            }
+        }
+
+        public void Dispose() => Stop();
+    }
+
+    [DllImport("dwmapi.dll")] private static extern int DwmFlush();
 
     // MARK: Scroll cache
 
@@ -707,19 +781,22 @@ internal sealed class TaskbarStrip : IDisposable
     // plain bytes so a tick is row copies and a feather over the edge columns only.
     private sealed class ScrollCache : IDisposable
     {
+        // The title is kept at quarter-pixel offsets, so the glide is finer than the pixel grid.
+        public const int Phases = 4;
         public CacheKey Key { get; }
         public int Width { get; }
         public int Height { get; }
         public int Loop { get; }
-        private readonly byte[] _face, _title, _window;
+        private readonly byte[] _face, _window;
+        private readonly byte[][] _titles;
         private readonly int _x, _room, _edge, _titleStride;
         private readonly double[] _keep;
         private readonly System.Runtime.InteropServices.GCHandle _pin;
         private readonly Bitmap _view;
 
-        private ScrollCache(CacheKey key, byte[] face, byte[] title, int width, int height, int x, int room, int edge, int loop, int titleStride)
+        private ScrollCache(CacheKey key, byte[] face, byte[][] titles, int width, int height, int x, int room, int edge, int loop, int titleStride)
         {
-            Key = key; _face = face; _title = title; Width = width; Height = height;
+            Key = key; _face = face; _titles = titles; Width = width; Height = height;
             _x = x; _room = room; _edge = edge; Loop = loop; _titleStride = titleStride;
             _keep = Enumerable.Range(0, edge).Select(i => StripFace.FeatherKeep(i, edge, 1)).ToArray();
             _window = new byte[room * 4 * height];
@@ -727,13 +804,18 @@ internal sealed class TaskbarStrip : IDisposable
             _view = new Bitmap(room, height, room * 4, PixelFormat.Format32bppPArgb, _pin.AddrOfPinnedObject());
         }
 
-        public static ScrollCache Build(CacheKey key, Bitmap face, int x, int room, int edge, int loop, Action<Graphics> drawTitle)
+        public static ScrollCache Build(CacheKey key, Bitmap face, int x, int room, int edge, int loop, Action<Graphics, int> drawTitle)
         {
-            using var strip = new Bitmap(loop + room, face.Height, PixelFormat.Format32bppPArgb);
-            using (var g = Graphics.FromImage(strip)) drawTitle(g);
+            var titles = new byte[Phases][];
+            var titleStride = 0;
+            for (var phase = 0; phase < Phases; phase++)
+            {
+                using var strip = new Bitmap(loop + room, face.Height, PixelFormat.Format32bppPArgb);
+                using (var g = Graphics.FromImage(strip)) drawTitle(g, phase);
+                (titles[phase], titleStride) = Bytes(strip);
+            }
             var (faceBytes, _) = Bytes(face);
-            var (titleBytes, titleStride) = Bytes(strip);
-            return new ScrollCache(key, faceBytes, titleBytes, face.Width, face.Height, x, room, edge, loop, titleStride);
+            return new ScrollCache(key, faceBytes, titles, face.Width, face.Height, x, room, edge, loop, titleStride);
         }
 
         private static (byte[], int) Bytes(Bitmap bitmap)
@@ -748,13 +830,15 @@ internal sealed class TaskbarStrip : IDisposable
             finally { bitmap.UnlockBits(data); }
         }
 
-        public void Paint(DibSurface surface, int shift)
+        public void Paint(DibSurface surface, double position)
         {
+            var shift = (int)position;
+            var title = _titles[(int)((position - shift) * Phases)];
             Marshal.Copy(_face, 0, surface.Bits, _face.Length);
             var row = _room * 4;
             for (var y = 0; y < Height; y++)
             {
-                Buffer.BlockCopy(_title, y * _titleStride + shift * 4, _window, y * row, row);
+                Buffer.BlockCopy(title, y * _titleStride + shift * 4, _window, y * row, row);
                 for (var i = 0; i < _edge; i++)
                 {
                     var keep = _keep[i];
