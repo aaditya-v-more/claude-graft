@@ -36,11 +36,14 @@ internal sealed class TaskbarStrip : IDisposable
     private const double WashMs = 83;
     private double _offset, _fromOffset;
     private DateTime _scrollFrom;
-    // The title sliding out and the dot easing in or out, each against its own clock;
-    // one frame timer serves both and stops when they are done.
-    private string? _titleFrom;
+    // The title, icons and usage sliding out, and the dot and rings easing in or out,
+    // each against its own clock; one frame timer serves all and stops when they are done.
+    private string? _titleFrom, _usageFrom;
+    private string?[]? _iconsFrom;
+    private bool _usageFell;
     private Signal _dotFrom;
-    private System.Diagnostics.Stopwatch? _titleClock, _dotClock;
+    private System.Diagnostics.Stopwatch? _titleClock, _dotClock, _iconClock, _usageClock;
+    private readonly Dictionary<int, System.Diagnostics.Stopwatch> _ringClocks = [];
     private System.Threading.Timer? _frames;
     private const double SlideMs = 200, PopMs = 250, FadeMs = 150;
     private RECT _at;
@@ -233,14 +236,38 @@ internal sealed class TaskbarStrip : IDisposable
 
             var x = pad;
             var y = (height - icon) / 2;
-            foreach (var mark in face.Marks)
+            for (var i = 0; i < face.Marks.Count; i++)
             {
-                if (Icon(mark.IconFile) is { } image) g.DrawImage(image, new Rectangle(x, y, icon, icon));
-                if (mark.Answering)
+                var mark = face.Marks[i];
+                var slot = new Rectangle(x, y, icon, icon);
+                if (_iconClock is { } iconClock && _iconsFrom is { } was && i < was.Length && was[i] != mark.IconFile)
                 {
-                    using var ring = new Pen(Color.FromArgb(255, 229, 72, 77), Math.Max(1.5f, (float)(1.5 * scale)));
-                    using var path = Rounded(new Rectangle(x - Px(2), y - Px(2), icon + Px(4), icon + Px(4)), Px(5));
-                    g.DrawPath(ring, path);
+                    var e = (float)StripFace.OutCubic(iconClock.Elapsed.TotalMilliseconds / SlideMs);
+                    var clip = g.Clip;
+                    g.SetClip(slot);
+                    if (Icon(was[i]) is { } old) g.DrawImage(old, new Rectangle(x, y - (int)Math.Round(icon * e), icon, icon));
+                    if (Icon(mark.IconFile) is { } next) g.DrawImage(next, new Rectangle(x, y + (int)Math.Round(icon * (1 - e)), icon, icon));
+                    g.Clip = clip;
+                }
+                else if (Icon(mark.IconFile) is { } image) g.DrawImage(image, slot);
+
+                double ringScale = 1, ringAlpha = 1;
+                if (_ringClocks.TryGetValue(i, out var ringClock))
+                {
+                    var t = ringClock.Elapsed.TotalMilliseconds / (mark.Answering ? PopMs : FadeMs);
+                    if (mark.Answering) ringScale = StripFace.Pop(t);
+                    else ringAlpha = 1 - Math.Min(1, t);
+                }
+                if ((mark.Answering || _ringClocks.ContainsKey(i)) && ringAlpha > 0)
+                {
+                    var side = (icon + Px(4)) * ringScale;
+                    var ringBox = new RectangleF((float)(x + (icon - side) / 2), (float)(y + (icon - side) / 2), (float)side, (float)side);
+                    if (side >= 2)
+                    {
+                        using var ring = new Pen(Color.FromArgb((int)Math.Round(255 * ringAlpha), 229, 72, 77), Math.Max(1.5f, (float)(1.5 * scale)));
+                        using var path = Rounded(Rectangle.Round(ringBox), Math.Max(1, (int)Math.Min(Px(5) * ringScale, side / 2)));
+                        g.DrawPath(ring, path);
+                    }
                 }
                 x += icon + gap;
             }
@@ -252,7 +279,18 @@ internal sealed class TaskbarStrip : IDisposable
             }
             if (usage.Width > 0)
             {
-                g.DrawString(face.Usage, bold, inkBrush, x, (height - usage.Height) / 2f, StringFormat.GenericTypographic);
+                var uy = (height - usage.Height) / 2f;
+                if (_usageClock is { } usageClock && _usageFrom is not null)
+                {
+                    var e = (float)StripFace.OutCubic(usageClock.Elapsed.TotalMilliseconds / SlideMs);
+                    var way = _usageFell ? -1 : 1;
+                    var clip = g.Clip;
+                    g.SetClip(new RectangleF(x, uy, usage.Width, usage.Height));
+                    g.DrawString(_usageFrom, bold, inkBrush, x, uy - way * usage.Height * e, StringFormat.GenericTypographic);
+                    g.DrawString(face.Usage, bold, inkBrush, x, uy + way * usage.Height * (1 - e), StringFormat.GenericTypographic);
+                    g.Clip = clip;
+                }
+                else g.DrawString(face.Usage, bold, inkBrush, x, uy, StringFormat.GenericTypographic);
                 x += usage.Width + gap;
             }
             var shown = face.Signal;
@@ -443,26 +481,55 @@ internal sealed class TaskbarStrip : IDisposable
             _dotFrom = before.Signal;
             _dotClock = System.Diagnostics.Stopwatch.StartNew();
         }
-        if (_titleClock is null && _dotClock is null) return;
-        _frames ??= new System.Threading.Timer(_ => _ui.TryEnqueue(Frame), null, 0, 16);
+        // A different count changes the width anyway, so the marks just snap.
+        _ringClocks.Clear();
+        if (before.Marks.Count == now.Marks.Count)
+        {
+            if (before.Marks.Zip(now.Marks).Any(p => p.First.IconFile != p.Second.IconFile))
+            {
+                _iconsFrom = before.Marks.Select(m => m.IconFile).ToArray();
+                _iconClock = System.Diagnostics.Stopwatch.StartNew();
+            }
+            for (var i = 0; i < now.Marks.Count; i++)
+                if (before.Marks[i].Answering != now.Marks[i].Answering) _ringClocks[i] = System.Diagnostics.Stopwatch.StartNew();
+        }
+        else { _iconClock = null; _iconsFrom = null; }
+        if (before.Usage is not null && now.Usage is not null && before.Usage != now.Usage)
+        {
+            _usageFrom = before.Usage;
+            _usageFell = StripFace.UsageFell(before.Usage, now.Usage);
+            _usageClock = System.Diagnostics.Stopwatch.StartNew();
+        }
+        if (Animating) _frames ??= new System.Threading.Timer(_ => _ui.TryEnqueue(Frame), null, 0, 16);
     }
+
+    private bool Animating => _titleClock is not null || _dotClock is not null || _iconClock is not null || _usageClock is not null || _ringClocks.Count > 0;
 
     private void Frame()
     {
         if (_titleClock?.Elapsed.TotalMilliseconds >= SlideMs) { _titleClock = null; _titleFrom = null; }
+        if (_iconClock?.Elapsed.TotalMilliseconds >= SlideMs) { _iconClock = null; _iconsFrom = null; }
+        if (_usageClock?.Elapsed.TotalMilliseconds >= SlideMs) { _usageClock = null; _usageFrom = null; }
         var dotMs = _face?.Signal == Signal.None ? FadeMs : PopMs;
         if (_dotClock?.Elapsed.TotalMilliseconds >= dotMs) _dotClock = null;
+        foreach (var (i, clock) in _ringClocks.ToArray())
+        {
+            var answering = _face is not null && i < _face.Marks.Count && _face.Marks[i].Answering;
+            if (clock.Elapsed.TotalMilliseconds >= (answering ? PopMs : FadeMs)) _ringClocks.Remove(i);
+        }
         // The last frame is drawn settled, then the timer goes.
         Draw();
-        if (_titleClock is null && _dotClock is null) StopFrames();
+        if (!Animating) StopFrames();
     }
 
     private void StopFrames()
     {
         _frames?.Dispose();
         _frames = null;
-        _titleClock = _dotClock = null;
-        _titleFrom = null;
+        _titleClock = _dotClock = _iconClock = _usageClock = null;
+        _titleFrom = _usageFrom = null;
+        _iconsFrom = null;
+        _ringClocks.Clear();
     }
 
     // MARK: Scrolling, with a timer only while a title is too long to stand still.

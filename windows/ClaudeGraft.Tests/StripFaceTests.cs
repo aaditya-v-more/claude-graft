@@ -12,6 +12,17 @@ public class StripFaceTests
     public void UsageReservesThreeDigits(string usage, string widest) =>
         Assert.Equal(widest, StripFace.WidestUsage(usage));
 
+    [Theory(DisplayName = "a usage figure that went down is told apart from one that did not")]
+    [InlineData("45%", "3%", true)]
+    [InlineData("W 90%", "W 12%", true)]
+    [InlineData("3%", "45%", false)]
+    [InlineData("45%", "45%", false)]
+    [InlineData("45%", "n/a", false)]
+    [InlineData("n/a", "45%", false)]
+    [InlineData(null, "5%", false)]
+    public void UsageFellComparesFirstNumbers(string? before, string? now, bool fell) =>
+        Assert.Equal(fell, StripFace.UsageFell(before, now));
+
     [Fact(DisplayName = "the pop starts at nothing, overshoots, and ends at full size")]
     public void PopOvershoots()
     {

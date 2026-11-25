@@ -60,9 +60,17 @@ to quit Graft.
     between green and amber.
     Expect: the dot pops to a little over full size and settles back; when it
     goes it fades out. The strip does not widen or narrow as it comes and goes.
-11. Turn Animation effects off, then repeat steps 9 and 10. Turn it back on.
-    Expect: titles and the dot change at once, with no slide, pop or fade. The
-    first appearance of the strip and a light or dark change never animate.
+11. With Animation effects on, change which Claude is in front (a different
+    account's window), and let a usage figure change, once rising and once
+    falling where a window resets.
+    Expect: the old icon slides up and out of its slot while the new one slides
+    up in; a mark's red ring pops when it appears and fades when it goes. The
+    usage figure slides up inside its own slot, or downward when the number
+    went down. A change in the count of icons snaps without sliding.
+12. Turn Animation effects off, then repeat steps 9 to 11. Turn it back on.
+    Expect: titles, icons, usage figures, the dot and the rings change at once,
+    with no slide, pop or fade. The first appearance of the strip and a light or
+    dark change never animate.
 
 Restore the three switches as found, and Animation effects too. If Claude had already written its own
 record and there was no `sweep.file`, report the positive recovery check as
@@ -71,4 +79,4 @@ not exercised; do not remove a real record to manufacture it.
 Pass when: each link opens what it names, the two switches each change only
 their own part of the strip and are remembered, a recovered session is
 reported once in the flyout, the strip keeps its width across chats, and the
-title and dot animate only while Animation effects is on.
+title, icon, usage figure, dot and ring animate only while Animation effects is on.
