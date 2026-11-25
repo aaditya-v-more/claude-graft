@@ -35,11 +35,6 @@ internal sealed class TaskbarStrip : IDisposable
     private System.Threading.Timer? _washTimer;
     private const double WashMs = 83;
     private double _offset, _fromOffset;
-    // The widest title this profile has shown, so the title area holds its width while
-    // chats are switched but carries no empty space for short ones.
-    private string? _reachProfile;
-    private int _reachPx;
-    private double _reachScale;
     private DateTime _scrollFrom;
     // The title, icons and usage sliding out, and the dot and rings easing in or out,
     // each against its own clock; one frame timer serves all and stops when they are done.
@@ -82,9 +77,12 @@ internal sealed class TaskbarStrip : IDisposable
         {
             // The first show and a theme change take no part: only a face that was already up.
             if (_shown && before is not null && face is not null && ClientAreaAnimation()) Animate(before, face);
-            _fromOffset = _offset;
-            _offset = 0;
-            _scrollFrom = DateTime.UtcNow.AddSeconds(2);
+            if (before?.Title != face?.Title || before?.Profile != face?.Profile)
+            {
+                _fromOffset = _offset;
+                _offset = 0;
+                _scrollFrom = DateTime.UtcNow.AddSeconds(2);
+            }
         }
         Place();
         if (changed) Draw();
@@ -197,11 +195,18 @@ internal sealed class TaskbarStrip : IDisposable
             var size = g.MeasureString(text, f, int.MaxValue, StringFormat.GenericTypographic);
             return new Size((int)Math.Ceiling(size.Width), (int)Math.Ceiling(size.Height));
         }
-        void DrawTitle(Graphics t, string text, int textWidth, double offset, float dy)
+        Color Faded(double opacity) => Color.FromArgb((int)Math.Round(ink.A * opacity), ink);
+        void DrawIcon(Graphics g, Image image, Rectangle at, double opacity)
         {
-            using var brush = new SolidBrush(ink);
+            using var attrs = new ImageAttributes();
+            attrs.SetColorMatrix(new ColorMatrix { Matrix33 = (float)opacity });
+            g.DrawImage(image, at, 0, 0, image.Width, image.Height, GraphicsUnit.Pixel, attrs);
+        }
+        void DrawTitle(Graphics t, string text, int textWidth, int room, double offset, float dy, double opacity)
+        {
+            using var brush = new SolidBrush(Faded(opacity));
             var ty = (height - Measure(text, font).Height) / 2f + dy;
-            if (textWidth <= Px(TextRoom)) { t.DrawString(text, font, brush, 0, ty, StringFormat.GenericTypographic); return; }
+            if (textWidth <= room) { t.DrawString(text, font, brush, 0, ty, StringFormat.GenericTypographic); return; }
             // Round and round: the title, a gap, the title again.
             var loop = textWidth + Px(40);
             var shift = (float)(offset * scale % loop);
@@ -209,23 +214,17 @@ internal sealed class TaskbarStrip : IDisposable
             t.DrawString(text, font, brush, -shift + loop, ty, StringFormat.GenericTypographic);
         }
         var name = string.IsNullOrWhiteSpace(face.Name) ? Size.Empty : Measure(face.Name!, font);
-        // Each slot is sized for its fullest form, so switching chats leaves the width alone.
         var usage = face.Usage is null ? Size.Empty : Measure(StripFace.WidestUsage(face.Usage), bold);
         var title = string.IsNullOrWhiteSpace(face.Title) ? Size.Empty : Measure(face.Title!, font);
-        if (_reachScale != scale || !string.Equals(_reachProfile, face.Profile, StringComparison.OrdinalIgnoreCase))
-        {
-            _reachProfile = face.Profile;
-            _reachScale = scale;
-            _reachPx = 0;
-        }
-        _reachPx = Math.Max(_reachPx, title.Width);
-        var room = Math.Min(_reachPx, Px(TextRoom));
         var dot = Px(8);
         // The signal sits on the first icon; with no icon shown it has a slot of its own.
         var badged = face.Marks.Count > 0;
-        var slots = Enumerable.Repeat(icon, face.Marks.Count)
-            .Concat(new[] { name.Width, usage.Width, badged ? 0 : dot, room }.Where(w => w > 0)).ToList();
-        var width = Math.Max(pad * 2 + slots.Sum() + gap * Math.Max(0, slots.Count - 1), height);
+        var others = Enumerable.Repeat(icon, face.Marks.Count)
+            .Concat(new[] { name.Width, usage.Width, badged ? 0 : dot }.Where(w => w > 0)).ToList();
+        // One width whatever is showing: the usual icon, usage and title, with the title
+        // taking what the other parts leave, and none where they leave nothing.
+        var width = Math.Max(pad * 2 + icon + Measure("888%", bold).Width + Px(TextRoom) + gap * 2, height);
+        var room = Math.Max(0, width - pad * 2 - others.Sum() - gap * others.Count);
 
         using var bitmap = new Bitmap(width, height, PixelFormat.Format32bppPArgb);
         using (var g = Graphics.FromImage(bitmap))
@@ -249,20 +248,22 @@ internal sealed class TaskbarStrip : IDisposable
             else if (_hover && !_pressed) DrawEdge(g, outer, inner, Px(4), line, Px(3));
             g.PixelOffsetMode = PixelOffsetMode.Default;
 
+            // Slides are cut at the strip's own edge, whichever part is moving.
+            using var content = Rounded(inner, Math.Max(1, Px(4) - line));
+            g.SetClip(content);
             var x = pad;
             var y = (height - icon) / 2;
+            var travel = (float)StripFace.Travel(height);
             var firstIcon = Rectangle.Empty;
             for (var i = 0; i < face.Marks.Count; i++)
             {
                 var mark = face.Marks[i];
                 var slot = new Rectangle(x, y, icon, icon);
-                if (Slide(_iconClock) is { } e && _iconsFrom is { } was && i < was.Length && was[i] != mark.IconFile)
+                if (Slide(_iconClock) is { } t0 && _iconsFrom is { } was && i < was.Length && was[i] != mark.IconFile)
                 {
-                    var clip = g.Clip;
-                    g.SetClip(slot);
-                    if (Icon(was[i]) is { } old) g.DrawImage(old, new Rectangle(x, y - (int)Math.Round(icon * e), icon, icon));
-                    if (Icon(mark.IconFile) is { } next) g.DrawImage(next, new Rectangle(x, y + (int)Math.Round(icon * (1 - e)), icon, icon));
-                    g.Clip = clip;
+                    var e = StripFace.OutCubic(t0);
+                    if (Icon(was[i]) is { } old) DrawIcon(g, old, new Rectangle(x, y - (int)Math.Round(travel * e), icon, icon), StripFace.OutgoingOpacity(t0));
+                    if (Icon(mark.IconFile) is { } next) DrawIcon(g, next, new Rectangle(x, y + (int)Math.Round(travel * (1 - e)), icon, icon), StripFace.IncomingOpacity(t0));
                 }
                 else if (Icon(mark.IconFile) is { } image) g.DrawImage(image, slot);
 
@@ -296,14 +297,14 @@ internal sealed class TaskbarStrip : IDisposable
             if (usage.Width > 0)
             {
                 var uy = (height - usage.Height) / 2f;
-                if (Slide(_usageClock) is { } e && _usageFrom is not null)
+                if (Slide(_usageClock) is { } t1 && _usageFrom is not null)
                 {
                     var way = _usageFell ? -1 : 1;
-                    var clip = g.Clip;
-                    g.SetClip(new RectangleF(x, uy, usage.Width, usage.Height));
-                    g.DrawString(_usageFrom, bold, inkBrush, x, uy - (float)(way * usage.Height * e), StringFormat.GenericTypographic);
-                    g.DrawString(face.Usage, bold, inkBrush, x, uy + (float)(way * usage.Height * (1 - e)), StringFormat.GenericTypographic);
-                    g.Clip = clip;
+                    var e = StripFace.OutCubic(t1);
+                    using var old = new SolidBrush(Faded(StripFace.OutgoingOpacity(t1)));
+                    using var next = new SolidBrush(Faded(StripFace.IncomingOpacity(t1)));
+                    g.DrawString(_usageFrom, bold, old, x, uy - (float)(way * travel * e), StringFormat.GenericTypographic);
+                    g.DrawString(face.Usage, bold, next, x, uy + (float)(way * travel * (1 - e)), StringFormat.GenericTypographic);
                 }
                 else g.DrawString(face.Usage, bold, inkBrush, x, uy, StringFormat.GenericTypographic);
                 x += usage.Width + gap;
@@ -341,24 +342,25 @@ internal sealed class TaskbarStrip : IDisposable
                 // Drawn apart and faded there, so the fade thins the letters and not the wash behind.
                 using var text = new Bitmap(room, height, PixelFormat.Format32bppPArgb);
                 var slide = _titleFrom is null ? null : Slide(_titleClock);
-                var sliding = slide is not null;
+                var feather = title.Width > room ? 1.0 : 0;
                 using (var t = Graphics.FromImage(text))
                 {
                     t.TextRenderingHint = TextRenderingHint.AntiAliasGridFit;
-                    if (sliding)
+                    if (slide is { } t2)
                     {
-                        var travel = (height + title.Height) / 2f;
-                        var e = (float)slide!.Value;
-                        DrawTitle(t, _titleFrom!, Measure(_titleFrom!, font).Width, _fromOffset, -travel * e);
-                        DrawTitle(t, face.Title!, title.Width, _offset, travel * (1 - e));
+                        var e = (float)StripFace.OutCubic(t2);
+                        var oldWidth = Measure(_titleFrom!, font).Width;
+                        DrawTitle(t, _titleFrom!, oldWidth, room, _fromOffset, -travel * e, StripFace.OutgoingOpacity(t2));
+                        DrawTitle(t, face.Title!, title.Width, room, _offset, travel * (1 - e), StripFace.IncomingOpacity(t2));
+                        feather = StripFace.Lerp(oldWidth > room ? 1 : 0, feather, t2);
                     }
-                    else if (title.Width > 0) DrawTitle(t, face.Title!, title.Width, _offset, 0);
+                    else if (title.Width > 0) DrawTitle(t, face.Title!, title.Width, room, _offset, 0, 1);
                 }
-                if (sliding || title.Width > room) Fade(text, new Rectangle(0, 0, room, height), Px(10));
+                if (feather > 0) Fade(text, new Rectangle(0, 0, room, height), Math.Min(Px(10), room / 2), feather);
                 g.DrawImageUnscaled(text, x, 0);
             }
         }
-        if (title.Width > room) StartScroll(); else StopScroll();
+        if (room > 0 && title.Width > room) StartScroll(); else StopScroll();
 
         var left = _at.Right - width - Px(8);
         var top = _at.Top + (_at.Bottom - _at.Top - height) / 2;
@@ -418,8 +420,9 @@ internal sealed class TaskbarStrip : IDisposable
         g.Clip = clip;
     }
 
-    // The two ends of a running title fade out rather than cutting a letter in half.
-    private static void Fade(Bitmap bitmap, Rectangle band, int edge)
+    // The two ends of a running title fade out rather than cutting a letter in half;
+    // strength eases that in or out as a long title comes or goes.
+    private static void Fade(Bitmap bitmap, Rectangle band, int edge, double strength)
     {
         var data = bitmap.LockBits(new Rectangle(0, 0, bitmap.Width, bitmap.Height), ImageLockMode.ReadWrite, PixelFormat.Format32bppPArgb);
         try
@@ -431,7 +434,7 @@ internal sealed class TaskbarStrip : IDisposable
                 Marshal.Copy(at, row, 0, row.Length);
                 for (var i = 0; i < edge; i++)
                 {
-                    var keep = (i + 0.5) / edge;
+                    var keep = StripFace.FeatherKeep(i, edge, strength);
                     foreach (var x in new[] { band.Left + i, band.Right - 1 - i })
                         for (var c = 0; c < 4; c++) row[x * 4 + c] = (byte)(row[x * 4 + c] * keep);
                 }
@@ -532,7 +535,7 @@ internal sealed class TaskbarStrip : IDisposable
     // How far a slide has gone, or null once it is over, so a finished one draws the settled
     // face whether or not a frame has cleared it.
     private static double? Slide(System.Diagnostics.Stopwatch? clock) =>
-        clock is { } c && c.Elapsed.TotalMilliseconds < SlideMs ? StripFace.OutCubic(c.Elapsed.TotalMilliseconds / SlideMs) : null;
+        clock is { } c && c.Elapsed.TotalMilliseconds < SlideMs ? c.Elapsed.TotalMilliseconds / SlideMs : null;
 
     private bool Animating => _titleClock is not null || _dotClock is not null || _iconClock is not null || _usageClock is not null || _ringClocks.Count > 0;
 

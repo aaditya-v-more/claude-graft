@@ -34,4 +34,19 @@ public static class StripFace
         const double peak = 0.6;
         return t < peak ? 1.3 * OutCubic(t / peak) : 1.3 - 0.3 * OutCubic((t - peak) / (1 - peak));
     }
+
+    /// How far a slide travels: half the strip, so the old part is mostly gone before it clears the edge.
+    public static double Travel(double height) => height / 2;
+
+    /// The old part's opacity, spent by 60% of the slide so old and new are never both strong.
+    public static double OutgoingOpacity(double t) => 1 - Math.Clamp(t / 0.6, 0, 1);
+
+    public static double IncomingOpacity(double t) => Math.Clamp(t, 0, 1);
+
+    public static double Lerp(double from, double to, double t) => from + (to - from) * Math.Clamp(t, 0, 1);
+
+    /// What a title's end pixel keeps of its colour, `i` pixels in from the edge of a feather
+    /// `edge` wide; strength 0 leaves it whole, so feathering can be eased in and out.
+    public static double FeatherKeep(int i, int edge, double strength) =>
+        Lerp(1, Math.Clamp((i + 0.5) / edge, 0, 1), strength);
 }
