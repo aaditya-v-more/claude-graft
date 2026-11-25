@@ -36,6 +36,11 @@ internal sealed class TaskbarStrip : IDisposable
     private const double WashMs = 83;
     private double _offset, _fromOffset;
     private DateTime _scrollFrom;
+    // Scrolling moves by the clock, so a late tick catches up instead of slowing the title.
+    private DateTime? _scrollAt;
+    private double _scrollBase;
+    private ScrollCache? _cache;
+    private DibSurface? _surface;
     // The title, icons and usage sliding out, and the dot and rings easing in or out,
     // each against its own clock; one frame timer serves all and stops when they are done.
     private string? _titleFrom, _usageFrom;
@@ -81,6 +86,7 @@ internal sealed class TaskbarStrip : IDisposable
             {
                 _fromOffset = _offset;
                 _offset = 0;
+                _scrollAt = null;
                 _scrollFrom = DateTime.UtcNow.AddSeconds(2);
             }
         }
@@ -337,6 +343,18 @@ internal sealed class TaskbarStrip : IDisposable
                 g.FillEllipse(signal, centre.X - size / 2, centre.Y - size / 2, size, size);
             }
             if (!badged) x += dot + gap;
+            if (room > 0 && title.Width > room && _at.Right - width - Px(8) >= _at.Left && !Animating && _washClock is null)
+            {
+                g.Flush();
+                var key = new CacheKey(face, light, scale, _hover, _pressed, _wash, _at);
+                var loop = title.Width + Px(40);
+                _cache?.Dispose();
+                _cache = ScrollCache.Build(key, bitmap, x, room, Math.Min(Px(10), room / 2), loop, t =>
+                {
+                    t.TextRenderingHint = TextRenderingHint.AntiAliasGridFit;
+                    DrawTitle(t, face.Title!, title.Width, room, 0, 0, 1);
+                });
+            }
             if (room > 0)
             {
                 // Drawn apart and faded there, so the fade thins the letters and not the wash behind.
@@ -572,9 +590,11 @@ internal sealed class TaskbarStrip : IDisposable
     {
         _scroll ??= new System.Threading.Timer(_ => _ui.TryEnqueue(() =>
         {
-            if (DateTime.UtcNow < _scrollFrom) return;
-            _offset += ScrollSpeed / 30;
-            Draw();
+            var now = DateTime.UtcNow;
+            if (now < _scrollFrom) return;
+            if (_scrollAt is null) { _scrollAt = now; _scrollBase = _offset; }
+            _offset = _scrollBase + (now - _scrollAt.Value).TotalSeconds * ScrollSpeed;
+            if (!ScrollFrame()) Draw();
         }), null, 0, 33);
     }
 
@@ -582,6 +602,25 @@ internal sealed class TaskbarStrip : IDisposable
     {
         _scroll?.Dispose();
         _scroll = null;
+        _scrollAt = null;
+        _cache?.Dispose();
+        _cache = null;
+    }
+
+    // A tick that only moves the title: the cached face with the cached title cut at the
+    // new offset. Anything that would change the face falls back to a full draw, which
+    // rebuilds the cache.
+    private bool ScrollFrame()
+    {
+        if (_cache is not { } c || Animating || _washClock is not null || _window.Handle == 0) return false;
+        var k = c.Key;
+        if (!ReferenceEquals(_face, k.Face) || _hover != k.Hover || _pressed != k.Pressed || _wash != k.Wash
+            || !_at.Equals(k.At) || TaskbarIsLight() != k.Light || Scale(FindWindow("Shell_TrayWnd", null)) != k.Scale) return false;
+        var surface = _surface is { } s && s.Width == c.Width && s.Height == c.Height ? s : (_surface = DibSurface.Replace(_surface, c.Width, c.Height));
+        if (surface is null) return false;
+        c.Paint(surface, (int)Math.Round(_offset * k.Scale % c.Loop));
+        surface.Push(_window.Handle);
+        return true;
     }
 
     // White alphas from Explorer's TaskListButton: hover #0F, pressed #0A on a dark bar;
@@ -654,11 +693,156 @@ internal sealed class TaskbarStrip : IDisposable
         _washTimer?.Dispose();
         StopScroll();
         StopFrames();
+        _surface?.Dispose();
+        _surface = null;
         foreach (var image in _icons.Values) image?.Dispose();
         _icons.Clear();
     }
 
+    // MARK: Scroll cache
+
+    private sealed record CacheKey(Face Face, bool Light, double Scale, bool Hover, bool Pressed, double Wash, RECT At);
+
+    // The strip without its title, and the title laid out once for the whole loop, both as
+    // plain bytes so a tick is row copies and a feather over the edge columns only.
+    private sealed class ScrollCache : IDisposable
+    {
+        public CacheKey Key { get; }
+        public int Width { get; }
+        public int Height { get; }
+        public int Loop { get; }
+        private readonly byte[] _face, _title, _window;
+        private readonly int _x, _room, _edge, _titleStride;
+        private readonly double[] _keep;
+        private readonly System.Runtime.InteropServices.GCHandle _pin;
+        private readonly Bitmap _view;
+
+        private ScrollCache(CacheKey key, byte[] face, byte[] title, int width, int height, int x, int room, int edge, int loop, int titleStride)
+        {
+            Key = key; _face = face; _title = title; Width = width; Height = height;
+            _x = x; _room = room; _edge = edge; Loop = loop; _titleStride = titleStride;
+            _keep = Enumerable.Range(0, edge).Select(i => StripFace.FeatherKeep(i, edge, 1)).ToArray();
+            _window = new byte[room * 4 * height];
+            _pin = System.Runtime.InteropServices.GCHandle.Alloc(_window, System.Runtime.InteropServices.GCHandleType.Pinned);
+            _view = new Bitmap(room, height, room * 4, PixelFormat.Format32bppPArgb, _pin.AddrOfPinnedObject());
+        }
+
+        public static ScrollCache Build(CacheKey key, Bitmap face, int x, int room, int edge, int loop, Action<Graphics> drawTitle)
+        {
+            using var strip = new Bitmap(loop + room, face.Height, PixelFormat.Format32bppPArgb);
+            using (var g = Graphics.FromImage(strip)) drawTitle(g);
+            var (faceBytes, _) = Bytes(face);
+            var (titleBytes, titleStride) = Bytes(strip);
+            return new ScrollCache(key, faceBytes, titleBytes, face.Width, face.Height, x, room, edge, loop, titleStride);
+        }
+
+        private static (byte[], int) Bytes(Bitmap bitmap)
+        {
+            var data = bitmap.LockBits(new Rectangle(0, 0, bitmap.Width, bitmap.Height), ImageLockMode.ReadOnly, PixelFormat.Format32bppPArgb);
+            try
+            {
+                var bytes = new byte[data.Stride * data.Height];
+                Marshal.Copy(data.Scan0, bytes, 0, bytes.Length);
+                return (bytes, data.Stride);
+            }
+            finally { bitmap.UnlockBits(data); }
+        }
+
+        public void Paint(DibSurface surface, int shift)
+        {
+            Marshal.Copy(_face, 0, surface.Bits, _face.Length);
+            var row = _room * 4;
+            for (var y = 0; y < Height; y++)
+            {
+                Buffer.BlockCopy(_title, y * _titleStride + shift * 4, _window, y * row, row);
+                for (var i = 0; i < _edge; i++)
+                {
+                    var keep = _keep[i];
+                    var left = y * row + i * 4;
+                    var right = y * row + (_room - 1 - i) * 4;
+                    for (var c = 0; c < 4; c++)
+                    {
+                        _window[left + c] = (byte)(_window[left + c] * keep);
+                        _window[right + c] = (byte)(_window[right + c] * keep);
+                    }
+                }
+            }
+            surface.Graphics.DrawImage(_view, _x, 0, new Rectangle(0, 0, _room, Height), GraphicsUnit.Pixel);
+            surface.Graphics.Flush();
+        }
+
+        public void Dispose()
+        {
+            _view.Dispose();
+            _pin.Free();
+        }
+    }
+
+    // A DIB section the strip is drawn into directly and pushed from, so a tick makes no
+    // bitmap handle of its own.
+    private sealed class DibSurface : IDisposable
+    {
+        public int Width { get; }
+        public int Height { get; }
+        public nint Bits { get; }
+        public Graphics Graphics { get; }
+        private readonly Bitmap _bitmap;
+        private readonly nint _dc, _dib, _old;
+
+        private DibSurface(int width, int height, nint dc, nint dib, nint bits)
+        {
+            Width = width; Height = height; _dc = dc; _dib = dib; Bits = bits;
+            _old = SelectObject(dc, dib);
+            _bitmap = new Bitmap(width, height, width * 4, PixelFormat.Format32bppPArgb, bits);
+            Graphics = Graphics.FromImage(_bitmap);
+        }
+
+        public static DibSurface? Replace(DibSurface? old, int width, int height)
+        {
+            old?.Dispose();
+            var header = new BITMAPINFOHEADER { biSize = (uint)Marshal.SizeOf<BITMAPINFOHEADER>(), biWidth = width, biHeight = -height, biPlanes = 1, biBitCount = 32 };
+            var dib = CreateDIBSection(0, ref header, 0, out var bits, 0, 0);
+            if (dib == 0) return null;
+            var screen = GetDC(0);
+            var dc = CreateCompatibleDC(screen);
+            ReleaseDC(0, screen);
+            return new DibSurface(width, height, dc, dib, bits);
+        }
+
+        public void Push(nint window)
+        {
+            var screen = GetDC(0);
+            var size = new SIZE { cx = Width, cy = Height };
+            var from = new POINT();
+            var blend = new BLENDFUNCTION { BlendOp = 0, SourceConstantAlpha = 255, AlphaFormat = 1 };
+            UpdateLayeredWindow(window, screen, 0, ref size, _dc, ref from, 0, ref blend, 2);
+            ReleaseDC(0, screen);
+        }
+
+        public void Dispose()
+        {
+            Graphics.Dispose();
+            _bitmap.Dispose();
+            SelectObject(_dc, _old);
+            DeleteObject(_dib);
+            DeleteDC(_dc);
+        }
+    }
+
     // MARK: Win32
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct BITMAPINFOHEADER
+    {
+        public uint biSize;
+        public int biWidth, biHeight;
+        public ushort biPlanes, biBitCount;
+        public uint biCompression, biSizeImage;
+        public int biXPelsPerMeter, biYPelsPerMeter;
+        public uint biClrUsed, biClrImportant;
+    }
+
+    [DllImport("gdi32.dll")] private static extern nint CreateDIBSection(nint dc, ref BITMAPINFOHEADER info, uint usage, out nint bits, nint section, uint offset);
 
     private const uint WM_MOUSEMOVE = 0x200, WM_LBUTTONDOWN = 0x201, WM_LBUTTONUP = 0x202, WM_MOUSELEAVE = 0x2A3, WM_MOUSEACTIVATE = 0x21;
     private const uint TME_LEAVE = 2, ABM_GETSTATE = 4, ABS_AUTOHIDE = 1;
