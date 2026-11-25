@@ -68,6 +68,7 @@ public partial class App : Application
             && updated.TaskbarStrip == Settings.TaskbarStrip
             && updated.FrontIcon == Settings.FrontIcon
             && updated.FrontName == Settings.FrontName
+            && updated.TaskbarBadges == Settings.TaskbarBadges
             && updated.Chime == Settings.Chime) return;
 
         // Only a change of look redraws the windows; a redraw resets the backdrop, which flashes.
@@ -228,6 +229,7 @@ public partial class App : Application
 
         FrontClaude.Changed += ShowTray;
         ChatOnScreen.Changed += ShowTray;
+        WindowIdentity.WindowsChanged += ShowTray;
         SharingChanged += ShowTray;
         ChatOnScreen.Start(_ui);
         Chime.Start(_ui);
@@ -505,6 +507,23 @@ public partial class App : Application
     // a finished turn the person watched finish has nothing left to tell them.
     private readonly Dictionary<string, long?> _turnSeen = new(StringComparer.OrdinalIgnoreCase);
 
+    private TaskbarBadge.Kind BadgeFor(string profile, bool inFront)
+    {
+        var (turn, ended) = ChatOnScreen.TurnFor(profile);
+        if (inFront && turn == ChatFocus.Turn.Done) _turnSeen[Path.GetFullPath(profile)] = ended;
+        return TaskbarBadge.For(turn, _turnSeen.GetValueOrDefault(Path.GetFullPath(profile)) == ended);
+    }
+
+    private readonly TaskbarBadges _badges = new();
+
+    /// A badge on each running Claude's own taskbar button, from the same turn state the strip reads.
+    private void ShowBadges(string? front)
+    {
+        if (!Settings.TaskbarBadges) { _badges.Clear(); return; }
+        var windows = WindowIdentity.WindowsByProfile();
+        _badges.Show(windows.ToDictionary(w => w.Key, w => (w.Value, BadgeFor(w.Key, front is not null && Fs.SamePath(w.Key, front)))));
+    }
+
     /// The taskbar strip, when it is wanted: the Claude in front and every account
     /// it draws on, the one answering ringed, its headline figure and the conversation.
     private void ShowStrip(string? front, Shortcut? shortcut)
@@ -532,12 +551,10 @@ public partial class App : Application
         var usage = _frontUsage.GetValueOrDefault(front) is { } u ? UsageStatus.Rolled(u, DateTimeOffset.UtcNow) : null;
         // No five-hour limit is not 0%: such an account shows its week, marked as one.
         var figure = usage is null ? null : usage.FiveHour is int five ? $"{five}%" : L10n.Format("W {0}%", usage.Week);
-        var (turn, ended) = ChatOnScreen.TurnFor(front);
-        if (claudeInFront && turn == ChatFocus.Turn.Done) _turnSeen[front] = ended;
-        var signal = turn switch
+        var signal = BadgeFor(front, claudeInFront) switch
         {
-            ChatFocus.Turn.NeedsPerson => TaskbarStrip.Signal.NeedsPerson,
-            ChatFocus.Turn.Done when _turnSeen.GetValueOrDefault(front) != ended => TaskbarStrip.Signal.Done,
+            TaskbarBadge.Kind.NeedsPerson => TaskbarStrip.Signal.NeedsPerson,
+            TaskbarBadge.Kind.Done => TaskbarStrip.Signal.Done,
             _ => TaskbarStrip.Signal.None,
         };
         var name = Settings.FrontName ? shortcut?.Name ?? "Claude" : null;
@@ -560,6 +577,7 @@ public partial class App : Application
         else
             _tray.ToolTipText = AvailableUpdate is { } ready ? L10n.Format("Claude Graft — update {0} ready", ready.Version) : "Claude Graft";
 
+        ShowBadges(front);
         ShowStrip(front, shortcut);
         var icon = shortcut is null ? null : ShortcutIcons.LinkIcon(shortcut).File;
         if (icon is not null && !icon.EndsWith(".ico", StringComparison.OrdinalIgnoreCase)) icon = null;
@@ -725,6 +743,7 @@ public partial class App : Application
         if (_quitting) return;
         _quitting = true;
         Diagnostics.Note("app.quit", new Dictionary<string, object?> { ["pid"] = Environment.ProcessId });
+        _badges.Dispose();
         _strip?.Dispose();
         _strip = null;
         if (_flyout is not null)

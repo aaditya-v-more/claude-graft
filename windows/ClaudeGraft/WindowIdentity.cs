@@ -28,7 +28,7 @@ public static class WindowIdentity
     private static DispatcherQueue? _ui;
 
     // pid -> what that process is; a start time guards against a reused pid.
-    private sealed record Known(DateTime Started, string? Folder);
+    private sealed record Known(DateTime Started, string? Folder, string? Profile);
     private static readonly Dictionary<int, Known> Processes = new();
     private static readonly HashSet<int> Asking = new();
     // What each window wore before, so a quit hands Claude's own icons back
@@ -42,6 +42,25 @@ public static class WindowIdentity
     /// Raised, off the UI thread, for each shortcut's Claude process found:
     /// its pid, when it started, and the shortcut's folder.
     public static event Action<int, DateTime, string>? ShortcutFound;
+
+    /// Raised on the UI thread when a Claude window has appeared and been looked at,
+    /// which is when a button may be new.
+    public static event Action? WindowsChanged;
+
+    /// Each running Claude's visible main window, by profile, for the Claudes already identified.
+    public static Dictionary<string, IntPtr> WindowsByProfile()
+    {
+        var found = new Dictionary<string, IntPtr>(StringComparer.OrdinalIgnoreCase);
+        EnumWindows((hwnd, _) =>
+        {
+            if (!IsWindowVisible(hwnd) || !IsAppWindow(hwnd) || GetWindowTextLength(hwnd) == 0 || ClaudePid(hwnd) is not int pid) return true;
+            Known? known;
+            lock (Processes) Processes.TryGetValue(pid, out known);
+            if (known?.Profile is string profile) found.TryAdd(profile, hwnd);
+            return true;
+        }, IntPtr.Zero);
+        return found;
+    }
 
     public static void Start(DispatcherQueue ui)
     {
@@ -93,7 +112,11 @@ public static class WindowIdentity
         if (idObject != 0 || idChild != 0 || !IsAppWindow(hwnd) || ClaudePid(hwnd) is not int pid) return;
         Known? known;
         lock (Processes) Processes.TryGetValue(pid, out known);
-        if (known is not null && known.Started == StartTime(pid)) Dress(hwnd, known.Folder);
+        if (known is not null && known.Started == StartTime(pid))
+        {
+            Dress(hwnd, known.Folder);
+            _ui?.TryEnqueue(() => WindowsChanged?.Invoke());
+        }
         else Identify(pid);
     }
 
@@ -136,18 +159,23 @@ public static class WindowIdentity
         lock (Processes) if (!Asking.Add(pid)) return;
         Task.Run(() =>
         {
-            string? folder = null;
+            string? folder = null, profile = null;
             try
             {
                 var command = ClaudeProcesses.Enumerate().FirstOrDefault(p => p.pid == pid).command;
-                if (command is not null) folder = ClaudeProcesses.ShortcutOf(command, App.Store.Shortcuts.ToList())?.Folder;
+                if (command is not null)
+                {
+                    var shortcuts = App.Store.Shortcuts.ToList();
+                    folder = ClaudeProcesses.ShortcutOf(command, shortcuts)?.Folder;
+                    profile = ClaudeProcesses.ProfileOf(command, shortcuts);
+                }
             }
             catch (Exception e) { Diagnostics.Note("identity.failed", new Dictionary<string, object?> { ["error"] = e.Message }); }
             var started = StartTime(pid);
             lock (Processes)
             {
                 Asking.Remove(pid);
-                Processes[pid] = new Known(started, folder);
+                Processes[pid] = new Known(started, folder, profile);
             }
             if (folder is not null) ShortcutFound?.Invoke(pid, started, folder);
             _ui?.TryEnqueue(() =>
@@ -157,6 +185,7 @@ public static class WindowIdentity
                     if (IsAppWindow(hwnd) && ClaudePid(hwnd) == pid) Dress(hwnd, folder);
                     return true;
                 }, IntPtr.Zero);
+                WindowsChanged?.Invoke();
             });
         });
     }
@@ -297,6 +326,7 @@ public static class WindowIdentity
     [DllImport("user32.dll")] private static extern IntPtr GetWindowLongPtr(IntPtr hwnd, int index);
     [DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint pid);
     [DllImport("user32.dll")] private static extern bool IsWindow(IntPtr hwnd);
+    [DllImport("user32.dll")] private static extern bool IsWindowVisible(IntPtr hwnd);
     [DllImport("user32.dll")]
     private static extern IntPtr SendMessageTimeout(IntPtr hwnd, uint message, IntPtr wParam, IntPtr lParam, uint flags, uint ms, out IntPtr result);
 

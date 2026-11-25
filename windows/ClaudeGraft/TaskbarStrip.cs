@@ -387,7 +387,7 @@ internal sealed class TaskbarStrip : IDisposable
     }
 
     /// The taskbar keeps its own light or dark, apart from apps' and Graft's.
-    private static bool TaskbarIsLight()
+    internal static bool TaskbarIsLight()
     {
         using var key = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize");
         return key?.GetValue("SystemUsesLightTheme") is int v && v == 1;

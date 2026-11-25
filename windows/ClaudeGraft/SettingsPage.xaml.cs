@@ -48,6 +48,7 @@ public sealed partial class SettingsPage : Page
         TaskbarStripSwitch.IsOn = current.TaskbarStrip;
         FrontIconSwitch.IsOn = current.FrontIcon;
         FrontNameSwitch.IsOn = current.FrontName;
+        BadgesSwitch.IsOn = current.TaskbarBadges;
         ChimeSwitch.IsOn = current.Chime;
         // Only an install Graft can update by hand can safely stop updating itself.
         ManualClaudeCard.Visibility = ClaudeDesktopUpdates.IsSquirrel ? Visibility.Visible : Visibility.Collapsed;
@@ -72,6 +73,7 @@ public sealed partial class SettingsPage : Page
             TaskbarStrip = TaskbarStripSwitch.IsOn,
             FrontIcon = FrontIconSwitch.IsOn,
             FrontName = FrontNameSwitch.IsOn,
+            TaskbarBadges = BadgesSwitch.IsOn,
             Chime = ChimeSwitch.IsOn,
             // Set elsewhere, but a save must not drop them.
             KeepMainWarm = current.KeepMainWarm,
