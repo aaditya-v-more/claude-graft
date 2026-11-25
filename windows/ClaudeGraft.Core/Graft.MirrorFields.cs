@@ -82,6 +82,9 @@ public static partial class Graft
             && value.GetValueKind() == JsonValueKind.Number
             && double.TryParse(value.ToJsonString(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var d) ? d : null;
 
+    private static bool SameDigests(Dictionary<string, string> a, Dictionary<string, string> b) =>
+        a.Count == b.Count && a.All(kv => b.TryGetValue(kv.Key, out var o) && o == kv.Value);
+
     private static bool SameBaselines(Dictionary<string, RecordBaseline> a, Dictionary<string, RecordBaseline> b) =>
         a.Count == b.Count && a.All(kv => b.TryGetValue(kv.Key, out var o) && o.Digest == kv.Value.Digest && o.Activity == kv.Value.Activity
             && (o.Fields is null ? kv.Value.Fields is null
@@ -230,6 +233,9 @@ public static partial class Graft
     // open profile's own scratch-workspaces, so each side gets a local alias for it.
     private static (JsonObject Record, string Cwd, string Suffix)? ScratchRecord(byte[] data)
     {
+        // Asked of every record on every pass, so one that cannot be unfiled is
+        // never parsed. Neither Claude nor Graft escapes a letter or `-` in JSON.
+        if (data.AsSpan().IndexOf("\"originCwd\""u8) < 0 || !HasScratchFolder(data)) return null;
         if (RecordObject(data) is not JsonObject record
             || record["sessionId"] is not JsonValue
             || record.ContainsKey("sshConfig") || record.ContainsKey("wslConfig")
@@ -255,6 +261,20 @@ public static partial class Graft
 
     [GeneratedRegex(@"^scratch-\d{4}-\d{2}-\d{2}-[0-9a-f]{6}$")]
     private static partial Regex ScratchFolder();
+
+    // Without regard to case, as the path itself is matched.
+    private static bool HasScratchFolder(ReadOnlySpan<byte> data)
+    {
+        var mark = "scratch-workspaces"u8;
+        for (var at = 0; data.Length - at >= mark.Length; at++)
+        {
+            var next = data[at..].IndexOfAny((byte)'s', (byte)'S');
+            if (next < 0) return false;
+            at += next;
+            if (data.Length - at >= mark.Length && Ascii.EqualsIgnoreCase(data.Slice(at, mark.Length), mark)) return true;
+        }
+        return false;
+    }
 
     /// A local origin alias is not an edit to a shared conversation.
     private static byte[] MirrorData(byte[] data)

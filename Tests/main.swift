@@ -8282,29 +8282,66 @@ do {
           "ordinary project records remain byte-for-byte unchanged")
 }
 
-section("A large history is mirrored a record at a time")
+section("What the background walks cost in memory, CPU and disk")
 do {
     // 2.2.0 kept every record it parsed until the pass ended, and a history of
     // 66,000 records took Graft past 40 GB before macOS killed it.
-    func footprint() -> Int? {
-        var info = task_vm_info_data_t()
-        var count = mach_msg_type_number_t(MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<natural_t>.size)
-        let status = withUnsafeMutablePointer(to: &info) {
-            $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
-                task_info(mach_task_self_, task_flavor_t(TASK_VM_INFO), $0, &count)
-            }
-        }
-        return status == KERN_SUCCESS ? Int(info.phys_footprint) : nil
+    // Live heap, not the footprint: freed pages stay in the footprint, and a
+    // walk that reuses what the one before it freed shows no growth at all.
+    func liveHeap() -> Int? {
+        var stats = malloc_statistics_t()
+        malloc_zone_statistics(nil, &stats)
+        return Int(stats.size_in_use)
     }
+    /// What `work` left in memory, measured before the pool around it drains.
     func growth(_ work: () -> Void) -> Int {
         var grown = Int.max
-        // Measured before this pool drains, so whatever the work left to one is counted.
         autoreleasepool {
-            let before = footprint()
+            let before = liveHeap()
             work()
-            if let before, let after = footprint() { grown = after - before }
+            if let before, let after = liveHeap() { grown = after - before }
         }
         return grown
+    }
+    /// The most `work` held at once, sampled from another thread while it ran.
+    func peak(_ work: () -> Void) -> Int {
+        let lock = NSLock()
+        let start = liveHeap() ?? 0
+        var highest = start, sampling = true
+        Thread {
+            while true {
+                lock.lock(); let going = sampling; lock.unlock()
+                guard going else { return }
+                if let now = liveHeap() { lock.lock(); highest = max(highest, now); lock.unlock() }
+                usleep(1000)
+            }
+        }.start()
+        autoreleasepool { work() }
+        lock.lock(); defer { lock.unlock() }
+        sampling = false
+        return highest - start
+    }
+    /// The CPU this thread spent on `work`, in seconds.
+    func cpu(_ work: () -> Void) -> Double {
+        let start = clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID)
+        work()
+        return Double(clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID) - start) / 1e9
+    }
+    // Not `resourceValues`: a URL keeps the size it first read, and with no
+    // run loop turning it never reads again.
+    func bytes(_ url: URL) -> Int {
+        guard Graft.isDirectory(url) else { return ((try? fm.attributesOfItem(atPath: url.path))?[.size] as? Int) ?? 0 }
+        return ((try? fm.contentsOfDirectory(atPath: url.path)) ?? []).reduce(0) { $0 + bytes(url.appending(path: $1)) }
+    }
+    /// Every file under `url`, by what a write to it changes.
+    func writes(_ url: URL) -> [String: String] {
+        guard Graft.isDirectory(url) else {
+            guard let attributes = try? fm.attributesOfItem(atPath: url.path) else { return [:] }
+            let written = (attributes[.modificationDate] as? Date)?.timeIntervalSinceReferenceDate ?? 0
+            return [url.path: "\(attributes[.systemFileNumber] ?? 0) \(written)"]
+        }
+        return ((try? fm.contentsOfDirectory(atPath: url.path)) ?? [])
+            .reduce(into: [:]) { found, name in found.merge(writes(url.appending(path: name))) { kept, _ in kept } }
     }
     let previous = Graft.applicationSupportOverride
     let isolated = root.appending(path: "large-history-support")
@@ -8313,20 +8350,87 @@ do {
     let one = isolated.appending(path: "Claude-Second/claude-code-sessions/OWNACC/OWNORG")
     let other = isolated.appending(path: "Claude/claude-code-sessions/SRCACC/SRCORG")
     for folder in [one, other] { try! fm.createDirectory(at: folder, withIntermediateDirectories: true) }
-    // A hundred long chats of about 200 KB each.
-    let turn = ["type": "assistant", "text": String(repeating: "A reply in a long chat. ", count: 40)]
+    // A hundred long chats of about 200 KB each, and a thousand short ones.
+    // Small objects, as real turns are: one long string costs a parse little.
     for index in 0..<100 {
+        let turns = (0..<2000).map { ["uuid": "turn-\($0)-of-chat-\(index)", "parentUuid": "turn-\($0 - 1)-of-chat-\(index)", "n": $0] }
         let record: [String: Any] = ["sessionId": "local_\(index)", "cliSessionId": "large-\(index)",
             "cwd": "/a/project", "originCwd": "/a/project", "title": "Chat \(index)",
-            "lastActivityAt": 100, "turns": Array(repeating: turn, count: 200)]
+            "lastActivityAt": 100, "turns": turns]
         try! JSONSerialization.data(withJSONObject: record).write(to: other.appending(path: "local_\(index).json"))
     }
-    // 2.2.0 left 30 MB behind here; a pass that lets each record go leaves well under one.
-    check(growth { Graft.mirrorChatFolders(one, other) } < 8_000_000,
-          "mirroring a large history leaves none of its records in memory")
+    for index in 0..<1000 {
+        let record: [String: Any] = ["sessionId": "local_short-\(index)", "cliSessionId": "short-\(index)",
+            "cwd": "/a/project", "originCwd": "/a/project", "title": "Short chat \(index)", "lastActivityAt": 100]
+        try! JSONSerialization.data(withJSONObject: record).write(to: other.appending(path: "local_short-\(index).json"))
+    }
+    let firstPeak = peak { Graft.mirrorChatFolders(one, other) }
+    check(firstPeak < 8_000_000,
+          "mirroring a large history holds one record at a time, never the whole history")
     check(Graft.mirrorChatFolders(one, other) == 0
-            && (try? fm.contentsOfDirectory(atPath: one.path))?.count == 100,
+            && (try? fm.contentsOfDirectory(atPath: one.path))?.count == 1100,
           "and every record still arrives, settled")
+
+    // The other two walks read every record whole the first time through.
+    let firstSweep = peak { _ = Graft.sessionStoreContents() }
+    let pool = UsagePoolController()
+    let profiles = [("main", isolated.appending(path: "Claude")), ("c2", isolated.appending(path: "Claude-Second"))]
+    let firstLook = peak { _ = pool.lookUpRecords([], profiles: profiles) }
+    check(firstSweep < 8_000_000, "the first session sweep over it holds one record at a time too")
+    check(firstLook < 8_000_000, "and so does the menu bar's first look through it")
+
+    // A leak too slow for one pass to show adds up over a day of them: the
+    // walks below run every two seconds, at every launch and after every quit,
+    // each as a queue's work item of its own.
+    func repeated(_ walk: () -> Void) -> Int { growth { for _ in 0..<30 { autoreleasepool(invoking: walk) } } }
+    let quietPasses = repeated { Graft.mirrorChatFolders(one, other) }
+    let sweeps = repeated { _ = Graft.sessionStoreContents() }
+    let looks = repeated { _ = pool.lookUpRecords([], profiles: profiles) }
+    check(quietPasses < 2_000_000, "thirty quiet passes over it hold no more memory than one")
+    check(sweeps < 2_000_000, "nor do thirty session sweeps")
+    check(looks < 2_000_000, "nor thirty looks from the menu bar")
+
+    // Disk: a pass that moves nothing writes nothing, and a history deleted
+    // everywhere leaves no state behind it.
+    let written = [one, other, isolated.appending(path: "ClaudeGraft")]
+    let before = written.map(writes)
+    for _ in 0..<10 { Graft.mirrorChatFolders(one, other) }
+    check(written.map(writes) == before && before.allSatisfy { !$0.isEmpty },
+          "quiet passes write nothing: not a record, not the mirror's state, not a log line")
+    let state = [isolated.appending(path: "ClaudeGraft/mirrored-chats.json"), Graft.mirrorFieldsFolder]
+    for folder in [one, other] {
+        for name in (try? fm.contentsOfDirectory(atPath: folder.path)) ?? [] {
+            try? fm.removeItem(at: folder.appending(path: name))
+        }
+    }
+    Graft.mirrorChatFolders(one, other)
+    check(bytes(state[0]) < 4096 && bytes(state[1]) == 0,
+          "and a history deleted from both sides leaves no baseline or fields behind")
+    let logLine = String(repeating: "x", count: 2000)
+    for _ in 0..<(Diagnostics.sizeLimit / 2000 + 200) { Diagnostics.note("storage.fill", ["padding": logLine]) }
+    let logs = bytes(Diagnostics.file) + bytes(Diagnostics.file.deletingLastPathComponent().appending(path: "diagnostics.log.1"))
+    check(logs <= 2 * Diagnostics.sizeLimit + 4096 && logs > Diagnostics.sizeLimit,
+          "the diagnostics log keeps one older generation and never grows past it")
+
+    // CPU: a quiet pass reads and hashes each record and parses none of them.
+    // Long lists of numbers cost far more to parse than to read.
+    let cpuOne = isolated.appending(path: "Claude-Numbers/claude-code-sessions/OWNACC/OWNORG")
+    let cpuOther = isolated.appending(path: "Claude-Counted/claude-code-sessions/SRCACC/SRCORG")
+    for folder in [cpuOne, cpuOther] { try! fm.createDirectory(at: folder, withIntermediateDirectories: true) }
+    for index in 0..<40 {
+        let record: [String: Any] = ["sessionId": "local_n\(index)", "cwd": "/a/project", "originCwd": "/a/project",
+                                     "title": "Numbers \(index)", "numbers": Array(0..<30_000)]
+        try! JSONSerialization.data(withJSONObject: record).write(to: cpuOther.appending(path: "local_n\(index).json"))
+    }
+    Graft.mirrorChatFolders(cpuOne, cpuOther)
+    let files = [cpuOne, cpuOther].flatMap { folder in
+        ((try? fm.contentsOfDirectory(atPath: folder.path)) ?? []).map { folder.appending(path: $0) }
+    }
+    let reading = cpu { for file in files { _ = Graft.digest((try? Data(contentsOf: file)) ?? Data()) } }
+    var moved = -1
+    let quiet = cpu { moved = Graft.mirrorChatFolders(cpuOne, cpuOther) }
+    check(files.count == 80 && moved == 0 && quiet < reading * 2 + 0.02,
+          "a quiet pass costs about what reading its records does, never a parse of each")
     try? fm.removeItem(at: isolated)
 }
 

@@ -344,10 +344,16 @@ public static partial class Graft
         // A name neither side holds any more is never visited above, so its
         // entry would sit in the baseline for good — growing the file, and ready
         // to read the name coming back on one side alone as a deletion.
-        state.Pairs[key] = baseline.Where(kv => names.Contains(kv.Key)).ToDictionary(kv => kv.Key, kv => kv.Value);
+        var kept = baseline.Where(kv => names.Contains(kv.Key)).ToDictionary(kv => kv.Key, kv => kv.Value);
         records = records.Where(kv => names.Contains(kv.Key) && baseline.TryGetValue(kv.Key, out var d) && d == kv.Value.Digest)
             .ToDictionary(kv => kv.Key, kv => kv.Value);
-        SaveMirrorState(state);
+        // The file holds every pair, and a pass that moved nothing rewrote all
+        // of it, once for each pair, every time Graft squared up.
+        if (b is null || !SameDigests(kept, b))
+        {
+            state.Pairs[key] = kept;
+            SaveMirrorState(state);
+        }
         if (!SameBaselines(records, recordsAsLoaded)) SaveRecordBaselines(records, key);
         return moved;
     }

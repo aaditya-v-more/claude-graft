@@ -132,4 +132,46 @@ public sealed class MirrorFoldersTests : IDisposable
         Assert.Equal(0, Graft.MirrorChatFolders(one, other));
         Assert.False(Directory.Exists(other));
     }
+
+    [Fact(DisplayName = "quiet passes write nothing: not a record, not the mirror's state")]
+    public void QuietPassesWriteNothing()
+    {
+        var (one, other) = Pair();
+        for (var i = 0; i < 20; i++) Rec(one, "q" + i, "{\"sessionId\":\"local_q" + i + "\",\"lastActivityAt\":1}");
+        Graft.MirrorChatFolders(one, other);
+        Graft.MirrorChatFolders(one, other);
+        // Set well back, so a rewrite shows however soon it comes.
+        var longAgo = new DateTime(2001, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        string[] Written() => [.. new[] { one, other, Graft.MirrorFieldsFolder }.Where(Directory.Exists).SelectMany(d => Directory.EnumerateFiles(d)),
+                               Path.Combine(GraftPaths.OwnData, "mirrored-chats.json")];
+        foreach (var file in Written()) File.SetLastWriteTimeUtc(file, longAgo);
+        for (var i = 0; i < 5; i++) Assert.Equal(0, Graft.MirrorChatFolders(one, other));
+        Assert.All(Written(), file => Assert.Equal(longAgo, File.GetLastWriteTimeUtc(file)));
+    }
+
+    [Fact(DisplayName = "a quiet pass allocates about what reading its records does, never a parse of each")]
+    public void QuietPassParsesNothing()
+    {
+        // Asking whether each record was a scratch chat once parsed every one on
+        // every pass. Long lists of numbers cost far more to parse than to read.
+        var (one, other) = Pair();
+        var numbers = string.Join(",", Enumerable.Range(0, 30_000));
+        for (var i = 0; i < 40; i++)
+            Rec(other, "n" + i, "{\"sessionId\":\"local_n" + i + "\",\"cwd\":\"C:\\\\a\",\"originCwd\":\"C:\\\\a\",\"numbers\":[" + numbers + "]}");
+        Graft.MirrorChatFolders(one, other);
+        Graft.MirrorChatFolders(one, other);
+        var files = new[] { one, other }.SelectMany(d => Directory.EnumerateFiles(d)).ToList();
+        static long Allocated(Action work)
+        {
+            var start = GC.GetAllocatedBytesForCurrentThread();
+            work();
+            return GC.GetAllocatedBytesForCurrentThread() - start;
+        }
+        var reading = Allocated(() => { foreach (var file in files) Graft.Digest(File.ReadAllBytes(file)); });
+        var moved = -1;
+        var quiet = Allocated(() => moved = Graft.MirrorChatFolders(one, other));
+        Assert.Equal(80, files.Count);
+        Assert.Equal(0, moved);
+        Assert.True(quiet < reading * 2, $"a quiet pass allocated {quiet} bytes, where reading its records takes {reading}");
+    }
 }

@@ -2450,7 +2450,8 @@ enum Graft {
 
         var state = loadMirrorState()
         let key = pairKey(one, other)
-        var baseline = state.pairs[key] ?? [:]
+        let stored = state.pairs[key]
+        var baseline = stored ?? [:]
         let recordsAsLoaded = loadRecordBaselines(for: key)
         var records = recordsAsLoaded
         var moved = 0
@@ -2694,7 +2695,9 @@ enum Graft {
         // alone as a deletion to carry across.
         state.pairs[key] = baseline.filter { names.contains($0.key) }
         records = records.filter { names.contains($0.key) && baseline[$0.key] == $0.value.digest }
-        saveMirrorState(state)
+        // The file holds every pair, and a pass that moved nothing rewrote all
+        // of it, once for each pair, every time Graft squared up.
+        if state.pairs[key] != stored { saveMirrorState(state) }
         if records != recordsAsLoaded { saveRecordBaselines(records, for: key) }
         return moved
     }
