@@ -1372,7 +1372,8 @@ do {
 
     let rows = (try? String(contentsOf: views.appending(path: "MenuBarContent.swift"), encoding: .utf8)) ?? ""
     let summary = (try? String(contentsOf: views.appending(path: "ShortcutDetail.swift"), encoding: .utf8)) ?? ""
-    check(rows.contains("UsageFreshness(entry: entry, refresh: refresh)")
+    check(rows.contains("AccountFoot(entry: entry, account: entry.key, name: entry.name, refresh: refresh)")
+            && rows.contains("AccountFoot(entry: entry, account: account.id, name: name, refresh: refresh)")
             && summary.contains("UsageFreshness(entry: entry, refresh: refresh)"),
           "every account in the dropdown and the window says when its figure was taken and offers a refresh")
     let bar = rows.components(separatedBy: "struct UsageBar").dropFirst().first?
@@ -1438,9 +1439,11 @@ do {
     reopened.holdUpdates = false
     check(!AppSettings(defaults: suite).holdUpdates, "as does letting go of it")
 
-    check(!reopened.usageByAccount, "the dropdown lists usage by Claude unless somebody chooses otherwise")
+    check(reopened.usageByAccount, "the dropdown lists usage by account unless somebody chooses otherwise")
+    reopened.usageByAccount = false
+    check(!AppSettings(defaults: suite).usageByAccount, "and listing it by Claude survives a restart")
     reopened.usageByAccount = true
-    check(AppSettings(defaults: suite).usageByAccount, "and listing it by account survives a restart")
+    check(AppSettings(defaults: suite).usageByAccount, "as does going back")
 
     // The name widens the item, and a full bar drops an item rather than
     // squeezing it, so an update must not turn it on for anybody.

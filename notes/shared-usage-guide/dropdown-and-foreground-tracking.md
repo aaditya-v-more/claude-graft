@@ -4,25 +4,41 @@
 
 ## The dropdown
 
-**The dropdown lists accounts by Claude unless told otherwise.** Each Claude
-is a line with its name and Open, and under it come its own account and then
-the accounts it draws on (`drawnOn(by:)`, its `members` without itself), every
-one the same row (`ClaudeAccountRow`): address, bars, Start Session, Auto-start
-and when the figure was taken. The first version drew the Claude's own account
-as the old tall row and the lent ones as short rows under it, and the owner's
+**The dropdown lists every account once unless told otherwise,** and by Claude
+on the switch above the list (`usageByAccount`, on unless turned off). The
+switch shows only while something is shared: with nothing lent the two are the
+same list. By Claude was the default for a day, on the reasoning that the
+question asked is what the Claude in use has left; the owner, using it, asked
+for the list of accounts back as the default (26 November 2026), since the
+same account repeated under each Claude made the list long before it said
+anything new.
+
+By Claude, each Claude is a line with its name, Start Session and Open
+(`ClaudeHeading`), and under it come its own account and then the accounts it
+draws on (`drawnOn(by:)`, its `members` without itself), every one the same
+row (`ClaudeAccountRow`). The first version drew the Claude's own account as
+the old tall row and the lent ones as short rows under it, and the owner's
 first look at it was that three accounts in one list should look the same. An
-account lent to two Claudes is listed under both. That is the default because
-the question asked of the dropdown is what the Claude in use has left, and the
-list of accounts alone answered it only for somebody who remembered who lends
-to whom. The other list, every account once, is one press away on the switch
-above the list (`usageByAccount`), which shows only while something is shared:
-with nothing lent the two are the same list. Auto-start goes by the account,
-not by the row (`autoStartKey`): an account that is also a Claude here uses
-that Claude's switch, so turning it under one Claude turns it under every
-other, and in Shared usage. A lent account's row is identified as
-`dropdown.<Claude's folder>.<lender>.<control>`, the lender being a signed-in
-account's saved id or another Claude's folder; the Claude's own keeps
-`dropdown.<Claude's folder>.<control>`, as in the list by account.
+account lent to two Claudes is listed under both. Start Session is on the
+Claude's line and starts its own account; a button on every row was asked to
+go, so an account with no Claude of its own is started from the list by
+account or from Accounts.
+
+**Both lists draw an account the same way,** in three lines: who it is, its
+windows three abreast (`UsageMeters`, each a `UsageMeter` with the figure over
+the bar and the reset under it), then Auto-start, when the figure was taken
+and the refresh (`AccountFoot`). The meters are always thirds, so a week
+stands under the week above it on an account without the other two. One bar
+to a line with eleven-point text was five lines an account, hard to read and
+mostly empty at the right. The list's scroll bar is forced to the overlay kind
+(`OverlayScroller`): with a mouse attached macOS gave it a gutter of its own.
+
+Auto-start goes by the account, not by the row (`autoStartKey`): an account
+that is also a Claude here uses that Claude's switch, so turning it under one
+Claude turns it under every other, and in Shared usage. A lent account's row
+is identified as `dropdown.<Claude's folder>.<lender>.<control>`, the lender
+being a signed-in account's saved id or another Claude's folder; the Claude's
+own keeps `dropdown.<Claude's folder>.<control>`, as in the list by account.
 
 **The dropdown lists what the relay carried.** The relay keeps the
 conversations it has seen by `X-Claude-Code-Session-Id`, which is the

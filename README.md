@@ -105,11 +105,11 @@ that account's usage beside it, and the conversation on screen runs across it
 with that account's name, so you always know who is answering the chat in front
 of you and how much it has left. An older chat that no account
 has answered since you began sharing shows by its name alone. Archive or delete
-a conversation and it leaves the bar. The dropdown lists each Claude with every
-account it draws on, each by its address with its five-hour, weekly and Fable
-usage, kept current while the Claudes are closed; switch it to **By account**
-to see every account once instead. It also lets you pick which account answers
-each conversation, with a tick beside the one in force.
+a conversation and it leaves the bar. The dropdown lists every account once
+with its five-hour, weekly and Fable usage side by side, kept current while the
+Claudes are closed; switch it to **By Claude** to see each Claude with every
+account it draws on, each by its address. It also lets you pick which account
+answers each conversation, with a tick beside the one in force.
 
 **Start Session** opens an account's five-hour window with one short message.
 **Auto-start** does that for you each time the account's window has closed, so

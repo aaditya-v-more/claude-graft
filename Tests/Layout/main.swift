@@ -692,6 +692,8 @@ func hosted<V: View>(_ view: V, title: String) -> NSWindow {
     return window
 }
 
+// By account is what a dropdown opens on; the list by Claude is checked first.
+Shared.settings.usageByAccount = false
 let dropdown = hosted(MenuBarContent(openMainWindow: {})
     .environmentObject(Shared.store)
     .environmentObject(Shared.settings)
@@ -726,8 +728,18 @@ for control in ["auto-session", "refresh-usage", "freshness"] {
 }
 check(element(underClaude + "open", in: dropdownTree)?.name == L10n.format("Open %@", "Claude"),
       "and the Claude is opened from the line that names it")
-check(element(underClaude + "lent-account.start-session", in: dropdownTree) == nil,
-      "which offers no session on a login nobody has looked at")
+check(element(underClaude + "start-session", in: dropdownTree)?.name == L10n.format("Start Session for %@", "Claude")
+        && element(underClaude + "lent-account.start-session", in: dropdownTree) == nil
+        && element(underClaude + shortcut.profileDir.lastPathComponent + ".start-session", in: dropdownTree) == nil,
+      "a session is started from the Claude's line, on its own account, and from no row under it")
+if let directory = ProcessInfo.processInfo.environment["GRAFT_LAYOUT_WINDOWS"] {
+    let language = Bundle.main.preferredLocalizations.first ?? "en"
+    for (name, appearance) in [("light", NSAppearance.Name.aqua), ("dark", .darkAqua)] {
+        dropdown.appearance = NSAppearance(named: appearance)
+        capture(dropdown, as: "\(language)-dropdown-\(name)", in: directory)
+    }
+    dropdown.appearance = nil
+}
 check(element(underClaude + "lent-account.auto-session", in: dropdownTree)?.pressable == true,
       "its Auto-start turns without a pointer")
 let autoStartBefore = element(underClaude2 + "lent-account.auto-session", in: dropdownTree)?.value
@@ -875,7 +887,83 @@ check(element("dropdown.conversation.second-session", in: conversationTree)?.val
       "a conversation the chosen account could not take says so out loud as well as in orange")
 check(element("dropdown.conversations.others", in: conversationTree)?.value == L10n.text("Shown"),
       "the other conversations sit behind a line that says whether they are shown")
+if let directory = ProcessInfo.processInfo.environment["GRAFT_LAYOUT_WINDOWS"] {
+    conversations.appearance = NSAppearance(named: .darkAqua)
+    capture(conversations, as: "\(Bundle.main.preferredLocalizations.first ?? "en")-conversations-dark", in: directory)
+    conversations.appearance = nil
+}
 conversations.orderOut(nil)
+// The by-Claude list with figures in it, for a picture alone: the dropdown
+// above is drawn before any account in here has been heard from.
+if let directory = ProcessInfo.processInfo.environment["GRAFT_LAYOUT_WINDOWS"] {
+    func pictured(_ name: String, _ profile: URL, _ id: UUID?, five: Int?, week: Int, fable: Int?) -> UsageMonitor.Entry {
+        UsageMonitor.Entry(name: name, profile: profile,
+                           usage: Graft.Usage(fiveHour: five, week: week, organization: nil, sampled: now,
+                                              fiveHourReset: five == nil ? nil : now.addingTimeInterval(2 * 3600 + 43 * 60),
+                                              weekReset: now.addingTimeInterval(4 * 86400 + 5 * 3600 + 33 * 60),
+                                              fable: fable,
+                                              fableReset: fable == nil ? nil : now.addingTimeInterval(4 * 86400 + 5 * 3600)),
+                           isRunning: id == nil, shortcut: id, isLive: true, plan: "Max", refreshed: now)
+    }
+    Shared.usagePool.learn(web: WebUsage.Held(reading: UsageAPI.Reading(
+        fiveHour: 84, week: 43, fiveHourReset: now.addingTimeInterval(3 * 3600 + 33 * 60),
+        weekReset: now.addingTimeInterval(33 * 60), plan: nil, fable: 91,
+        fableReset: now.addingTimeInterval(33 * 60)), fetched: now), for: lentAccount.id)
+    let one = pictured("Claude", Graft.mainProfile, nil, five: 24, week: 46, fable: 68)
+    let two = pictured("Claude 2", shortcut.profileDir, shortcut.id, five: 15, week: 16, fable: nil)
+    let picture = hosted(VStack(alignment: .leading, spacing: 0) {
+        ClaudeHeading(entry: one, starting: false, open: {}, start: {})
+        ClaudeAccountRow(claude: one, account: one.key, refresh: {})
+        Divider().padding(.leading, 12)
+        ClaudeAccountRow(claude: one, account: lentAccount.id, refresh: {})
+        ClaudeHeading(entry: two, starting: false, open: {}, start: {})
+        ClaudeAccountRow(claude: two, account: two.key, refresh: {})
+        Divider().padding(.leading, 12)
+        ClaudeAccountRow(claude: two, account: lentAccount.id, refresh: {})
+        ClaudeHeading(entry: unlimited, starting: false, open: {}, start: {})
+        ClaudeAccountRow(claude: unlimited, account: unlimited.key, refresh: {})
+        Divider()
+        ConversationList(chats: [
+            UsagePoolController.Chat(id: "first-session", title: "Plan the next release",
+                                     claude: UsagePoolController.mainKey, servedBy: UsagePoolController.mainKey,
+                                     assigned: nil, choices: [UsagePoolController.mainKey, claude2],
+                                     lastAt: now, passedOver: false),
+            UsagePoolController.Chat(id: "second-session", title: "Refactor the usage monitor", claude: claude2,
+                                     servedBy: claude2, assigned: claude2,
+                                     choices: [UsagePoolController.mainKey, claude2],
+                                     lastAt: now.addingTimeInterval(-60), passedOver: false),
+            UsagePoolController.Chat(id: "third-session", title: "Fix the relay's certificate check",
+                                     claude: UsagePoolController.mainKey, servedBy: UsagePoolController.mainKey,
+                                     assigned: claude2, choices: [UsagePoolController.mainKey, claude2],
+                                     lastAt: now.addingTimeInterval(-120), passedOver: true),
+        ], front: UsagePoolController.mainKey, othersShown: true)
+        .padding(.bottom, 8)
+    }
+    .frame(width: 320)
+    .environment(\.controlSurface, ControlSurface.dropdown), title: "Dropdown picture")
+    let language = Bundle.main.preferredLocalizations.first ?? "en"
+    for (name, appearance) in [("light", NSAppearance.Name.aqua), ("dark", .darkAqua)] {
+        picture.appearance = NSAppearance(named: appearance)
+        capture(picture, as: "\(language)-dropdown-figures-\(name)", in: directory)
+    }
+    picture.orderOut(nil)
+    let byAccount = hosted(VStack(alignment: .leading, spacing: 0) {
+        UsageRow(entry: one, starting: false, open: {}, start: {}, refresh: {})
+        Divider().padding(.leading, 12)
+        UsageRow(entry: two, starting: false, open: {}, start: {}, refresh: {})
+        Divider().padding(.leading, 12)
+        UsageRow(entry: unlimited, starting: false, open: {}, start: {}, refresh: {})
+        Divider().padding(.leading, 12)
+        AccountUsageRow(account: lentAccount, starting: false, start: {}, refresh: {})
+    }
+    .frame(width: 320)
+    .environment(\.controlSurface, ControlSurface.dropdown), title: "Dropdown by account")
+    for (name, appearance) in [("light", NSAppearance.Name.aqua), ("dark", .darkAqua)] {
+        byAccount.appearance = NSAppearance(named: appearance)
+        capture(byAccount, as: "\(language)-dropdown-accounts-\(name)", in: directory)
+    }
+    byAccount.orderOut(nil)
+}
 
 let folded = hosted(ConversationList(chats: [
     UsagePoolController.Chat(id: "first-session", title: "Plan the next release", claude: UsagePoolController.mainKey,

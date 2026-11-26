@@ -556,4 +556,4 @@
 "Move %@" = "Move %@";
 "By Claude" = "By Claude";
 "By account" = "By account";
-"By Claude lists each Claude with every account it draws on. By account lists each account once." = "By Claude lists each Claude with every account it draws on. By account lists each account once.";
+"By account lists each account once. By Claude lists each Claude with every account it draws on." = "By account lists each account once. By Claude lists each Claude with every account it draws on.";

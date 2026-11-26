@@ -556,4 +556,4 @@
 "Move %@" = "Переместить %@";
 "By Claude" = "По Claude";
 "By account" = "По аккаунтам";
-"By Claude lists each Claude with every account it draws on. By account lists each account once." = "«По Claude» — каждый Claude со всеми аккаунтами, которыми он пользуется. «По аккаунтам» — каждый аккаунт один раз.";
+"By account lists each account once. By Claude lists each Claude with every account it draws on." = "«По аккаунтам» — каждый аккаунт один раз. «По Claude» — каждый Claude со всеми аккаунтами, которыми он пользуется.";

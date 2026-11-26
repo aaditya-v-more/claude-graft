@@ -151,8 +151,8 @@ final class AppSettings: ObservableObject {
         didSet { defaults.set(showFrontName, forKey: Key.frontName) }
     }
 
-    /// Off unless somebody turns it on: the dropdown lists each Claude with
-    /// the accounts it draws on, and this lists every account once instead.
+    /// On unless somebody turns it off: the dropdown lists every account once.
+    /// Off, it lists each Claude with the accounts it draws on.
     @Published var usageByAccount: Bool {
         didSet { defaults.set(usageByAccount, forKey: Key.usageByAccount) }
     }
@@ -172,7 +172,7 @@ final class AppSettings: ObservableObject {
         holdUpdates = defaults.bool(forKey: Key.holdUpdates)
         showFrontIcon = defaults.object(forKey: Key.frontIcon) as? Bool ?? true
         showFrontName = defaults.bool(forKey: Key.frontName)
-        usageByAccount = defaults.bool(forKey: Key.usageByAccount)
+        usageByAccount = defaults.object(forKey: Key.usageByAccount) as? Bool ?? true
         openAtLogin = AppSettings.loginItemEnabled
     }
 

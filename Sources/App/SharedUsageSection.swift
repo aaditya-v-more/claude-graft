@@ -367,23 +367,25 @@ struct ConversationList: View {
         if !chats.isEmpty {
             let others = chats.filter { $0.id != inFront?.id }
             let showClaude = Set(chats.map(\.claude)).count > 1
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Claude Code")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .accessibilityAddTraits(.isHeader)
-                    .identified("conversations")
-                if let inFront {
-                    ChatRow(chat: inFront, showClaude: false, inFront: true)
-                    if !others.isEmpty {
+            VStack(alignment: .leading, spacing: 5) {
+                // The count shares the heading's line: under the conversation
+                // in front it was a third line for a section of one row.
+                HStack(spacing: 6) {
+                    Text("Claude Code")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .accessibilityAddTraits(.isHeader)
+                        .identified("conversations")
+                    Spacer(minLength: 6)
+                    if inFront != nil, !others.isEmpty {
                         Button {
                             othersShown.toggle()
                         } label: {
                             HStack(spacing: 4) {
-                                Image(systemName: othersShown ? "chevron.down" : "chevron.right")
-                                    .font(.caption2.weight(.semibold))
                                 Text(L10n.format("Other conversations · %ld", others.count))
-                                    .font(.caption)
+                                    .font(.subheadline)
+                                Image(systemName: othersShown ? "chevron.up" : "chevron.down")
+                                    .font(.caption2.weight(.semibold))
                             }
                             .foregroundStyle(.secondary)
                             .contentShape(Rectangle())
@@ -394,13 +396,16 @@ struct ConversationList: View {
                         .identified("conversations.others")
                     }
                 }
+                if let inFront {
+                    ChatRow(chat: inFront, showClaude: false, inFront: true)
+                }
                 if inFront == nil || othersShown {
                     ForEach(others) { chat in
                         ChatRow(chat: chat, showClaude: showClaude, inFront: false)
                     }
                 }
             }
-            .padding(.horizontal, 14)
+            .padding(.horizontal, 12)
             .padding(.top, 8)
             .padding(.bottom, 2)
         }
@@ -417,15 +422,25 @@ private struct ChatRow: View {
         let title = chat.title ?? L10n.text("Untitled conversation")
         HStack(spacing: 8) {
             VStack(alignment: .leading, spacing: 1) {
-                Text(title)
-                    .font(.callout)
-                    .fontWeight(inFront ? .medium : .regular)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                if showsDetail {
+                // Which Claude it is in rides on the title's line; only an
+                // account that could not take it earns a line of its own.
+                HStack(alignment: .firstTextBaseline, spacing: 5) {
+                    Text(title)
+                        .fontWeight(inFront ? .medium : .regular)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                    if showClaude, !chat.passedOver {
+                        Text(detail)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .fixedSize()
+                    }
+                }
+                if chat.passedOver {
                     Text(detail)
-                        .font(.caption)
-                        .foregroundStyle(chat.passedOver ? Color.orange : Color.secondary)
+                        .font(.subheadline)
+                        .foregroundStyle(.orange)
                         .lineLimit(1)
                 }
             }
@@ -441,7 +456,7 @@ private struct ChatRow: View {
                                           set: { pool.assign(chat.id, to: $0.isEmpty ? nil : $0) })) {
                     Text(pool.automaticTitle(chat)).tag("")
                     ForEach(chat.choices, id: \.self) { choice in
-                        Text(pool.name(of: choice)).tag(choice)
+                        Text(room(of: choice)).tag(choice)
                     }
                 } label: {
                     EmptyView()
@@ -455,7 +470,7 @@ private struct ChatRow: View {
                     if let key = answeringKey, let icon = FrontIcon.image(for: pool.preset(of: key)) {
                         Image(nsImage: icon).resizable().frame(width: 14, height: 14)
                     }
-                    Text(answering).font(.caption)
+                    Text(answering).font(.callout)
                 }
             }
             .menuStyle(.borderlessButton)
@@ -470,6 +485,13 @@ private struct ChatRow: View {
     }
 
     private var showsDetail: Bool { showClaude || chat.passedOver }
+
+    /// An account in the menu, with what its five hours have spent: the
+    /// reason to move a conversation is nearly always room.
+    private func room(of key: String) -> String {
+        guard let spent = pool.figures(of: key)?.fiveHour else { return pool.name(of: key) }
+        return pool.name(of: key) + " · \(spent)%"
+    }
 
     private var answeringKey: String? { UsagePoolController.answeringKey(chat) }
 
