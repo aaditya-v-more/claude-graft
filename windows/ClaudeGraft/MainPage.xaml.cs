@@ -656,20 +656,16 @@ public sealed partial class MainPage : Page
     /// background sweep reads both the next time it runs, so nothing else has to be
     /// nudged; a start is at most a few minutes away, not this instant.
     ///
-    /// Click, never Checked/Unchecked: a reused row's binding sets IsChecked before
-    /// Tag, so those fired for the row it used to hold and unticked it on a reload.
+    /// Saved whenever the switch disagrees with the Claude it is bound to, however
+    /// it was flipped: a freshly built card's switch reports no focus on its first
+    /// click, so a focus check threw that click away. See KeepWarmSwitch.
     private void KeepWarm_Toggled(object sender, RoutedEventArgs e)
     {
-        // A binding setting the switch to what is already saved also raises
-        // Toggled, and must not write it again.
         // The word beside it follows the switch itself, which runs ahead of the saved row.
         if (sender is ToggleSwitch { Parent: FrameworkElement { Parent: StackPanel { Children: [TextBlock words, ..] } } } moved)
             words.Text = SettingsCard.OnOff(moved.IsOn);
-        if (sender is not ToggleSwitch { Tag: ShortcutRow row } box || box.IsOn == row.KeepWarm) return;
-        // A reused row's binding can flip the switch before its Tag follows; only a
-        // person's toggle, which focuses it, is saved.
-        if (box.FocusState == FocusState.Unfocused) return;
-        var on = box.IsOn;
+        if (sender is not ToggleSwitch { DataContext: ShortcutRow row } box) return;
+        if (KeepWarmSwitch.ToSave(box.IsOn, row.KeepWarm) is not bool on) return;
         if (row.Shortcut is Shortcut shortcut)
         {
             if (App.Store.LoadError is not null) { box.IsOn = !on; _ = WarnListUnreadable(); return; }
