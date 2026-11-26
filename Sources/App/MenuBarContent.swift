@@ -397,6 +397,8 @@ struct UsageRow: View {
     let start: () -> Void
     let refresh: () -> Void
 
+    @ObservedObject private var pool = Shared.usagePool
+
     /// The dot is the only thing saying whether that Claude is open, and a
     /// dot says nothing to somebody who cannot see it.
     private var status: String {
@@ -410,7 +412,7 @@ struct UsageRow: View {
             // rest: the name wrapped and the button was cut short.
             ViewThatFits(in: .horizontal) {
                 HStack(spacing: 6) { title(plan: entry.plan); Spacer(minLength: 6); buttons }
-                HStack(spacing: 6) { title(plan: nil); Spacer(minLength: 6); buttons }
+                HStack(spacing: 4) { title(plan: nil); Spacer(minLength: 2); buttons }
                 VStack(alignment: .leading, spacing: 6) {
                     title(plan: entry.plan)
                     HStack(spacing: 6) { Spacer(); buttons }
@@ -426,18 +428,25 @@ struct UsageRow: View {
     }
 
     private func title(plan: String?) -> some View {
-        HStack(spacing: 6) {
+        HStack(spacing: 5) {
             Circle()
                 .fill(entry.isRunning ? Color.green : Color.secondary.opacity(0.35))
                 .frame(width: 7, height: 7)
-            Text(entry.name).fontWeight(.semibold).lineLimit(1)
+            // The picture the bar lights for it, as its rows by Claude have.
+            if let icon = FrontIcon.image(for: pool.preset(of: entry.key)) {
+                Image(nsImage: icon).resizable().frame(width: 17, height: 17)
+            }
+            Text(entry.name).fontWeight(.semibold).lineLimit(1).truncationMode(.middle)
             if let plan {
                 Text(plan)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .fixedSize()
             }
         }
         .spoken(entry.name, value: status)
+        .help(entry.name)
         .accessibilityAddTraits(.isHeader)
         .identified("account")
     }
@@ -574,16 +583,19 @@ struct AccountUsageRow: View {
                 HStack(spacing: 6) {
                     // The colour it wears on the bar when it is answering.
                     if let icon = FrontIcon.image(for: pool.preset(of: account.id)) {
-                        Image(nsImage: icon).resizable().frame(width: 14, height: 14)
+                        Image(nsImage: icon).resizable().frame(width: 17, height: 17)
                     }
                     Text(name).fontWeight(.semibold).lineLimit(1).truncationMode(.middle)
                     if let plan = entry?.plan {
                         Text(plan)
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .fixedSize()
                     }
                 }
                 .spoken(name, value: [entry?.plan, condition].compactMap { $0 }.joined(separator: ", "))
+                .help(name)
                 .accessibilityAddTraits(.isHeader)
                 .identified("account")
                 Spacer(minLength: 6)
@@ -633,10 +645,15 @@ struct ClaudeHeading: View {
     let start: () -> Void
 
     var body: some View {
-        // Both buttons in Russian leave the plan no room beside the name.
+        // Both buttons in Russian leave the plan no room beside the name,
+        // and a long name none beside the buttons.
         ViewThatFits(in: .horizontal) {
             HStack(spacing: 6) { title(plan: entry.plan); Spacer(minLength: 6); buttons }
             HStack(spacing: 6) { title(plan: nil); Spacer(minLength: 6); buttons }
+            VStack(alignment: .leading, spacing: 4) {
+                title(plan: entry.plan)
+                HStack(spacing: 6) { Spacer(); buttons }
+            }
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 5)
@@ -649,15 +666,18 @@ struct ClaudeHeading: View {
             Circle()
                 .fill(entry.isRunning ? Color.green : Color.secondary.opacity(0.35))
                 .frame(width: 7, height: 7)
-            Text(entry.name).fontWeight(.semibold).lineLimit(1)
+            Text(entry.name).fontWeight(.semibold).lineLimit(1).truncationMode(.middle)
             if let plan {
                 Text(plan)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .fixedSize()
             }
         }
         .spoken(entry.name, value: [entry.plan, L10n.text(entry.isRunning ? "Running" : "Not running")]
             .compactMap { $0 }.joined(separator: ", "))
+        .help(entry.name)
         .accessibilityAddTraits(.isHeader)
         .identified("account")
     }
@@ -710,7 +730,7 @@ struct ClaudeAccountRow: View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 6) {
                 if let icon = FrontIcon.image(for: pool.preset(of: account)) {
-                    Image(nsImage: icon).resizable().frame(width: 14, height: 14)
+                    Image(nsImage: icon).resizable().frame(width: 17, height: 17)
                 }
                 Text(name).fontWeight(.medium).lineLimit(1).truncationMode(.middle)
                 if let beside {

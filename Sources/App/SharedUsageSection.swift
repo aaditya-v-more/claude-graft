@@ -468,7 +468,7 @@ private struct ChatRow: View {
                 // as one fact.
                 HStack(spacing: 4) {
                     if let key = answeringKey, let icon = FrontIcon.image(for: pool.preset(of: key)) {
-                        Image(nsImage: icon).resizable().frame(width: 14, height: 14)
+                        Image(nsImage: icon).resizable().frame(width: 16, height: 16)
                     }
                     Text(answering).font(.callout)
                 }

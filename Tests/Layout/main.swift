@@ -861,6 +861,33 @@ check(element(third + "auto-session", in: rowTree) == nil,
       "and an account with no five-hour window has none to start")
 rows.orderOut(nil)
 
+// A name somebody typed at length shares its line with two buttons.
+let longProfile = shortcut.profileDir.deletingLastPathComponent().appending(path: "Claude-Long")
+let longNamed = UsageMonitor.Entry(name: "Client work for the Northern Lights studio (billing account)",
+                                   profile: longProfile,
+                                   usage: Graft.Usage(fiveHour: 37, week: 52, organization: nil, sampled: now,
+                                                      fiveHourReset: now.addingTimeInterval(3600),
+                                                      weekReset: now.addingTimeInterval(2 * 86400)),
+                                   isRunning: false, shortcut: UUID(), isLive: true, plan: "Max", refreshed: now)
+for (place, row) in [("listed by account", AnyView(UsageRow(entry: longNamed, starting: false, open: {}, start: {},
+                                                            refresh: {}))),
+                     ("listed by Claude", AnyView(ClaudeHeading(entry: longNamed, starting: false, open: {},
+                                                                start: {})))] {
+    let long = hosted(row.frame(width: 320).environment(\.controlSurface, ControlSurface.dropdown),
+                      title: "Long name check")
+    let longTree = checkAccessibility(long, surface: ControlSurface.dropdown, "a long name \(place)")
+    let scope = "dropdown.\(longProfile.lastPathComponent)."
+    let named = element(scope + "account", in: longTree)?.frame ?? .zero
+    let opens = element(scope + "open", in: longTree)?.frame ?? .zero
+    let starts = element(scope + "start-session", in: longTree)?.frame ?? .zero
+    let width = long.contentView?.fittingSize.width ?? 0
+    check(!named.isEmpty && !opens.isEmpty && !starts.isEmpty && width <= 321
+            && named.width <= 320 && opens.maxX - min(named.minX, starts.minX) <= 320
+            && !named.intersects(opens) && !named.intersects(starts),
+          "a long name \(place) is cut short inside its row and leaves both buttons whole")
+    long.orderOut(nil)
+}
+
 // Drawn from figures, since in here no relay has carried a conversation.
 let claude2 = UsagePoolController.key(for: shortcut)
 let conversations = hosted(ConversationList(chats: [
@@ -922,6 +949,7 @@ if let directory = ProcessInfo.processInfo.environment["GRAFT_LAYOUT_WINDOWS"] {
         ClaudeAccountRow(claude: two, account: lentAccount.id, refresh: {})
         ClaudeHeading(entry: unlimited, starting: false, open: {}, start: {})
         ClaudeAccountRow(claude: unlimited, account: unlimited.key, refresh: {})
+        ClaudeHeading(entry: longNamed, starting: false, open: {}, start: {})
         Divider()
         ConversationList(chats: [
             UsagePoolController.Chat(id: "first-session", title: "Plan the next release",
@@ -951,6 +979,8 @@ if let directory = ProcessInfo.processInfo.environment["GRAFT_LAYOUT_WINDOWS"] {
         UsageRow(entry: one, starting: false, open: {}, start: {}, refresh: {})
         Divider().padding(.leading, 12)
         UsageRow(entry: two, starting: false, open: {}, start: {}, refresh: {})
+        Divider().padding(.leading, 12)
+        UsageRow(entry: longNamed, starting: false, open: {}, start: {}, refresh: {})
         Divider().padding(.leading, 12)
         UsageRow(entry: unlimited, starting: false, open: {}, start: {}, refresh: {})
         Divider().padding(.leading, 12)

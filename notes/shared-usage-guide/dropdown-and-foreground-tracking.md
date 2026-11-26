@@ -33,6 +33,12 @@ to a line with eleven-point text was five lines an account, hard to read and
 mostly empty at the right. The list's scroll bar is forced to the overlay kind
 (`OverlayScroller`): with a mouse attached macOS gave it a gutter of its own.
 
+A Claude's line carries its icon in both lists, beside the dot that says it is
+running. A name too long to share the line with Start Session and Open takes a
+line of its own with the buttons under it, cut in the middle if it is longer
+than the row; a plan beside it is never squeezed. In Russian the two buttons
+leave a name about nine letters, so "Claude 2" still shares the line there.
+
 Auto-start goes by the account, not by the row (`autoStartKey`): an account
 that is also a Claude here uses that Claude's switch, so turning it under one
 Claude turns it under every other, and in Shared usage. A lent account's row
