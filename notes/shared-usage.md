@@ -48,6 +48,16 @@ goes to the one counted, and the dropdown offers only that one. The borrowing
 Claude's own account is refused at sign-in, and marked as adding nothing if it
 arrives as a Claude.
 
+An account signed in from the pane still belongs to the Claudes that draw on
+it, and its login still goes when the last of them lets go. What it gained is a
+place of its own to be seen: the Accounts page lists each with its name and
+colour, its figures, who draws on it and when its login runs out, and offers
+Start Session, Sign In Again and Remove, which takes it out of every Claude at
+once. The page is always in the sidebar now, since it also holds the order the
+accounts are used in and each one's Auto-start switch, Claudes included. The dropdown and the bar's tooltip
+show the ones no Claude here is signed in to, under the Claudes; one that is
+also a Claude is that Claude's row already.
+
 ## Reaching Claude Code
 
 **Claude Code is reached through a proxy because nothing else gets in.** Desktop

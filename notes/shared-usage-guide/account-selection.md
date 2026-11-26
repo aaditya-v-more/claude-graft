@@ -5,9 +5,12 @@
 ## Which account answers
 
 **Only the sender and the accounts it names are asked,** one account counted
-once. An account has room while its login has not been refused, the service has
+once, an account being a login in one organisation
+([relay-lifecycle-and-identity.md](relay-lifecycle-and-identity.md)). An
+account has room while its login has not been refused, the service has
 not said no, its five-hour window is under 98% and its week under 99%, a window
-whose reset has passed counting as empty. Those with room go in order of the
+whose reset has passed counting as empty. Those with room go in the order
+somebody set under Accounts, for the accounts it names, and then by the
 soonest weekly reset, an unknown reset after every known one, and a tie to the
 sender, since staying costs nothing. The sender's own account takes its place in
 that order while it has room and goes last when it has none; the request then
@@ -23,16 +26,67 @@ either account — and full on what the Chat tab had spent unseen passed the
 request to the lender as the last attempt, and Claude Code got whatever the
 lender said.
 
-**A conversation stays while its cache lives,** unless it is held longer for its
-reasoning, below. Keyed by
-`X-Claude-Code-Session-Id`, it stays with the account that last answered it for
-as long as its prompt cache lives there — five minutes from its last turn, or an
-hour when the body asks for `"ttl":"1h"` — because moving it inside that time
-pays for the whole context again, and moving it after costs nothing. It used to
-stay an hour regardless, which held a conversation on an account long after
-there was anything left to lose by moving it. A choice made in the dropdown goes
-in front of both while that account has room, and is dropped once the
-conversation has been quiet for a day. The relay learns limits from the
+**The order is a person's to set.** Left alone, the account whose week ends
+soonest goes first, since what it has left is lost soonest. The Accounts page
+lists every account in the order in effect and moves one up, down or to the
+front; the choice is `first` in `usage-sharing.json`, handed to the relay with
+every configuration and matched by account. It names only what was moved, and
+any account not named follows by its reset, so one added later needs no place
+given to it. "By weekly reset" empties the list.
+
+**Room is room for the model being asked for.** Some plans count a week of one
+family of models on its own and some lack a family altogether, so an account
+can be out of one model with most of its week left. A refusal naming such a
+limit — a 429 whose `anthropic-ratelimit-unified-representative-claim` begins
+`seven_day_`, which is how Claude Code 2.1.330 matches them to models — shuts
+the account for that family until the reset named and leaves it open to every
+other; the account is not marked full. A 403 or 404 from a borrowed login, for
+a request that could be read and continues no thread, is taken for a plan
+without the model and remembered for an hour (`refusalMemory`); an answer for
+that family forgets it at once. What the usage endpoint says of each model's
+own week reaches the relay as `PoolLimits.models` with every configuration, so
+an account already out of a model is passed over for it without being asked.
+With account 1 set first and out of Fable, a Fable conversation begins on
+account 2 while Opus and Sonnet still begin on account 1. No live refusal
+naming a model's week has been seen yet: the stand-in service in
+`./test-relay.sh` sends them, and the header names are read from Claude Code.
+
+**A plan that sells a model apart refuses it like a busy service.** Seen live
+on the Mac Mini on 26 November 2026: a Pro login asked for Fable, which its
+model menu lists as "Requires usage credits", answered 429 with no
+`anthropic-ratelimit-unified-*` header at all. The relay took that for the
+service being busy, left the whole account alone for a minute, and would have
+asked it for Fable again every minute after; a Sonnet conversation begun
+inside that minute would have started on the other account and stayed there.
+Only the body tells the two apart, so every request to a lent account now asks
+for `Accept-Encoding: identity`, and a 429 whose error says `credits_required`
+in its `details`, or "usage credits are required" or "extra usage is required"
+in its message — how Claude Code 2.1.331 matches it — is a plan without the
+model: that family is shut on the account for an hour, the request goes home,
+and every other model still starts there. The same day, with the relay
+replaced: Fable was refused and logged as `credits_required`, a Sonnet
+conversation half a minute later began on that account, and the next Fable one
+was not offered to it.
+
+**A conversation stays with the account that answered it,** whatever its model
+and however long it sat, until that account has no room, and then stays
+wherever it went. It is keyed by `X-Claude-Code-Session-Id`. Through 2.2.1 it
+stayed only while its prompt cache lived there, five minutes or an hour, and
+then went wherever the ranking said, so a conversation begun on one account's
+allowance drifted to another between turns and a person who had moved it saw it
+leave. Its cache and its reasoning are now lost once, when the account runs
+out, and not on every move. A choice made in the dropdown goes in front while
+that account has room, and is dropped once the conversation has been quiet for
+a day. An answer found elsewhere while the holder was only out of reach — a
+connection that failed twice, or a 429 naming no limit, which is the service
+being busy — moves nothing (`detour`), and the next turn goes back to the
+holder.
+
+The relay keeps where each conversation was answered in memory alone, so a
+relay started since would send every open conversation back to the ranking.
+Graft hands it the last answers the old one reported (`holders` in the
+configuration, the newest 256), and the relay's own record wins once it has
+one. The relay learns limits from the
 `anthropic-ratelimit-unified-*` headers on its own answers — fractions, resets
 in Unix seconds — and Graft pushes what the usage endpoint said with every
 configuration, so an account not yet asked is not a blank.
@@ -56,8 +110,8 @@ measured keeping its reasoning across the move is listed in
 needlessly costs a little sharing and moving one costs its reasoning.
 
 So a request whose messages hold `thinking` or `redacted_thinking` blocks stays
-with the account that last answered that conversation, past its cache and
-whatever the ranking says, and moves only when that account has no room — then
+with the account that last answered that conversation, as every conversation
+now does, and moves only when that account has no room — then
 stays where it went, so the reasoning is lost once rather than on every turn.
 Losing it once costs a few percent more output at low effort and a fifth more
 at the highest; losing it every turn costs up to two thirds. A conversation the
@@ -68,8 +122,8 @@ name the relay now counts it by: when a Claude's own login lapses and the same
 account signed in from the pane lends in its place, the name that answered is
 no longer a candidate, and holding it by that name let the conversation go by
 the ranking instead, away from an account that still had room. A request with no reasoning in it
-has nothing to lose — a new conversation, or one just compacted — and is routed
-like any other, which is where sharing still spreads the load. A choice from the
+and nobody known to have answered it — a new conversation — goes by the order,
+which is where sharing spreads the load. A choice from the
 dropdown still moves a held conversation: a person asking is the one move, made
 on purpose, and the conversation then stays on that account. The relay does not
 add the header that would make the service report a drop, since nothing that
@@ -92,10 +146,10 @@ Claude Code rather than sent home: the new thread that follows is created on
 the account the conversation moved to, and stays there. Telling that refusal
 from any other 404 means reading it, and the service compresses even its
 errors for a client that accepts it — a plain 401 comes back as brotli — so the
-second live run's moved turns were sent home all the same. A continued thread
-going to a borrowed account now asks for `Accept-Encoding: identity`; nothing
-else about the answer changes, and a refusal still compressed is treated as
-before. A refusal read and found to be something else leaves its error type on
+second live run's moved turns were sent home all the same. A request going to
+a borrowed account now asks for `Accept-Encoding: identity`, at first a
+continued thread alone; nothing else about the answer changes, and a refusal
+still compressed is treated as before. A refusal read and found to be something else leaves its error type on
 the `relay passed over` line.
 
 Only the conversation's own turns carry a thread. Claude Code asks for a title
@@ -106,12 +160,15 @@ the next turn was steered there to be refused. Once a session has been seen
 with a thread, only an answer to a request with one says where it is.
 
 What comes back decides what happens next, from the status line alone. A 429
-marks the account full until the reset it names and the request goes on to the
+marks the account full until the reset it names, or full for one model as
+above, and the request goes on to the
 next; a 401 on a borrowed login marks that login refused until Graft hands over
 another; a 400, 403 or 404 on a borrowed login sends the request home — to the
 sender's next attempt, not to the last in line, which with three accounts
 ranked lender, sender, lender was the other lender — since
-something in it belongs to the sender or the plan lacks it — except a 404 that
+something in it belongs to the sender or the plan lacks it. A sender known to
+be full, there only as the last resort or already passed over on this request,
+is sure of nothing, so then the next lender is asked before it — except a 404 that
 says `thread_not_found` to a continued thread, above, which is read and
 delivered; anything else is delivered. Measured: with Claude 2's login swapped for a bogus one, the first
 request was refused, retried on Claude's own account, and Claude Code saw only

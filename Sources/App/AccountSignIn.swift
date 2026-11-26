@@ -4,7 +4,8 @@ import Foundation
 
 /// Signs an account in through the browser so it can lend its usage without a
 /// Claude of its own: the same sign-in Claude Code's long-lived login uses, a
-/// year-long token for model requests and nothing else.
+/// year-long token for model requests and, where the service grants it, for
+/// reading the account's own usage.
 ///
 /// The browser comes back to a listener on loopback with a one-time code, and
 /// the code is exchanged for the token at Anthropic's sign-in service. That
@@ -15,7 +16,8 @@ import Foundation
 final class AccountSignIn: ObservableObject {
     enum Phase: Equatable {
         case idle
-        /// For the Claude the account is being added to.
+        /// By where it was begun: the Claude an account is being added to, or
+        /// the account being signed in again from its own page.
         case waiting(String)
         case failed(String, message: String)
     }
@@ -24,7 +26,12 @@ final class AccountSignIn: ObservableObject {
     static let authorize = URL(string: "https://claude.com/cai/oauth/authorize")!
     static let exchange = URL(string: "https://platform.claude.com/v1/oauth/token")!
     static let scope = "user:inference"
+    /// Asked for first. The usage endpoint answers only a login that may read
+    /// the profile, and a year of that is not known to be granted.
+    static let scopes = [scope, ClaudeCredentials.usageScope]
     static let lifetime = 365 * 24 * 60 * 60
+    /// A login granted for less than this is no use to lend.
+    static let shortest: TimeInterval = 30 * 24 * 60 * 60
     /// Long enough to sign in from scratch, two-step verification included.
     static let patience: TimeInterval = 10 * 60
 
@@ -41,25 +48,42 @@ final class AccountSignIn: ObservableObject {
     /// Only ever from a button: sealing the login may need the keychain, and
     /// it is a person waiting on the answer who is asked.
     func start(for claude: String, interactive: Bool) {
-        if case .waiting = phase { return }
-        phase = .waiting(claude)
-        setCancelled(false)
-        let known = pool.accountUuid(of: claude)
+        let known = pool.allowance(of: claude)
         let profile = pool.profile(of: claude)
-        DispatchQueue.global(qos: .userInitiated).async {
+        begin(at: claude) {
             // Before the first pass has read it, the profile is asked directly.
-            let ownAccount = known ?? profile.flatMap(Graft.account(of:))
-            let result = self.run(excluding: ownAccount, interactive: interactive)
+            let own = known ?? profile.flatMap(Graft.account(of:)).map { Allowance(account: $0) }
+            return self.run(excluding: own, expecting: nil, interactive: interactive)
+        } then: { self.pool.add($0, to: claude) }
+    }
+
+    /// Signs an account already here in again, from `place`: a new login in
+    /// the old one's place, and nothing else about the account moves.
+    func renew(_ account: String, at place: String, interactive: Bool) {
+        let expected = pool.allowance(of: account)
+        begin(at: place) {
+            self.run(excluding: nil, expecting: expected, interactive: interactive)
+        } then: { self.pool.renew(account, with: $0) }
+    }
+
+    private func begin(at place: String,
+                       _ signIn: @escaping () -> Result<PoolAccount, Failure>,
+                       then keep: @escaping (PoolAccount) -> Void) {
+        if case .waiting = phase { return }
+        phase = .waiting(place)
+        setCancelled(false)
+        DispatchQueue.global(qos: .userInitiated).async {
+            let result = signIn()
             DispatchQueue.main.async {
-                guard case .waiting(claude) = self.phase else { return }
+                guard case .waiting(place) = self.phase else { return }
                 switch result {
                 case .success(let account):
-                    self.pool.add(account, to: claude)
+                    keep(account)
                     self.phase = .idle
                 case .failure(.cancelled):
                     self.phase = .idle
                 case .failure(let failure):
-                    self.phase = .failed(claude, message: failure.message)
+                    self.phase = .failed(place, message: failure.message)
                 }
             }
         }
@@ -94,7 +118,19 @@ final class AccountSignIn: ObservableObject {
         case refused(Int, String?)
         case unreadable
         case ownAccount
+        case otherAccount
+        /// Granted, but for too short a time to be worth keeping.
+        case shortLived
         case keychain
+
+        /// A refusal of what was asked for, as against of the person or the
+        /// account, which asking for less would not change.
+        var isOfTheGrant: Bool {
+            switch self {
+            case .refused, .shortLived: return true
+            default: return false
+            }
+        }
 
         var message: String {
             switch self {
@@ -117,6 +153,13 @@ final class AccountSignIn: ObservableObject {
                     That is the account this Claude already uses, so it has nothing to add. \
                     Switch accounts in the browser, then try again.
                     """)
+            case .otherAccount:
+                return L10n.text("""
+                    That is a different account from the one being signed in again. \
+                    Switch accounts in the browser, then try again.
+                    """)
+            case .shortLived:
+                return L10n.text("Anthropic granted that login for too short a time to keep.")
             case .keychain:
                 return L10n.text("Graft needs keychain access to keep this login. Try again and allow it.")
             }
@@ -125,13 +168,16 @@ final class AccountSignIn: ObservableObject {
 
     // MARK: - The flow
 
-    private func run(excluding ownAccount: String?, interactive: Bool) -> Result<PoolAccount, Failure> {
+    private func run(excluding ownAccount: Allowance?, expecting: Allowance?,
+                     interactive: Bool) -> Result<PoolAccount, Failure> {
         guard let listener = Loopback() else { return .failure(.listener) }
         defer { listener.close() }
-        let verifier = Self.randomToken()
-        let state = Self.randomToken()
+        var asking = Self.scopes
+        var verifier = Self.randomToken()
+        var state = Self.randomToken()
         let redirect = "http://localhost:\(listener.port)/callback"
-        NSWorkspace.shared.open(Self.authorizeURL(redirect: redirect, verifier: verifier, state: state))
+        NSWorkspace.shared.open(Self.authorizeURL(redirect: redirect, verifier: verifier, state: state,
+                                                  scopes: asking))
 
         let deadline = Date().addingTimeInterval(Self.patience)
         while true {
@@ -150,13 +196,29 @@ final class AccountSignIn: ObservableObject {
                                  page: Self.page(L10n.text("This sign-in link is out of date. Start again from Claude Graft.")))
                 continue
             }
+            // The wider login refused or cut short is asked for again as the
+            // narrow one, in the same tab: an account that lends without its
+            // figures is worth more than no account.
+            func askNarrowly() {
+                asking = [Self.scope]
+                verifier = Self.randomToken()
+                state = Self.randomToken()
+                Loopback.redirect(connection, to: Self.authorizeURL(redirect: redirect, verifier: verifier,
+                                                                    state: state, scopes: asking))
+            }
             guard let code = query["code"] else {
+                if asking.count > 1, query["error"] == "invalid_scope" { askNarrowly(); continue }
                 let failure = Failure.declined(query["error_description"] ?? query["error"])
                 Loopback.respond(connection, status: 200, page: Self.page(failure.message))
                 return .failure(failure)
             }
             let result = finish(code: code, redirect: redirect, verifier: verifier, state: state,
-                                excluding: ownAccount, interactive: interactive)
+                                asked: asking, excluding: ownAccount, expecting: expecting,
+                                interactive: interactive)
+            if asking.count > 1, case .failure(let failure) = result, failure.isOfTheGrant {
+                askNarrowly()
+                continue
+            }
             switch result {
             case .success(let account):
                 Loopback.respond(connection, status: 200, page: Self.page(
@@ -170,7 +232,8 @@ final class AccountSignIn: ObservableObject {
     }
 
     private func finish(code: String, redirect: String, verifier: String, state: String,
-                        excluding ownAccount: String?, interactive: Bool) -> Result<PoolAccount, Failure> {
+                        asked: [String], excluding ownAccount: Allowance?, expecting: Allowance?,
+                        interactive: Bool) -> Result<PoolAccount, Failure> {
         let body: [String: Any] = [
             "grant_type": "authorization_code",
             "code": code,
@@ -210,22 +273,29 @@ final class AccountSignIn: ObservableObject {
         let account = object["account"] as? [String: Any]
         let organization = object["organization"] as? [String: Any]
         let uuid = account?["uuid"] as? String
-        if let uuid, uuid == ownAccount { return .failure(.ownAccount) }
+        let inside = (organization?["uuid"] as? String)?.lowercased()
+        // The same login in its other organization is another allowance.
+        let login = uuid.map { Allowance(account: $0, organization: inside) }
+        if let login, let ownAccount, login.isSame(as: ownAccount) { return .failure(.ownAccount) }
+        if let login, let expecting, !login.isSame(as: expecting) { return .failure(.otherAccount) }
+        let lifetime = (object["expires_in"] as? Double) ?? Double(Self.lifetime)
+        guard lifetime >= Self.shortest else { return .failure(.shortLived) }
 
         guard let key = try? ClaudeCredentials.safeStorageKey(prompting: interactive ? .yes : .no),
               let sealed = ClaudeCredentials.seal(Data(token.utf8), key: key)
         else { return .failure(.keychain) }
-        let lifetime = (object["expires_in"] as? Double) ?? Double(Self.lifetime)
-        let scopes = (object["scope"] as? String)?.split(separator: " ").map(String.init) ?? [Self.scope]
+        let scopes = (object["scope"] as? String)?.split(separator: " ").map(String.init) ?? asked
         let id = UsagePoolController.accountPrefix + (uuid ?? UUID().uuidString.lowercased())
         return .success(PoolAccount(id: id, accountUuid: uuid,
                                     email: account?["email_address"] as? String,
                                     organizationName: organization?["name"] as? String,
+                                    organizationUuid: inside,
                                     scopes: scopes, expires: Date().addingTimeInterval(lifetime),
                                     added: Date(), sealed: sealed))
     }
 
-    static func authorizeURL(redirect: String, verifier: String, state: String) -> URL {
+    static func authorizeURL(redirect: String, verifier: String, state: String,
+                             scopes: [String] = AccountSignIn.scopes) -> URL {
         let challenge = Data(SHA256.hash(data: Data(verifier.utf8))).base64URL
         var components = URLComponents(url: authorize, resolvingAgainstBaseURL: false)!
         components.queryItems = [
@@ -233,7 +303,7 @@ final class AccountSignIn: ObservableObject {
             URLQueryItem(name: "client_id", value: clientID),
             URLQueryItem(name: "response_type", value: "code"),
             URLQueryItem(name: "redirect_uri", value: redirect),
-            URLQueryItem(name: "scope", value: scope),
+            URLQueryItem(name: "scope", value: scopes.joined(separator: " ")),
             URLQueryItem(name: "code_challenge", value: challenge),
             URLQueryItem(name: "code_challenge_method", value: "S256"),
             URLQueryItem(name: "state", value: state),
@@ -387,6 +457,12 @@ private final class Loopback {
             query[item.name] = item.value
         }
         return query
+    }
+
+    static func redirect(_ connection: Int32, to url: URL) {
+        let head = "HTTP/1.1 302 Found\r\nLocation: \(url.absoluteString)\r\n"
+            + "Content-Length: 0\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n"
+        _ = PoolSocket.writeAll(connection, Data(head.utf8))
     }
 
     static func respond(_ connection: Int32, status: Int, page: String?) {

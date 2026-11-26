@@ -58,6 +58,7 @@ enum Shared {
     static let claudeUpdates = ClaudeDesktopUpdater()
     static let usagePool = UsagePoolController()
     static let accountSignIn = AccountSignIn(pool: usagePool)
+    static let autoSessions = AutoSessions()
     @MainActor static let artifacts = ArtifactCenter()
     @MainActor static let projects = ProjectCenter(accounts: artifacts)
 }
@@ -139,6 +140,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Before anything that might wait on the network: a Claude connected to
         // the pool after a restart has no Claude Code until the relay is back.
         Shared.usagePool.start(store: Shared.store, usage: Shared.usage)
+        Shared.autoSessions.start(store: Shared.store, usage: Shared.usage, pool: Shared.usagePool)
         Shared.updater.start(holding: Shared.settings)
         // No prompts, no windows: filing records is a thing the menu bar
         // does on its own whether anyone is looking or not. Once, here —

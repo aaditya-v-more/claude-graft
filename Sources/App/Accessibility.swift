@@ -58,6 +58,12 @@ extension View {
         environment(\.controlProfile, profile.lastPathComponent)
     }
 
+    /// The same for an account signed in through Graft, by its saved id.
+    func controls(account id: String) -> some View {
+        environment(\.controlProfile, id.hasPrefix(UsagePoolController.accountPrefix)
+            ? String(id.dropFirst(UsagePoolController.accountPrefix.count)) : id)
+    }
+
     /// Read as one thing, "Name, Claude". A form row otherwise reaches
     /// VoiceOver as its label, its value, and the value a second time. Marked
     /// as text because SwiftUI leaves an element it was told to make with no

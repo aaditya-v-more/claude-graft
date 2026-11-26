@@ -10,8 +10,11 @@ struct ContentView: View {
     /// Every signed-in account's projects, and one search across their chats.
     static let projectsID = UUID(uuidString: "00000000-0000-0000-0000-000000000003")!
     static let searchID = UUID(uuidString: "00000000-0000-0000-0000-000000000004")!
+    /// Every account's sessions and order, and the ones signed in through Graft.
+    static let accountsID = UUID(uuidString: "00000000-0000-0000-0000-000000000005")!
 
     @EnvironmentObject private var store: ShortcutStore
+    @ObservedObject private var pool = Shared.usagePool
     @State private var selection: UUID? = ContentView.mainProfileID
     @State private var pendingDeletion: UUID?
     @State private var pendingDeletionIsOpen = false
@@ -38,10 +41,15 @@ struct ContentView: View {
         // split view: below anything, the split view draws a second titlebar
         // backdrop over the first section of the form.
         NavigationSplitView(columnVisibility: $columns) {
-            sidebar
-                .listStyle(.sidebar)
-                .safeAreaInset(edge: .bottom, spacing: 0) { sidebarFooter }
-                .navigationSplitViewColumnWidth(min: 200, ideal: 220, max: 280)
+            // Under the list, never laid over it: an inset has no backdrop
+            // of its own here, and a list long enough to scroll showed
+            // through the foot.
+            VStack(spacing: 0) {
+                sidebar
+                    .listStyle(.sidebar)
+                sidebarFooter
+            }
+            .navigationSplitViewColumnWidth(min: 200, ideal: 220, max: 280)
         } detail: {
             VStack(spacing: 0) {
                 UpdateRecoveryNotice()
@@ -93,6 +101,8 @@ struct ContentView: View {
             ProjectsView(center: projects ?? Shared.projects)
         } else if selection == Self.searchID {
             ChatSearchView(center: projects ?? Shared.projects)
+        } else if selection == Self.accountsID {
+            AccountsView()
         } else if let selection, let index = store.shortcuts.firstIndex(where: { $0.id == selection }) {
             ShortcutDetail(shortcut: $store.shortcuts[index],
                            requestDelete: { requestDeletion(of: selection) })
@@ -170,53 +180,6 @@ struct ContentView: View {
                 .identified("sidebar.\(Graft.mainProfile.lastPathComponent)")
                 .tag(Self.mainProfileID)
 
-                Label {
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text("Artifacts")
-                        Text("Every account")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                } icon: {
-                    Image(systemName: "square.on.square")
-                        .foregroundStyle(.secondary)
-                }
-                .spoken(L10n.text("Artifacts"), value: L10n.text("Every account"))
-                .identified("sidebar.artifacts")
-                .tag(Self.artifactsID)
-
-                Label {
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text("Projects")
-                        Text("Every account")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                } icon: {
-                    Image(systemName: "folder")
-                        .foregroundStyle(.secondary)
-                }
-                .spoken(L10n.text("Projects"), value: L10n.text("Every account"))
-                .identified("sidebar.projects")
-                .tag(Self.projectsID)
-
-                Label {
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text("Search Chats")
-                        Text("Every account")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                } icon: {
-                    Image(systemName: "magnifyingglass")
-                        .foregroundStyle(.secondary)
-                }
-                .spoken(L10n.text("Search Chats"), value: L10n.text("Every account"))
-                .identified("sidebar.search")
-                .tag(Self.searchID)
-            }
-
-            Section("Shortcuts") {
                 ForEach(store.shortcuts) { shortcut in
                     Label {
                         VStack(alignment: .leading, spacing: 1) {
@@ -241,17 +204,40 @@ struct ContentView: View {
                         }
                     }
                 }
+
+                Button(action: add) {
+                    Label("New Shortcut", systemImage: "plus")
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .identified("sidebar.new-shortcut")
+                .padding(.vertical, 2)
             }
 
-            Button(action: add) {
-                Label("New Shortcut", systemImage: "plus")
-                    .foregroundStyle(.secondary)
+            // One line each under a heading that says it once: a caption on
+            // every row was four lines the shortcuts above had no room for.
+            Section("Every account") {
+                page("Artifacts", icon: "square.on.square", id: "artifacts", tag: Self.artifactsID)
+                page("Projects", icon: "folder", id: "projects", tag: Self.projectsID)
+                page("Search Chats", icon: "magnifyingglass", id: "search", tag: Self.searchID)
+                page("Accounts", icon: "person.2", id: "accounts", tag: Self.accountsID,
+                     value: "Sessions, order and sign-ins")
             }
-            .buttonStyle(.plain)
-            .identified("sidebar.new-shortcut")
-            .padding(.vertical, 2)
         }
         .onDeleteCommand { if let selection { requestDeletion(of: selection) } }
+    }
+
+    private func page(_ title: String, icon: String, id: String, tag: UUID,
+                      value: String = "Every account") -> some View {
+        Label {
+            Text(L10n.text(title))
+        } icon: {
+            Image(systemName: icon)
+                .foregroundStyle(.secondary)
+        }
+        .spoken(L10n.text(title), value: L10n.text(value))
+        .identified("sidebar.\(id)")
+        .tag(tag)
     }
 
     /// The foot of the sidebar. There is no About panel and no preferences

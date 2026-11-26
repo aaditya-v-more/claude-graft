@@ -5,6 +5,7 @@
 ### Artifacts — [notes/artifacts.md](../../notes/artifacts.md)
 
 - **An artifact sign-in stays in its web store.** One `WKWebsiteDataStore` per account, loaded only with claude.ai; requests go out from a claude.ai page by `callAsyncJavaScript`, never from `URLSession`, and nothing reads `httpCookieStore`. Signing out removes the store. Claude profiles' cookies are never decrypted.
+- **An account in several chat organizations is asked about one, chosen from its menu;** the choice outlives a sign-in while the account belongs there, and a change drops what the organization left had listed.
 - **A second sign-in to a listed account keeps the new store;** the record moves to it and the old store goes (`ArtifactAccounts.signedIn`).
 - **A store is removed only once nothing holds it:** `retire` closes the session and waits for `released()`, a sign-in window lets go before acting, a failed removal is logged and retried, and stores not in a readable `artifact-accounts.json` go at launch.
 - **WebKit is made ready before a store is listed or removed** (`prepareStores`): on macOS 27 either call crashes a process in which no store has done any work.

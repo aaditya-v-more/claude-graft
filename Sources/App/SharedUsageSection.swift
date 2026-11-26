@@ -14,15 +14,14 @@ struct SharedUsageSection: View {
     @State private var problem: String?
 
     static let explanation = L10n.text("""
-        The Code tab in this Claude can be answered by the accounts added here. Each \
-        request goes to whichever has room and the soonest weekly reset, and a \
-        conversation stays on one account while its cache is still warm there. \
+        The Code tab in this Claude can be answered by the accounts added here. A \
+        new conversation goes to the first that has room, in the order set under \
+        Accounts, and stays on that account until it has no room left or you move it. \
         Chats, artifacts, connectors and Claude in Chrome stay with this Claude's \
         own account, and the Chat tab is never shared.
 
         A request answered by another account carries the conversation to that \
-        account. Anthropic's terms for Claude plans may not allow one person to \
-        combine subscriptions this way, so read them before adding one.
+        account.
         """)
 
     var body: some View {
@@ -35,7 +34,8 @@ struct SharedUsageSection: View {
             } else {
                 ForEach(lenders, id: \.self) { lender in
                     LenderRow(claude: claude, lender: lender,
-                              entry: pool.profile(of: lender).flatMap(usage.entry(for:)))
+                              entry: pool.profile(of: lender).flatMap(usage.entry(for:))
+                                  ?? pool.entry(forAccount: lender))
                 }
                 notes
                 if showsNothing {
@@ -191,6 +191,7 @@ private struct LenderRow: View {
     let lender: String
     let entry: UsageMonitor.Entry?
     @ObservedObject private var pool = Shared.usagePool
+    @ObservedObject private var signIn = Shared.accountSignIn
 
     var body: some View {
         let name = pool.name(of: lender)
@@ -219,12 +220,23 @@ private struct LenderRow: View {
             .identified("lender.\(token)")
             Spacer(minLength: 8)
             if let figures {
-                Text(figuresLine(figures))
-                    .font(.caption.monospacedDigit())
-                    .foregroundStyle(entry?.isDimmed == true ? Color.secondary.opacity(0.6) : Color.secondary)
-                    .lineLimit(1)
-                    .help(figuresHelp(figures))
-                    .identified("lender.\(token).usage")
+                // On the minute, as the bars count down: a time left that
+                // waits for the next pass reads as a window that never closes.
+                TimelineView(.periodic(from: .now, by: 60)) { context in
+                    Text(figuresLine(figures, now: context.date))
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(entry?.isDimmed == true ? Color.secondary.opacity(0.6) : Color.secondary)
+                        .lineLimit(1)
+                        .help(figuresHelp(figures))
+                        .identified("lender.\(token).usage")
+                }
+            }
+            if pool.needsSignIn(lender) {
+                Button("Sign In Again") { signIn.renew(lender, at: claude, interactive: true) }
+                    .controlSize(.small)
+                    .disabled(signIn.phase != .idle)
+                    .accessibilityLabel(L10n.format("Sign in to %@ again", name))
+                    .identified("lender.\(token).sign-in-again")
             }
             Button {
                 pool.removeLender(lender, from: claude)
@@ -239,10 +251,16 @@ private struct LenderRow: View {
         .padding(.vertical, 2)
     }
 
-    private func figuresLine(_ figures: (fiveHour: Int?, fiveHourReset: Date?, week: Int, weekReset: Date?)) -> String {
-        let week = L10n.format("Week %ld%%", figures.week)
+    /// Each figure with the time until it starts again, which is what says
+    /// whether an account that is full is worth waiting for.
+    private func figuresLine(_ figures: (fiveHour: Int?, fiveHourReset: Date?, week: Int, weekReset: Date?),
+                             now: Date) -> String {
+        func timed(_ figure: String, _ reset: Date?) -> String {
+            reset.flatMap { Graft.countdown(to: $0, from: now) }.map { "\(figure) (\($0))" } ?? figure
+        }
+        let week = timed(L10n.format("Week %ld%%", figures.week), figures.weekReset)
         guard let fiveHour = figures.fiveHour else { return week }
-        return L10n.format("5h %ld%%", fiveHour) + " · " + week
+        return timed(L10n.format("5h %ld%%", fiveHour), figures.fiveHourReset) + " · " + week
     }
 
     private func figuresHelp(_ figures: (fiveHour: Int?, fiveHourReset: Date?, week: Int, weekReset: Date?)) -> String {
@@ -252,7 +270,6 @@ private struct LenderRow: View {
     }
 
     private var isAccount: Bool { lender.hasPrefix(UsagePoolController.accountPrefix) }
-    private var reported: PoolMemberStatus? { pool.status?.members.first { $0.id == lender } }
 
     /// A Claude goes by its profile folder, as every other control naming a
     /// profile does, and an account by the id it was saved under, which is the
@@ -262,20 +279,12 @@ private struct LenderRow: View {
         return isAccount ? String(lender.dropFirst(UsagePoolController.accountPrefix.count)) : lender
     }
 
-    /// A Claude's own figure where there is one, since Graft asks for it; an
-    /// account signed in here has only what the service said on its answers.
-    ///
-    /// The service's headers name a five-hour reset on every answer for an
-    /// account that has the window, so one without a reset is taken to have
-    /// none rather than shown at a 0% that never moves.
+    /// A Claude's own figure or an account's, and for a Claude with none yet,
+    /// what the relay heard on its answers.
     private var figures: (fiveHour: Int?, fiveHourReset: Date?, week: Int, weekReset: Date?)? {
-        if let usage = entry?.usage {
-            return (usage.fiveHour, usage.fiveHourReset, usage.week, usage.weekReset)
-        }
-        guard let limits = reported?.limits else { return nil }
-        let fiveHour = limits.fiveHourReset == nil && limits.fiveHour == 0
-            ? nil : Int((limits.fiveHour * 100).rounded())
-        return (fiveHour, limits.fiveHourReset, Int((limits.week * 100).rounded()), limits.weekReset)
+        let usage = entry?.usage ?? pool.status?.members.first { $0.id == lender }?.limits
+            .map { UsagePoolController.usage(from: $0) }
+        return usage.map { ($0.fiveHour, $0.fiveHourReset, $0.week, $0.weekReset) }
     }
 
     private var sameAsBorrower: Bool {
@@ -283,10 +292,7 @@ private struct LenderRow: View {
         return pool.accountUuid(of: lender) == own
     }
 
-    private var attention: Bool {
-        sameAsBorrower || reported?.tokenRefused == true
-            || (pool.lending[lender] != nil && pool.lending[lender] != .ready)
-    }
+    private var attention: Bool { sameAsBorrower || pool.needsAttention(lender) }
 
     private var state: String {
         var parts: [String] = []
@@ -295,38 +301,8 @@ private struct LenderRow: View {
         } else if let other = pool.sameAccount(as: lender, besides: claude) {
             parts.append(L10n.format("Same account as %@", pool.name(of: other)))
         }
-        parts.append(condition)
+        parts.append(pool.condition(of: lender))
         return parts.joined(separator: " · ")
-    }
-
-    private var condition: String {
-        if reported?.tokenRefused == true {
-            return isAccount ? L10n.text("Login refused · sign in again")
-                             : L10n.text("Login refused · open that Claude to renew it")
-        }
-        switch pool.lending[lender] {
-        case nil:
-            return L10n.text("Checking its login…")
-        case .signedOut:
-            return L10n.text("Not signed in")
-        case .expired:
-            return isAccount ? L10n.text("Login expired · sign in again")
-                             : L10n.text("Login expired · open that Claude to renew it")
-        case .unreadable:
-            return L10n.text("Login locked · open the keychain from the menu bar")
-        case .ready:
-            break
-        }
-        if let limits = reported?.limits, !PoolPolicy.hasRoom(limits, now: Date()) {
-            if let until = limits.refusedUntil ?? limits.fiveHourReset {
-                return L10n.format("Full until %@", until.formatted(date: .omitted, time: .shortened))
-            }
-            return L10n.text("Full")
-        }
-        if let served = reported?.served, served > 0 {
-            return L10n.format("Ready · answered %ld requests", served)
-        }
-        return L10n.text("Ready")
     }
 }
 

@@ -47,6 +47,14 @@ struct MenuBarContent: View {
                     }
                 }
             }
+            // An account that is also one of the Claudes above is that
+            // Claude's row already: one allowance, one pair of bars.
+            ForEach(pool.accountsAlone) { account in
+                Divider().padding(.leading, 14)
+                AccountUsageRow(account: account,
+                                starting: starting == account.id,
+                                start: { startSession(account) })
+            }
             SharedChats()
         } foot: {
             Divider().padding(.vertical, 6)
@@ -192,6 +200,18 @@ struct MenuBarContent: View {
     }
 }
 
+extension MenuBarContent {
+    fileprivate func startSession(_ account: PoolAccount) {
+        guard starting == nil else { return }
+        starting = account.id
+        problem = nil
+        pool.startSession(account: account.id) { failure in
+            starting = nil
+            problem = failure
+        }
+    }
+}
+
 /// The dropdown's three parts stacked, with only the middle one ever
 /// scrolling. The list is what grows with every account added; the switches
 /// and Quit underneath are what someone opened the dropdown to reach, so they
@@ -311,26 +331,146 @@ struct UsageRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
+            // A long name of the button, as in Russian, left no room for the
+            // rest: the name wrapped and the button was cut short.
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 6) { title(plan: entry.plan); Spacer(); buttons }
+                HStack(spacing: 6) { title(plan: nil); Spacer(); buttons }
+                VStack(alignment: .leading, spacing: 6) {
+                    title(plan: entry.plan)
+                    HStack(spacing: 6) { Spacer(); buttons }
+                }
+            }
+
+            UsageWindows(entry: entry)
+            UsageFreshness(entry: entry, refresh: refresh)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 9)
+        .controls(profile: entry.profile)
+    }
+
+    private func title(plan: String?) -> some View {
+        HStack(spacing: 6) {
+            Circle()
+                .fill(entry.isRunning ? Color.green : Color.secondary.opacity(0.35))
+                .frame(width: 6, height: 6)
+            Text(entry.name).fontWeight(.medium).lineLimit(1)
+            if let plan {
+                Text(plan)
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+            }
+        }
+        .spoken(entry.name, value: status)
+        .accessibilityAddTraits(.isHeader)
+        .identified("account")
+    }
+
+    // Named for their account: every row has a pair, and a list of the
+    // dropdown's controls would otherwise read "Open" once per account with
+    // nothing to tell them apart.
+    @ViewBuilder private var buttons: some View {
+        if entry.mayStartSession {
+            Button(action: start) {
+                if starting {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Text("Start Session")
+                }
+            }
+            .controlSize(.small)
+            .disabled(starting)
+            .help("Sends one short message to this account to open its five-hour window")
+            .accessibilityLabel(L10n.format("Start Session for %@", entry.name))
+            .identified("start-session")
+            .fixedSize()
+        }
+        Button("Open", action: open)
+            .controlSize(.small)
+            .accessibilityLabel(L10n.format("Open %@", entry.name))
+            .identified("open")
+            .fixedSize()
+    }
+}
+
+/// An account's windows as the dropdown draws them, for a Claude's row and a
+/// signed-in account's alike.
+struct UsageWindows: View {
+    let entry: UsageMonitor.Entry
+
+    var body: some View {
+        if let usage = entry.usage {
+            if let fiveHour = usage.fiveHour {
+                UsageBar(label: "5 hours",
+                         percent: fiveHour,
+                         resets: usage.fiveHourReset,
+                         dimmed: entry.isDimmed,
+                         keepsLine: true)
+                    .identified("five-hour")
+                    // Outside the bar, which is read out as one thing, and on
+                    // its reset line: the buttons' row has no width to give.
+                    .overlay(alignment: .bottomTrailing) {
+                        AutoSessionToggle(key: entry.key, name: entry.name)
+                            .toggleStyle(.checkbox)
+                            .controlSize(.mini)
+                            .font(.caption2)
+                    }
+            } else {
+                NoFiveHourLimit(font: .caption, dimmed: entry.isDimmed)
+            }
+            UsageBar(label: "Week",
+                     percent: usage.week,
+                     resets: usage.weekReset,
+                     dimmed: entry.isDimmed)
+                .identified("week")
+            if let fable = usage.fable {
+                UsageBar(label: "Fable", percent: fable,
+                         resets: usage.fableReset, dimmed: entry.isDimmed)
+                    .identified("fable")
+            }
+        } else {
+            Text("No usage reported yet")
+                .font(.caption)
+                .foregroundStyle(.tertiary)
+                .identified("no-usage")
+        }
+    }
+}
+
+/// An account signed in through Graft, under the Claudes: the same windows,
+/// and no Open, since it has no Claude to open.
+struct AccountUsageRow: View {
+    let account: PoolAccount
+    let starting: Bool
+    let start: () -> Void
+
+    @EnvironmentObject private var store: ShortcutStore
+    @EnvironmentObject private var usage: UsageMonitor
+    @ObservedObject private var pool = Shared.usagePool
+
+    var body: some View {
+        let name = pool.name(of: account.id)
+        let condition = pool.condition(of: account.id)
+        VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 6) {
                 HStack(spacing: 6) {
-                    Circle()
-                        .fill(entry.isRunning ? Color.green : Color.secondary.opacity(0.35))
-                        .frame(width: 6, height: 6)
-                    Text(entry.name).fontWeight(.medium)
-                    if let plan = entry.plan {
+                    // The colour it wears on the bar when it is answering.
+                    if let icon = FrontIcon.image(for: pool.preset(of: account.id)) {
+                        Image(nsImage: icon).resizable().frame(width: 14, height: 14)
+                    }
+                    Text(name).fontWeight(.medium).lineLimit(1)
+                    if let plan = entry?.plan {
                         Text(plan)
                             .font(.caption)
                             .foregroundStyle(.tertiary)
                     }
                 }
-                .spoken(entry.name, value: status)
+                .spoken(name, value: [entry?.plan, condition].compactMap { $0 }.joined(separator: ", "))
                 .accessibilityAddTraits(.isHeader)
                 .identified("account")
                 Spacer()
-                // Named for their account: every row has a pair, and a list of
-                // the dropdown's controls would otherwise read "Open" once per
-                // account with nothing to tell them apart.
-                if entry.mayStartSession {
+                if pool.lending[account.id] == .ready, entry?.mayStartSession ?? true {
                     Button(action: start) {
                         if starting {
                             ProgressView().controlSize(.small)
@@ -341,48 +481,40 @@ struct UsageRow: View {
                     .controlSize(.small)
                     .disabled(starting)
                     .help("Sends one short message to this account to open its five-hour window")
-                    .accessibilityLabel(L10n.format("Start Session for %@", entry.name))
+                    .accessibilityLabel(L10n.format("Start Session for %@", name))
                     .identified("start-session")
                 }
-                Button("Open", action: open)
-                    .controlSize(.small)
-                    .accessibilityLabel(L10n.format("Open %@", entry.name))
-                    .identified("open")
             }
-
-            if let usage = entry.usage {
-                if let fiveHour = usage.fiveHour {
-                    UsageBar(label: "5 hours",
-                             percent: fiveHour,
-                             resets: usage.fiveHourReset,
-                             dimmed: entry.isDimmed)
-                        .identified("five-hour")
-                } else {
-                    NoFiveHourLimit(font: .caption, dimmed: entry.isDimmed)
-                }
-                UsageBar(label: "Week",
-                         percent: usage.week,
-                         resets: usage.weekReset,
-                         dimmed: entry.isDimmed)
-                    .identified("week")
-                if let fable = usage.fable {
-                    UsageBar(label: "Fable", percent: fable,
-                             resets: usage.fableReset, dimmed: entry.isDimmed)
-                        .identified("fable")
-                }
-                UsageFreshness(entry: entry, refresh: refresh)
-            } else {
-                Text("No usage reported yet")
+            if pool.needsAttention(account.id) {
+                Text(condition)
                     .font(.caption)
-                    .foregroundStyle(.tertiary)
-                    .identified("no-usage")
-                UsageFreshness(entry: entry, refresh: refresh)
+                    .foregroundStyle(.orange)
+                    .lineLimit(1)
+                    .help(condition)
+                    .identified("state")
+            }
+            if let entry {
+                UsageWindows(entry: entry)
+                if account.scopes.contains(ClaudeCredentials.usageScope) {
+                    UsageFreshness(entry: entry) {
+                        usage.refresh(store, interactive: true, account: account.id)
+                    }
+                } else if entry.refreshed != nil {
+                    // Nothing to ask again: its figures come with its answers.
+                    Text(entry.freshness())
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(1)
+                        .identified("freshness")
+                }
             }
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 9)
-        .controls(profile: entry.profile)
+        .controls(account: account.id)
     }
+
+    private var entry: UsageMonitor.Entry? { pool.entry(forAccount: account.id) }
 }
 
 /// Where the five-hour bar would be, on an account that has no such window.
@@ -410,6 +542,9 @@ struct UsageBar: View {
     /// draws it: three bars with a line each under them were what pushed a
     /// Claude's pane past the bottom of the smallest window.
     var inline = false
+    /// Holds the line under the bar while no reset is known, for what is
+    /// laid over its far end.
+    var keepsLine = false
 
     private var fraction: Double { min(max(Double(percent) / 100, 0), 1) }
 
@@ -465,6 +600,8 @@ struct UsageBar: View {
                         .font(.caption2.monospacedDigit())
                         .foregroundStyle(.tertiary)
                         .padding(.leading, 60)
+                } else if keepsLine, !inline {
+                    Text(verbatim: " ").font(.caption2.monospacedDigit())
                 }
             }
             // One progress indicator, where it was three bits of text and a

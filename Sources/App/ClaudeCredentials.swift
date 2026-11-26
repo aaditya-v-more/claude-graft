@@ -31,6 +31,7 @@ enum ClaudeCredentials {
         var expires: Date
         var plan: String?
         var scopes: [String]
+        var organization: String? = nil
 
         var isCurrent: Bool { expires > Date().addingTimeInterval(120) }
 
@@ -330,8 +331,20 @@ enum ClaudeCredentials {
             return Token(value: token,
                          expires: Date(timeIntervalSince1970: expires / 1000),
                          plan: entry["subscriptionType"] as? String,
-                         scopes: Self.scopes(in: composite))
+                         scopes: Self.scopes(in: composite),
+                         organization: Self.organization(in: composite))
         }
+    }
+
+    /// The key is `<client>:<organization>:<api host>:<scopes>`, with
+    /// `acct:<account>|` in front of it in a newer cache.
+    static func organization(in composite: String) -> String? {
+        let key = composite.hasPrefix("acct:")
+            ? composite.split(separator: "|", maxSplits: 1).dropFirst().first.map(String.init) ?? "" : composite
+        guard let host = key.range(of: ":https://") else { return nil }
+        let before = key[..<host.lowerBound].split(separator: ":", omittingEmptySubsequences: false)
+        guard before.count == 2, !before[1].isEmpty else { return nil }
+        return before[1].lowercased()
     }
 
     /// Scopes are appended to the cache key after the api host.

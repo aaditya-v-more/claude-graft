@@ -365,6 +365,9 @@ final class ArtifactCenter: ObservableObject {
     struct SignIn: Equatable {
         let account: UUID
         let at: Date
+        /// The account answers for another organization now, so what was
+        /// listed for it is not its any more.
+        var moved = false
     }
 
     /// Set for the layout checks, which draw sample artifacts and must never
@@ -509,6 +512,19 @@ final class ArtifactCenter: ObservableObject {
         lastSignIn = SignIn(account: id, at: Date())
     }
 
+    /// From the account's own menu. Every pane asks again, as after a
+    /// sign-in, and nothing listed under the organization left stays.
+    func chooseOrganization(_ org: String, for id: UUID) {
+        guard let moved = ArtifactAccounts.choosing(org, for: id, in: accounts) else { return }
+        accounts = moved
+        saveAccounts()
+        lists[id] = nil
+        artifacts = ArtifactAPI.merge(accounts.compactMap { lists[$0.id] })
+        guard !offline else { return }
+        Task { await load(id, again: true) }
+        lastSignIn = SignIn(account: id, at: Date(), moved: true)
+    }
+
     func signOut(_ id: UUID) {
         if signIn?.account == id {
             signIn?.close()
@@ -562,11 +578,12 @@ final class ArtifactCenter: ObservableObject {
     /// under, asked of claude.ai the first time and kept after that.
     func organization(of id: UUID) async throws -> String {
         var account = account(id) ?? ArtifactAccount(id: id)
-        if account.org == nil || account.email == nil {
+        if account.org == nil || account.email == nil || account.organizations == nil {
             let identity = try await session(id).identity()
             account.email = identity.email
             account.accountUuid = identity.accountUuid
-            account.org = identity.org
+            account.org = ArtifactAccounts.organization(chosen: account.org, among: identity)
+            account.organizations = identity.organizations
             if let index = accounts.firstIndex(where: { $0.id == id }) {
                 accounts[index] = account
                 saveAccounts()

@@ -65,7 +65,16 @@ not notarised, so the first open needs **System Settings › Privacy & Security*
 When one account nears its five-hour or weekly limit, Claude Code carries on
 with another's allowance, without leaving the Claude you are in. Under **Shared usage**, add another of
 your Claudes or sign in to an account. Only the model's answers come from the
-other account; your chats, files and connectors stay where they are.
+other account; your chats, files and connectors stay where they are. An account
+you sign in to is also asked how much of its allowance is left, so Graft can
+show it.
+
+A conversation stays with the account that answered it until that account runs
+out, so a chat you began on one allowance, or moved to it, is not carried off
+to another between turns. Accounts are used in the order their weeks end, the
+soonest first, and under **Accounts** you can put any of them ahead of the
+rest. An account that is out of one model, or whose plan does not have it, is
+passed over for that model alone and still answers for the others.
 
 Sharing sends that Claude's Claude Code through a small relay Graft runs. Before
 you remove Graft, take away the accounts each Claude borrows and close those
@@ -88,14 +97,20 @@ reading another Claude's chats is a choice you make.
 
 The menu bar says which Claude is in front, with its icon and its account's
 usage, and its name too if you like. While a Claude shares usage, the bar shows
-every account it draws on and rings the one answering right now in red, and the
-conversation on screen runs across it with that account's name, so you always
-know who is answering the chat in front of you. An older chat that no account
+every account it draws on and rings the one answering right now in red, with
+that account's usage beside it, and the conversation on screen runs across it
+with that account's name, so you always know who is answering the chat in front
+of you and how much it has left. An older chat that no account
 has answered since you began sharing shows by its name alone. Archive or delete
 a conversation and it leaves the bar. The dropdown lists every account's
 five-hour and weekly usage, kept current while the Claudes are closed, and lets
 you pick which account answers each conversation, with a tick beside the one in
 force.
+
+**Start Session** opens an account's five-hour window with one short message.
+**Auto-start** does that for you each time the account's window has closed, so
+the next one is already running when you sit down to work. It is off until you
+turn it on, one account at a time, in the dropdown or under **Accounts**.
 
 <img src="docs/images/03-dropdown.png" width="346" alt="Graft's menu bar dropdown with each account's usage">
 
@@ -104,7 +119,8 @@ force.
 Sign in with an emailed code and see every account's artifacts, projects and
 chats in one place. Share an artifact with a group, each person as a viewer,
 commenter or editor; rename, duplicate, delete, or export it as Markdown, PDF,
-Word or page source.
+Word or page source. An address that belongs to more than one organization
+picks which one to show from its own menu.
 
 <img src="docs/images/05-artifacts.png" width="820" alt="Artifacts from two accounts">
 
