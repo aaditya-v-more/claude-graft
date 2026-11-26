@@ -2279,14 +2279,22 @@ do {
         Graft.Usage(fiveHour: fiveHour, week: week, organization: nil, sampled: now,
                     fiveHourReset: reset, weekReset: weekReset)
     }
-    check(AutoSessions.due(nil, last: nil, now: now),
+    check(AutoSessions.due(nil, last: nil, unknownSince: now - 120, now: now),
           "an account nothing is known of is sent to, which is how its figures are learnt")
+    check(!AutoSessions.due(nil, last: nil, unknownSince: now - 5, now: now) && !AutoSessions.due(nil, last: nil, now: now),
+          "but not in the moment before its figures have had time to arrive")
     check(!AutoSessions.due(figures(reset: now + 3600), last: nil, now: now),
           "an account with a window open is left alone")
     check(AutoSessions.due(figures(reset: now - 60), last: nil, now: now),
           "one whose window has run out is sent to")
     check(AutoSessions.due(figures(fiveHour: 0), last: nil, now: now),
           "and so is one with no window open at all")
+    var midWindow = figures(fiveHour: 56)
+    check(!AutoSessions.due(midWindow, last: nil, now: now),
+          "a figure above zero with no reset known is a window already open, and is left alone")
+    midWindow.sampled = now - 5 * 3600 - 60
+    check(AutoSessions.due(midWindow, last: nil, now: now),
+          "unless that figure is older than a window, which has closed since")
     check(!AutoSessions.due(figures(fiveHour: nil), last: nil, now: now),
           "an account with no five-hour limit has no window to open")
     check(!AutoSessions.due(figures(reset: now - 60, week: 100, weekReset: now + 86_400), last: nil, now: now),
@@ -2296,7 +2304,7 @@ do {
     let tried = AutoSessions.Attempt(at: now - 60, notBefore: now + 600, problem: "refused")
     check(!AutoSessions.due(figures(reset: now - 60), last: tried, now: now),
           "an account just tried is not tried again before its time")
-    check(!AutoSessions.due(nil, last: tried, now: now),
+    check(!AutoSessions.due(nil, last: tried, unknownSince: now - 120, now: now),
           "even one nothing is known of")
     check(AutoSessions.due(figures(reset: now - 60), last: tried, now: now + 601),
           "and is once that time has come")
