@@ -25,6 +25,7 @@ swiftc -swift-version 5 \
     "$ROOT/Sources/App/ProfileOpener.swift" \
     "$ROOT/Sources/App/Settings.swift" \
     "$ROOT/Sources/App/UsageAPI.swift" \
+    "$ROOT/Sources/App/WebUsage.swift" \
     "$ROOT/Sources/App/SessionStarter.swift" \
     "$ROOT/Sources/App/AutoSessions.swift" \
     "$ROOT/Sources/App/ClaudeCredentials.swift" \

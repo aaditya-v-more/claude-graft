@@ -102,15 +102,17 @@ that account's usage beside it, and the conversation on screen runs across it
 with that account's name, so you always know who is answering the chat in front
 of you and how much it has left. An older chat that no account
 has answered since you began sharing shows by its name alone. Archive or delete
-a conversation and it leaves the bar. The dropdown lists every account's
-five-hour and weekly usage, kept current while the Claudes are closed, and lets
-you pick which account answers each conversation, with a tick beside the one in
-force.
+a conversation and it leaves the bar. The dropdown lists each Claude with every
+account it draws on, each by its address with its five-hour, weekly and Fable
+usage, kept current while the Claudes are closed; switch it to **By account**
+to see every account once instead. It also lets you pick which account answers
+each conversation, with a tick beside the one in force.
 
 **Start Session** opens an account's five-hour window with one short message.
 **Auto-start** does that for you each time the account's window has closed, so
 the next one is already running when you sit down to work. It is off until you
-turn it on, one account at a time, in the dropdown or under **Accounts**.
+turn it on, one account at a time, in the dropdown or under **Accounts**, and
+an account lent to several Claudes has the one switch wherever it is listed.
 
 <img src="docs/images/03-dropdown.png" width="346" alt="Graft's menu bar dropdown with each account's usage">
 

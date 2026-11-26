@@ -72,6 +72,7 @@ struct AccountsView: View {
         }
         .formStyle(.grouped)
         .navigationSubtitle(L10n.text("Sessions, order and sign-ins"))
+        .onAppear { pool.askSignIns() }
     }
 }
 
@@ -157,7 +158,7 @@ private struct OrderRow: View {
                 .foregroundStyle(.secondary)
                 .fixedSize()
                 .accessibilityHidden(true)
-            AutoSessionToggle(key: key, name: name)
+            AutoSessionToggle(key: pool.autoStartKey(of: key), name: name)
                 .labelsHidden()
                 .toggleStyle(.switch)
                 .controlSize(.mini)

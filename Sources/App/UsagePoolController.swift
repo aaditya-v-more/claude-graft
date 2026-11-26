@@ -249,6 +249,12 @@ final class UsagePoolController: ObservableObject {
     /// Session, by account: the one figure for a login nobody borrows from
     /// and the usage endpoint will not answer.
     @Published private(set) var heard: [String: PoolLimits] = [:]
+    /// What an account's claude.ai sign-in said of it, by account: the
+    /// figures of a login the usage endpoint will not answer. See WebUsage.
+    @Published private(set) var seenOnWeb: [String: WebUsage.Held] = [:]
+    /// The address each account signs in with, by account id, as a Claude's
+    /// own login or a claude.ai sign-in told this Mac since launch.
+    @Published private(set) var addresses: [String: String] = [:]
     @Published private(set) var status: PoolStatus?
     @Published private(set) var problem: String?
     /// Something is lent and this Graft cannot read the key the logins are
@@ -325,6 +331,7 @@ final class UsagePoolController: ObservableObject {
         self.store = store
         self.usage = usage
         usage.signedIn = accounts
+        usage.learned = { [weak self] in self?.learn(addresses: [$0: $1]) }
     }
 
     func start(store: ShortcutStore, usage: UsageMonitor) {
@@ -505,6 +512,7 @@ final class UsagePoolController: ObservableObject {
         guard kept.count != accounts.count else { return }
         accounts = kept
         heard = heard.filter { used.contains($0.key) }
+        seenOnWeb = seenOnWeb.filter { used.contains($0.key) }
         saveAccounts()
     }
 
@@ -590,6 +598,15 @@ final class UsagePoolController: ObservableObject {
             entry.plan = its.plan ?? entry.plan
             entry.refreshed = its.refreshed
         }
+        if let web = seenOnWeb[id], web.fetched > (entry.refreshed ?? .distantPast) {
+            let live = web.reading
+            entry.usage = Graft.Usage(fiveHour: live.fiveHour, week: live.week, organization: nil,
+                                      sampled: web.fetched, fiveHourReset: live.fiveHourReset,
+                                      weekReset: live.weekReset, fable: live.fable, fableReset: live.fableReset)
+            entry.isLive = true
+            entry.plan = live.plan ?? entry.plan
+            entry.refreshed = web.fetched
+        }
         let answers = [status?.members.first { $0.id == id }?.limits, heard[id]].compactMap { $0 }
         for limits in answers where limits.observed > (entry.refreshed ?? .distantPast) {
             entry.usage = Self.usage(from: limits, keeping: entry.usage)
@@ -597,6 +614,43 @@ final class UsagePoolController: ObservableObject {
             entry.refreshed = limits.observed
         }
         return entry
+    }
+
+    func learn(web held: WebUsage.Held, for id: String) {
+        guard accounts.contains(where: { $0.id == id }) else { return }
+        seenOnWeb[id] = held
+    }
+
+    func learn(addresses found: [String: String]) {
+        let next = addresses.merging(found) { $1 }
+        if next != addresses { addresses = next }
+    }
+
+    /// The address an account signs in with, where this Mac has been told.
+    func address(of key: String) -> String? {
+        if let account = accounts.first(where: { $0.id == key }) {
+            return account.email ?? account.accountUuid.flatMap { addresses[$0] }
+        }
+        guard let uuid = claudeLogins[key]?.account else { return nil }
+        return addresses[uuid] ?? accounts.first { $0.accountUuid == uuid }?.email
+    }
+
+    /// The accounts a Claude draws on besides its own, in the order it asks.
+    func drawnOn(by claude: String) -> [String] {
+        Array(members(of: claude).dropFirst())
+    }
+
+    /// The accounts no Claude in a list draws on, which a list by Claude
+    /// would otherwise leave out.
+    func accountsAlone(besides claudes: [String]) -> [PoolAccount] {
+        let shown = Set(claudes.flatMap(drawnOn(by:)).map { accountUuid(of: $0) ?? $0 })
+        return accountsAlone.filter { !shown.contains(accountUuid(of: $0.id) ?? $0.id) }
+    }
+
+    /// One Auto-start switch to an account, wherever it is listed: an
+    /// account that is also a Claude here goes by that Claude.
+    func autoStartKey(of key: String) -> String {
+        key.hasPrefix(Self.accountPrefix) ? claude(sameAccountAs: key) ?? key : key
     }
 
     /// Accounts with no Claude of their own here, which the list of Claudes

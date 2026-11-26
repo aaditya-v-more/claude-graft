@@ -702,10 +702,42 @@ for control in ["open-at-login", "show-in-menu-bar", "front-icon", "front-name",
                 "claude-update.check"] {
     check(element("dropdown.\(control)", in: dropdownTree) != nil, "the dropdown's \(control) can be asked for by name")
 }
-check(element("dropdown.lent-account.account", in: dropdownTree)?.name == "lent@example.com",
-      "an account signed in here has a row of its own in the dropdown, under its name")
-check(element("dropdown.lent-account.start-session", in: dropdownTree) == nil,
+check(element("dropdown.usage-view.by-claude", in: dropdownTree) != nil
+        && element("dropdown.usage-view.by-account", in: dropdownTree) != nil,
+      "with accounts shared, the dropdown offers its two ways of listing them")
+let underClaude = "dropdown.\(Graft.mainProfile.lastPathComponent)."
+let underClaude2 = "dropdown.\(shortcut.profileDir.lastPathComponent)."
+check(element(underClaude + "lent-account.account", in: dropdownTree)?.name == "lent@example.com",
+      "an account a Claude draws on is listed under that Claude, by its address")
+check(element(underClaude2 + "lent-account.account", in: dropdownTree)?.name == "lent@example.com",
+      "and again under every other Claude that draws on it")
+check(element(underClaude + shortcut.profileDir.lastPathComponent + ".account", in: dropdownTree)?.name == "Claude 2",
+      "another Claude it draws on is listed under it as well")
+check(element("dropdown.lent-account.account", in: dropdownTree) == nil,
+      "and an account listed under its Claudes is not listed again by itself")
+check(element(underClaude + "lent-account.start-session", in: dropdownTree) == nil,
       "which offers no session on a login nobody has looked at")
+check(element(underClaude + "lent-account.auto-session", in: dropdownTree)?.pressable == true,
+      "its Auto-start turns without a pointer")
+let autoStartBefore = element(underClaude2 + "lent-account.auto-session", in: dropdownTree)?.value
+Shared.autoSessions.set(lentAccount.id, on: true)
+settle()
+let autoStartTree = checkAccessibility(dropdown, surface: ControlSurface.dropdown, "the dropdown with Auto-start on")
+check(element(underClaude + "lent-account.auto-session", in: autoStartTree)?.value
+        == element(underClaude2 + "lent-account.auto-session", in: autoStartTree)?.value
+        && element(underClaude2 + "lent-account.auto-session", in: autoStartTree)?.value != autoStartBefore,
+      "Auto-start turned on for an account shows on under every Claude that draws on it")
+Shared.autoSessions.set(lentAccount.id, on: false)
+Shared.settings.usageByAccount = true
+settle()
+let byAccountTree = checkAccessibility(dropdown, surface: ControlSurface.dropdown, "the dropdown listed by account")
+check(element("dropdown.lent-account.account", in: byAccountTree)?.name == "lent@example.com",
+      "listed by account, an account signed in here has a row of its own, under its name")
+check(element(underClaude + "lent-account.account", in: byAccountTree) == nil,
+      "and none under the Claudes that draw on it")
+check(element("dropdown.lent-account.start-session", in: byAccountTree) == nil,
+      "which offers no session on a login nobody has looked at")
+Shared.settings.usageByAccount = false
 dropdown.orderOut(nil)
 
 // Someone with seven accounts found the dropdown running off the bottom of

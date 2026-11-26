@@ -1438,6 +1438,10 @@ do {
     reopened.holdUpdates = false
     check(!AppSettings(defaults: suite).holdUpdates, "as does letting go of it")
 
+    check(!reopened.usageByAccount, "the dropdown lists usage by Claude unless somebody chooses otherwise")
+    reopened.usageByAccount = true
+    check(AppSettings(defaults: suite).usageByAccount, "and listing it by account survives a restart")
+
     // The name widens the item, and a full bar drops an item rather than
     // squeezing it, so an update must not turn it on for anybody.
     check(!reopened.showFrontName, "the Claude in front is not named unless somebody asks for it")
@@ -1550,6 +1554,55 @@ do {
     check(reading?.fiveHourReset != nil, "a plain ISO reset time parses")
     check(reading?.weekReset != nil, "and so does one with fractional seconds")
     check(reading?.fableReset != nil, "the Fable reset comes from its scoped window")
+    let onClaudeAI = UsageAPI.reading(from: [
+        "five_hour": ["utilization": 12, "resets_at": "2026-08-20T22:51:00Z"],
+        "seven_day": ["utilization": 40, "resets_at": "2026-08-25T22:51:00.000Z"],
+        "seven_day_opus": NSNull(),
+        "extra_usage": NSNull(),
+        "limits": [[
+            "kind": "weekly_scoped", "group": "model", "percent": 68, "severity": "ok",
+            "resets_at": "2026-08-26T22:51:00.000Z",
+            "scope": ["model": ["display_name": "Claude Fable 5"], "surface": NSNull()],
+        ]],
+    ])
+    check(onClaudeAI?.fiveHour == 12 && onClaudeAI?.week == 40 && onClaudeAI?.fable == 68 && onClaudeAI?.plan == nil,
+          "claude.ai's own usage answer reads the same way, each model's week included")
+    let whose = UsageAPI.identity(from: ["account": ["uuid": "a-1", "email": "one@example.com"],
+                                         "organization": ["uuid": "o-1"]])
+    check(whose?.account == "a-1" && whose?.address == "one@example.com",
+          "a login's own answer says whose it is and the address it signs in with")
+    check(UsageAPI.identity(from: ["account": ["uuid": "a-1", "email_address": "one@example.com"]])?.address
+            == "one@example.com", "under either name the service gives the address")
+    check(UsageAPI.identity(from: ["account": ["uuid": "a-1"]]) == nil,
+          "and an answer with no address names nobody")
+
+    let inferenceOnly = PoolAccount(id: "account:a-1", accountUuid: "a-1", email: "one@example.com",
+                                    organizationName: nil, scopes: ["user:inference"],
+                                    expires: Date().addingTimeInterval(3e7), added: Date(), sealed: "")
+    let sameSignIn = ArtifactAccount(id: UUID(), email: "one@example.com", accountUuid: "a-1", org: "o-1",
+                                     organizations: [ArtifactOrganization(id: "o-1", name: "One"),
+                                                     ArtifactOrganization(id: "O-2", name: "Two")])
+    let otherSignIn = ArtifactAccount(id: UUID(), email: "two@example.com", accountUuid: "a-2", org: "o-9")
+    let route = WebUsage.route(for: inferenceOnly, among: [otherSignIn, sameSignIn])
+    check(route?.signIn == sameSignIn.id && route?.organization == "o-1",
+          "an account's figures are asked through the claude.ai sign-in of that same account, about the organization it is on")
+    var inOrganization = inferenceOnly
+    inOrganization.organizationUuid = "o-2"
+    check(WebUsage.route(for: inOrganization, among: [sameSignIn])?.organization == "O-2",
+          "a login made in one organization is asked about that one, as the sign-in names it")
+    inOrganization.organizationUuid = "o-7"
+    check(WebUsage.route(for: inOrganization, among: [sameSignIn]) == nil,
+          "and not at all where the sign-in cannot see that organization")
+    check(WebUsage.route(for: inferenceOnly, among: [otherSignIn]) == nil,
+          "an account with no claude.ai sign-in of its own here is asked nothing")
+    check(WebUsage.path(organization: "o-1") == "/api/organizations/o-1/usage?skip_spend=1",
+          "the figures are asked for without the spending the usage page also draws")
+    let asked = Date()
+    check(WebUsage.mayAsk(last: nil, pressed: false, now: asked)
+            && !WebUsage.mayAsk(last: asked.addingTimeInterval(-60), pressed: false, now: asked)
+            && WebUsage.mayAsk(last: asked.addingTimeInterval(-60), pressed: true, now: asked)
+            && !WebUsage.mayAsk(last: asked.addingTimeInterval(-10), pressed: true, now: asked),
+          "claude.ai is asked once on opening the dropdown and again after five minutes, or half a minute for a press")
     let alternateFable = UsageAPI.reading(from: [
         "five_hour": ["utilization": 1],
         "limits": [[
@@ -2633,6 +2686,15 @@ do {
     check(menuBar.contains("answering.flatMap(pool.entry(of:)) ?? $0")
             && menuBar.contains("statusEntry(front: nil, besides: pool.accountsWeighed())"),
           "the figure beside a Claude is the answering account's, and accounts signed in here are weighed when no Claude is named")
+    let dropdownSource = read("App/MenuBarContent.swift")
+    check(dropdownSource.contains("AutoSessionToggle(key: pool.autoStartKey(of: lender)")
+            && read("App/AccountsView.swift").contains("AutoSessionToggle(key: pool.autoStartKey(of: key)"),
+          "an account has one Auto-start switch, under every Claude that draws on it and in Shared usage alike")
+    let webReader = read("App/WebUsageReader.swift")
+    check(!webReader.isEmpty && !webReader.contains("Timer") && dropdownSource.contains("pool.askSignIns()")
+            && dropdownSource.contains("pool.askSignIns(pressed: true)")
+            && read("App/AccountsView.swift").contains(".onAppear { pool.askSignIns() }"),
+          "claude.ai is asked for usage when the dropdown or the accounts page opens or is refreshed, never on a timer")
     check(menuBar.contains("window.setAccessibilityParent(NSApp)"),
           "the open dropdown is among the app's windows, where a client looking for its controls searches")
     check(!menuBar.contains("setAccessibilityWindows("),
@@ -7055,6 +7117,14 @@ do {
     pool.recolour("account:a", to: .violet)
     check(pool.preset(of: "account:a") == .violet && UsagePoolController().accounts.first?.iconPreset == .violet,
           "and a colour of its own")
+    check(pool.drawnOn(by: main) == ["account:a"] && pool.address(of: "account:a") == "a@example.com",
+          "a Claude lists each account it draws on besides its own, by the address it signs in with")
+    check(pool.accountsAlone(besides: [main]).isEmpty && pool.accountsAlone(besides: []).map(\.id) == ["account:a"],
+          "an account listed under a Claude is not listed again alone, and one under no Claude shown still is")
+    check(pool.autoStartKey(of: "account:a") == "account:a" && pool.autoStartKey(of: main) == main,
+          "an account's Auto-start goes by the account, wherever it is listed")
+    pool.learn(addresses: ["someone-else": "else@example.com"])
+    check(pool.address(of: main) == nil, "a Claude whose login has not said whose it is shows no address")
     var again = account("account:fresh", uuid: "a", sealed: "renewed")
     again.scopes = AccountSignIn.scopes
     pool.renew("account:a", with: again)
@@ -7084,6 +7154,15 @@ do {
           "an account nothing has been heard from has a row under its name, and no figures yet")
     check(!pool.needsSignIn("account:a") && !pool.needsSignIn(main) && !pool.needsAttention("account:a"),
           "nothing is asked to sign in again before its login has been looked at")
+    let onWeb = WebUsage.Held(reading: UsageAPI.Reading(fiveHour: 12, week: 40, fable: 68), fetched: Date())
+    // Another reading of the same files, so the checks below see none of it.
+    let webPool = UsagePoolController()
+    webPool.learn(web: onWeb, for: "account:a")
+    webPool.learn(web: onWeb, for: "account:gone")
+    let webEntry = webPool.entry(forAccount: "account:a")
+    check(webEntry?.usage?.fable == 68 && webEntry?.usage?.week == 40 && webEntry?.isLive == true,
+          "what an account's claude.ai sign-in says of it is shown as its figures, its Fable week included")
+    check(webPool.seenOnWeb["account:gone"] == nil, "and nothing is kept for an account no longer signed in")
 
     let said = PoolLimits(fiveHour: 0.42, fiveHourReset: now + hour, week: 0.18, weekReset: now + day,
                           refusedUntil: nil, observed: now)

@@ -4,6 +4,21 @@
 
 ## The dropdown
 
+**The dropdown lists accounts by Claude unless told otherwise.** Each Claude's
+row is followed by the accounts it draws on (`drawnOn(by:)`, its `members`
+without itself), each with its address, its bars and its Auto-start, so an
+account lent to two Claudes is listed under both. That is the default because
+the question asked of the dropdown is what the Claude in use has left, and the
+list of accounts alone answered it only for somebody who remembered who lends
+to whom. The other list, every account once, is one press away on the switch
+above the list (`usageByAccount`), which shows only while something is shared:
+with nothing lent the two are the same list. Auto-start goes by the account,
+not by the row (`autoStartKey`): an account that is also a Claude here uses
+that Claude's switch, so turning it under one Claude turns it under every
+other, and in Shared usage. A row under a Claude is identified as
+`dropdown.<Claude's folder>.<lender>.<control>`, the lender being a signed-in
+account's saved id or another Claude's folder.
+
 **The dropdown lists what the relay carried.** The relay keeps the
 conversations it has seen by `X-Claude-Code-Session-Id`, which is the
 `cliSessionId` a record names, so a title comes from that record or, before one

@@ -64,6 +64,11 @@ extension View {
             ? String(id.dropFirst(UsagePoolController.accountPrefix.count)) : id)
     }
 
+    /// The same for an account listed under the Claude that draws on it.
+    func controls(profile: URL, lender: String) -> some View {
+        environment(\.controlProfile, profile.lastPathComponent + "." + lender)
+    }
+
     /// Read as one thing, "Name, Claude". A form row otherwise reaches
     /// VoiceOver as its label, its value, and the value a second time. Marked
     /// as text because SwiftUI leaves an element it was told to make with no

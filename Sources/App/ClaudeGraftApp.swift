@@ -61,6 +61,7 @@ enum Shared {
     static let autoSessions = AutoSessions()
     @MainActor static let artifacts = ArtifactCenter()
     @MainActor static let projects = ProjectCenter(accounts: artifacts)
+    @MainActor static let webUsage = WebUsageReader()
 }
 
 struct SettingsView: View {
