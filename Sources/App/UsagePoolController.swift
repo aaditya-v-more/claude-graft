@@ -298,7 +298,8 @@ final class UsagePoolController: ObservableObject {
     /// Touched on `queue` alone: each Claude's last login read whole, by key.
     private var lastLogins: [String: (login: Login, at: Date)] = [:]
     private var lastSpawn = Date.distantPast
-    private var recordCache: [String: (stamp: Date, session: String?, filed: Filed)] = [:]
+    /// `beside` names the record of the conversation a side chat was asked in.
+    private var recordCache: [String: (stamp: Date, session: String?, filed: Filed, beside: String?)] = [:]
     /// Sessions a record was seen for, in their own Claude's store and in
     /// another's. One of them with no record any more was deleted from its
     /// sidebar; one never seen is too new to have one.
@@ -1343,6 +1344,9 @@ final class UsagePoolController: ObservableObject {
         var elsewhere: [String: [Filed]] = [:]
         var markers: Set<String> = []
         var walked: Set<String> = []
+        // By Claude key: each record's session, and every side chat's focus.
+        var named: [String: [String: String]] = [:]
+        var asides: [String: [(session: String, beside: String, at: Date)]] = [:]
         // A store that would not open is not an empty one, and what it holds
         // is not gone; nothing is judged missing on such a pass.
         var unreadable = false
@@ -1382,30 +1386,38 @@ final class UsagePoolController: ObservableObject {
                         var entry = recordCache[path]
                         if entry?.stamp != stamp {
                             // The first look reads every record of every Claude whole.
-                            let fresh = autoreleasepool { () -> (stamp: Date, session: String?, filed: Filed) in
+                            let fresh = autoreleasepool { () -> (stamp: Date, session: String?, filed: Filed,
+                                                                 beside: String?) in
                                 let record = (try? Data(contentsOf: URL(fileURLWithPath: path)))
                                     .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
                                 let focused = (record?["lastFocusedAt"] as? NSNumber)
                                     .map { Date(timeIntervalSince1970: $0.doubleValue / 1000) }
+                                let spawned = record?["spawnedFrom"] as? [String: Any]
                                 return (stamp, record?["cliSessionId"] as? String,
                                         Filed(title: (record?["title"] as? String).flatMap { $0.isEmpty ? nil : $0 },
                                               archived: record?["isArchived"] as? Bool ?? false,
-                                              focusedAt: focused))
+                                              focusedAt: focused),
+                                        spawned?["btw"] as? Bool == true ? spawned?["sessionId"] as? String : nil)
                             }
                             entry = fresh
                             recordCache[path] = fresh
                         }
                         guard let entry, let session = entry.session else { return }
-                        if entry.filed.focusedAt ?? .distantPast
-                            >= held[key]?[session]?.focusedAt ?? .distantPast {
-                            held[key, default: [:]][session] = entry.filed
+                        var filed = entry.filed
+                        named[key, default: [:]][String(name.dropLast(5))] = session
+                        if let beside = entry.beside, let at = filed.focusedAt {
+                            asides[key, default: []].append((session, beside, at))
+                            filed.focusedAt = nil
+                        }
+                        if filed.focusedAt ?? .distantPast >= held[key]?[session]?.focusedAt ?? .distantPast {
+                            held[key, default: [:]][session] = filed
                         }
                         guard let owner = from[session] else { return }
                         if owner == key {
-                            own[session, default: []].append(entry.filed)
+                            own[session, default: []].append(filed)
                             everOwn.insert(session)
                         } else {
-                            elsewhere[session, default: []].append(entry.filed)
+                            elsewhere[session, default: []].append(filed)
                             everElsewhere.insert(session)
                         }
                     } }
@@ -1413,6 +1425,19 @@ final class UsagePoolController: ObservableObject {
             }
         }
         recordCache = recordCache.filter { walked.contains($0.key) }
+
+        // A side chat is a pane of the conversation it was asked beside, and
+        // Claude focuses the two together in either order, so its focus is
+        // that conversation's. With that one deleted it stands for itself.
+        for (key, sides) in asides {
+            for side in sides {
+                if let main = named[key]?[side.beside], let before = held[key]?[main] {
+                    if side.at > before.focusedAt ?? .distantPast { held[key]?[main]?.focusedAt = side.at }
+                } else {
+                    held[key]?[side.session]?.focusedAt = side.at
+                }
+            }
+        }
 
         // A focus belongs to the store it turned up in first. The mirror
         // carries a record across with its focus, and read as this store's

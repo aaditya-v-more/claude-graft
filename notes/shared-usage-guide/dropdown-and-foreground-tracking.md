@@ -124,6 +124,20 @@ session another one started, begins the same way, and only the records say
 which conversation the window shows. The second live run timed it: each new
 chat's name was on the bar within a tenth of a second of Claude's first record.
 
+**A side chat's focus is the conversation's it was asked beside.** A question
+asked with `/btw` is a session of its own, with its own record, and Claude
+shows it in a pane of the conversation it was asked in. Bringing that
+conversation on screen focuses both records within a few seconds, in either
+order: on 26 November the bar named a conversation for half a second and then
+its side chat, with the account answering the side chat beside it, and stayed
+there. Such a record says so in `spawnedFrom`, with `btw` true and the
+`sessionId` of the record it was asked in, which is that record's file name and
+not its `cliSessionId`. So its focus counts for that conversation and never for
+itself, unless that conversation's record is gone. A session another one
+started carries `spawnedFrom` too, without `btw`, and is a conversation of its
+own in the sidebar. The side chat keeps its row in the dropdown, where it can
+still be moved.
+
 **A focus belongs to the store it turned up in first.** Claudes that share
 chats each keep a mirrored folder, and the mirror copies a changed record
 across with its `lastFocusedAt`. Read as the second store's own, the copy made

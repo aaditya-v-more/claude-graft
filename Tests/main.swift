@@ -7695,9 +7695,10 @@ do {
         return dir
     }
     func record(_ profile: URL, _ name: String, session: String, title: String? = nil,
-                archived: Bool = false, focused: TimeInterval? = nil) {
+                archived: Bool = false, focused: TimeInterval? = nil, startedBy: [String: Any]? = nil) {
         var json: [String: Any] = ["sessionId": "local_\(name)", "cliSessionId": session, "isArchived": archived]
         if let title { json["title"] = title }
+        if let startedBy { json["spawnedFrom"] = startedBy }
         if let focused { json["lastFocusedAt"] = Int(now.addingTimeInterval(-focused).timeIntervalSince1970 * 1000) }
         try! JSONSerialization.data(withJSONObject: json).write(to: store(profile).appending(path: "local_\(name).json"))
     }
@@ -7808,6 +7809,32 @@ do {
     record(here, "m-d", session: "s-untitled", focused: 0.5)
     check(mirrorPool.lookUpRecords([], profiles: pair, now: now).focused["main"]?.title == "Prime \"numbers\" — checked",
           "one on screen whose record has no title yet takes it from the transcript")
+
+    // A conversation with a side chat asked beside it, as Claude records the two.
+    let sidePool = UsagePoolController()
+    let desk = [("main", root.appending(path: "side-chat/Claude"))]
+    let askedBeside: [String: Any] = ["sessionId": "local_p-main", "sideSession": true, "userFork": true, "btw": true]
+    func onScreen() -> UsagePoolController.Focus? { sidePool.lookUpRecords([], profiles: desk, now: now).focused["main"] }
+    record(desk[0].1, "p-main", session: "p-resumed", title: "Ledger import", focused: 60)
+    record(desk[0].1, "p-side", session: "p-side", title: "btw: which column is the date", focused: 58, startedBy: askedBeside)
+    record(desk[0].1, "p-other", session: "p-other", title: "Elsewhere", focused: 300)
+    let besideIt = onScreen()
+    check(besideIt?.session == "p-resumed" && besideIt?.title == "Ledger import"
+            && besideIt.map { abs($0.at.timeIntervalSince(now.addingTimeInterval(-58))) < 0.01 } == true,
+          "a side chat focused after the conversation it was asked beside leaves that conversation the one on screen")
+    record(desk[0].1, "p-other", session: "p-other", title: "Elsewhere", focused: 30)
+    let away = onScreen()
+    record(desk[0].1, "p-side", session: "p-side", title: "btw: which column is the date", focused: 10, startedBy: askedBeside)
+    check(away?.session == "p-other" && onScreen()?.session == "p-resumed",
+          "and after another conversation, a focus on the side chat alone brings back the one it sits beside")
+    record(desk[0].1, "p-task", session: "p-task", title: "Nightly export", focused: 5,
+           startedBy: ["sessionId": "local_p-main", "sideSession": true, "title": "Nightly export"])
+    check(onScreen()?.session == "p-task",
+          "a session another one started is a conversation of its own")
+    gone(desk[0].1, "p-main")
+    record(desk[0].1, "p-side", session: "p-side", title: "btw: which column is the date", focused: 2, startedBy: askedBeside)
+    check(onScreen()?.session == "p-side",
+          "a side chat whose conversation was deleted is named itself")
 
     let stampFile = root.appending(path: "stamped.json"), stampLink = root.appending(path: "stamped-link.json")
     try! Data("{}".utf8).write(to: stampFile)
