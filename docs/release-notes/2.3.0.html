@@ -1,0 +1,75 @@
+<h2>Accounts</h2>
+
+<p>Every account now has a page of its own in the sidebar: what each has
+used and when its windows reset, which Claudes draw on it, and when its login
+runs out, with Sign In Again beside one that has. An account signed in from
+Graft, with no Claude of its own here, shows its own usage too.</p>
+
+<p>The same page sets the order accounts are used in under Shared usage. Left
+alone, the account whose week ends soonest goes first; move any account up,
+down or to the front, and By weekly reset puts the order back.</p>
+
+<h2>Auto-start</h2>
+
+<p>An account with Auto-start on has its next five-hour window opened as soon
+as the last one closes, so the window is already running down when you sit
+down to work. It is off until you switch it on, one account at a time, in the
+dropdown or under Accounts, and it says beside the switch when the next
+session starts or why one could not.</p>
+
+<h2>A conversation stays on its account</h2>
+
+<p>Under Shared usage a conversation used to drift to another account between
+turns once it had sat for a few minutes, losing its cache and its reasoning
+each time. It now stays with the account that answered it until that account
+runs out, and a conversation you move from the dropdown stays where you put
+it.</p>
+
+<p>Room is counted for the model being asked for. An account out of one
+model, or on a plan that sells that model apart, is passed over for that model
+alone and still takes every other.</p>
+
+<h2>More than one organization</h2>
+
+<p>An address that belongs to several organizations can choose which one
+Artifacts, Projects and Search Chats show, and each organization counts as an
+account of its own under Shared usage.</p>
+
+<h3>Also fixed</h3>
+
+<ul>
+<li>Graft left running for many hours no longer grows by gigabytes, and the
+conversation in the menu bar no longer swaps between two copies of the same
+chat every two seconds.</li>
+<li>The figure in the menu bar is the one for the account answering the
+conversation in front.</li>
+<li>On macOS 27 a stray mark could be left showing beside the conversation in
+the menu bar. It no longer can.</li>
+<li>A program that a Claude Code session starts no longer fails its
+certificate check while Shared usage is on.</li>
+<li>With nothing to sync, Graft no longer rewrites its record of shared chats
+on every pass.</li>
+</ul>
+
+<p>With a fix from sohaibahsan007.</p>
+
+<h2>On Windows</h2>
+
+<ul>
+<li>Sidebar sync is skipped when Graft's helper and Claude are on different
+major versions of Electron, so a newer one cannot leave Claude's sidebar in a
+form Claude cannot read.</li>
+<li>With nothing to sync, Graft no longer rewrites its record of shared chats
+or reads every chat again on every pass.</li>
+</ul>
+
+<p>The Accounts page, Auto-start and the choice of organization are on the Mac
+only for now.</p>
+
+<h3>Upgrading from 1.0.x</h3>
+
+<p>As with 1.1.0, shared profiles merge their chat histories on their next
+launch. Going back to a profile's own chats preserves what it brought, but
+copies already merged into the source stay there. If you need an untouched
+copy, back up your Claude profile folders in <code>~/Library/Application
+Support</code> before upgrading.</p>
