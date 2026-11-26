@@ -26,6 +26,8 @@ final class AutoSessions: ObservableObject {
     private weak var pool: UsagePoolController?
     private var timer: Timer?
     private var sending = false
+    /// When each account that can be sent to was first found with no figures.
+    private var unknownSince: [String: Date] = [:]
     private let queue = DispatchQueue(label: "graft.auto-sessions", qos: .utility)
 
     static var file: URL { Graft.applicationSupport.appending(path: "ClaudeGraft/automatic-sessions.json") }
@@ -33,6 +35,8 @@ final class AutoSessions: ObservableObject {
     /// A window closes on the minute, and a minute late is soon enough.
     static let interval: TimeInterval = 60
     static let window: TimeInterval = 5 * 60 * 60
+    /// How long an account's figures may stay unknown before it is asked.
+    static let patience: TimeInterval = 2 * 60
     static let retry: TimeInterval = 15 * 60
     /// A login the service turned away stays turned away until a person
     /// renews it, and asking with it again is a request spent on a no.
@@ -75,9 +79,10 @@ final class AutoSessions: ObservableObject {
 
     /// Whether to send now. Nothing known of an account is a reason to: its
     /// first answer says what it has.
-    static func due(_ usage: Graft.Usage?, last: Attempt?, now: Date) -> Bool {
+    static func due(_ usage: Graft.Usage?, last: Attempt?, unknownSince: Date? = nil, now: Date) -> Bool {
         if let last, now < last.notBefore { return false }
-        guard let usage else { return true }
+        // Figures land a moment after an account can first be sent to.
+        guard let usage else { return unknownSince.map { now.timeIntervalSince($0) >= patience } ?? false }
         guard usage.fiveHour != nil else { return false }
         // A week used up refuses the message that would open the window.
         if usage.week >= 100, usage.weekReset.map({ $0 > now }) ?? true { return false }
@@ -153,8 +158,10 @@ final class AutoSessions: ObservableObject {
         var reached: Set<String> = []
         var due: [(key: String, target: SessionStarter.Target)] = []
         for key in accounts.sorted() {
-            guard let target = target(of: key),
-                  Self.due(figures(of: key), last: attempts[key], now: now),
+            guard let target = target(of: key) else { continue }
+            let known = figures(of: key)
+            if known != nil { unknownSince[key] = nil } else if unknownSince[key] == nil { unknownSince[key] = now }
+            guard Self.due(known, last: attempts[key], unknownSince: unknownSince[key], now: now),
                   reached.insert(pool.accountUuid(of: key) ?? key).inserted else { continue }
             due.append((key, target))
         }

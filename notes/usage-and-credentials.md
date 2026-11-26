@@ -76,7 +76,12 @@ a history that begins part way through a window has no reset to give. So a
 figure above zero with no reset is taken for an open window, unless the figure
 is itself more than five hours old. It could happen once in a window, where no
 earlier attempt had set a time to wait for, as after the switch is turned on.
-The event now says which account, by the first eight characters of its key. What an attempt sets is `next`:
+The event now says which account, by the first eight characters of its key.
+Nothing known is likewise not a reason at once: the same evening a build
+started with the keychain locked sent to a Claude the second its logins could
+be read, two tenths of a second before that Claude's figures arrived saying its
+window was open. An account is asked only after two minutes with no figures,
+counted from the first pass on which it could be sent to. What an attempt sets is `next`:
 the new window's reset after a success, or five hours on when the answer named
 none; a quarter of an hour after a failure; the reset a 429 named, and never
 sooner than that quarter hour; an hour after a 401 or 403, since a login the
