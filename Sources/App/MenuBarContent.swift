@@ -50,18 +50,19 @@ struct MenuBarContent: View {
                     .padding(.vertical, 10)
             } else {
                 ForEach(usage.entries) { entry in
-                    UsageRow(entry: entry,
-                             address: byClaude ? pool.address(of: entry.key) : nil,
-                             starting: starting == entry.id,
-                             open: { open(entry) },
-                             start: { startSession(entry) },
-                             refresh: { usage.refresh(store, interactive: true, focus: entry.profile) })
                     if byClaude {
-                        ForEach(pool.drawnOn(by: entry.key), id: \.self) { lender in
-                            LentUsageRow(claude: entry, lender: lender, starting: starting == lender,
-                                         start: pool.accounts.first { $0.id == lender }
-                                             .map { account in { startSession(account) } })
+                        ClaudeHeading(entry: entry, open: { open(entry) })
+                        ForEach([entry.key] + pool.drawnOn(by: entry.key), id: \.self) { account in
+                            ClaudeAccountRow(claude: entry, account: account,
+                                             starting: starting == (claudeEntry(account)?.id ?? account),
+                                             start: starter(account), refresh: { refresh(account) })
                         }
+                    } else {
+                        UsageRow(entry: entry,
+                                 starting: starting == entry.id,
+                                 open: { open(entry) },
+                                 start: { startSession(entry) },
+                                 refresh: { usage.refresh(store, interactive: true, focus: entry.profile) })
                     }
                     if entry.id != usage.entries.last?.id {
                         Divider().padding(.leading, 14)
@@ -197,6 +198,26 @@ struct MenuBarContent: View {
         .buttonStyle(.plain)
         .accessibilityAddTraits(chosen ? .isSelected : [])
         .identified(id)
+    }
+
+    /// The Claude a pool key names, where it names one listed here.
+    private func claudeEntry(_ key: String) -> UsageMonitor.Entry? {
+        usage.entries.first { $0.key == key }
+    }
+
+    private func starter(_ key: String) -> (() -> Void)? {
+        if let entry = claudeEntry(key) { return { startSession(entry) } }
+        return pool.accounts.first { $0.id == key }.map { account in { startSession(account) } }
+    }
+
+    private func refresh(_ key: String) {
+        if let entry = claudeEntry(key) {
+            usage.refresh(store, interactive: true, focus: entry.profile)
+        } else if pool.accounts.first(where: { $0.id == key })?.scopes.contains(ClaudeCredentials.usageScope) == true {
+            usage.refresh(store, interactive: true, account: key)
+        } else {
+            pool.askSignIns(pressed: true)
+        }
     }
 
     /// The dropdown is where a Claude actually gets opened most of the time,
@@ -359,8 +380,6 @@ struct MenuButton: View {
 
 struct UsageRow: View {
     let entry: UsageMonitor.Entry
-    /// The address its account signs in with, where the list names accounts.
-    var address: String? = nil
     let starting: Bool
     let open: () -> Void
     let start: () -> Void
@@ -386,15 +405,6 @@ struct UsageRow: View {
                 }
             }
 
-            if let address {
-                Text(address)
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .help(address)
-                    .identified("address")
-            }
             UsageWindows(entry: entry)
             UsageFreshness(entry: entry, refresh: refresh)
         }
@@ -570,59 +580,106 @@ struct AccountUsageRow: View {
     private var entry: UsageMonitor.Entry? { pool.entry(forAccount: account.id) }
 }
 
-/// An account a Claude draws on, under that Claude: whose it is and what it
-/// has left. One lent to several Claudes is listed under each, with the one
-/// Auto-start switch between them.
-struct LentUsageRow: View {
-    let claude: UsageMonitor.Entry
-    let lender: String
-    let starting: Bool
-    /// Nil for another Claude's account, which is started from its own row.
-    let start: (() -> Void)?
-
-    @ObservedObject private var pool = Shared.usagePool
+/// A Claude's line in the list by Claude: its name, and the way to open it.
+/// Everything about an account is in the rows under it.
+struct ClaudeHeading: View {
+    let entry: UsageMonitor.Entry
+    let open: () -> Void
 
     var body: some View {
-        let name = pool.name(of: lender)
-        let address = pool.address(of: lender).flatMap { $0 == name ? nil : $0 }
-        let entry = pool.entry(of: lender)
-        let condition = pool.condition(of: lender)
-        VStack(alignment: .leading, spacing: 4) {
+        HStack(spacing: 6) {
+            HStack(spacing: 6) {
+                Circle()
+                    .fill(entry.isRunning ? Color.green : Color.secondary.opacity(0.35))
+                    .frame(width: 6, height: 6)
+                Text(entry.name).fontWeight(.medium).lineLimit(1)
+                if let plan = entry.plan {
+                    Text(plan)
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                }
+            }
+            .spoken(entry.name, value: [entry.plan, L10n.text(entry.isRunning ? "Running" : "Not running")]
+                .compactMap { $0 }.joined(separator: ", "))
+            .accessibilityAddTraits(.isHeader)
+            .identified("account")
+            Spacer()
+            Button("Open", action: open)
+                .controlSize(.mini)
+                .accessibilityLabel(L10n.format("Open %@", entry.name))
+                .identified("open")
+                .fixedSize()
+        }
+        .padding(.horizontal, 14)
+        .padding(.top, 7)
+        .padding(.bottom, 4)
+        .controls(profile: entry.profile)
+    }
+}
+
+/// One account under a Claude in the list by Claude: its own first, then each
+/// it draws on, all drawn alike. One lent to several Claudes is under each,
+/// with the one Auto-start switch between them.
+struct ClaudeAccountRow: View {
+    let claude: UsageMonitor.Entry
+    /// The pool's key of the account: the Claude's own, or one it draws on.
+    let account: String
+    let starting: Bool
+    let start: (() -> Void)?
+    let refresh: () -> Void
+
+    @ObservedObject private var pool = Shared.usagePool
+    @ObservedObject private var monitor = Shared.usage
+
+    private var isOwn: Bool { account == claude.key }
+
+    var body: some View {
+        let entry = isOwn ? claude : pool.entry(of: account)
+        let address = pool.address(of: account)
+        // Its own goes by its address: the Claude's name is the line above.
+        let name = isOwn ? address ?? claude.name : pool.name(of: account)
+        let beside = address.flatMap { $0 == name ? nil : $0 }
+        let spoken = isOwn ? claude.name : name
+        let condition = isOwn ? nil : pool.condition(of: account)
+        // Five lines to an account and nothing between them: a Claude that
+        // draws on two is fifteen, and the list is what the dropdown scrolls.
+        VStack(alignment: .leading, spacing: 2) {
             HStack(spacing: 6) {
                 HStack(spacing: 6) {
-                    if let icon = FrontIcon.image(for: pool.preset(of: lender)) {
+                    if let icon = FrontIcon.image(for: pool.preset(of: account)) {
                         Image(nsImage: icon).resizable().frame(width: 12, height: 12)
                     }
                     Text(name).font(.callout).lineLimit(1).truncationMode(.middle)
-                    if let address {
-                        Text(address)
+                    if let beside {
+                        Text(beside)
                             .font(.caption)
                             .foregroundStyle(.tertiary)
                             .lineLimit(1)
                             .truncationMode(.middle)
                     }
                 }
-                .spoken(name, value: [address, entry?.plan, condition].compactMap { $0 }.joined(separator: ", "))
-                .help([name, address].compactMap { $0 }.joined(separator: " · "))
-                .identified("account")
+                .spoken(name, value: [beside, isOwn ? nil : entry?.plan, condition]
+                    .compactMap { $0 }.joined(separator: ", "))
+                .help([name, beside].compactMap { $0 }.joined(separator: " · "))
+                .identified(isOwn ? "own-account" : "account")
                 Spacer(minLength: 4)
-                if let start, pool.lending[lender] == .ready, entry?.mayStartSession ?? true {
+                if let start, mayStart(entry) {
                     Button(action: start) {
                         if starting {
-                            ProgressView().controlSize(.small)
+                            ProgressView().controlSize(.mini)
                         } else {
                             Text("Start Session")
                         }
                     }
-                    .controlSize(.small)
+                    .controlSize(.mini)
                     .disabled(starting)
                     .help("Sends one short message to this account to open its five-hour window")
-                    .accessibilityLabel(L10n.format("Start Session for %@", name))
+                    .accessibilityLabel(L10n.format("Start Session for %@", spoken))
                     .identified("start-session")
                     .fixedSize()
                 }
             }
-            if pool.needsAttention(lender) {
+            if let condition, pool.needsAttention(account) {
                 Text(condition)
                     .font(.caption)
                     .foregroundStyle(.orange)
@@ -631,23 +688,30 @@ struct LentUsageRow: View {
                     .identified("state")
             }
             if let entry {
-                windows(entry, name: name)
+                windows(entry)
+                foot(entry, name: spoken)
             }
         }
         .padding(.leading, 26)
         .padding(.trailing, 14)
-        .padding(.bottom, 8)
-        .controls(profile: claude.profile, lender: part)
+        .padding(.bottom, 6)
+        .environment(\.controlProfile, isOwn ? claude.profile.lastPathComponent
+                                             : claude.profile.lastPathComponent + "." + part)
     }
 
     /// The folder of a Claude's account, the saved id of a signed-in one.
     private var part: String {
-        lender.hasPrefix(UsagePoolController.accountPrefix)
-            ? String(lender.dropFirst(UsagePoolController.accountPrefix.count))
-            : pool.profile(of: lender)?.lastPathComponent ?? lender
+        account.hasPrefix(UsagePoolController.accountPrefix)
+            ? String(account.dropFirst(UsagePoolController.accountPrefix.count))
+            : pool.profile(of: account)?.lastPathComponent ?? account
     }
 
-    @ViewBuilder private func windows(_ entry: UsageMonitor.Entry, name: String) -> some View {
+    private func mayStart(_ entry: UsageMonitor.Entry?) -> Bool {
+        guard entry?.mayStartSession ?? true else { return false }
+        return !account.hasPrefix(UsagePoolController.accountPrefix) || pool.lending[account] == .ready
+    }
+
+    @ViewBuilder private func windows(_ entry: UsageMonitor.Entry) -> some View {
         if let usage = entry.usage {
             if let fiveHour = usage.fiveHour {
                 UsageBar(label: "5 hours", percent: fiveHour, resets: usage.fiveHourReset,
@@ -670,25 +734,42 @@ struct LentUsageRow: View {
                 .foregroundStyle(.tertiary)
                 .identified("no-usage")
         }
-        HStack(spacing: 6) {
+    }
+
+    private func foot(_ entry: UsageMonitor.Entry, name: String) -> some View {
+        let spinning = monitor.isRefreshing
+            && (monitor.refreshingProfile == nil || monitor.refreshingProfile == entry.id)
+        return HStack(spacing: 6) {
             if entry.mayStartSession {
-                AutoSessionToggle(key: pool.autoStartKey(of: lender), name: name)
+                AutoSessionToggle(key: pool.autoStartKey(of: account), name: name)
                     .toggleStyle(.checkbox)
                     .controlSize(.mini)
                     .font(.caption2)
                     .fixedSize()
             }
             Spacer(minLength: 4)
-            if entry.refreshed != nil {
-                TimelineView(.periodic(from: .now, by: 30)) { context in
-                    Text(entry.freshness(now: context.date))
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
-                        .lineLimit(1)
-                        .help(entry.freshness(now: context.date))
-                        .identified("freshness")
+            TimelineView(.periodic(from: .now, by: 30)) { context in
+                let when = entry.freshness(now: context.date)
+                // Why the figure is not a live one takes the line when there is a reason.
+                Text(entry.note ?? when)
+                    .font(.caption2)
+                    .foregroundStyle(entry.note == nil ? AnyShapeStyle(.tertiary) : AnyShapeStyle(.orange))
+                    .lineLimit(1)
+                    .help([when, entry.note].compactMap { $0 }.joined(separator: " · "))
+                    .identified("freshness")
+            }
+            Button(action: refresh) {
+                if spinning {
+                    ProgressView().controlSize(.mini)
+                } else {
+                    Image(systemName: "arrow.clockwise").font(.caption2)
                 }
             }
+            .buttonStyle(.borderless)
+            .disabled(spinning)
+            .help("Ask Anthropic for this account's usage now")
+            .accessibilityLabel(L10n.format("Refresh usage for %@", name))
+            .identified("refresh-usage")
         }
     }
 }

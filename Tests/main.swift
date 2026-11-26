@@ -2687,7 +2687,7 @@ do {
             && menuBar.contains("statusEntry(front: nil, besides: pool.accountsWeighed())"),
           "the figure beside a Claude is the answering account's, and accounts signed in here are weighed when no Claude is named")
     let dropdownSource = read("App/MenuBarContent.swift")
-    check(dropdownSource.contains("AutoSessionToggle(key: pool.autoStartKey(of: lender)")
+    check(dropdownSource.contains("AutoSessionToggle(key: pool.autoStartKey(of: account)")
             && read("App/AccountsView.swift").contains("AutoSessionToggle(key: pool.autoStartKey(of: key)"),
           "an account has one Auto-start switch, under every Claude that draws on it and in Shared usage alike")
     let webReader = read("App/WebUsageReader.swift")

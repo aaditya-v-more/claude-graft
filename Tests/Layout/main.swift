@@ -715,6 +715,17 @@ check(element(underClaude + shortcut.profileDir.lastPathComponent + ".account", 
       "another Claude it draws on is listed under it as well")
 check(element("dropdown.lent-account.account", in: dropdownTree) == nil,
       "and an account listed under its Claudes is not listed again by itself")
+check(element(underClaude + "own-account", in: dropdownTree) != nil
+        && element(underClaude + "account", in: dropdownTree)?.name == "Claude",
+      "a Claude's own account has a row under its name like the ones it draws on")
+for control in ["auto-session", "refresh-usage", "freshness"] {
+    check(element(underClaude + control, in: dropdownTree) != nil
+            && element(underClaude + "lent-account." + control, in: dropdownTree) != nil
+            && element(underClaude + shortcut.profileDir.lastPathComponent + "." + control, in: dropdownTree) != nil,
+          "every account under a Claude has the same \(control), its own and the ones it draws on")
+}
+check(element(underClaude + "open", in: dropdownTree)?.name == L10n.format("Open %@", "Claude"),
+      "and the Claude is opened from the line that names it")
 check(element(underClaude + "lent-account.start-session", in: dropdownTree) == nil,
       "which offers no session on a login nobody has looked at")
 check(element(underClaude + "lent-account.auto-session", in: dropdownTree)?.pressable == true,

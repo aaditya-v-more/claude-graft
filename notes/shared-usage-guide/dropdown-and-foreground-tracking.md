@@ -4,9 +4,13 @@
 
 ## The dropdown
 
-**The dropdown lists accounts by Claude unless told otherwise.** Each Claude's
-row is followed by the accounts it draws on (`drawnOn(by:)`, its `members`
-without itself), each with its address, its bars and its Auto-start, so an
+**The dropdown lists accounts by Claude unless told otherwise.** Each Claude
+is a line with its name and Open, and under it come its own account and then
+the accounts it draws on (`drawnOn(by:)`, its `members` without itself), every
+one the same row (`ClaudeAccountRow`): address, bars, Start Session, Auto-start
+and when the figure was taken. The first version drew the Claude's own account
+as the old tall row and the lent ones as short rows under it, and the owner's
+first look at it was that three accounts in one list should look the same. An
 account lent to two Claudes is listed under both. That is the default because
 the question asked of the dropdown is what the Claude in use has left, and the
 list of accounts alone answered it only for somebody who remembered who lends
@@ -15,9 +19,10 @@ above the list (`usageByAccount`), which shows only while something is shared:
 with nothing lent the two are the same list. Auto-start goes by the account,
 not by the row (`autoStartKey`): an account that is also a Claude here uses
 that Claude's switch, so turning it under one Claude turns it under every
-other, and in Shared usage. A row under a Claude is identified as
+other, and in Shared usage. A lent account's row is identified as
 `dropdown.<Claude's folder>.<lender>.<control>`, the lender being a signed-in
-account's saved id or another Claude's folder.
+account's saved id or another Claude's folder; the Claude's own keeps
+`dropdown.<Claude's folder>.<control>`, as in the list by account.
 
 **The dropdown lists what the relay carried.** The relay keeps the
 conversations it has seen by `X-Claude-Code-Session-Id`, which is the
