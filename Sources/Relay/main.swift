@@ -408,6 +408,8 @@ while let argument = arguments.next() {
         if let value = arguments.next().flatMap(UInt16.init) { options.upstream = .loopback(value) }
     case "--claude":
         options.claude = arguments.next()
+    case "--projects":
+        if let path = arguments.next() { Graft.claudeProjectsOverride = URL(fileURLWithPath: path) }
     #endif
     case "--removal-check":
         if let value = arguments.next().flatMap(TimeInterval.init), value > 0 { options.removalCheck = value }

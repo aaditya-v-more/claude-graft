@@ -84,6 +84,28 @@ Settings, on unless turned off, kept as `ownFirst: false` in
 was before 2.3.0, which spends first what would be lost first; a relay that is
 told nothing takes it for off.
 
+**A side chat begins where its conversation is answered.** Asked for on 26
+November 2026. A question asked with `/btw` is a session of its own, so the
+relay took it for a new conversation and sent it by the rules above, though its
+first request carries every turn of the conversation it was asked in: on
+another account that reasoning is dropped and none of the cache is found. Its
+record names that conversation, but Claude writes the record seconds later,
+and a side chat is often one request long; the one measured that day sent it
+1.1 seconds after it was created. Its transcript is in place before that: a
+copy of the conversation's, then one `derived-from` line under its own id whose
+entries with `via` `launch` and `started` its id name the conversation, and
+what that one was forked from after it. So the relay, hearing from a session
+it holds nothing for whose request carries an answer already, reads the last
+four megabytes of `<session>.jsonl` (`PoolLineage`) and takes the first
+launcher it can place — answered, handed over by Graft, or moved by hand — as
+where this one was answered last. A choice made for the side chat itself still
+comes first, and once answered it stays like any conversation. Each one found
+is logged as `relay side chat`. A transcript without the line, or one not yet
+flushed, leaves the request to the ranking, and the look is taken again until
+something has answered. Sessions forked or resumed under a new id carry
+`derived-from` lines too, with other `via`s, and are left alone: nothing was
+asked of them.
+
 **A conversation stays with the account that answered it,** whatever its model
 and however long it sat, until that account has no room, and then stays
 wherever it went. It is keyed by `X-Claude-Code-Session-Id`. Through 2.2.1 it

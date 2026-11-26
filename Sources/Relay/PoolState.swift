@@ -55,6 +55,8 @@ actor PoolState {
     /// until when: a week of it spent, or for an hour a plan without it.
     private var shut: [String: [String: Date]] = [:]
     private var conversations: [String: Conversation] = [:]
+    /// The sessions each one was started from, by session; see `PoolLineage`.
+    private var launchers: [String: [String]] = [:]
     private var recent: [PoolRouting] = []
     private var active = 0
 
@@ -167,6 +169,13 @@ actor PoolState {
             // cache and its reasoning are lost once rather than on every
             // move. A relay started since is told where by Graft.
             holder = (conversations[session]?.servedBy ?? configuration.holders?[session]).flatMap(counted)
+                // A side chat carries the conversation it was asked beside,
+                // reasoning and cache with it, so it begins where that one
+                // is answered.
+                ?? launchers[session]?.compactMap { origin in
+                    (self.conversations[origin]?.servedBy ?? configuration.holders?[origin]
+                        ?? configuration.assignments?[origin]).flatMap(counted)
+                }.first
         }
         // Nothing says where a conversation nobody remembers wrote its
         // reasoning, and the sender's own account is where it began.
@@ -188,6 +197,14 @@ actor PoolState {
                 : Attempt(member: id, token: candidates.first { $0.id == id }?.token)
         }
     }
+
+    /// True until something says where `session` is answered or what started
+    /// it, which is as long as its transcript is worth a look.
+    func wantsLaunchers(of session: String) -> Bool {
+        conversations[session] == nil && launchers[session] == nil && configuration?.holders?[session] == nil
+    }
+
+    func learn(launchers ids: [String], of session: String) { launchers[session] = ids }
 
     func observe(_ member: String, _ headers: [(String, String)], now: Date = Date()) {
         guard var parsed = PoolLimits.parse(headers, now: now) else { return }
@@ -255,6 +272,7 @@ actor PoolState {
                 conversations = conversations.filter {
                     now.timeIntervalSince($0.value.lastAt) < Self.conversationMemory
                 }
+                launchers = launchers.filter { conversations[$0.key] != nil }
             }
         }
         recent.append(PoolRouting(at: now, from: own, servedBy: member, status: status,
