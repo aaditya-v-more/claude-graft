@@ -272,6 +272,15 @@ if [ "${1:-}" = "--install" ]; then
     echo "installed /Applications/Claude Graft.app"
 fi
 
+MAC_ONLY=""
+if grep -qxF "$VERSION" "$ROOT/windows/mac-only.txt"; then
+    MAC_ONLY="
+$VERSION is listed in windows/mac-only.txt, so the Windows workflow adds nothing
+to it: do not wait for its files, run the Mac half of the install case alone,
+and leave every Windows link on the last release that carries a setup.
+"
+fi
+
 cat <<NOTE
 
 $TAG is built but nobody has it yet. Nothing a person downloads or runs ships
@@ -279,7 +288,7 @@ before it has passed its automated checks and been installed on a clean test
 machine from exactly the files and commands people will use. So it goes out
 staged first, as a prerelease, which neither updater offers and the site does
 not call latest, with the cask on a branch of the tap.
-
+$MAC_ONLY
 1. Stage it as a draft. Once published, a release here takes no more files and
    gives none up, a prerelease included. The tag starts the Windows workflow,
    which adds the setup and packages to the same draft.

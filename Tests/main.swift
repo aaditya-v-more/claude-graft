@@ -1820,6 +1820,13 @@ do {
     // The Windows workflow will not build a version without its notes.
     func shipsOnWindows(_ version: String) -> Bool { !read("windows/release-notes/\(version).md").isEmpty }
     let releasing = read("VERSION").trimmingCharacters(in: .whitespacesAndNewlines)
+    let macOnly = read("windows/mac-only.txt").split(separator: "\n").map(String.init)
+    check(shipsOnWindows(releasing) != macOnly.contains(releasing),
+          "the version being released has Windows notes or is listed as the Mac's alone, and never both")
+    check(read(".github/workflows/windows-checks.yml").contains("grep -qxF \"$v\" windows/mac-only.txt")
+            && read(".github/workflows/windows-release.yml").contains("if: needs.ships.outputs.windows == 'true'")
+            && release.contains("windows/mac-only.txt"),
+          "a version listed there asks for no Windows notes, builds no Windows packages and says so at release")
     let setups = links(#"releases/(latest/download|download/v[0-9.]+)/ClaudeGraftApp-win-Setup\.exe"#)
     check(!setups.isEmpty && Set(setups).count == 1,
           "every Windows download on the site and in both READMEs is the same setup")
