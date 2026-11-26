@@ -14,8 +14,8 @@ public class RowTemplateAuditTests
         Assert.DoesNotMatch(@"\s(Un)?Checked=""", xaml);
         Assert.Contains("Toggled=\"KeepWarm_Toggled\"", xaml);
         var code = File.ReadAllText(Path.Combine(WindowsRoot(), "ClaudeGraft", "MainPage.xaml.cs"));
-        Assert.Contains("Loaded=\"KeepWarm_Loaded\"", xaml);
-        Assert.Contains("if (!pressed) return;", code);
+        Assert.Contains("DataContextChanged=\"KeepWarm_Rebinding\"", xaml);
+        Assert.Contains("if (_refilling.Contains(box)) return;", code);
         Assert.DoesNotContain("FocusState.Unfocused) return;", code);
     }
 
