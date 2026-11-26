@@ -43,15 +43,57 @@ control, not an ACL of trusted applications, and was measured sailing straight
 past the suppression and putting a dialog on screen from a background poll —
 which is what the old "background polls never prompt" rule believed it had.
 
-**Only a person starts a session.** `SessionStarter.start` runs because a
-button was pressed and for no other reason: it defaults to non-interactive, so
-a call from anywhere unaudited fails quietly instead of raising a keychain
-prompt, and it claims the profile for the length of the call so the window and
-the dropdown cannot both start the same account. The suite reads
-`Sources/App/*.swift` and fails if a fourth caller appears or if `startSession`
+**A session starts on a press, or for an account somebody switched on.**
+`SessionStarter.start` defaults to non-interactive, so a call from anywhere
+unaudited fails quietly instead of raising a keychain prompt, and it claims the
+profile for the length of the call so the window and the dropdown cannot both
+start the same account. The suite reads `Sources/App/*.swift` and fails if a
+caller appears outside the three buttons and the pool, or if `startSession`
 turns up on a line with `onAppear`, `onReceive` or a timer — a view refreshes
 every thirty seconds, and a session wired into one would open a five-hour
 window on every account, over and over.
+
+The one start nobody presses is `AutoSessions`, asked for in issue 4: an
+account with Auto-start on is sent one message each time its five-hour window
+has closed, so the next window is already running down when somebody sits down
+to work. What keeps that from being the loop above is one caller and one clock.
+`SessionStarter.startUnasked` is named on a single line, in
+`AutoSessions.consider`, which only that object's own minute timer and a switch
+being turned on can reach; no view calls it. It raises no keychain dialog, and
+the refresh after it asks nobody, so a locked keychain is a failure said beside
+the switch and not a prompt at three in the morning.
+
+Whether to send is `due`: nothing before the time the last attempt set, nothing
+to an account with no five-hour limit or with its week used up, and otherwise
+only once the window's reset has passed. An account nothing is known of is
+asked, since its first answer says what it has. What an attempt sets is `next`:
+the new window's reset after a success, or five hours on when the answer named
+none; a quarter of an hour after a failure; the reset a 429 named, and never
+sooner than that quarter hour; an hour after a 401 or 403, since a login the
+service turned away stays turned away until a person renews it. A signed-in
+account's refusal reaches `next` as `.refused`, not as the status, because
+`start(account:)` has already put it into words. One account is
+sent one message however many names it has here, and the attempt is recorded
+against each. The switches and the last attempts are kept by the pool's keys in
+`ClaudeGraft/automatic-sessions.json`, and a Claude deleted or an account
+removed takes its switch with it. The suite holds the one caller, the absence
+of `interactive: true` from that file, and `due` and `next` case by case.
+
+An account signed in through Graft has no profile, so its button goes through
+`UsagePoolController.startSession(account:)`, the one caller of
+`SessionStarter.start(account:)`, and the suite holds that to the accounts page
+and the dropdown. The answer's `anthropic-ratelimit-unified-*` headers are kept
+(`heard`), because for a login the usage endpoint will not answer they are the
+only figure there is.
+
+**A signed-in account's figure has three sources, and the newest wins**
+(`UsagePoolController.entry(forAccount:)`): the usage endpoint, asked by the
+same pass and under the same cache and backoff as a profile, keyed by the
+account's id, and only for a login carrying `user:profile`; a Claude signed in
+to the same account; and what the service said on that account's own answers,
+through the relay or on its Start Session. A figure taken from an answer is
+marked as such under the bars, never as a profile's own record, and keeps the
+Fable figure from the last time the endpoint was asked, which no answer carries.
 
 `config.json` holds `oauth:tokenCacheV2` in Chromium safe storage: keychain item
 service `Claude Safe Storage`, account `Claude Key`, PBKDF2-HMAC-SHA1 with salt

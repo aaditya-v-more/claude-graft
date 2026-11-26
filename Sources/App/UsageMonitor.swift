@@ -15,7 +15,7 @@ import Foundation
 /// answered; see `mayPromptUnasked` for the one case that waits.
 final class UsageMonitor: ObservableObject {
     struct Entry: Identifiable, Equatable {
-        var id: String { profile.path }
+        var id: String { account ?? profile.path }
         var name: String
         var profile: URL
         var usage: Graft.Usage?
@@ -35,6 +35,14 @@ final class UsageMonitor: ObservableObject {
         /// Why these are not a live figure from this pass, in a sentence, or
         /// nil when they are. The fallback is never taken in silence.
         var note: String?
+        /// Set for an account signed in through Graft, which has no profile.
+        var account: String? = nil
+
+        /// What `profile` holds for such an account: a path that names nothing.
+        static let noProfile = URL(fileURLWithPath: "/dev/null")
+
+        /// What the pool calls it: `main`, its shortcut's id or its own.
+        var key: String { account ?? shortcut?.uuidString ?? UsagePoolController.mainKey }
 
         /// When the figure was taken and where from, for the line under it.
         func freshness(now: Date = Date()) -> String {
@@ -42,9 +50,10 @@ final class UsageMonitor: ObservableObject {
             let when = now.timeIntervalSince(refreshed) < 45
                 ? L10n.text("just now")
                 : Entry.relative.localizedString(for: refreshed, relativeTo: now)
-            return isLive
-                ? L10n.format("Updated %@ from Anthropic", when)
-                : L10n.format("Updated %@ from this profile's own record", when)
+            if isLive { return L10n.format("Updated %@ from Anthropic", when) }
+            return account == nil
+                ? L10n.format("Updated %@ from this profile's own record", when)
+                : L10n.format("Updated %@ from its last answer", when)
         }
 
         private static let relative: RelativeDateTimeFormatter = {
@@ -77,6 +86,10 @@ final class UsageMonitor: ObservableObject {
     }
 
     @Published private(set) var entries: [Entry] = []
+    /// Accounts signed in through Graft that the usage endpoint answers for.
+    @Published private(set) var accountEntries: [Entry] = []
+    /// Those accounts, handed over by the pool whenever its list changes.
+    var signedIn: [PoolAccount] = []
     /// Set when live usage is unavailable for a reason worth showing once.
     @Published private(set) var liveProblem: String?
     /// True once a background pass has found the keychain shut to it, so the
@@ -110,6 +123,7 @@ final class UsageMonitor: ObservableObject {
         var prompting: ClaudeCredentials.Prompting
         var freshness: Freshness
         var focus: URL?
+        var account: String?
         weak var store: ShortcutStore?
     }
     private var waiting: Waiting?
@@ -256,12 +270,18 @@ final class UsageMonitor: ObservableObject {
     /// Each is weighed by the figure the bar would show for it. Weighed by the
     /// five-hour window alone, an account without one counted as zero and
     /// lost to every other account, however little of its week was left.
-    var headlineEntry: Entry? {
-        let usable = entries.filter { $0.currentUsage != nil }
+    ///
+    /// `others` are accounts signed in here with no Claude of their own, each
+    /// open while it answers a conversation: left out, the bar showed a
+    /// Claude's figure while such an account was the one being spent.
+    func headlineEntry(besides others: [Entry]) -> Entry? {
+        let usable = (entries + others).filter { $0.currentUsage != nil }
         let running = usable.filter(\.isRunning)
         let pool = running.isEmpty ? usable : running
         return pool.max { ($0.usage?.headline.percent ?? 0) < ($1.usage?.headline.percent ?? 0) }
     }
+
+    var headlineEntry: Entry? { headlineEntry(besides: []) }
 
     var headline: Graft.Usage.Headline? { headlineEntry?.usage?.headline }
 
@@ -270,9 +290,9 @@ final class UsageMonitor: ObservableObject {
     /// Named, it is the Claude in front whatever its figures say. Unnamed, the
     /// tightest window open is the right figure to show; with a name beside
     /// it, another account's figure would be read as that account's own.
-    func statusEntry(front: URL?) -> (entry: Entry, named: Bool)? {
+    func statusEntry(front: URL?, besides others: [Entry] = []) -> (entry: Entry, named: Bool)? {
         if let front, let named = entry(for: front) { return (named, true) }
-        return headlineEntry.map { ($0, false) }
+        return headlineEntry(besides: others).map { ($0, false) }
     }
 
     /// What the last pass found for one profile, for a view that shows a single
@@ -298,6 +318,10 @@ final class UsageMonitor: ObservableObject {
         entries.first { $0.shortcut == shortcut.id && Graft.samePath($0.profile, shortcut.profileDir) }
     }
 
+    func entry(forAccount id: String) -> Entry? {
+        accountEntries.first { $0.account == id }
+    }
+
     /// Idempotent: the window and the menu bar item both ask for it, and only
     /// one of the two may ever appear.
     func start(watching store: ShortcutStore, every seconds: TimeInterval = 30) {
@@ -321,7 +345,10 @@ final class UsageMonitor: ObservableObject {
     }
 
     /// Used by the tests to drive the menu bar figure without a filesystem.
-    func setEntriesForTesting(_ replacement: [Entry]) { entries = replacement }
+    func setEntriesForTesting(_ replacement: [Entry], accounts: [Entry] = []) {
+        entries = replacement
+        accountEntries = accounts
+    }
 
     /// Reads the store on the calling thread — it must be the main one — then
     /// does the filesystem, keychain and network work away from it.
@@ -332,13 +359,15 @@ final class UsageMonitor: ObservableObject {
     /// dropdown should be allowed to ask for access without also being allowed
     /// to hammer the endpoint on every open.
     ///
-    /// `focus` narrows the request to one profile: it gets the freshness asked
-    /// for, and every other profile is read as a tick would read it.
+    /// `focus` narrows the request to one profile, and `account` to one
+    /// signed-in account: it gets the freshness asked for, and everything
+    /// else is read as a tick would read it.
     func refresh(_ store: ShortcutStore,
                  interactive: Bool = false,
                  prompting: ClaudeCredentials.Prompting? = nil,
                  freshness: Freshness? = nil,
-                 focus: URL? = nil) {
+                 focus: URL? = nil,
+                 account: String? = nil) {
         var targets: [(name: String, profile: URL, shortcut: UUID?)] = [
             (name: "Claude", profile: Graft.mainProfile, shortcut: nil)
         ]
@@ -356,7 +385,7 @@ final class UsageMonitor: ObservableObject {
 
         if interactive {
             isRefreshing = true
-            refreshingProfile = focus?.path
+            refreshingProfile = focus?.path ?? account
         }
 
         switch Self.arrival(passInFlight: inFlight, interactive: interactive, freshness: wanted) {
@@ -368,16 +397,21 @@ final class UsageMonitor: ObservableObject {
                                   prompting: interactive ? asking : earlier.prompting,
                                   freshness: Self.stronger(earlier.freshness, wanted),
                                   focus: earlier.focus.flatMap { a in focus.flatMap { Graft.samePath(a, $0) ? a : nil } },
+                                  account: earlier.account == account ? account : nil,
                                   store: store)
             } else {
                 waiting = Waiting(interactive: interactive, prompting: asking,
-                                  freshness: wanted, focus: focus, store: store)
+                                  freshness: wanted, focus: focus, account: account, store: store)
             }
             return
         case .start:
             break
         }
         inFlight = true
+        // Only a login the usage endpoint answers for is asked. The rest are
+        // known by what the service says on their answers, which the pool holds.
+        let signedIn = self.signedIn.filter { $0.scopes.contains(ClaudeCredentials.usageScope) }
+        let everything = focus == nil && account == nil
         queue.async { [weak self] in
             guard let self else { return }
             var problem: String?
@@ -385,21 +419,23 @@ final class UsageMonitor: ObservableObject {
             let fresh = targets.map { target -> Entry in
                 let onDisk = Graft.usage(of: target.profile)
                 let running = Graft.isRunning(profile: target.profile)
-                let focused = focus.map { Graft.samePath($0, target.profile) } ?? true
+                let focused = everything || focus.map { Graft.samePath($0, target.profile) } == true
                 var entry = Entry(name: target.name,
                                   profile: target.profile,
                                   usage: onDisk,
                                   isRunning: running,
                                   shortcut: target.shortcut)
                 entry.refreshed = onDisk?.sampled
-                let outcome = self.live(for: target.profile,
+                let allowed = Self.prompting(asking: asking, elsewhere: elsewhere,
+                                             focused: focused, locked: locked)
+                let outcome = self.live(for: target.profile.path,
                                         interactive: interactive && focused,
                                         freshness: focused ? wanted : .cached,
                                         running: running,
-                                        prompting: Self.prompting(asking: asking, elsewhere: elsewhere,
-                                                                  focused: focused, locked: locked),
                                         problem: &problem,
-                                        locked: &locked)
+                                        locked: &locked) {
+                    try ClaudeCredentials.token(for: target.profile, prompting: allowed)?.value
+                }
                 if let live = outcome.reading, let fetched = outcome.fetched,
                    !Self.prefersLocal(liveFetched: fetched, localSampled: onDisk?.sampled) {
                     entry.usage = Graft.Usage(fiveHour: live.fiveHour,
@@ -427,10 +463,42 @@ final class UsageMonitor: ObservableObject {
                 }
                 return entry
             }
-            self.record(fresh, locked: locked, problem: problem)
+            let accounts = signedIn.map { held -> Entry in
+                let focused = everything || account == held.id
+                var entry = Entry(name: held.title(among: signedIn) ?? "", profile: Entry.noProfile,
+                                  usage: nil, isRunning: false, account: held.id)
+                let allowed = Self.prompting(asking: asking, elsewhere: elsewhere,
+                                             focused: focused, locked: locked)
+                let outcome = self.live(for: held.id,
+                                        interactive: interactive && focused,
+                                        freshness: focused ? wanted : .cached,
+                                        running: false,
+                                        signedIn: true,
+                                        problem: &problem,
+                                        locked: &locked) {
+                    try Self.token(of: held, prompting: allowed)
+                }
+                if let live = outcome.reading, let fetched = outcome.fetched {
+                    entry.usage = Graft.Usage(fiveHour: live.fiveHour, week: live.week,
+                                              organization: nil, sampled: fetched,
+                                              fiveHourReset: live.fiveHourReset, weekReset: live.weekReset,
+                                              fable: live.fable, fableReset: live.fableReset)
+                    entry.isLive = true
+                    entry.plan = live.plan
+                    entry.refreshed = fetched
+                    entry.note = outcome.failure.map {
+                        L10n.format("%@ · figure from %@", $0, Self.clock(fetched))
+                    }
+                } else {
+                    entry.note = outcome.failure
+                }
+                return entry
+            }
+            self.record(fresh + accounts, locked: locked, problem: problem)
             DispatchQueue.main.async {
                 self.inFlight = false
                 if self.entries != fresh { self.entries = fresh }
+                if self.accountEntries != accounts { self.accountEntries = accounts }
                 if self.liveProblem != problem { self.liveProblem = problem }
                 if self.needsKeychainAccess != locked { self.needsKeychainAccess = locked }
 
@@ -438,7 +506,7 @@ final class UsageMonitor: ObservableObject {
                     self.waiting = nil
                     self.refresh(store, interactive: queued.interactive,
                                  prompting: queued.prompting, freshness: queued.freshness,
-                                 focus: queued.focus)
+                                 focus: queued.focus, account: queued.account)
                 } else {
                     self.waiting = nil
                     self.isRefreshing = false
@@ -502,6 +570,18 @@ final class UsageMonitor: ObservableObject {
         queue.async { [weak self] in self?.liveCache[profile.path] = nil }
     }
 
+    func invalidate(account id: String) {
+        queue.async { [weak self] in self?.liveCache[id] = nil }
+    }
+
+    /// A signed-in account's login, read out of its seal. Nil on a Mac with
+    /// no key at all, which has nothing sealed to read.
+    static func token(of account: PoolAccount, prompting: ClaudeCredentials.Prompting) throws -> String? {
+        guard account.expires > Date().addingTimeInterval(120) else { throw ClaudeCredentials.Failure.expired }
+        guard let key = try ClaudeCredentials.safeStorageKey(prompting: prompting) else { return nil }
+        return ClaudeCredentials.unseal(account.sealed, key: key).map { String(decoding: $0, as: UTF8.self) }
+    }
+
     /// What asking for one profile's live figures came to: the reading to
     /// show, if there is one, when it was really taken, and — when this pass
     /// did not get a current answer — why not.
@@ -512,47 +592,48 @@ final class UsageMonitor: ObservableObject {
     }
 
     /// Cached hard: one call per profile per interval, and never a prompt on a
-    /// background pass.
-    private func live(for profile: URL,
+    /// background pass. `key` is a profile's path or a signed-in account's id,
+    /// and `login` reads the token to ask with.
+    private func live(for key: String,
                       interactive: Bool,
                       freshness: Freshness,
                       running: Bool,
-                      prompting: ClaudeCredentials.Prompting,
+                      signedIn: Bool = false,
                       problem: inout String?,
-                      locked: inout Bool) -> LiveOutcome {
+                      locked: inout Bool,
+                      login: () throws -> String?) -> LiveOutcome {
         let now = Date()
-        let cached = liveCache[profile.path]
+        let cached = liveCache[key]
         if let cached,
            Self.mayUseCache(age: now.timeIntervalSince(cached.fetched), freshness: freshness, running: running) {
             return LiveOutcome(reading: cached.reading, fetched: cached.fetched)
         }
 
-        let waiting = backoff[profile.path]
+        let waiting = backoff[key]
         guard Self.mayAttempt(now: now,
                               until: waiting?.until,
                               interactive: interactive,
-                              serverAsked: serverAskedToWait.contains(profile.path))
+                              serverAsked: serverAskedToWait.contains(key))
         else {
             if interactive { problem = waitingMessage(until: waiting?.until) }
-            let why = [lastFailure[profile.path], waitingMessage(until: waiting?.until, inLine: true)]
+            let why = [lastFailure[key], waitingMessage(until: waiting?.until, inLine: true)]
                 .compactMap { $0 }.joined(separator: " · ")
             return LiveOutcome(reading: cached?.reading, fetched: cached?.fetched, failure: why)
         }
 
         do {
-            guard let token = try ClaudeCredentials.token(for: profile, prompting: prompting)
-            else {
+            guard let token = try login() else {
                 return LiveOutcome(failure: L10n.text("No saved login to ask Anthropic with"))
             }
             // The key is the process's from here on, so nothing after this
             // in the pass is shut out.
             locked = false
-            let reading = try UsageAPI.fetch(token: token.value)
+            let reading = try UsageAPI.fetch(token: token)
             let fetched = Date()
-            liveCache[profile.path] = (fetched, reading)
-            backoff[profile.path] = nil
-            lastFailure[profile.path] = nil
-            serverAskedToWait.remove(profile.path)
+            liveCache[key] = (fetched, reading)
+            backoff[key] = nil
+            lastFailure[key] = nil
+            serverAskedToWait.remove(key)
             return LiveOutcome(reading: reading, fetched: fetched)
         } catch {
             // Falling back to the on-disk figures is the normal outcome here,
@@ -560,8 +641,8 @@ final class UsageMonitor: ObservableObject {
             // line. The row itself always says, quietly. The keychain being
             // shut is worth surfacing either way, since it is one click to fix
             // and everything live depends on it.
-            let why = Self.failureLine(error)
-            lastFailure[profile.path] = why
+            let why = Self.failureLine(error, signedIn: signedIn)
+            lastFailure[key] = why
             let keychain = Self.isKeychainFailure(error)
             // After a Deny the profiles after it are read silently and fail
             // the same way; their "choose Always Allow" would bury the answer
@@ -580,16 +661,16 @@ final class UsageMonitor: ObservableObject {
 
             let retryAfter = Self.waitAsked(by: error)
             if retryAfter != nil {
-                serverAskedToWait.insert(profile.path)
+                serverAskedToWait.insert(key)
             } else {
                 // The wait that follows is our own, which a press may skip.
                 // Kept from an earlier Retry-After, it held a press off until
                 // an ordinary backoff ran out.
-                serverAskedToWait.remove(profile.path)
+                serverAskedToWait.remove(key)
             }
-            let failures = (backoff[profile.path]?.failures ?? 0) + 1
+            let failures = (backoff[key]?.failures ?? 0) + 1
             let delay = Self.retryDelay(afterFailures: failures, retryAfter: retryAfter)
-            backoff[profile.path] = (Date().addingTimeInterval(delay), failures)
+            backoff[key] = (Date().addingTimeInterval(delay), failures)
             return LiveOutcome(reading: cached?.reading, fetched: cached?.fetched, failure: why)
         }
     }
@@ -617,12 +698,13 @@ final class UsageMonitor: ObservableObject {
     /// The row's word for why its figure is not live. Every failure used to
     /// read "Anthropic didn't answer", which sent someone with an expired login
     /// to look at their network.
-    static func failureLine(_ error: Error) -> String {
+    static func failureLine(_ error: Error, signedIn: Bool = false) -> String {
         switch error as? ClaudeCredentials.Failure {
         case .noKeychainAccess?, .keychainDeclined?:
             return L10n.text("Live usage needs keychain access")
         case .expired?:
-            return L10n.text("Login expired · open that Claude to renew it")
+            return signedIn ? L10n.text("Login expired · sign in again")
+                            : L10n.text("Login expired · open that Claude to renew it")
         case .notSignedIn?:
             return L10n.text("Its login could not be read on this Mac")
         case .configUnreadable?:

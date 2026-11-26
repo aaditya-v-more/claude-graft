@@ -138,9 +138,10 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
         item = nil
     }
 
-    /// The five-hour figure for whichever Claude is open, or its week if it has
-    /// no five-hour limit, with the rest behind the tooltip. With the Claude in
-    /// front shown, the figure is that one's.
+    /// The five-hour figure for whichever account is being spent, or its week
+    /// if it has no five-hour limit, with the rest behind the tooltip. With the
+    /// Claude in front shown, the figure is that of the account answering the
+    /// conversation on its screen, which is its own until it draws on another.
     private func updateTitle() {
         guard let button = item?.button else { return }
         let updates = Shared.claudeUpdates
@@ -158,8 +159,17 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
         let wanted = settings.showFrontIcon || settings.showFrontName
         let named = usage.statusEntry(front: wanted ? Shared.frontmost.profile : nil)
             .flatMap { $0.named ? $0.entry : nil }
+        let pool = Shared.usagePool
+        // The conversation the bar names, so the lit account, the figure and
+        // the words beside them are always about the same one.
+        let members = named.map { pool.members(of: $0.key) } ?? []
+        let answering = named.flatMap { entry in
+            UsagePoolController.answering(
+                pool.current(front: Shared.frontmost.profile).flatMap { $0.claude == entry.key ? $0 : nil },
+                among: members, account: pool.accountUuid(of:))
+        }
         var icon = named.flatMap { settings.showFrontIcon ? FrontIcon.image(for: preset(of: $0)) : nil }
-        let drawing = icon == nil ? nil : named.flatMap(poolInFront)
+        let drawing = icon == nil ? nil : poolInFront(members, answering: answering)
         if let drawing { icon = drawing.strip }
         let tag = named.flatMap {
             settings.showFrontName ? FrontTag.image(name: $0.name, preset: preset(of: $0)) : nil
@@ -172,7 +182,10 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
         // update keeps its symbol: that is news the front Claude cannot carry.
         let symbol = alert ?? (front == nil ? StatusSymbol.idle : nil)
         button.image = symbol.flatMap { NSImage(systemSymbolName: $0, accessibilityDescription: "Claude Graft") }
-        let headline = front ?? usage.statusEntry(front: nil)?.entry
+        // Beside a Claude drawing on another account, its own figure read as
+        // the one being spent while the other account's ran down unseen.
+        let headline = front.map { answering.flatMap(pool.entry(of:)) ?? $0 }
+            ?? usage.statusEntry(front: nil, besides: pool.accountsWeighed())?.entry
         let figures = headline?.currentUsage
         parts = front != nil || figures != nil ? (icon, tag, figures?.headline) : nil
         // Pictures in a title read out as nothing, so the words go alongside:
@@ -181,7 +194,8 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
         let spoken = headline.flatMap { entry in
             figures.map { FrontTitle.spoken(entry.name, $0) }
         } ?? front?.name
-        spokenTitle = [spoken, drawing?.spoken, updateTip].compactMap { $0 }.joined(separator: ". ")
+        let borrowed = front.flatMap { $0.id != headline?.id && figures != nil ? $0.name : nil }
+        spokenTitle = [borrowed, spoken, drawing?.spoken, updateTip].compactMap { $0 }.joined(separator: ". ")
         applyTitle()
         guard let headline, let figures else {
             button.toolTip = updateTip ?? L10n.text("No usage reported yet")
@@ -190,8 +204,15 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
 
         var lines = [FrontTitle.tooltipLine(headline.name, figures)]
         if headline.isRunning { lines[0] += L10n.text(" — open now") }
-        for entry in usage.entries where entry.id != headline.id {
+        // An account that is also a Claude here is one allowance, said once.
+        let twin = headline.account.flatMap(pool.claude(sameAccountAs:))
+        for entry in usage.entries where entry.id != headline.id && entry.key != twin {
             guard let other = entry.usage else { continue }
+            lines.append(FrontTitle.tooltipLine(entry.name, other))
+        }
+        for account in pool.accountsAlone where account.id != headline.id {
+            guard let entry = pool.entry(forAccount: account.id), let other = entry.usage
+            else { continue }
             lines.append(FrontTitle.tooltipLine(entry.name, other))
         }
         if let updateTip { lines.append(updateTip) }
@@ -329,20 +350,10 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
     /// The accounts a Claude in front draws on, as one picture, with the one
     /// answering the conversation on screen lit. Nil for a Claude that draws
     /// on nobody, which keeps its single icon.
-    private func poolInFront(_ entry: UsageMonitor.Entry) -> (strip: NSImage, spoken: String)? {
+    private func poolInFront(_ members: [String], answering: String?) -> (strip: NSImage, spoken: String)? {
         let pool = Shared.usagePool
-        let claude = entry.shortcut?.uuidString ?? UsagePoolController.mainKey
-        let members = pool.members(of: claude)
         guard members.count > 1 else { return nil }
-        // The conversation the bar names, so the lit account and the words
-        // beside it are always about the same one.
-        let chat = pool.current(front: Shared.frontmost.profile).flatMap { $0.claude == claude ? $0 : nil }
-        let answering = chat.flatMap(UsagePoolController.answeringKey)
-        // Matched by account, since the relay may name an account by a
-        // different one of its names than the list does.
-        let lit = answering.flatMap { key in
-            members.firstIndex { $0 == key || (pool.accountUuid(of: $0).map { $0 == pool.accountUuid(of: key) } ?? false) }
-        }
+        let lit = answering.flatMap(members.firstIndex(of:))
         guard let strip = PoolStrip.image(members.map(pool.preset(of:)), lit: lit) else { return nil }
         let spoken = lit.map { L10n.format("Answering now: %@", pool.name(of: members[$0])) }
             ?? L10n.format("Drawing on %@", members.map(pool.name(of:)).joined(separator: ", "))

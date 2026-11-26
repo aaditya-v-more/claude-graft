@@ -1,12 +1,14 @@
 import Foundation
 import Network
 
-/// Where requests for the service go. Tests point this at a plain listener on
-/// loopback; nothing else can, so the relay never speaks to the real service
-/// without TLS.
+/// Where requests for the service go. A relay built for the tests can be
+/// pointed at a plain listener on loopback; the one that ships has no such
+/// case, so it never speaks to anything but the real service, over TLS.
 enum Upstream {
     case service
+    #if TESTING
     case loopback(UInt16)
+    #endif
 
     func connect() async throws -> Wire {
         let connection: NWConnection
@@ -14,11 +16,20 @@ enum Upstream {
         case .service:
             let tls = NWProtocolTLS.Options()
             sec_protocol_options_add_tls_application_protocol(tls.securityProtocolOptions, "http/1.1")
+            // A Mac that slept mid-answer hears nothing more, and a wait
+            // that never ends keeps a relay from ever stepping aside.
+            let tcp = NWProtocolTCP.Options()
+            tcp.enableKeepalive = true
+            tcp.keepaliveIdle = 60
+            tcp.keepaliveInterval = 15
+            tcp.keepaliveCount = 4
             connection = NWConnection(host: NWEndpoint.Host(UsagePool.host), port: 443,
-                                      using: NWParameters(tls: tls, tcp: NWProtocolTCP.Options()))
+                                      using: NWParameters(tls: tls, tcp: tcp))
+        #if TESTING
         case .loopback(let port):
             connection = NWConnection(host: .ipv4(.loopback), port: NWEndpoint.Port(rawValue: port)!,
                                       using: .tcp)
+        #endif
         }
         let wire = Wire(connection, label: "relay.upstream")
         try await wire.open(timeout: 20)
@@ -101,26 +112,40 @@ final class Exchange {
         let pinned = PoolRequest.mustStayWithSender(body: body,
                                                     contentEncoding: head.value("content-encoding"))
         let continuing = PoolRequest.continuesThread(body: body)
+        let model = PoolRequest.model(in: body)
+        let family = PoolRequest.family(of: model)
         let attempts = await state.plan(own: own, session: session, pinned: pinned,
-                                        bound: continuing || PoolRequest.carriesBoundReasoning(body: body))
+                                        bound: continuing || PoolRequest.carriesBoundReasoning(body: body),
+                                        family: family)
 
         var passed: [PoolPass] = []
         var index = 0
+        var again = true
+        // Set once an account was passed over for something that says
+        // nothing of its room, so the answer found elsewhere moves nothing.
+        var detour = false
         while index < attempts.count {
             let attempt = attempts[index]
             let last = index == attempts.count - 1
             let borrowed = attempt.token != nil
-            // A moved thread's refusal is read to tell `thread_not_found` from
-            // a plan that lacks something, and a compressed one cannot be.
+            // A lent account's refusal is read to tell what it refuses, and a
+            // compressed one cannot be.
             let request = HTTPMessage.request(head, body: body,
                                               authorization: attempt.token.map { "Bearer \($0)" },
-                                              plainAnswer: continuing && borrowed)
+                                              plainAnswer: borrowed)
             let answer: (head: HTTPHead, raw: Data)
             do {
                 answer = try await send(request)
             } catch {
                 connection?.close()
                 connection = nil
+                // Every account is the same host, so a connection that
+                // failed is tried once more before another account is.
+                if again {
+                    again = false
+                    continue
+                }
+                detour = true
                 if last {
                     try? await client.send(HTTPMessage.failure(
                         502, "Bad Gateway", "The relay could not reach \(UsagePool.host): \(error.localizedDescription)"))
@@ -134,30 +159,46 @@ final class Exchange {
             let status = answer.head.status ?? 502
             if let member = attempt.member {
                 await state.observe(member, answer.head.pairs)
-                let outcome = PoolPolicy.outcome(status: status, headers: answer.head.pairs,
+                var outcome = PoolPolicy.outcome(status: status, headers: answer.head.pairs,
                                                  borrowed: borrowed, now: Date())
+                // Only the body tells a plan without the model from a busy service.
+                var credits = false
+                if status == 429, borrowed, !last, let said = try? await refusalBody(answer, method: head.method) {
+                    credits = PoolRequest.wantsCredits(said)
+                }
+                if credits {
+                    outcome = .refusedForAccount
+                    refusal = "credits_required"
+                }
                 if outcome == .refusedForAccount, status == 404, continuing, !last,
-                   let missing = try await threadMissing(answer, method: head.method) {
+                   let missing = try? await threadMissing(answer, method: head.method) {
                     // The thread is stored on the account the conversation
                     // left, and sending the request there would undo the move.
                     // Claude Code answers this by sending everything as a new
                     // thread, which this account can take.
                     Diagnostics.note("relay thread restarted", ["member": member])
                     await state.served(by: member, from: own, session: session, status: status,
-                                       passedOver: passed, model: PoolRequest.model(in: body),
-                                       cacheLifetime: PoolPolicy.cacheLifetime(of: body), threaded: true,
+                                       passedOver: passed, model: model, threaded: true,
                                        starts: PoolRequest.startsConversation(body: body),
                                        prompted: PoolRequest.startsTurn(body: body))
                     return try await deliver(answer, body: missing, method: head.method, keepAlive: head.keepsAlive)
                 }
+                if case .modelExhausted = outcome, last { await state.apply(outcome, to: member, family: family) }
                 if outcome != .deliver, !last {
-                    await state.apply(outcome, to: member)
+                    // A thread it does not hold, or a request it cannot
+                    // read, says nothing of whether its plan has the model.
+                    let lacking = outcome == .refusedForAccount && !credits && (continuing || status == 400)
+                    await state.apply(outcome, to: member, family: lacking ? nil : family, token: attempt.token)
+                    // A 429 that names no limit is the service being busy.
+                    if status == 429, !credits, answer.head.value("anthropic-ratelimit-unified-status") != "rejected" {
+                        detour = true
+                    }
                     // Its answer is a few hundred bytes nobody will read, and
                     // dropping the connection is cheaper than draining it.
                     connection?.close()
                     connection = nil
                     switch outcome {
-                    case .exhausted:
+                    case .exhausted, .modelExhausted:
                         passed.append(PoolPass(id: member, reason: .full))
                         index += 1
                     case .loginRefused:
@@ -169,8 +210,12 @@ final class Exchange {
                         // to take it. That is the sender's next attempt, which
                         // the plan always has, and not merely the last one,
                         // which is a lender whenever the sender ranked ahead.
+                        // A sender with no room is sure of nothing, so then
+                        // the next lender is asked before it.
                         passed.append(PoolPass(id: member, reason: .refused))
-                        index = attempts[(index + 1)...].firstIndex { $0.token == nil } ?? attempts.count - 1
+                        let home = attempts[(index + 1)...].firstIndex { $0.token == nil } ?? attempts.count - 1
+                        let full = attempts[home].lastResort || passed.contains { $0.id == own && $0.reason == .full }
+                        index = full ? index + 1 : home
                     }
                     var noted: [String: Any] = ["member": member, "status": status,
                                                 "reason": passed.last!.reason.rawValue]
@@ -181,11 +226,10 @@ final class Exchange {
                     continue
                 }
                 await state.served(by: member, from: own, session: session, status: status,
-                                   passedOver: passed, model: PoolRequest.model(in: body),
-                                   cacheLifetime: PoolPolicy.cacheLifetime(of: body),
+                                   passedOver: passed, model: model,
                                    threaded: PoolRequest.carriesThread(body: body),
                                    starts: PoolRequest.startsConversation(body: body),
-                                       prompted: PoolRequest.startsTurn(body: body))
+                                   prompted: PoolRequest.startsTurn(body: body), moves: !detour)
             }
             return try await deliver(answer, method: head.method, keepAlive: head.keepsAlive)
         }
@@ -312,16 +356,21 @@ final class Exchange {
         }
     }
 
-    /// The body of a refusal, when it is the service saying it holds no such
-    /// thread. Read rather than dropped only here: an error is a few hundred
+    /// The body of a refusal, where it can be read: an error is a few hundred
     /// bytes, and which error it is decides whether it goes back or on.
-    private func threadMissing(_ answer: (head: HTTPHead, raw: Data), method: String) async throws -> Data? {
+    private func refusalBody(_ answer: (head: HTTPHead, raw: Data), method: String) async throws -> Data? {
         guard let up = connection else { return nil }
         let framing = answer.head.responseBody(to: method)
         guard framing != .untilClose else { return nil }
         if let encoding = answer.head.value("content-encoding"), !encoding.isEmpty,
            encoding.lowercased() != "identity" { return nil }
-        let body = try await up.readBody(framing, limit: 64 * 1024)
+        return try await up.readBody(framing, limit: 64 * 1024)
+    }
+
+    /// The body of a refusal, when it is the service saying it holds no such
+    /// thread.
+    private func threadMissing(_ answer: (head: HTTPHead, raw: Data), method: String) async throws -> Data? {
+        guard let body = try await refusalBody(answer, method: method) else { return nil }
         if body.range(of: PoolRequest.threadMissing) != nil { return body }
         // The last live run could only guess why a moved thread was refused;
         // the service's own error type settles it next time.

@@ -10,11 +10,8 @@ import Foundation
 /// line could only ever have started a window on whichever single account it
 /// happens to be signed into.
 ///
-/// Nothing here may run except because somebody pressed the button. The three
-/// callers are the three Start Session buttons and the suite checks that no
-/// fourth appears: a view refreshes on appearing and again every thirty
-/// seconds, so a session wired into one of those would start a five-hour
-/// window on every account, over and over, without anybody asking for one.
+/// `start` runs on a press and `startUnasked` for `AutoSessions` alone; the
+/// suite holds both to their callers, and notes/usage-and-credentials.md says why.
 enum SessionStarter {
     static let endpoint = URL(string: "https://api.anthropic.com/v1/messages")!
     static let model = "claude-haiku-4-5-20251001"
@@ -23,6 +20,8 @@ enum SessionStarter {
         case noLogin
         case inFlight
         case credentials(String)
+        /// A signed-in account's login the service will not take until somebody renews it.
+        case refused(String)
         case http(Int, String)
         case unreachable(String)
 
@@ -35,7 +34,7 @@ enum SessionStarter {
                     """)
             case .inFlight:
                 return L10n.text("A session is already being started for this account.")
-            case .credentials(let detail):
+            case .credentials(let detail), .refused(let detail):
                 return detail
             case .http(401, _), .http(403, _):
                 return L10n.text("That profile's login was refused. Open it once so Claude can renew it.")
@@ -58,7 +57,26 @@ enum SessionStarter {
     /// so a call arriving from somewhere nobody audited fails quietly rather
     /// than putting a system prompt in front of someone who asked for nothing.
     static func start(profile: URL, interactive: Bool = false, prompt: String = "hi") -> Failure? {
-        guard claim(profile) else { return .inFlight }
+        open(profile: profile, interactive: interactive, prompt: prompt).failure
+    }
+
+    enum Target: Equatable {
+        case profile(URL)
+        case account(PoolAccount)
+    }
+
+    /// Never asks the keychain, having no way to be told it may: an account
+    /// whose login is shut away is left until a person opens it.
+    static func startUnasked(_ target: Target) -> (failure: Failure?, limits: PoolLimits?) {
+        switch target {
+        case .profile(let profile): return open(profile: profile, interactive: false, prompt: "hi")
+        case .account(let account): return start(account: account, interactive: false)
+        }
+    }
+
+    private static func open(profile: URL, interactive: Bool,
+                             prompt: String) -> (failure: Failure?, limits: PoolLimits?) {
+        guard claim(profile) else { return (.inFlight, nil) }
         defer { release(profile) }
 
         let token: ClaudeCredentials.Token?
@@ -67,14 +85,44 @@ enum SessionStarter {
                                                 prompting: interactive ? .yes : .no,
                                                 requiring: [ClaudeCredentials.inferenceScope])
         } catch {
-            return .credentials((error as? LocalizedError)?.errorDescription
-                ?? error.localizedDescription)
+            return (.credentials((error as? LocalizedError)?.errorDescription
+                ?? error.localizedDescription), nil)
         }
-        guard let token else { return .noLogin }
+        guard let token else { return (.noLogin, nil) }
+        return send(token: token.value, prompt: prompt)
+    }
 
+    /// The same for an account signed in through Graft, with its own login.
+    /// The answer carries the account's limits, which for a login the usage
+    /// endpoint will not answer is the only figure there is.
+    static func start(account: PoolAccount, interactive: Bool = false,
+                      prompt: String = "hi") -> (failure: Failure?, limits: PoolLimits?) {
+        guard claim(key: account.id) else { return (.inFlight, nil) }
+        defer { release(key: account.id) }
+
+        let token: String?
+        do {
+            token = try UsageMonitor.token(of: account, prompting: interactive ? .yes : .no)
+        } catch ClaudeCredentials.Failure.expired {
+            return (.refused(L10n.text("That account's login has expired. Sign in to it again.")), nil)
+        } catch {
+            return (.credentials((error as? LocalizedError)?.errorDescription
+                ?? error.localizedDescription), nil)
+        }
+        guard let token else {
+            return (.credentials(L10n.text("That account's login could not be read on this Mac.")), nil)
+        }
+        let outcome = send(token: token, prompt: prompt)
+        if case .http(let code, _)? = outcome.failure, code == 401 || code == 403 {
+            return (.refused(L10n.text("That account's login was refused. Sign in to it again.")), outcome.limits)
+        }
+        return outcome
+    }
+
+    private static func send(token: String, prompt: String) -> (failure: Failure?, limits: PoolLimits?) {
         var request = URLRequest(url: endpoint, timeoutInterval: 30)
         request.httpMethod = "POST"
-        request.setValue("Bearer \(token.value)", forHTTPHeaderField: "Authorization")
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
         request.setValue("oauth-2025-04-20", forHTTPHeaderField: "anthropic-beta")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -101,10 +149,15 @@ enum SessionStarter {
         }.resume()
         _ = finished.wait(timeout: .now() + 35)
 
-        if let transportFailure { return .unreachable(transportFailure.localizedDescription) }
-        let code = (response as? HTTPURLResponse)?.statusCode ?? 0
-        guard code == 200 else { return .http(code, message(in: payload)) }
-        return nil
+        if let transportFailure { return (.unreachable(transportFailure.localizedDescription), nil) }
+        let http = response as? HTTPURLResponse
+        let headers = (http?.allHeaderFields ?? [:]).compactMap { name, value in
+            (name as? String).map { ($0, "\(value)") }
+        }
+        let limits = PoolLimits.parse(headers)
+        let code = http?.statusCode ?? 0
+        guard code == 200 else { return (.http(code, message(in: payload)), limits) }
+        return (nil, limits)
     }
 
     // MARK: - One at a time, per account
@@ -117,15 +170,19 @@ enum SessionStarter {
     private static var claimed: Set<String> = []
 
     /// Not private: the suite presses the same account twice.
-    static func claim(_ profile: URL) -> Bool {
+    static func claim(_ profile: URL) -> Bool { claim(key: profile.standardizedFileURL.path) }
+
+    static func release(_ profile: URL) { release(key: profile.standardizedFileURL.path) }
+
+    static func claim(key: String) -> Bool {
         claims.lock()
         defer { claims.unlock() }
-        return claimed.insert(profile.standardizedFileURL.path).inserted
+        return claimed.insert(key).inserted
     }
 
-    static func release(_ profile: URL) {
+    static func release(key: String) {
         claims.lock()
-        claimed.remove(profile.standardizedFileURL.path)
+        claimed.remove(key)
         claims.unlock()
     }
 

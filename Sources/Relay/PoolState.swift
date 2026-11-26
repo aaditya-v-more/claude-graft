@@ -10,6 +10,8 @@ actor PoolState {
         var member: String?
         /// Nil means the token the request arrived with.
         var token: String?
+        /// The sender asked only because nobody else is left: it had no room.
+        var lastResort = false
     }
 
     private struct Runtime {
@@ -27,7 +29,6 @@ actor PoolState {
         var lastAt: Date
         var requests = 0
         var model: String?
-        var cacheLifetime: TimeInterval = PoolPolicy.shortCache
         var passedOver: [PoolPass] = []
         /// Set by the first answer to a request carrying a thread. From then
         /// on only such answers say where the conversation is: a title asked
@@ -50,6 +51,9 @@ actor PoolState {
     /// By account rather than by member: two members on one account are one
     /// allowance, and what the service says about either is true of both.
     private var limits: [String: PoolLimits] = [:]
+    /// Accounts that said no to one family of models, by account and family,
+    /// until when: a week of it spent, or for an hour a plan without it.
+    private var shut: [String: [String: Date]] = [:]
     private var conversations: [String: Conversation] = [:]
     private var recent: [PoolRouting] = []
     private var active = 0
@@ -82,6 +86,7 @@ actor PoolState {
                 limits[key] = pushed
                 if let refused, refused > now { limits[key]?.refusedUntil = refused }
             }
+            if let models = member.limits?.models { limits[key]?.models = models }
             kept[member.id] = state
         }
         runtime = kept
@@ -89,6 +94,7 @@ actor PoolState {
         // what is held stays the size of what Graft describes.
         let named = Set(new.members.map { $0.account ?? $0.id })
         limits = limits.filter { named.contains($0.key) }
+        shut = shut.filter { named.contains($0.key) }
     }
 
     /// Which member a token belongs to. Every request carrying one counts as
@@ -127,7 +133,7 @@ actor PoolState {
     /// wrote (`PoolRequest.carriesBoundReasoning`), or continuing a thread
     /// stored there (`PoolRequest.continuesThread`).
     func plan(own: String, session: String?, pinned: Bool, bound: Bool = false,
-              now: Date = Date()) -> [Attempt] {
+              family: String? = nil, now: Date = Date()) -> [Attempt] {
         let asSent = [Attempt(member: own, token: nil)]
         guard let configuration, configuration.enabled, !pinned,
               let sender = configuration.members.first(where: { $0.id == own })
@@ -138,8 +144,10 @@ actor PoolState {
         let candidates = Self.candidates(for: sender, in: configuration.members, canLend: canLend)
         guard candidates.count > 1 else { return asSent }
         let accounts = candidates.map { member in
-            PoolPolicy.Account(id: member.id, limits: limits[member.account ?? member.id],
-                               usable: member.id == own || canLend(member))
+            let key = member.account ?? member.id
+            return PoolPolicy.Account(id: member.id, limits: limits[key],
+                                      usable: member.id == own || canLend(member),
+                                      shut: family.flatMap { shut[key]?[$0] }.map { $0 > now } ?? false)
         }
         // One account is one candidate whichever name it came under, so a
         // name the relay did not count stands for the one it did: a choice
@@ -150,68 +158,79 @@ actor PoolState {
             let account = configuration.members.first { $0.id == id }.map { $0.account ?? $0.id } ?? id
             return candidates.first { ($0.account ?? $0.id) == account }?.id
         }
-        var prefer: [String] = []
+        var chosen: String?
         var holder: String?
         if let session {
-            let held = conversations[session]
-            if let chosen = configuration.assignments?[session], let id = counted(chosen) {
-                prefer.append(id)
-            }
-            if let last = held?.servedBy,
-               bound || now.timeIntervalSince(held!.lastAt) < held!.cacheLifetime {
-                // Reasoning outlives the cache: it is lost on any other account
-                // however long the conversation sat. So it stays until its
-                // account has no room, and then stays wherever it went, which
-                // loses the reasoning once rather than on every move. A person
-                // moving it from the dropdown is that one move, made on purpose.
-                holder = counted(last)
-                if let holder { prefer.append(holder) }
-            }
+            chosen = configuration.assignments?[session].flatMap(counted)
+            // A conversation stays with the account that answered it until
+            // that account has no room, then stays wherever it went: its
+            // cache and its reasoning are lost once rather than on every
+            // move. A relay started since is told where by Graft.
+            holder = (conversations[session]?.servedBy ?? configuration.holders?[session]).flatMap(counted)
         }
-        // Nothing says where a conversation the relay has not seen wrote its
-        // reasoning — one from before the relay last started, one with no
-        // session, or one last answered by an account no longer lent — and
-        // the sender's own account is where it began.
-        if bound, holder == nil { prefer.append(own) }
-        var ids = PoolPolicy.order(own: own, accounts: accounts, prefer: prefer, now: now)
+        // Nothing says where a conversation nobody remembers wrote its
+        // reasoning, and the sender's own account is where it began.
+        let prefer = PoolPolicy.preferred(assigned: chosen, holder: holder, bound: bound, own: own)
+        var ids = PoolPolicy.order(own: own, accounts: accounts, prefer: prefer,
+                                   first: (configuration.first ?? []).compactMap(counted),
+                                   family: family, now: now)
         // The last word is always the sender's own account, asked again if it
         // was asked already: whatever the lent accounts answered last — a
         // refused login, a plan without the model, a limit with their own
         // reset times — is about a login Claude Code never sent.
+        let roomy = accounts.contains {
+            $0.id == own && !$0.shut && PoolPolicy.hasRoom($0.limits, family: family, now: now)
+        }
         if ids.last != own { ids.append(own) }
-        return ids.map { id in
-            id == own ? Attempt(member: own, token: nil)
+        return ids.enumerated().map { index, id in
+            id == own ? Attempt(member: own, token: nil, lastResort: !roomy && index == ids.count - 1)
                 : Attempt(member: id, token: candidates.first { $0.id == id }?.token)
         }
     }
 
     func observe(_ member: String, _ headers: [(String, String)], now: Date = Date()) {
-        guard let parsed = PoolLimits.parse(headers, now: now) else { return }
+        guard var parsed = PoolLimits.parse(headers, now: now) else { return }
+        // An answer's headers say nothing of the windows one model has.
+        parsed.models = limits[accountKey(member)]?.models
         limits[accountKey(member)] = parsed
     }
 
-    func apply(_ outcome: PoolPolicy.Outcome, to member: String, now: Date = Date()) {
+    /// How long a plan found without a model is taken to be without it.
+    static let refusalMemory: TimeInterval = 60 * 60
+
+    /// `family` is the model the request asked for, where what the account
+    /// said is about that model alone; nil leaves a refusal unremembered.
+    func apply(_ outcome: PoolPolicy.Outcome, to member: String, family: String? = nil,
+               token: String? = nil, now: Date = Date()) {
+        let key = accountKey(member)
         switch outcome {
-        case .deliver, .refusedForAccount:
+        case .deliver:
             break
+        case .refusedForAccount:
+            if let family { shut[key, default: [:]][family] = now.addingTimeInterval(Self.refusalMemory) }
+        case .modelExhausted(let until):
+            if let family { shut[key, default: [:]][family] = until }
         case .exhausted(let until):
-            let key = accountKey(member)
             var known = limits[key]
                 ?? PoolLimits(fiveHour: 0, fiveHourReset: nil, week: 0, weekReset: nil,
                               refusedUntil: nil, observed: now)
             known.refusedUntil = until
             limits[key] = known
         case .loginRefused:
-            runtime[member, default: Runtime()].refusedToken = lendingDigest[member]
+            // The token that was sent, which Graft may have replaced since.
+            runtime[member, default: Runtime()].refusedToken = token.map(UsagePool.digest) ?? lendingDigest[member]
         }
     }
 
     func served(by member: String, from own: String, session: String?, status: Int,
-                passedOver: [PoolPass], model: String?, cacheLifetime: TimeInterval,
-                threaded: Bool = false, starts: Bool = false, prompted: Bool = false,
+                passedOver: [PoolPass], model: String?, threaded: Bool = false,
+                starts: Bool = false, prompted: Bool = false, moves: Bool = true,
                 now: Date = Date()) {
         runtime[member, default: Runtime()].served += 1
         runtime[member, default: Runtime()].lastServed = now
+        if (200..<300).contains(status), let family = PoolRequest.family(of: model) {
+            shut[accountKey(member)]?[family] = nil
+        }
         if let session {
             var held = conversations[session]
                 ?? Conversation(from: own, lastAt: now, startedAt: starts ? now : nil)
@@ -222,10 +241,11 @@ actor PoolState {
                 held.lastAt = now
                 held.model = model ?? held.model
                 held.passedOver = passedOver
-                // A failed answer wrote no cache anywhere, so it moves nothing.
+                // A failed answer wrote no cache anywhere, so it moves nothing,
+                // and nor does one found elsewhere while its account was only
+                // out of reach.
                 if (200..<300).contains(status) {
-                    held.servedBy = member
-                    held.cacheLifetime = cacheLifetime
+                    if moves || held.servedBy == nil { held.servedBy = member }
                     held.threaded = held.threaded || threaded
                 }
             }
@@ -260,8 +280,6 @@ actor PoolState {
             .map { id, held in
                 PoolSession(id: id, from: held.from, servedBy: held.servedBy, lastAt: held.lastAt,
                             requests: held.requests, model: held.model,
-                            cachedUntil: held.servedBy == nil ? nil
-                                : held.lastAt.addingTimeInterval(held.cacheLifetime),
                             passedOver: held.passedOver, startedAt: held.startedAt,
                             promptedAt: held.promptedAt)
             }

@@ -65,8 +65,11 @@ nobody ends keeps the fast timer running for good.
 
 `./test-relay.sh` builds the relay and drives it over loopback against a
 stand-in for the service: which account each request reached, lending per
-Claude, choices from the dropdown, the hold for as long as a cache lives, one
-account counted once, and one relay handing over to the next. The suite drives
+Claude, choices from the dropdown, a conversation staying with its account, an
+order somebody set, an account out of one model, twenty accounts at once, one
+account counted once, and one relay handing over to the next. A relay built for
+that run alone (`-D TESTING`) takes `--upstream-loopback-port`; the one that
+ships has no such flag and speaks to nothing but the service, over TLS. The suite drives
 the environment, the swap a launcher makes and every refusal over sealed files
 in a throwaway directory. The layout suite draws the pane and the dropdown's
 conversations from fixtures through `UsagePoolController.attach`, which hands

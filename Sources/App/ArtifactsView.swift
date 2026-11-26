@@ -222,17 +222,27 @@ struct AccountChip: View {
                 .accessibilityHidden(true)
             Menu {
                 if let email = account.email, email != name { Text(email) }
+                // Only an address in more than one: claude.ai sends a sign-in
+                // straight back, with no moment to say which was meant.
+                if let organizations = account.organizations, organizations.count > 1 {
+                    Picker("Organization", selection: Binding(
+                        get: { account.org ?? "" },
+                        set: { center.chooseOrganization($0, for: account.id) })) {
+                        ForEach(organizations) { Text($0.name).tag($0.id) }
+                    }
+                    .pickerStyle(.inline)
+                }
                 Button("Sign In Again…") { center.signInAgain(account.id) }
                 Divider()
                 Button("Sign Out", role: .destructive) { center.signOut(account.id) }
             } label: {
-                Text(name).lineLimit(1)
+                Text([name, account.organizationName].compactMap { $0 }.joined(separator: " · ")).lineLimit(1)
             }
             .menuStyle(.borderlessButton)
             .fixedSize()
             .help(help(state))
             .accessibilityLabel(name)
-            .accessibilityValue(help(state))
+            .accessibilityValue([account.organizationName, help(state)].compactMap { $0 }.joined(separator: ", "))
             .identified("\(scope).account.\(account.id.uuidString.prefix(8))")
         }
     }

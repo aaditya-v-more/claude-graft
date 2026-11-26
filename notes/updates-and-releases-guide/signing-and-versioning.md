@@ -66,6 +66,17 @@ on the site and in both READMEs names v2.2.0's setup instead of
 `windows/release-notes/<VERSION>.md` only while that version is untagged, since
 it failed every pull request after 2.2.1 for want of notes Windows never needed.
 
+**A version the Mac ships alone is listed in `windows/mac-only.txt`.** 2.2.1
+became one by accident and 2.3.0 is one on purpose: accounts, their order and
+automatic sessions are not on Windows yet. Without the list there was no way to
+say so. Windows Checks failed every pull request for want of notes, and with
+notes the tag would have built and attached a Windows setup. A listed version
+needs no `windows/release-notes/<VERSION>.md` and must not have one,
+`windows-release.yml` ends before its build, and `release.sh` says to wait for
+no Windows files. The Windows links stay pinned to the last release with a
+setup, as above, and what Windows has gained on main since goes out with the
+next version that is not on the list.
+
 The Mac's update feed and cask name their version explicitly, so a release
 that carries only Windows packages offers the Mac nothing, and Velopack passes
 over a release without `releases.win.json` in the same way.

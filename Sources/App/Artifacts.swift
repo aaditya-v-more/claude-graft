@@ -10,7 +10,25 @@ struct ArtifactAccount: Codable, Equatable, Identifiable {
     var id: UUID
     var email: String?
     var accountUuid: String?
+    /// The organization it is asked about: the first that can chat, until a
+    /// person picks another.
     var org: String?
+    /// Every organization it could be asked about. Nil in a record kept
+    /// before these were, which is read again.
+    var organizations: [ArtifactOrganization]? = nil
+
+    /// Named only where there is a choice: one organization is the account.
+    var organizationName: String? {
+        guard let organizations, organizations.count > 1 else { return nil }
+        return organizations.first { $0.id == org }?.name
+    }
+}
+
+/// An organization an account belongs to and can chat under. One address in
+/// two teams has two, each with its own artifacts, projects and chats.
+struct ArtifactOrganization: Codable, Equatable, Identifiable {
+    var id: String
+    var name: String
 }
 
 /// What a finished sign-in does to the list of accounts.
@@ -25,8 +43,10 @@ enum ArtifactAccounts {
     /// one this replaced.
     static func signedIn(_ accounts: [ArtifactAccount], store id: UUID,
                          as identity: ArtifactAPI.Identity) -> (accounts: [ArtifactAccount], retired: [UUID]) {
+        let earlier = accounts.first { $0.accountUuid == identity.accountUuid }?.org
         let record = ArtifactAccount(id: id, email: identity.email, accountUuid: identity.accountUuid,
-                                     org: identity.org)
+                                     org: organization(chosen: earlier, among: identity),
+                                     organizations: identity.organizations)
         let retired = accounts.filter { $0.accountUuid == identity.accountUuid && $0.id != id }.map(\.id)
         let replaced = Set(retired + [id])
         var list = accounts.filter { !replaced.contains($0.id) }
@@ -37,6 +57,23 @@ enum ArtifactAccounts {
             list.append(record)
         }
         return (list, retired)
+    }
+
+    /// A choice made earlier holds for as long as the account still belongs
+    /// there: signing in again is not asking to be moved back.
+    static func organization(chosen: String?, among identity: ArtifactAPI.Identity) -> String {
+        guard let chosen, identity.organizations.contains(where: { $0.id == chosen }) else { return identity.org }
+        return chosen
+    }
+
+    /// The list with one account asked about under `org` from now on. Nil
+    /// when that changes nothing, or names somewhere the account is not in.
+    static func choosing(_ org: String, for id: UUID, in accounts: [ArtifactAccount]) -> [ArtifactAccount]? {
+        guard let index = accounts.firstIndex(where: { $0.id == id }), accounts[index].org != org,
+              accounts[index].organizations?.contains(where: { $0.id == org }) == true else { return nil }
+        var list = accounts
+        list[index].org = org
+        return list
     }
 }
 
@@ -305,22 +342,27 @@ enum ArtifactAPI {
         var accountUuid: String
         var email: String
         var org: String
+        /// Every organization that can chat, `org` first among them.
+        var organizations: [ArtifactOrganization] = []
     }
 
-    /// The organization artifacts live under is the one that can chat; an
-    /// account in a team as well as on its own plan belongs to both, and the
-    /// first membership listed is not reliably either.
+    /// Every organization that can chat is kept, since the first membership
+    /// listed is not reliably the one artifacts live under; see notes/artifacts-guide/.
     static func identity(from data: Data) -> Identity? {
         guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let uuid = object["uuid"] as? String,
               let email = object["email_address"] as? String,
               let memberships = object["memberships"] as? [[String: Any]] else { return nil }
         let organizations = memberships.compactMap { $0["organization"] as? [String: Any] }
-        let chat = organizations.first {
-            (($0["capabilities"] as? [String]) ?? []).contains("chat")
-        } ?? organizations.first
-        guard let org = chat?["uuid"] as? String else { return nil }
-        return Identity(accountUuid: uuid, email: email, org: org)
+        let chatting = organizations.filter { (($0["capabilities"] as? [String]) ?? []).contains("chat") }
+        let offered = (chatting.isEmpty ? Array(organizations.prefix(1)) : chatting).enumerated()
+            .compactMap { place, organization -> ArtifactOrganization? in
+                guard let id = organization["uuid"] as? String else { return nil }
+                let name = (organization["name"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+                return ArtifactOrganization(id: id, name: name ?? L10n.format("Organization %ld", place + 1))
+            }
+        guard let org = offered.first?.id else { return nil }
+        return Identity(accountUuid: uuid, email: email, org: org, organizations: offered)
     }
 
     static func page(from data: Data, account: UUID, org: String) -> (artifacts: [Artifact], next: String?)? {

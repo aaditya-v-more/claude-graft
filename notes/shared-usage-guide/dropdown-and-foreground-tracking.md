@@ -19,6 +19,23 @@ the dropdown are not lost with it, since Graft keeps them in
 `usage-sharing.json` and configures the new relay with them. Handing the list
 over was weighed and left: it is lost once per update, for one message.
 
+**The figure in the bar is the answering account's.** It used to be the Claude
+in front's own, whoever answered, and with no Claude named the tightest window
+among the Claudes alone. So a Claude drawing on an account signed in through
+Graft showed its own untouched figure while that account ran down unseen, and
+such an account never reached the bar at all, only its tooltip. Now, beside a
+Claude in front, the figure belongs to the account answering the conversation
+on its screen — the one the strip lights, found among that Claude's own names
+for its accounts by `UsagePoolController.answering`, since the relay may know
+an account by another name — and it is that Claude's own until something says
+who answers. With no Claude named, accounts signed in here are weighed beside
+the Claudes (`accountsWeighed`). A Claude is open while it runs; an account
+with no Claude is open while it answers a conversation heard from in the last
+half hour, in a Claude that is running (`spent`), so one sitting full and
+answering nothing does not shout over the account in use. The spoken title says
+the Claude's name before a figure that is another account's, and the tooltip
+names an account that is also a Claude here once.
+
 **Which Claude is in front is `FrontmostClaude`'s answer,** the one the status
 item draws. Matching a Claude to its profile costs a `ps`, and the list used to
 run its own on every activation beside the one the status item was already
@@ -130,23 +147,49 @@ on the Mac Mini, with the icons in front, found still text a pixel above the
 same text moving: the icons make the line taller than the text, the title rect
 then starts on a half point, and AppKit rounds that half point the other way.
 Fitting a rounding rule to nine title shapes still left one wrong, so the rule
-was dropped. `Picture.place` instead draws the button once into a picture,
-`cacheDisplay`, with the blank filled in magenta, and lays the strip where the
-first row the magenta fills across the whole width begins. Nothing else in a
-title is 150 points wide, and that drawing leaves out the strip, a layer of its
-own. Over the same nine shapes in the bar, each moving title then started on
-the row the still one did. The blank is kept out of the image cache
-(`cacheMode = .never`) so it can draw marked, and still text with it so the two
-are drawn the same way; the button draws either only when it draws itself,
-which is not on any tick. Its handler calls `place` a turn of the
-run loop later, so the drawing uses the geometry the title was drawn in. A
-title, size and scale it has already placed for is not drawn again, and a title
-no longer ending in that blank hides the strip. Captured from the bar, the
+was dropped. `Picture.place` instead draws the title once into a picture with
+the blank filled in magenta, and lays the strip where the first row the magenta
+fills across the whole width begins. Nothing else in a title is 150 points
+wide. Over the same nine shapes in the bar, each moving title then started on
+the row the still one did.
+
+**The mark is never given to the button itself.** Up to 2.2.1 the blank in the
+real title drew itself magenta for the length of a `cacheDisplay` of the real
+button. On macOS 27 that call renders the button's layer, and a layer waiting
+to be drawn is drawn for the screen first, inside the call, mark and all
+(`-[NSViewBackingLayer display]` under `renderInContext:`, read off the stack):
+a block of magenta stayed on the bar behind the moving text until something
+next changed the title. All it took was a title set again between a drawing
+and the look that follows it, which any pass can do. Now a copy of the
+button's cell is given a copy of the title whose last picture is a solid one,
+and draws it into a bitmap of Graft's own, so nothing attached to the bar can
+draw the mark whatever AppKit chooses to draw, and when. On 26 November 2026,
+on a status item on the development machine (macOS 27.2.1, both displays 1x),
+the copy found the same corner as the real button drawn marked on twelve title
+shapes, at one, two and three times scale, the larger two drawn into a picture
+and not shown. Copying the cell can ask the button to draw once more, and the
+look after that drawing finds the strip already placed. A plain button, as the
+suite builds one, rounds a centred title to whole pixels when it draws itself
+and the copy does not, so there the column can be a point out and the check
+allows it; the row, which is what the icons once threw off, agreed everywhere.
+A twin button drawn by AppKit in a window of its own matched the plain button
+and stood a point low for the status item, whose button the bar itself places.
+Older systems have not been looked at.
+
+The blank is kept out of the image cache (`cacheMode = .never`) so each drawing
+of the button is heard of, and still text with it so the two are drawn the same
+way; the button draws either only when it draws itself, which is not on any
+tick. Its handler calls `place` a turn of the run loop later, so the measuring
+uses the geometry the title was drawn in. A title of the same pieces, size and
+scale it has already placed for is not measured again. The title is built anew
+on every pass, so it is compared by its words, its fonts and the sizes of its
+pictures rather than as an object, which never matched and had every pass
+measure again. A title no longer ending in that blank hides the strip. Captured from the bar, the
 strip and the old picture differed by at most 19 of 255 in any channel, all on
 the text's edges, which is the blending of a separate layer. The fourth run on the Mac Mini
 saw still and moving text begin on the same row and column as 2.0.1's. Only 1x
-has been measured. At 2x the drawing is in the button's own pixels, so the same
-reading holds, unchecked.
+has been measured on a screen. At 2x the picture is in the button's own pixels,
+so the same reading holds, unchecked on glass.
 
 The walk dates each
 record with one `lstat` on a string path (`Graft.modificationDate(atPath:)`),

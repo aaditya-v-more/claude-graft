@@ -18,6 +18,8 @@ final class Relay {
         var upstream = Upstream.service
         /// How often the relay looks for its own file. A test shortens it.
         var removalCheck: TimeInterval = 60
+        /// Where Claude's own programs live; a test names its own parent.
+        var claude: String?
     }
 
     private let options: Options
@@ -245,9 +247,10 @@ final class Relay {
         }
     }
 
-    /// A CONNECT for the service is opened; every other is passed through
-    /// untouched, and so is an `http://` request in absolute form, for a
-    /// client that sends everything to the one proxy it was given.
+    /// A CONNECT for the service is opened when Claude Code made it; every
+    /// other is passed through untouched, and so is an `http://` request in
+    /// absolute form, for a client that sends everything to the one proxy it
+    /// was given.
     private func tunnel(_ connection: NWConnection) async {
         let client = Wire(connection, label: "relay.front")
         do {
@@ -262,8 +265,9 @@ final class Relay {
                     client.close()
                     return
                 }
-                let intercept = host.lowercased() == UsagePool.host && port == 443
-                guard let far = await reach(intercept ? nil : (host, port)) else {
+                let ours = host.lowercased() == UsagePool.host && port == 443
+                let intercept = ours && trusts(connection)
+                guard let far = await reach(intercept ? nil : (host, port), service: ours) else {
                     try? await client.send(HTTPMessage.failure(502, "Bad Gateway", "The relay could not reach \(host)."))
                     client.close()
                     return
@@ -287,12 +291,26 @@ final class Relay {
         }
     }
 
+    /// A curl or a Python client run from inside a session has the proxy and
+    /// not the authority, so what Claude Code started is left unopened.
+    private func trusts(_ connection: NWConnection) -> Bool {
+        guard case .hostPort(_, let port) = connection.endpoint else { return true }
+        let claude = options.claude ?? Graft.claudeApp.path + "/Contents/"
+        let programs = PoolPeer.holders(local: port.rawValue, remote: options.port)
+            .filter { $0 != getpid() }.map(PoolPeer.lineage(of:))
+        guard let first = programs.first,
+              !programs.contains(where: { PoolPeer.isOpened($0) { $0.hasPrefix(claude) } }) else { return true }
+        Diagnostics.note("relay left unopened", ["program": first.first.map { ($0 as NSString).lastPathComponent } ?? "?"])
+        return false
+    }
+
     /// Nil asks for the listener that takes the service's TLS apart.
-    private func reach(_ target: (String, UInt16)?) async -> Wire? {
+    private func reach(_ target: (String, UInt16)?, service: Bool = false) async -> Wire? {
         let connection: NWConnection
         if let (host, port) = target {
+            let (host, port) = destination(host, port, service: service)
             guard let port = NWEndpoint.Port(rawValue: port) else { return nil }
-            connection = NWConnection(host: NWEndpoint.Host(host), port: port, using: .tcp)
+            connection = NWConnection(host: host, port: port, using: .tcp)
         } else {
             guard let innerPort else { return nil }
             connection = NWConnection(host: .ipv4(.loopback), port: innerPort, using: .tcp)
@@ -304,6 +322,14 @@ final class Relay {
         } catch {
             return nil
         }
+    }
+
+    /// A test's stand-in for the service is on loopback, opened or not.
+    private func destination(_ host: String, _ port: UInt16, service: Bool) -> (NWEndpoint.Host, UInt16) {
+        #if TESTING
+        if service, case .loopback(let stand) = options.upstream { return (.ipv4(.loopback), stand) }
+        #endif
+        return (NWEndpoint.Host(host), port)
     }
 
     static func authority(_ target: String) -> (String, UInt16)? {
@@ -377,8 +403,12 @@ while let argument = arguments.next() {
         // Relative on purpose for a test: a socket path longer than 103 bytes
         // cannot be bound, and a scratch directory easily runs to that.
         if let path = arguments.next() { options.socket = path }
+    #if TESTING
     case "--upstream-loopback-port":
         if let value = arguments.next().flatMap(UInt16.init) { options.upstream = .loopback(value) }
+    case "--claude":
+        options.claude = arguments.next()
+    #endif
     case "--removal-check":
         if let value = arguments.next().flatMap(TimeInterval.init), value > 0 { options.removalCheck = value }
     default:

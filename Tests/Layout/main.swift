@@ -111,6 +111,8 @@ func readFromOutside(_ window: NSWindow) -> [String: String] {
 struct Seen {
     var role = "", subrole = "", label = "", title = "", titledBy = "", value = "", identifier = ""
     var frame = CGRect.zero
+    /// Whether it can be pressed without a pointer.
+    var pressable = false
     /// What VoiceOver says the element is. A control in a grouped form has
     /// none of its own: AppKit links it to the label drawn beside it instead,
     /// and VoiceOver reads that.
@@ -161,13 +163,16 @@ func seen(_ window: NSWindow) -> [Seen]? {
             let titledBy = attribute(element, kAXTitleUIElementAttribute)
                 .flatMap { CFGetTypeID($0) == AXUIElementGetTypeID() ? ($0 as! AXUIElement) : nil }
                 .map { text($0, kAXValueAttribute) } ?? ""
-            let here = Seen(role: role, subrole: text(element, kAXSubroleAttribute),
+            var actions: CFArray?
+            AXUIElementCopyActionNames(element, &actions)
+            var here = Seen(role: role, subrole: text(element, kAXSubroleAttribute),
                             label: text(element, kAXDescriptionAttribute),
                             title: text(element, kAXTitleAttribute),
                             titledBy: titledBy,
                             value: described.isEmpty ? text(element, kAXValueAttribute) : described,
                             identifier: text(element, "AXIdentifier"),
                             frame: frame(element))
+            here.pressable = (actions as? [String])?.contains(kAXPressAction) == true
             return [here] + ((attribute(element, kAXChildrenAttribute) as? [AXUIElement]) ?? []).flatMap(walk)
         }
         let windows = (attribute(app, kAXWindowsAttribute) as? [AXUIElement]) ?? []
@@ -286,7 +291,10 @@ let pageFigures = [Graft.mainProfile, shortcut.profileDir].map { profile in
 
 func sampleArtifacts() -> (ArtifactCenter, [Artifact]) {
     MainActor.assumeIsolated {
-        let first = ArtifactAccount(id: UUID(), email: "me@example.com", accountUuid: "a1", org: "o1")
+        // One address in two teams, which is the widest a chip gets.
+        let first = ArtifactAccount(id: UUID(), email: "me@example.com", accountUuid: "a1", org: "o1",
+                                    organizations: [ArtifactOrganization(id: "o1", name: "Team A"),
+                                                    ArtifactOrganization(id: "o3", name: "Team B")])
         let second = ArtifactAccount(id: UUID(), email: "lent@example.com", accountUuid: "a2", org: "o2")
         func artifact(_ id: String, _ title: String, _ account: ArtifactAccount, _ audience: String,
                       _ rel: String) -> Artifact {
@@ -317,6 +325,16 @@ let pages = [
     Page(name: "artifacts", selection: ContentView.artifactsID, profile: nil),
     Page(name: "projects", selection: ContentView.projectsID, profile: nil),
     Page(name: "search", selection: ContentView.searchID, profile: nil),
+    Page(name: "accounts", selection: ContentView.accountsID, profile: nil),
+]
+// The account signed in here, with figures of its own, as one the usage
+// endpoint answers for has them.
+let accountFigures = [
+    UsageMonitor.Entry(name: "", profile: UsageMonitor.Entry.noProfile,
+                       usage: Graft.Usage(fiveHour: 41, week: 63, organization: nil, sampled: taken,
+                                          fiveHourReset: taken.addingTimeInterval(4 * 3600),
+                                          weekReset: taken.addingTimeInterval(4 * 86400)),
+                       isRunning: false, isLive: true, plan: "Max", refreshed: taken, account: lentAccount.id),
 ]
 let (pageArtifacts, artifactSamples) = sampleArtifacts()
 
@@ -399,11 +417,11 @@ for page in pages {
         check(dropdownHeader <= (state.hasPrefix("current") ? 32 : 52),
               "\(state): the dropdown's update line takes \(state.hasPrefix("current") ? "one line" : "two at most")")
         for size in [NSSize(width: 820, height: 560), NSSize(width: 1200, height: 800)] {
-            Shared.usage.setEntriesForTesting(pageFigures)
+            Shared.usage.setEntriesForTesting(pageFigures, accounts: accountFigures)
             window.setContentSize(size)
             settle()
             if Shared.usage.entry(for: Graft.mainProfile)?.usage == nil {
-                Shared.usage.setEntriesForTesting(pageFigures)
+                Shared.usage.setEntriesForTesting(pageFigures, accounts: accountFigures)
                 settle()
             }
             hosting.layoutSubtreeIfNeeded()
@@ -452,16 +470,27 @@ for page in pages {
                         check(element(scope + "lender.lent-account.remove", in: tree)?.name
                                 == L10n.format("Stop drawing on %@", "lent@example.com"),
                               "\(place): an account signed in here is named by its email")
+                        let lentFigures = element(scope + "lender.lent-account.usage", in: tree)
+                            .map { $0.name + $0.value } ?? ""
+                        check(lentFigures.contains(L10n.format("Week %ld%%", 63)) && lentFigures.contains("("),
+                              "\(place): an account signed in here shows what it has used and when that starts again (\(lentFigures))")
                     }
                 }
-                if page.profile == nil {
+                let accountsRow = element("\(ControlSurface.window).sidebar.accounts", in: tree)
+                let claudeRow = element("\(ControlSurface.window).sidebar.Claude", in: tree)
+                check(accountsRow != nil, "\(place): the sidebar leads to the accounts")
+                check((accountsRow?.frame.height ?? 99) < (claudeRow?.frame.height ?? 0),
+                      "\(place): a page for every account takes one line in the sidebar, where a Claude takes two")
+                if page.profile == nil, page.selection != ContentView.accountsID {
                     // One sign-in for all three: each page heads itself with
                     // the same accounts, each offering to sign in again or out.
                     let scope = page.selection == ContentView.projectsID ? "projects"
                         : page.selection == ContentView.searchID ? "search" : "artifacts"
                     for account in MainActor.assumeIsolated({ pageArtifacts.accounts }) {
-                        check(element("window.\(scope).account.\(account.id.uuidString.prefix(8))", in: tree) != nil,
-                              "\(place): \(account.email ?? "") is shown as signed in here too")
+                        let chip = element("window.\(scope).account.\(account.id.uuidString.prefix(8))", in: tree)
+                        check(chip != nil, "\(place): \(account.email ?? "") is shown as signed in here too")
+                        check(chip?.value.contains("Team A") == (account.organizations != nil),
+                              "\(place): only an account in several organizations says which one it is showing")
                     }
                 }
                 if page.selection == ContentView.projectsID {
@@ -491,6 +520,40 @@ for page in pages {
                           "\(place): a session gone from claude.ai offers Finder, not a dead link")
                     check(element("window.hit.3333333", in: tree)?.value.contains(L10n.text("On this Mac")) == true,
                           "\(place): a Code session says where it ran")
+                } else if page.selection == ContentView.accountsID {
+                    let scope = "\(ControlSurface.window).lent-account."
+                    check(element(scope + "name", in: tree)?.name == L10n.text("Name"),
+                          "\(place): an account's name can be asked for by name")
+                    check(element(scope + "colour", in: tree)?.name == L10n.text("Account colour"),
+                          "\(place): its colour is read out as its colour, not as a picture")
+                    check(element(scope + "sign-in-again", in: tree)?.name
+                            == L10n.format("Sign in to %@ again", "lent@example.com"),
+                          "\(place): signing in again says which account")
+                    check(element(scope + "remove", in: tree)?.name == L10n.format("Remove %@", "lent@example.com"),
+                          "\(place): removing says which account, not “Remove…”")
+                    check(element(scope + "details", in: tree).map { ($0.name + $0.value).contains("Claude 2") } == true,
+                          "\(place): an account says which Claudes draw on it")
+                    check(element(scope + "start-session", in: tree) == nil,
+                          "\(place): no session is offered on a login nobody has looked at yet")
+                    check(element("window.order.mode", in: tree)?.name == L10n.text("Order of use"),
+                          "\(place): how the order is decided can be asked for by name")
+                    for (profile, name) in [("Claude", "Claude"), ("Claude-2", "Claude 2"), ("lent-account", "lent@example.com")] {
+                        check(element("window.\(profile).auto-session", in: tree)?.name
+                                == L10n.format("Start sessions automatically for %@", name),
+                              "\(place): the switch that starts \(name)'s sessions says whose they are")
+                        let toggle = element("window.\(profile).auto-session", in: tree)
+                        check(toggle?.role == kAXCheckBoxRole && toggle?.pressable == true
+                                && ["0", "1"].contains(toggle?.value ?? ""),
+                              "\(place): and says whether it is on, and turns without a pointer \(toggle?.described ?? "missing") “\(toggle?.value ?? "")”")
+                        let move = element("window.\(profile).order.move", in: tree)
+                        check(move?.name == L10n.format("Move %@", name),
+                              "\(place): moving \(name) in the order says which account moves \(move?.described ?? "missing")")
+                    }
+                    check(element("window.Claude-3.auto-session", in: tree) == nil,
+                          "\(place): a shortcut not created yet has no sessions to start")
+                    check(element(scope + "week", in: tree)?.role == kAXProgressIndicatorRole
+                            && element(scope + "five-hour", in: tree)?.role == kAXProgressIndicatorRole,
+                          "\(place): an account's figures are drawn as a Claude's are")
                 } else if page.selection == ContentView.artifactsID {
                     for control in ["refresh", "add-account", "filter", "search", "groups"] {
                         check(element("window.artifacts.\(control)", in: tree) != nil,
@@ -573,6 +636,13 @@ for page in pages {
             // fit goes behind an ⓘ, never below the bottom edge or under the
             // toolbar. A horizontal strip of account chips is not a page.
             let sidebarScroll = sidebarList?.enclosingScrollView
+            // Laid over the list, the foot let a list long enough to scroll
+            // show through the update line and the links.
+            if let sidebarScroll {
+                let list = hosting.convert(sidebarScroll.bounds, from: sidebarScroll)
+                check(list.maxY <= hosting.bounds.maxY - sidebarLine + 1,
+                      "\(place): the sidebar's list ends where its foot begins, not under it (\(Int(hosting.bounds.maxY - list.maxY)) points clear)")
+            }
             let pageScrolls = views.compactMap { $0 as? NSScrollView }.filter {
                 $0 !== sidebarScroll && !$0.isHiddenOrHasHiddenAncestor && $0.bounds.height > 40
             }
@@ -632,6 +702,10 @@ for control in ["open-at-login", "show-in-menu-bar", "front-icon", "front-name",
                 "claude-update.check"] {
     check(element("dropdown.\(control)", in: dropdownTree) != nil, "the dropdown's \(control) can be asked for by name")
 }
+check(element("dropdown.lent-account.account", in: dropdownTree)?.name == "lent@example.com",
+      "an account signed in here has a row of its own in the dropdown, under its name")
+check(element("dropdown.lent-account.start-session", in: dropdownTree) == nil,
+      "which offers no session on a login nobody has looked at")
 dropdown.orderOut(nil)
 
 // Someone with seven accounts found the dropdown running off the bottom of
@@ -723,6 +797,13 @@ check(account?.name == "Claude 2"
 check(element("dropdown.\(Graft.mainProfile.lastPathComponent).account", in: rowTree)?.value
         == "Max, \(L10n.text("Running"))",
       "a running Claude's heading says so")
+check(element(second + "auto-session", in: rowTree)?.name
+        == L10n.format("Start sessions automatically for %@", "Claude 2"),
+      "each account's Auto-start says whose sessions it starts")
+check(element(second + "auto-session", in: rowTree)?.pressable == true,
+      "and turns without a pointer")
+check(element(third + "auto-session", in: rowTree) == nil,
+      "and an account with no five-hour window has none to start")
 rows.orderOut(nil)
 
 // Drawn from figures, since in here no relay has carried a conversation.
@@ -1360,6 +1441,115 @@ do {
         try? fm.removeItem(at: adopted)
     }
     Shared.store.shortcuts = saved
+}
+
+// MARK: - Twenty Claudes
+
+// Somebody with twenty accounts gets the same window and the same dropdown:
+// lists that scroll where they stand, and nothing pushed off an edge.
+do {
+    let saved = Shared.store.shortcuts
+    let many: [Shortcut] = (2...20).map { number in
+        var one = Shortcut(name: "Claude \(number)", source: .own)
+        one.installedName = one.name
+        return one
+    }
+    Shared.store.shortcuts = many
+    func figures(_ name: String, _ profile: URL, _ id: UUID?, _ index: Int) -> UsageMonitor.Entry {
+        UsageMonitor.Entry(name: name, profile: profile,
+                           usage: Graft.Usage(fiveHour: (index * 7) % 100, week: (index * 13) % 100,
+                                              organization: nil, sampled: taken,
+                                              fiveHourReset: taken.addingTimeInterval(Double(index + 1) * 600),
+                                              weekReset: taken.addingTimeInterval(Double(index + 1) * 7200),
+                                              fable: index % 3 == 0 ? 50 : nil,
+                                              fableReset: taken.addingTimeInterval(4 * 86400)),
+                           isRunning: index % 4 == 0, shortcut: id, isLive: true, plan: "Max", refreshed: taken)
+    }
+    let crowd = [figures("Claude", Graft.mainProfile, nil, 0)]
+        + many.enumerated().map { figures($1.name, $1.profileDir, $1.id, $0 + 1) }
+    Shared.usage.setEntriesForTesting(crowd, accounts: accountFigures)
+
+    let root = ContentView(selection: ContentView.accountsID, artifacts: pageArtifacts, projects: pageProjects)
+        .environmentObject(Shared.store)
+        .environmentObject(Shared.settings)
+        .environmentObject(Shared.usage)
+    let controller = NSHostingController(rootView: root)
+    controller.sizingOptions = []
+    if #available(macOS 14, *) { controller.sceneBridgingOptions = .all }
+    let window = LayoutWindow(contentRect: NSRect(x: 100, y: 100, width: 820, height: 560),
+                              styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+                              backing: .buffered, defer: false)
+    window.contentViewController = controller
+    window.setContentSize(NSSize(width: 820, height: 560))
+    window.title = "Claude Graft"
+    window.setFrameOrigin(NSPoint(x: -10000, y: -10000))
+    window.orderBack(nil)
+    settle()
+    Shared.usage.setEntriesForTesting(crowd, accounts: accountFigures)
+    settle()
+    let hosting = controller.view
+    hosting.layoutSubtreeIfNeeded()
+    let place = "twenty Claudes, the accounts page"
+    let tree = checkAccessibility(window, surface: ControlSurface.window, place)
+    let switches = tree.filter { $0.identifier.hasSuffix(".auto-session") }
+    let moves = tree.filter { $0.identifier.hasSuffix(".order.move") }
+    check(switches.count == 21 && moves.count == 21,
+          "\(place): each of them and the account signed in has its Auto-start and its place (\(switches.count), \(moves.count))")
+    let names = tree.filter { $0.identifier.hasSuffix(".order.name") }
+    check(names.count == 21 && names.allSatisfy { $0.frame.width >= 40 },
+          "\(place): every one is still named in its row")
+    let frame = tree.first { $0.role == kAXWindowRole }?.frame ?? .zero
+    let controls = tree.filter { controlRoles.contains($0.role) && $0.identifier.hasPrefix("window.") && $0.frame.width > 0 }
+    check(!frame.isEmpty && controls.allSatisfy { $0.frame.minX >= frame.minX - 1 && $0.frame.maxX <= frame.maxX + 1 },
+          "\(place): no control is pushed off the side of the window")
+    let views = descendants(hosting)
+    let split = views.compactMap { $0 as? NSSplitView }.first!
+    let splitBounds = hosting.convert(split.bounds, from: split)
+    check(splitBounds.minX >= -1 && splitBounds.maxX <= hosting.bounds.maxX + 1,
+          "\(place): the page keeps to the window's width")
+    let sidebarList = split.arrangedSubviews.first.map(descendants)?.compactMap { $0 as? NSOutlineView }.first
+    check(sidebarList.map { $0.numberOfRows >= 26 } == true,
+          "\(place): the sidebar lists all twenty and the four pages under them")
+    let foot = NSHostingController(rootView: ClaudeUpdateStatus(stacked: true))
+        .sizeThatFits(in: CGSize(width: 220, height: 1000)).height
+    if let scroll = sidebarList?.enclosingScrollView {
+        let list = hosting.convert(scroll.bounds, from: scroll)
+        check(list.maxY <= hosting.bounds.maxY - foot + 1 && (scroll.documentView?.frame.height ?? 0) > list.height,
+              "\(place): the sidebar scrolls above its foot rather than running under it")
+    }
+    for name in ["support", "source", "claude-update.check"] {
+        let rect = element("window.\(name)", in: tree)?.frame ?? .zero
+        check(!rect.isEmpty && frame.contains(rect), "\(place): the sidebar's \(name) is still in the window")
+    }
+    if let directory = ProcessInfo.processInfo.environment["GRAFT_LAYOUT_WINDOWS"] {
+        capture(window, as: "\(Bundle.main.preferredLocalizations.first ?? "en")-accounts-twenty", in: directory)
+    }
+    window.orderOut(nil)
+
+    let menu = hosted(MenuBarContent(openMainWindow: {}, maxHeight: 700)
+        .environmentObject(Shared.store)
+        .environmentObject(Shared.settings)
+        .environmentObject(Shared.usage), title: "Twenty accounts dropdown")
+    // Opening the dropdown starts a pass, which in here finds no login.
+    for _ in 0..<6 {
+        settle()
+        if Shared.usage.entries.count == crowd.count, Shared.usage.entries.allSatisfy({ $0.usage != nil }) { break }
+        Shared.usage.setEntriesForTesting(crowd, accounts: accountFigures)
+    }
+    settle()
+    let height = menu.contentView?.fittingSize.height ?? 0
+    check(height > 300 && height <= 700, "the dropdown with twenty Claudes stays within the screen (\(Int(height)))")
+    let menuTree = checkAccessibility(menu, surface: ControlSurface.dropdown, "the dropdown with twenty Claudes")
+    check(element("dropdown.quit", in: menuTree) != nil && element("dropdown.open-at-login", in: menuTree) != nil,
+          "and its switches and Quit are still under the list")
+    check(menuTree.filter { $0.identifier.hasSuffix(".auto-session") }.count == 21,
+          "with an Auto-start for every account in it")
+    if let directory = ProcessInfo.processInfo.environment["GRAFT_LAYOUT_WINDOWS"] {
+        capture(menu, as: "\(Bundle.main.preferredLocalizations.first ?? "en")-dropdown-twenty", in: directory)
+    }
+    menu.orderOut(nil)
+    Shared.store.shortcuts = saved
+    Shared.usage.setEntriesForTesting(pageFigures, accounts: accountFigures)
 }
 
 print("\(checks - failures)/\(checks) layout checks passed (\(Bundle.main.preferredLocalizations.joined(separator: ",")))")

@@ -13,7 +13,24 @@ permissions:
   contents: write
 
 jobs:
+  # A version listed in windows/mac-only.txt gets no Windows packages.
+  ships:
+    runs-on: ubuntu-latest
+    outputs:
+      windows: ${{ steps.listed.outputs.windows }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: listed
+        run: |
+          if grep -qxF "${GITHUB_REF_NAME#v}" windows/mac-only.txt; then
+            echo "$GITHUB_REF_NAME ships on the Mac alone"; echo "windows=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "windows=true" >> "$GITHUB_OUTPUT"
+          fi
+
   build:
+    needs: ships
+    if: needs.ships.outputs.windows == 'true'
     runs-on: windows-latest
 
     steps:

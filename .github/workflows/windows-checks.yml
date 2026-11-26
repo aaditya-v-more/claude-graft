@@ -25,12 +25,15 @@ jobs:
       - uses: actions/checkout@v4
 
       # The release workflow refuses a tag without them, which is late to learn it.
-      # A version already tagged is past that, and one the Mac shipped alone, as
-      # 2.2.1 was, has none.
+      # A version the Mac ships alone is listed in windows/mac-only.txt and has none.
       - name: Release notes for this version
         shell: bash
         run: |
           v="$(tr -d '[:space:]' < VERSION)"
+          if grep -qxF "$v" windows/mac-only.txt; then
+            [ ! -f "windows/release-notes/$v.md" ] || { echo "$v is listed as Mac only and has Windows notes"; exit 1; }
+            echo "$v ships on the Mac alone"; exit 0
+          fi
           if git ls-remote --exit-code --tags origin "refs/tags/v$v" >/dev/null; then
             echo "v$v is already tagged"; exit 0
           fi

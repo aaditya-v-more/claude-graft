@@ -10,6 +10,11 @@ struct UsageSharing: Codable, Equatable {
     var lenders: [String: [String]] = [:]
     /// Conversations moved to an account by hand, by session.
     var assignments: [String: Assignment] = [:]
+    /// Where each conversation was last answered, for a relay that starts
+    /// again. Optional, so a file from before it was kept still reads.
+    var holders: [String: Assignment]? = nil
+    /// The accounts to use up first, first one first; nil goes by the resets.
+    var first: [String]? = nil
 
     struct Assignment: Codable, Equatable {
         var to: String
@@ -26,6 +31,8 @@ struct PoolAccount: Codable, Equatable, Identifiable {
     var accountUuid: String?
     var email: String?
     var organizationName: String?
+    /// Nil on an account signed in before organizations were told apart.
+    var organizationUuid: String? = nil
     var scopes: [String]
     var expires: Date
     var added: Date
@@ -33,6 +40,48 @@ struct PoolAccount: Codable, Equatable, Identifiable {
     /// Its colour in Graft, given when it was added. One that is also a
     /// Claude here shows that Claude's colour instead: see `preset(of:)`.
     var iconPreset: Shortcut.IconPreset? = nil
+    /// What a person called it; nil goes by its address.
+    var name: String? = nil
+
+    var allowance: Allowance? {
+        accountUuid.map { Allowance(account: $0, organization: organizationUuid) }
+    }
+
+    /// Two organizations of one login would read as the same line, so each
+    /// then says which it is.
+    func title(among others: [PoolAccount]) -> String? {
+        guard name == nil, let email, let organizationName,
+              others.contains(where: { $0.id != id && $0.name == nil && $0.email == email })
+        else { return name ?? email }
+        return email + " · " + organizationName
+    }
+}
+
+/// A login and the organization it was made in. One login can sit in two
+/// organizations, and each has an allowance of its own.
+struct Allowance: Equatable {
+    var account: String
+    var organization: String?
+
+    /// An organization nobody has seen is taken for the other's.
+    func isSame(as other: Allowance) -> Bool {
+        account == other.account
+            && (organization == nil || other.organization == nil || organization == other.organization)
+    }
+
+    /// What each goes by wherever accounts are counted: the login alone,
+    /// until two organizations are seen under it.
+    static func names(_ known: [String: Allowance]) -> [String: String] {
+        var seen: [String: Set<String>] = [:]
+        for one in known.values {
+            if let organization = one.organization { seen[one.account, default: []].insert(organization) }
+        }
+        return known.mapValues { one in
+            guard let organization = one.organization, (seen[one.account]?.count ?? 0) > 1
+            else { return one.account }
+            return one.account + "/" + organization
+        }
+    }
 }
 
 /// Keeps the relay running while any Claude draws on another account, tells it
@@ -190,7 +239,16 @@ final class UsagePoolController: ObservableObject {
     static func key(for shortcut: Shortcut) -> String { shortcut.id.uuidString }
 
     @Published private(set) var sharing: UsageSharing
-    @Published private(set) var accounts: [PoolAccount]
+    @Published private(set) var accounts: [PoolAccount] {
+        didSet {
+            usage?.signedIn = accounts
+            nameAllowances()
+        }
+    }
+    /// What the service said of an account on the answer to its Start
+    /// Session, by account: the one figure for a login nobody borrows from
+    /// and the usage endpoint will not answer.
+    @Published private(set) var heard: [String: PoolLimits] = [:]
     @Published private(set) var status: PoolStatus?
     @Published private(set) var problem: String?
     /// Something is lent and this Graft cannot read the key the logins are
@@ -203,10 +261,13 @@ final class UsagePoolController: ObservableObject {
     @Published private(set) var filed: [String: Filed] = [:]
     /// By Claude key.
     @Published private(set) var focused: [String: Focus] = [:]
-    /// Which account each Claude is signed into, by key. It comes out of each
-    /// profile's `config.json`, so a pass reads it on `queue` and a view only
-    /// ever reads this.
+    /// Which account each Claude is signed into, by key, as `Allowance.names`
+    /// has it. A pass reads the logins on `queue` and a view only ever reads
+    /// this.
     @Published private(set) var claudeAccounts: [String: String] = [:]
+    private var claudeLogins: [String: Allowance] = [:]
+    /// The same for the accounts signed in here.
+    private var accountNames: [String: String] = [:]
 
     private weak var store: ShortcutStore?
     private weak var usage: UsageMonitor?
@@ -263,6 +324,7 @@ final class UsagePoolController: ObservableObject {
     func attach(store: ShortcutStore, usage: UsageMonitor) {
         self.store = store
         self.usage = usage
+        usage.signedIn = accounts
     }
 
     func start(store: ShortcutStore, usage: UsageMonitor) {
@@ -365,22 +427,76 @@ final class UsagePoolController: ObservableObject {
     /// One account signed in twice is one entry, holding the newer login.
     func add(_ account: PoolAccount, to claude: String) {
         var stored = account
-        if let uuid = account.accountUuid,
-           let index = accounts.firstIndex(where: { $0.accountUuid == uuid }) {
+        let login = account.allowance
+        if let login, let index = accounts.firstIndex(where: { $0.allowance?.isSame(as: login) == true }) {
             stored.id = accounts[index].id
             stored.iconPreset = accounts[index].iconPreset
+            stored.name = accounts[index].name
             accounts[index] = stored
         } else {
+            // The login's other organization is already here under its id.
+            if accounts.contains(where: { $0.id == stored.id }), let organization = account.organizationUuid {
+                stored.id += "/" + organization
+            }
             // One that is a Claude here takes that Claude's colour, and
             // keeps it should that Claude go.
-            stored.iconPreset = account.accountUuid
-                .flatMap { uuid in claudes.first { claudeAccounts[$0] == uuid } }
+            stored.iconPreset = login
+                .flatMap { login in claudes.first { claudeLogins[$0]?.isSame(as: login) == true } }
                 .map(preset(of:)) ?? Shortcut.IconPreset.next(besides: coloursInUse)
             accounts.append(stored)
         }
         saveAccounts()
         addLender(stored.id, to: claude)
         sync()
+        askUsage(of: stored.id)
+    }
+
+    /// A new login in the old one's place: its name, its colour and the
+    /// Claudes drawing on it stay as they were.
+    func renew(_ id: String, with account: PoolAccount) {
+        guard let index = accounts.firstIndex(where: { $0.id == id }) else { return }
+        var stored = account
+        stored.id = id
+        stored.iconPreset = accounts[index].iconPreset
+        stored.name = accounts[index].name
+        stored.added = accounts[index].added
+        accounts[index] = stored
+        saveAccounts()
+        sync()
+        askUsage(of: id)
+    }
+
+    /// An empty name, or its own address, goes back to the address.
+    func rename(_ id: String, to name: String) {
+        guard let index = accounts.firstIndex(where: { $0.id == id }) else { return }
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let wanted = trimmed.isEmpty || trimmed == accounts[index].email ? nil : trimmed
+        guard accounts[index].name != wanted else { return }
+        accounts[index].name = wanted
+        saveAccounts()
+    }
+
+    func recolour(_ id: String, to preset: Shortcut.IconPreset) {
+        guard let index = accounts.firstIndex(where: { $0.id == id }),
+              accounts[index].iconPreset != preset else { return }
+        accounts[index].iconPreset = preset
+        saveAccounts()
+    }
+
+    /// Out of every Claude's list at once, which is what lets its login go.
+    func remove(account id: String) {
+        var next = sharing
+        for claude in Array(next.lenders.keys) {
+            next.lenders[claude]?.removeAll { $0 == id }
+            if next.lenders[claude]?.isEmpty == true { next.lenders[claude] = nil }
+        }
+        save(next)
+        forgetUnusedAccounts()
+    }
+
+    /// The Claudes drawing on an account.
+    func borrowers(of lender: String) -> [String] {
+        claudes.filter { lenders(of: $0).contains(lender) }
     }
 
     private func forgetUnusedAccounts() {
@@ -388,7 +504,238 @@ final class UsagePoolController: ObservableObject {
         let kept = accounts.filter { used.contains($0.id) }
         guard kept.count != accounts.count else { return }
         accounts = kept
+        heard = heard.filter { used.contains($0.key) }
         saveAccounts()
+    }
+
+    /// Only an account's own login is renewed from here; a Claude's is
+    /// renewed by opening that Claude.
+    func needsSignIn(_ key: String) -> Bool {
+        key.hasPrefix(Self.accountPrefix)
+            && (status?.members.first { $0.id == key }?.tokenRefused == true || lending[key] == .expired)
+    }
+
+    /// Whether a lender can answer now, and if not what stands in the way.
+    func condition(of key: String, now: Date = Date()) -> String {
+        let isAccount = key.hasPrefix(Self.accountPrefix)
+        let reported = status?.members.first { $0.id == key }
+        if reported?.tokenRefused == true {
+            return isAccount ? L10n.text("Login refused · sign in again")
+                             : L10n.text("Login refused · open that Claude to renew it")
+        }
+        switch lending[key] {
+        case nil:
+            return L10n.text("Checking its login…")
+        case .signedOut:
+            return L10n.text("Not signed in")
+        case .expired:
+            return isAccount ? L10n.text("Login expired · sign in again")
+                             : L10n.text("Login expired · open that Claude to renew it")
+        case .unreadable:
+            return L10n.text("Login locked · open the keychain from the menu bar")
+        case .ready:
+            break
+        }
+        if let limits = reported?.limits, !PoolPolicy.hasRoom(limits, now: now) {
+            if let until = PoolPolicy.fullUntil(limits, now: now) {
+                return L10n.format("Full until %@", UsageMonitor.clock(until, now: now))
+            }
+            return L10n.text("Full")
+        }
+        if let served = reported?.served, served > 0 {
+            return L10n.format("Ready · answered %ld requests", served)
+        }
+        return L10n.text("Ready")
+    }
+
+    func needsAttention(_ key: String) -> Bool {
+        status?.members.first { $0.id == key }?.tokenRefused == true
+            || (lending[key] != nil && lending[key] != .ready)
+    }
+
+    // MARK: - A signed-in account's figures
+
+    private func askUsage(of id: String, pressed: Bool = false) {
+        guard let store else { return }
+        usage?.invalidate(account: id)
+        // A press has already asked the keychain once; this asks nobody.
+        usage?.refresh(store, interactive: pressed, prompting: pressed ? .no : nil,
+                       freshness: pressed ? .now : .recent, account: id)
+    }
+
+    /// The service's headers name a five-hour reset on every answer for an
+    /// account that has the window, so one without a reset has no window.
+    static func usage(from limits: PoolLimits, keeping prior: Graft.Usage? = nil) -> Graft.Usage {
+        let fiveHour = limits.fiveHourReset == nil && limits.fiveHour == 0
+            ? nil : Int((limits.fiveHour * 100).rounded())
+        return Graft.Usage(fiveHour: fiveHour, week: Int((limits.week * 100).rounded()),
+                           organization: nil, sampled: limits.observed,
+                           fiveHourReset: limits.fiveHourReset, weekReset: limits.weekReset,
+                           fable: prior?.fable, fableReset: prior?.fableReset)
+    }
+
+    /// One figure for an account signed in here, the newest of what the usage
+    /// endpoint said, what a Claude on the same account shows and what the
+    /// service said on that account's own answers.
+    func entry(forAccount id: String) -> UsageMonitor.Entry? {
+        guard accounts.contains(where: { $0.id == id }) else { return nil }
+        var entry = usage?.entry(forAccount: id)
+            ?? UsageMonitor.Entry(name: "", profile: UsageMonitor.Entry.noProfile, usage: nil,
+                                  isRunning: false, account: id)
+        entry.name = name(of: id)
+        if let its = claude(sameAccountAs: id).flatMap(profile(of:)).flatMap({ usage?.entry(for: $0) }),
+           its.usage != nil, (its.refreshed ?? .distantPast) > (entry.refreshed ?? .distantPast) {
+            entry.usage = its.usage
+            entry.isLive = its.isLive
+            entry.plan = its.plan ?? entry.plan
+            entry.refreshed = its.refreshed
+        }
+        let answers = [status?.members.first { $0.id == id }?.limits, heard[id]].compactMap { $0 }
+        for limits in answers where limits.observed > (entry.refreshed ?? .distantPast) {
+            entry.usage = Self.usage(from: limits, keeping: entry.usage)
+            entry.isLive = false
+            entry.refreshed = limits.observed
+        }
+        return entry
+    }
+
+    /// Accounts with no Claude of their own here, which the list of Claudes
+    /// does not already show.
+    var accountsAlone: [PoolAccount] {
+        accounts.filter { claude(sameAccountAs: $0.id) == nil }
+    }
+
+    /// The figures of whatever a key names: a Claude's own, or those of an
+    /// account signed in here.
+    func entry(of key: String) -> UsageMonitor.Entry? {
+        key.hasPrefix(Self.accountPrefix) ? entry(forAccount: key)
+            : profile(of: key).flatMap { usage?.entry(for: $0) }
+    }
+
+    /// Which of a Claude's accounts answers a conversation, by the name that
+    /// Claude lists it under: the relay may know it by another of its names.
+    static func answering(_ chat: Chat?, among members: [String], account: (String) -> String?) -> String? {
+        guard let key = chat.flatMap(answeringKey) else { return nil }
+        let wanted = account(key)
+        return members.first { $0 == key || (wanted != nil && account($0) == wanted) }
+    }
+
+    /// The accounts being spent now: each one answering a conversation heard
+    /// from in the last half hour, in a Claude that is open.
+    static func spent(_ chats: [Chat], open: Set<String>, account: (String) -> String?,
+                      now: Date = Date()) -> Set<String> {
+        Set(chats.filter { open.contains($0.claude) && now.timeIntervalSince($0.lastAt) < 30 * 60 }
+            .compactMap(answeringKey).map { account($0) ?? $0 })
+    }
+
+    /// Accounts with no Claude here, as the bar weighs them beside the Claudes.
+    func accountsWeighed(now: Date = Date()) -> [UsageMonitor.Entry] {
+        let open = Set((usage?.entries ?? []).filter(\.isRunning).map(\.key))
+        let spent = Self.spent((status?.sessions ?? []).filter(isShown).map(chat(for:)), open: open,
+                               account: accountUuid(of:), now: now)
+        return accountsAlone.compactMap { account in
+            guard var entry = entry(forAccount: account.id) else { return nil }
+            entry.isRunning = spent.contains(accountUuid(of: account.id) ?? account.id)
+            return entry
+        }
+    }
+
+    /// What Graft itself has learnt of an account, for a relay that has sent
+    /// it nothing yet.
+    private func knownLimits(of id: String) -> PoolLimits? {
+        let asked = usage?.entry(forAccount: id).flatMap { entry -> PoolLimits? in
+            guard entry.isLive, let figures = entry.usage, let taken = entry.refreshed else { return nil }
+            var limits = PoolLimits(fiveHourPercent: figures.fiveHour, fiveHourReset: figures.fiveHourReset,
+                                    weekPercent: figures.week, weekReset: figures.weekReset, observed: taken)
+            limits.models = Self.modelWindows(figures)
+            return limits
+        }
+        // What was heard on an answer says nothing of one model's week, so
+        // the last reading of that goes with it.
+        var newest = [asked, heard[id]].compactMap { $0 }.max { $0.observed < $1.observed }
+        if newest?.models == nil { newest?.models = asked?.models }
+        return newest
+    }
+
+    /// The weeks that count one family of models alone, as the usage
+    /// endpoint reports them, for the relay to pass an account over by.
+    static func modelWindows(_ figures: Graft.Usage) -> [String: PoolLimits.Window]? {
+        figures.fable.map { ["fable": PoolLimits.Window(used: Double($0) / 100, reset: figures.fableReset)] }
+    }
+
+    /// The order accounts are used up in, as somebody set it; empty goes by
+    /// the weekly resets.
+    func setOrder(_ keys: [String]) {
+        var next = sharing
+        next.first = keys.isEmpty ? nil : keys
+        save(next)
+    }
+
+    var orderIsSet: Bool { sharing.first != nil }
+
+    /// Claudes that exist, then the accounts that are none of them.
+    var everyone: [String] {
+        [Self.mainKey] + (store?.shortcuts ?? []).filter { $0.installedName != nil }.map(Self.key(for:))
+            + accountsAlone.map(\.id)
+    }
+
+    func figures(of key: String) -> Graft.Usage? {
+        key.hasPrefix(Self.accountPrefix) ? entry(forAccount: key)?.usage
+            : profile(of: key).flatMap { usage?.entry(for: $0) }?.usage
+    }
+
+    /// The order in effect, which is the relay's: see `PoolPolicy.order`.
+    func order(now: Date = Date()) -> [String] {
+        Self.order(everyone, first: sharing.first ?? [], account: accountUuid(of:),
+                   reset: { self.figures(of: $0)?.weekReset }, now: now)
+    }
+
+    static func order(_ keys: [String], first: [String], account: (String) -> String?,
+                      reset: (String) -> Date?, now: Date) -> [String] {
+        let named = first.map { account($0) ?? $0 }
+        let ranked = keys.enumerated().map { index, key in
+            (key: key, index: index, place: named.firstIndex(of: account(key) ?? key),
+             reset: PoolPolicy.nextWeekReset(reset(key), now: now))
+        }
+        return ranked.sorted { a, b in
+            if a.place != b.place { return (a.place ?? Int.max) < (b.place ?? Int.max) }
+            if a.reset != b.reset { return (a.reset ?? .distantFuture) < (b.reset ?? .distantFuture) }
+            return a.index < b.index
+        }.map(\.key)
+    }
+
+    /// Puts one account at a place, which makes the whole order somebody's.
+    func move(_ key: String, to place: Int) {
+        setOrder(Self.moved(key, to: place, in: order()))
+    }
+
+    static func moved(_ key: String, to place: Int, in keys: [String]) -> [String] {
+        var keys = keys
+        guard let from = keys.firstIndex(of: key), keys.indices.contains(place) else { return keys }
+        keys.insert(keys.remove(at: from), at: place)
+        return keys
+    }
+
+    /// Only ever from a Start Session button, as `SessionStarter` asks. The
+    /// answer is nil when the window is open, or what went wrong.
+    func startSession(account id: String, done: @escaping (String?) -> Void) {
+        guard let account = accounts.first(where: { $0.id == id }) else {
+            return done(L10n.text("That account's login could not be read on this Mac."))
+        }
+        DispatchQueue.global(qos: .userInitiated).async {
+            let outcome = SessionStarter.start(account: account, interactive: true)
+            DispatchQueue.main.async {
+                self.heardFromSession(account: id, limits: outcome.limits, pressed: true)
+                done(outcome.failure?.errorDescription)
+            }
+        }
+    }
+
+    /// What a session's answer said of an account, pressed for or not.
+    func heardFromSession(account id: String, limits: PoolLimits?, pressed: Bool = false) {
+        if let limits { heard[id] = limits }
+        askUsage(of: id, pressed: pressed)
+        sync()
     }
 
     private func save(_ next: UsageSharing) {
@@ -427,13 +774,41 @@ final class UsagePoolController: ObservableObject {
         }
         // A choice made by hand outlives the cache it was protecting, but not
         // the day: by then the conversation is over or somebody has moved on.
-        let active = Set((status?.sessions ?? []).filter { now.timeIntervalSince($0.lastAt) < 86_400 }.map(\.id))
-        next.assignments = next.assignments.filter {
-            active.contains($0.key) || now.timeIntervalSince($0.value.at) < 86_400
+        // Not before the relay has been heard from: with nothing to go by,
+        // every choice older than a day looked like one nobody was using.
+        if let status {
+            let active = Set(status.sessions.filter { now.timeIntervalSince($0.lastAt) < 86_400 }.map(\.id))
+            next.assignments = next.assignments.filter {
+                active.contains($0.key) || now.timeIntervalSince($0.value.at) < 86_400
+            }
         }
+        if let first = next.first {
+            let kept = first.filter(known.contains)
+            next.first = kept.isEmpty ? nil : kept
+        }
+        let held = Self.holders(next.holders ?? [:], hearing: status?.sessions ?? [], known: known)
+        next.holders = held.isEmpty ? nil : held
         guard next != sharing else { return }
         persist(next)
         forgetUnusedAccounts()
+    }
+
+    static let holdersKept = 256
+
+    /// What the relay says of each conversation it carried, kept for the next
+    /// relay. A date moves only once it is an hour out, so a conversation in
+    /// use is not a file written on every pass.
+    static func holders(_ kept: [String: UsageSharing.Assignment], hearing sessions: [PoolSession],
+                        known: Set<String>) -> [String: UsageSharing.Assignment] {
+        var next = kept.filter { known.contains($0.value.to) }
+        for session in sessions {
+            guard let account = session.servedBy, known.contains(account) else { continue }
+            if let had = next[session.id], had.to == account, session.lastAt.timeIntervalSince(had.at) < 3600 { continue }
+            next[session.id] = UsageSharing.Assignment(to: account, at: session.lastAt)
+        }
+        guard next.count > holdersKept else { return next }
+        let newest = next.sorted { $0.value.at != $1.value.at ? $0.value.at > $1.value.at : $0.key < $1.key }
+        return Dictionary(uniqueKeysWithValues: newest.prefix(holdersKept).map { ($0.key, $0.value) })
     }
 
     // MARK: - Names
@@ -446,7 +821,7 @@ final class UsagePoolController: ObservableObject {
     func name(of key: String) -> String {
         if key == Self.mainKey { return "Claude" }
         if let account = accounts.first(where: { $0.id == key }) {
-            return account.email ?? L10n.text("Signed-in account")
+            return account.title(among: accounts) ?? L10n.text("Signed-in account")
         }
         return UUID(uuidString: key).flatMap { store?.shortcut($0) }?.name ?? L10n.text("Removed shortcut")
     }
@@ -463,7 +838,7 @@ final class UsagePoolController: ObservableObject {
         return accounts.first { $0.id == key }?.iconPreset ?? .graphite
     }
 
-    private func claude(sameAccountAs key: String) -> String? {
+    func claude(sameAccountAs key: String) -> String? {
         guard let uuid = accountUuid(of: key) else { return nil }
         return claudes.first { claudeAccounts[$0] == uuid }
     }
@@ -493,9 +868,26 @@ final class UsagePoolController: ObservableObject {
         return claudes.first { self.profile(of: $0).map(PoolEnvironment.key(for:)) == wanted }
     }
 
+    /// The allowance a Claude or an account draws on, by the name it is
+    /// counted under: two keys with one answer are one allowance.
     func accountUuid(of key: String) -> String? {
-        if let account = accounts.first(where: { $0.id == key }) { return account.accountUuid }
+        if let account = accounts.first(where: { $0.id == key }) {
+            return accountNames[key] ?? account.accountUuid
+        }
         return claudeAccounts[key]
+    }
+
+    func allowance(of key: String) -> Allowance? {
+        accounts.first { $0.id == key }?.allowance ?? claudeLogins[key]
+    }
+
+    private func nameAllowances() {
+        var known = claudeLogins
+        for account in accounts { known[account.id] = account.allowance }
+        let names = Allowance.names(known)
+        let ours = names.filter { claudeLogins[$0.key] != nil }
+        if claudeAccounts != ours { claudeAccounts = ours }
+        accountNames = names.filter { claudeLogins[$0.key] == nil }
     }
 
     /// Off the main thread: every one of these is a file read.
@@ -505,8 +897,11 @@ final class UsagePoolController: ObservableObject {
         return found
     }
 
-    func learnAccounts(_ found: [String: String]) {
-        if claudeAccounts != found { claudeAccounts = found }
+    func learnAccounts(_ found: [String: Allowance]) {
+        if claudeLogins != found {
+            claudeLogins = found
+            nameAllowances()
+        }
         // After the Claudes' accounts are known, so an account that is one of
         // them takes its colour rather than using up a free one.
         colourAccounts()
@@ -556,16 +951,26 @@ final class UsagePoolController: ObservableObject {
     }
 
     private func chat(for session: PoolSession) -> Chat {
-        let assigned = sharing.assignments[session.id]?.to
+        let choice = sharing.assignments[session.id]
+        let assigned = choice?.to
         return Chat(id: session.id, title: filed[session.id]?.title, claude: session.from,
                     servedBy: session.servedBy, assigned: assigned,
                     choices: oneEach([session.from] + lenders(of: session.from)),
                     lastAt: session.lastAt,
-                    passedOver: assigned != nil && session.servedBy != assigned
-                        && !session.passedOver.isEmpty,
+                    passedOver: Self.passedOver(session, choice: choice, account: accountUuid(of:)),
                     startedAt: session.startedAt,
                     focusedAt: filed[session.id]?.focusedAt,
                     promptedAt: session.promptedAt)
+    }
+
+    /// Whether the account chosen for a conversation is not the one answering
+    /// it. An account with no room is left out before it is asked, so nothing
+    /// is passed over then, and only an answer newer than the choice says so.
+    static func passedOver(_ session: PoolSession, choice: UsageSharing.Assignment?,
+                           account: (String) -> String? = { _ in nil }) -> Bool {
+        guard let choice, let answered = session.servedBy,
+              (account(answered) ?? answered) != (account(choice.to) ?? choice.to) else { return false }
+        return !session.passedOver.isEmpty || session.lastAt > choice.at
     }
 
     /// Everyone a Claude draws on, itself first, one name to an account.
@@ -678,7 +1083,9 @@ final class UsagePoolController: ObservableObject {
         let accounts = self.accounts
 
         var involved: [String] = []
-        for (claude, list) in sharing.lenders where !list.isEmpty {
+        // Sorted, because two shortcuts on one profile keep the first seen,
+        // and a dictionary's order changes from one launch to the next.
+        for (claude, list) in sharing.lenders.sorted(by: { $0.key < $1.key }) where !list.isEmpty {
             for key in [claude] + list where !involved.contains(key) { involved.append(key) }
         }
         var seen = Set<String>()
@@ -686,8 +1093,8 @@ final class UsagePoolController: ObservableObject {
         // one account's room twice.
         let inputs = involved.compactMap { key -> Input? in
             if let account = accounts.first(where: { $0.id == key }) {
-                return Input(key: key, name: account.email ?? key, profile: nil, account: account,
-                             borrowsFrom: [], limits: nil)
+                return Input(key: key, name: account.title(among: accounts) ?? key, profile: nil, account: account,
+                             borrowsFrom: [], limits: knownLimits(of: key))
             }
             guard let profile = profile(of: key),
                   seen.insert(PoolEnvironment.key(for: profile)).inserted else { return nil }
@@ -695,6 +1102,7 @@ final class UsagePoolController: ObservableObject {
             if let entry = usage.entry(for: profile), let figures = entry.usage, let taken = entry.refreshed {
                 limits = PoolLimits(fiveHourPercent: figures.fiveHour, fiveHourReset: figures.fiveHourReset,
                                     weekPercent: figures.week, weekReset: figures.weekReset, observed: taken)
+                limits?.models = Self.modelWindows(figures)
             }
             return Input(key: key, name: name(of: key), profile: profile, account: nil,
                          borrowsFrom: sharing.lenders[key] ?? [], limits: limits)
@@ -702,7 +1110,14 @@ final class UsagePoolController: ObservableObject {
         // Every Claude Graft knows of, so one that stopped borrowing has its
         // lines taken out as well as one that started has them put in.
         let claudeProfiles = claudes.compactMap { key in profile(of: key).map { (key, $0) } }
+        // The organization each Claude last ran under, which no login says.
+        var inUse: [String: String] = [:]
+        for (key, profile) in claudeProfiles {
+            inUse[key] = usage.entry(for: profile)?.usage?.organization?.lowercased()
+        }
         let assignments = sharing.assignments.mapValues(\.to)
+        let holders = sharing.holders?.mapValues(\.to)
+        let first = sharing.first
 
         queue.async {
             var lending: [String: Lending] = [:]
@@ -713,28 +1128,43 @@ final class UsagePoolController: ObservableObject {
             var key: Data?
             var keyShut = false
             do { key = try ClaudeCredentials.safeStorageKey(prompting: .no) } catch { keyShut = true }
+            var logins: [String: Login] = [:]
+            for input in inputs {
+                guard let profile = input.profile else { continue }
+                var login = Self.login(of: profile, inUse: inUse[input.key])
+                if !keyShut {
+                    if login.state != .unreadable { self.lastLogins[input.key] = (login, Date()) }
+                    login = Self.steady(login, kept: self.lastLogins[input.key])
+                }
+                logins[input.key] = login
+            }
+            var claudeLogins: [String: Allowance] = [:]
+            for (claude, account) in signedInto {
+                claudeLogins[claude] = Allowance(account: account,
+                                                 organization: logins[claude]?.organization ?? inUse[claude])
+            }
+            var known = claudeLogins
+            for account in accounts { known[account.id] = account.allowance }
+            let allowances = Allowance.names(known)
             let members = inputs.map { input -> PoolMember in
                 if let account = input.account {
                     let token = key.flatMap { ClaudeCredentials.unseal(account.sealed, key: $0) }
                         .map { String(decoding: $0, as: UTF8.self) }
                     let current = token != nil && account.expires > Date().addingTimeInterval(120)
                     lending[input.key] = token == nil ? .unreadable : current ? .ready : .expired
-                    return PoolMember(id: input.key, name: input.name, account: account.accountUuid,
+                    return PoolMember(id: input.key, name: input.name, account: allowances[input.key],
                                       identify: token.map { [UsagePool.digest($0)] } ?? [],
-                                      token: current ? token : nil, limits: nil, borrowsFrom: nil)
+                                      token: current ? token : nil, limits: input.limits, borrowsFrom: nil)
                 }
-                var login = Self.login(of: input.profile!)
-                if !keyShut {
-                    if login.state != .unreadable { self.lastLogins[input.key] = (login, Date()) }
-                    login = Self.steady(login, kept: self.lastLogins[input.key])
-                }
+                let login = logins[input.key] ?? (.unreadable, [], nil, nil)
                 lending[input.key] = login.state
                 return PoolMember(id: input.key, name: input.name,
-                                  account: signedInto[input.key],
+                                  account: allowances[input.key],
                                   identify: login.identify, token: login.token, limits: input.limits,
                                   borrowsFrom: input.borrowsFrom)
             }
-            let configuration = PoolConfiguration(enabled: true, members: members, assignments: assignments)
+            let configuration = PoolConfiguration(enabled: true, members: members, assignments: assignments,
+                                                  holders: holders, first: first)
             let journal = PoolEnvironment.readJournal()
             let wanted = !members.isEmpty || !journal.profiles.isEmpty
             let paused = keyShut && !members.isEmpty
@@ -767,7 +1197,7 @@ final class UsagePoolController: ObservableObject {
 
             let records = self.lookUpRecords(status?.sessions ?? [], profiles: claudeProfiles)
             DispatchQueue.main.async {
-                self.learnAccounts(signedInto)
+                self.learnAccounts(claudeLogins)
                 // Only what changed: every assignment redraws whatever is
                 // watching, and most passes change nothing.
                 if self.lending != lending { self.lending = lending }
@@ -787,7 +1217,7 @@ final class UsagePoolController: ObservableObject {
         }
     }
 
-    typealias Login = (state: Lending, identify: [String], token: String?)
+    typealias Login = (state: Lending, identify: [String], token: String?, organization: String?)
 
     /// A login that could not be read this pass, with the key in hand, is a
     /// `config.json` caught as Claude renames a new one over it. Sent as it
@@ -802,22 +1232,31 @@ final class UsagePoolController: ObservableObject {
 
     /// Never prompts. The usage monitor is what asks for keychain access, once,
     /// and the key it gets is the one every read in this process shares.
-    private static func login(of profile: URL) -> Login {
+    private static func login(of profile: URL, inUse: String?) -> Login {
         do {
             guard let all = try ClaudeCredentials.tokens(for: profile, prompting: .no) else {
-                return (.signedOut, [], nil)
+                return (.signedOut, [], nil, nil)
             }
-            let current = all.filter(\.isCurrent)
-            let lent = current.filter { $0.scopes.contains(UsagePool.lendingScope) }
-                .max { $0.expires < $1.expires }
-                ?? current.filter { $0.covers([ClaudeCredentials.inferenceScope]) }
-                .max { $0.expires < $1.expires }
-            return (lent == nil ? .expired : .ready, all.map { UsagePool.digest($0.value) }, lent?.value)
+            let lent = lent(from: all, inUse: inUse)
+            return (lent == nil ? .expired : .ready, all.map { UsagePool.digest($0.value) }, lent?.value,
+                    lent?.organization)
         } catch ClaudeCredentials.Failure.notSignedIn {
-            return (.signedOut, [], nil)
+            return (.signedOut, [], nil, nil)
         } catch {
-            return (.unreadable, [], nil)
+            return (.unreadable, [], nil, nil)
         }
+    }
+
+    /// A profile that has been in two organizations holds a login for each,
+    /// and the one lent is the one its Claude Code is using.
+    static func lent(from all: [ClaudeCredentials.Token], inUse: String?) -> ClaudeCredentials.Token? {
+        let current = all.filter(\.isCurrent)
+        let here = current.filter { inUse == nil || $0.organization == nil || $0.organization == inUse }
+        let candidates = here.isEmpty ? current : here
+        return candidates.filter { $0.scopes.contains(UsagePool.lendingScope) }
+            .max { $0.expires < $1.expires }
+            ?? candidates.filter { $0.covers([ClaudeCredentials.inferenceScope]) }
+            .max { $0.expires < $1.expires }
     }
 
     // MARK: - Records

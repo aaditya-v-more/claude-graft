@@ -67,6 +67,14 @@ struct PoolLimits: Codable, Equatable {
     /// Set when the service said no outright, until the time it named.
     var refusedUntil: Date?
     var observed: Date
+    /// Weekly windows that count one family of models alone, by family. Only
+    /// the usage endpoint reports them, so only Graft's readings carry them.
+    var models: [String: Window]? = nil
+
+    struct Window: Codable, Equatable {
+        var used: Double
+        var reset: Date?
+    }
 
     /// Every answer from `/v1/messages` carries the account's unified limits,
     /// so the relay learns an account's state from the very requests it sends
@@ -90,7 +98,8 @@ struct PoolLimits: Codable, Equatable {
                                 weekReset: date(prefix + "7d-reset"),
                                 refusedUntil: nil,
                                 observed: now)
-        if status == "rejected" {
+        // A week of one model spent leaves the account open to every other.
+        if status == "rejected", !PoolPolicy.countsOneModel(value(prefix + "representative-claim")) {
             limits.refusedUntil = date(prefix + "reset") ?? now.addingTimeInterval(60)
         }
         return limits
@@ -106,13 +115,14 @@ struct PoolLimits: Codable, Equatable {
     }
 
     init(fiveHour: Double, fiveHourReset: Date?, week: Double, weekReset: Date?,
-         refusedUntil: Date?, observed: Date) {
+         refusedUntil: Date?, observed: Date, models: [String: Window]? = nil) {
         self.fiveHour = fiveHour
         self.fiveHourReset = fiveHourReset
         self.week = week
         self.weekReset = weekReset
         self.refusedUntil = refusedUntil
         self.observed = observed
+        self.models = models
     }
 }
 
@@ -135,26 +145,22 @@ enum PoolPolicy {
     static let fiveHourCeiling = 0.98
     static let weekCeiling = 0.99
 
-    /// A conversation's prompt cache lives on the account that wrote it, five
-    /// minutes from its last use unless the request asked for an hour. Moving
-    /// the conversation inside that time pays for its whole context again on
-    /// the next account; once it has lapsed nothing is lost by moving, so
-    /// nothing holds the conversation where it was.
-    static let shortCache: TimeInterval = 5 * 60
-    static let longCache: TimeInterval = 60 * 60
-
-    /// The longest lifetime anything in the body asked for, since that is how
-    /// long the most expensive part of it — the system prompt and tools at the
-    /// front — stays cached. Claude Code writes its JSON without spaces.
-    static func cacheLifetime(of body: Data) -> TimeInterval {
-        body.range(of: Data("\"ttl\":\"1h\"".utf8)) != nil ? longCache : shortCache
-    }
-
     struct Account: Equatable {
         var id: String
         var limits: PoolLimits?
         /// Holds a token that has not been refused.
         var usable: Bool
+        /// Said no to the model being asked for, and may yet take another:
+        /// its week of that model spent, or a plan without it.
+        var shut = false
+    }
+
+    /// The limits that count one family of models alone, as the service
+    /// names them when it refuses: `seven_day_opus`, `seven_day_sonnet`, and
+    /// `seven_day_overage_included` for the models with a week of their own.
+    /// Read from Claude Code 2.1.330, which matches them to models this way.
+    static func countsOneModel(_ claim: String?) -> Bool {
+        claim?.hasPrefix("seven_day_") == true
     }
 
     /// A window that reset since the reading was taken starts again from
@@ -165,12 +171,26 @@ enum PoolPolicy {
         return reset
     }
 
-    static func hasRoom(_ limits: PoolLimits?, now: Date) -> Bool {
+    static func hasRoom(_ limits: PoolLimits?, family: String? = nil, now: Date) -> Bool {
         guard let limits else { return true }
         if let until = limits.refusedUntil, until > now { return false }
         if limits.fiveHour >= fiveHourCeiling, (limits.fiveHourReset ?? .distantFuture) > now { return false }
         if limits.week >= weekCeiling, (limits.weekReset ?? .distantFuture) > now { return false }
+        if let family, let window = limits.models?[family], window.used >= weekCeiling,
+           (window.reset ?? .distantFuture) > now { return false }
         return true
+    }
+
+    /// When a full account has room again: the last of the windows shut on
+    /// it, and nil when one of them did not say.
+    static func fullUntil(_ limits: PoolLimits, now: Date) -> Date? {
+        var shut: [Date?] = []
+        if let until = limits.refusedUntil, until > now { shut.append(until) }
+        if limits.fiveHour >= fiveHourCeiling, (limits.fiveHourReset ?? .distantFuture) > now {
+            shut.append(limits.fiveHourReset)
+        }
+        if limits.week >= weekCeiling, (limits.weekReset ?? .distantFuture) > now { shut.append(limits.weekReset) }
+        return shut.contains(nil) ? nil : shut.compactMap { $0 }.max()
     }
 
     /// The accounts to try, best first. The one the request came from is in
@@ -180,11 +200,16 @@ enum PoolPolicy {
     /// reset: all that is known about it is that it has not said no.
     ///
     /// `prefer` goes in front of the ranking, first one first, for as long as
-    /// each still has room: the account somebody chose for this conversation,
-    /// then the one already holding its cache.
-    static func order(own: String, accounts: [Account], prefer: [String] = [], now: Date) -> [String] {
-        let open = accounts.filter { $0.usable && hasRoom($0.limits, now: now) }
+    /// each still has room: see `preferred`. `first` is the order somebody
+    /// asked for, which comes before the resets for the accounts it names.
+    /// Room is room for `family`, the model being asked for: an account out
+    /// of one model, or without it, is passed over for that model alone.
+    static func order(own: String, accounts: [Account], prefer: [String] = [], first: [String] = [],
+                      family: String? = nil, now: Date) -> [String] {
+        let open = accounts.filter { $0.usable && !$0.shut && hasRoom($0.limits, family: family, now: now) }
         var ids = open.sorted { a, b in
+            let pa = first.firstIndex(of: a.id) ?? Int.max, pb = first.firstIndex(of: b.id) ?? Int.max
+            if pa != pb { return pa < pb }
             let ra = nextWeekReset(a.limits?.weekReset, now: now)
             let rb = nextWeekReset(b.limits?.weekReset, now: now)
             switch (ra, rb) {
@@ -205,12 +230,24 @@ enum PoolPolicy {
         return ids
     }
 
+    /// Who goes in front of the ranking for a conversation: the account
+    /// somebody chose for it, then the one that answered it last, whatever
+    /// its model and however long it sat. A request only its writer can read,
+    /// with nobody known to have answered, stays with its sender.
+    static func preferred(assigned: String?, holder: String?, bound: Bool, own: String) -> [String] {
+        var prefer = [assigned, holder].compactMap { $0 }
+        if bound, holder == nil { prefer.append(own) }
+        return prefer
+    }
+
     /// What to make of an answer, decided from its status line and headers
     /// alone, before a byte of it reaches Claude Code.
     enum Outcome: Equatable {
         case deliver
         /// The account has no room. Try the next one.
         case exhausted(until: Date)
+        /// It has none for this model, and may for another.
+        case modelExhausted(until: Date)
         /// A borrowed token was refused. It is not offered again until Graft
         /// hands over a different one.
         case loginRefused
@@ -222,10 +259,16 @@ enum PoolPolicy {
     static func outcome(status: Int, headers: [(String, String)], borrowed: Bool, now: Date) -> Outcome {
         switch status {
         case 429:
-            let limits = PoolLimits.parse(headers, now: now)
-            let retry = headers.first { $0.0.caseInsensitiveCompare("retry-after") == .orderedSame }
-                .flatMap { Double($0.1) }
-            return .exhausted(until: limits?.refusedUntil ?? now.addingTimeInterval(retry ?? 60))
+            func value(_ name: String) -> String? {
+                headers.first { $0.0.caseInsensitiveCompare(name) == .orderedSame }?.1
+            }
+            let prefix = "anthropic-ratelimit-unified-"
+            let named = value(prefix + "reset").flatMap(Double.init).map { Date(timeIntervalSince1970: $0) }
+            let until = value(prefix + "status") == "rejected"
+                ? named ?? now.addingTimeInterval(60)
+                : now.addingTimeInterval(value("retry-after").flatMap(Double.init) ?? 60)
+            return countsOneModel(value(prefix + "representative-claim"))
+                ? .modelExhausted(until: until) : .exhausted(until: until)
         case 401:
             return borrowed ? .loginRefused : .deliver
         // One `where` would bind to the last pattern alone and send a 400 on
@@ -334,6 +377,16 @@ enum PoolRequest {
     /// answers by starting the thread again with everything in it.
     static let threadMissing = Data("thread_not_found".utf8)
 
+    /// A plan that sells the model asked for apart answers 429 and names no
+    /// limit, as a busy service does. Matched as Claude Code 2.1.331 matches it.
+    static func wantsCredits(_ refusal: Data) -> Bool {
+        guard let answer = (try? JSONSerialization.jsonObject(with: refusal)) as? [String: Any],
+              let error = answer["error"] as? [String: Any] else { return false }
+        if (error["details"] as? [String: Any])?["error_code"] as? String == "credits_required" { return true }
+        let message = (error["message"] as? String)?.lowercased() ?? ""
+        return message.contains("usage credits are required") || message.contains("extra usage is required")
+    }
+
     /// For the record of what went where. The first `"model":` is the request's
     /// own, Claude Code writing it ahead of the messages; a wrong guess here
     /// mislabels one line on screen and decides nothing.
@@ -343,6 +396,14 @@ enum PoolRequest {
         let window = body[start..<min(start + 120, body.endIndex)]
         guard let end = window.firstIndex(of: UInt8(ascii: "\"")) else { return nil }
         return String(decoding: body[start..<end], as: UTF8.self)
+    }
+
+    /// What a weekly window of its own counts: `claude-opus-5-5` is `opus`,
+    /// whatever version or suffix follows.
+    static func family(of model: String?) -> String? {
+        guard let model = model?.lowercased() else { return nil }
+        let named = model.split(separator: "-").first { $0 != "claude" && $0.first?.isLetter == true }
+        return named.map(String.init) ?? model
     }
 
     static func bearer(in headers: [(String, String)]) -> String? {
@@ -388,6 +449,12 @@ struct PoolConfiguration: Codable, Equatable {
     /// should answer them. Kept by Graft and handed over with everything else,
     /// so a relay that restarts still knows.
     var assignments: [String: String]?
+    /// Where each conversation was last answered, as the relay itself said,
+    /// for a relay that has started since and holds no record of its own.
+    var holders: [String: String]?
+    /// The accounts somebody wants used up first, first one first. Any not
+    /// named follow in the order of their weekly resets.
+    var first: [String]?
 }
 
 struct PoolCommand: Codable {
@@ -433,9 +500,6 @@ struct PoolSession: Codable, Equatable {
     var lastAt: Date
     var requests: Int
     var model: String?
-    /// When the answering account's cache of it lapses, after which it goes
-    /// wherever the ranking says.
-    var cachedUntil: Date?
     /// Members passed over on its last request, so a conversation answered by
     /// somebody other than the account chosen for it can say why.
     var passedOver: [PoolPass]
@@ -674,5 +738,66 @@ enum PoolCertificates {
             throw Failure.openssl(text.split(separator: "\n").last.map(String.init) ?? arguments[0])
         }
         return text
+    }
+}
+
+/// Who is at the other end of a connection the relay accepted on loopback.
+/// Claude Code is told to trust the relay's authority; a program it starts
+/// inherits the proxy without that trust, and refuses an opened connection.
+enum PoolPeer {
+    /// Every process holding a TCP socket from `local` to `remote`, both
+    /// ports on this machine. Another user's processes cannot be asked.
+    static func holders(local: UInt16, remote: UInt16) -> [pid_t] {
+        var pids = [pid_t](repeating: 0, count: 8192)
+        let count = proc_listallpids(&pids, Int32(pids.count * MemoryLayout<pid_t>.stride))
+        guard count > 0 else { return [] }
+        let whole = Int32(MemoryLayout<socket_fdinfo>.size)
+        var found: [pid_t] = []
+        for pid in pids.prefix(Int(count)) where pid > 0 {
+            let size = proc_pidinfo(pid, PROC_PIDLISTFDS, 0, nil, 0)
+            guard size > 0 else { continue }
+            var open = [proc_fdinfo](repeating: proc_fdinfo(), count: Int(size) / MemoryLayout<proc_fdinfo>.stride)
+            let used = proc_pidinfo(pid, PROC_PIDLISTFDS, 0, &open, size)
+            guard used > 0 else { continue }
+            for descriptor in open.prefix(Int(used) / MemoryLayout<proc_fdinfo>.stride)
+            where descriptor.proc_fdtype == UInt32(PROX_FDTYPE_SOCKET) {
+                var socket = socket_fdinfo()
+                guard proc_pidfdinfo(pid, descriptor.proc_fd, PROC_PIDFDSOCKETINFO, &socket, whole) == whole,
+                      socket.psi.soi_kind == SOCKINFO_TCP else { continue }
+                // Ports are kept in network order in the low half of each.
+                let ends = socket.psi.soi_proto.pri_tcp.tcpsi_ini
+                if UInt16(bigEndian: UInt16(truncatingIfNeeded: ends.insi_lport)) == local,
+                   UInt16(bigEndian: UInt16(truncatingIfNeeded: ends.insi_fport)) == remote {
+                    found.append(pid)
+                    break
+                }
+            }
+        }
+        return found
+    }
+
+    /// A process's executable and each parent's above it, nearest first.
+    static func lineage(of pid: pid_t) -> [String] {
+        var chain: [String] = []
+        var next = pid
+        while next > 1, chain.count < 32 {
+            var path = [CChar](repeating: 0, count: 4 * Int(MAXPATHLEN))
+            guard proc_pidpath(next, &path, UInt32(path.count)) > 0 else { break }
+            chain.append(String(cString: path))
+            var facts = proc_bsdinfo()
+            let size = Int32(MemoryLayout<proc_bsdinfo>.size)
+            guard proc_pidinfo(next, PROC_PIDTBSDINFO, 0, &facts, size) == size else { break }
+            next = pid_t(facts.pbi_ppid)
+        }
+        return chain
+    }
+
+    /// Whether a program's connection to the service is opened. What Claude
+    /// starts is Claude Code; what that starts is somebody else's program,
+    /// unless it is Claude Code again. Anything not traced to Claude is
+    /// opened as before, since being wrong there only costs what it cost.
+    static func isOpened(_ lineage: [String], claude: (String) -> Bool) -> Bool {
+        guard let app = lineage.firstIndex(where: claude), app > 1 else { return true }
+        return lineage[0] == lineage[app - 1]
     }
 }

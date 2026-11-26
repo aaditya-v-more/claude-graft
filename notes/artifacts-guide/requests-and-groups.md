@@ -11,7 +11,20 @@ request is kept to exactly what that page sends.
 - `GET /api/account` names the account and its memberships. Artifacts live
   under the organization whose capabilities include `chat`; an account that is
   also in a team belongs to both, and the first listed is not reliably the
-  right one.
+  right one. One address in two teams can chat under each, and each has its
+  own artifacts, projects and chats. Taking the first of them showed such a
+  person the wrong team with no way to the other: claude.ai sends a sign-in
+  straight back, so there is no moment to choose, and a second sign-in is the
+  same account and replaces the first. So every chat organization is kept on
+  the account (`organizations`), the account's menu offers them where there is
+  more than one, and the choice outlives signing in again for as long as the
+  account still belongs there (`ArtifactAccounts.organization(chosen:among:)`).
+  A change is told to every pane as a sign-in is (`lastSignIn`, `moved`), and
+  what was listed under the organization left is dropped at once, not when
+  the new list arrives. A record kept before the list was has none and is
+  asked again. Whether the membership's `name` is always there has not been
+  seen for every kind of organization; one without goes by its place in the
+  list.
 - `GET /api/frame/artifacts?rel=mine|shared&empty=exclude&limit=48&org=…&sort=last_viewed`
   lists one side, with `next_page_token` for the next page, followed as
   `page_token`. Five pages at most per side.

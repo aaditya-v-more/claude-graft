@@ -1820,6 +1820,13 @@ do {
     // The Windows workflow will not build a version without its notes.
     func shipsOnWindows(_ version: String) -> Bool { !read("windows/release-notes/\(version).md").isEmpty }
     let releasing = read("VERSION").trimmingCharacters(in: .whitespacesAndNewlines)
+    let macOnly = read("windows/mac-only.txt").split(separator: "\n").map(String.init)
+    check(shipsOnWindows(releasing) != macOnly.contains(releasing),
+          "the version being released has Windows notes or is listed as the Mac's alone, and never both")
+    check(read(".github/workflows/windows-checks.yml").contains("grep -qxF \"$v\" windows/mac-only.txt")
+            && read(".github/workflows/windows-release.yml").contains("if: needs.ships.outputs.windows == 'true'")
+            && release.contains("windows/mac-only.txt"),
+          "a version listed there asks for no Windows notes, builds no Windows packages and says so at release")
     let setups = links(#"releases/(latest/download|download/v[0-9.]+)/ClaudeGraftApp-win-Setup\.exe"#)
     check(!setups.isEmpty && Set(setups).count == 1,
           "every Windows download on the site and in both READMEs is the same setup")
@@ -2150,10 +2157,44 @@ do {
         }
     }
 
-    check(callers.sorted() == ["MainProfileDetail.swift", "MenuBarContent.swift", "ShortcutDetail.swift"],
-          "only the three Start Session buttons ask Anthropic for a session")
-    check(automatic.isEmpty, "and nothing that runs on its own is wired to one")
-    check(quiet.isEmpty, "each of the three says a person asked, which is what allows the keychain prompt")
+    check(callers.sorted() == ["MainProfileDetail.swift", "MenuBarContent.swift", "ShortcutDetail.swift",
+                               "UsagePoolController.swift"],
+          "only the Start Session buttons ask Anthropic for a session by a press, a signed-in account's through the pool")
+    check(automatic.isEmpty, "and nothing that runs on its own is wired to one of those")
+
+    // One starter runs with nobody pressing, for the accounts somebody
+    // switched it on for. It is held to one caller, one clock and no dialog.
+    var unasked: [String] = []
+    var considering: [String] = []
+    for file in swiftFiles {
+        guard let source = try? String(contentsOf: file, encoding: .utf8) else { continue }
+        for line in source.split(separator: "\n", omittingEmptySubsequences: false).map(String.init) {
+            if line.contains("SessionStarter.startUnasked(") { unasked.append(file.lastPathComponent) }
+            if line.contains("consider(") { considering.append(file.lastPathComponent) }
+        }
+    }
+    check(unasked == ["AutoSessions.swift"],
+          "a session nobody pressed for is sent from one place, and from one line of it")
+    check(Set(considering) == ["AutoSessions.swift"],
+          "which nothing outside it can set going")
+    let automaticSource = (try? String(contentsOf: appSource.appending(path: "AutoSessions.swift"),
+                                       encoding: .utf8)) ?? ""
+    check(!automaticSource.contains("interactive: true") && !automaticSource.contains("onceIfShut")
+            && automaticSource.contains("prompting: .no"),
+          "and it never lets the keychain ask, for the message or for the figures after it")
+    let starterSource = (try? String(contentsOf: appSource.appending(path: "SessionStarter.swift"),
+                                     encoding: .utf8)) ?? ""
+    let unaskedBody = starterSource.components(separatedBy: "static func startUnasked(").dropFirst().first?
+        .components(separatedBy: "\n    }\n").first ?? ""
+    check(unaskedBody.components(separatedBy: "interactive: false").count == 3
+            && !unaskedBody.contains("interactive: true"),
+          "the way in it uses says nobody asked, for a Claude and for a signed-in account alike")
+    check(quiet.isEmpty, "each of them says a person asked, which is what allows the keychain prompt")
+    let throughThePool = swiftFiles.filter {
+        (try? String(contentsOf: $0, encoding: .utf8))?.contains("pool.startSession(account:") == true
+    }.map(\.lastPathComponent)
+    check(throughThePool == ["AccountsView.swift", "MenuBarContent.swift"],
+          "and the pool starts one only for the two buttons a signed-in account has")
 
     // Starting the session is where the press asks the keychain. The refresh
     // after it went out unfocused and allowed to ask, which after a Deny was a
@@ -2172,6 +2213,114 @@ do {
         if source.contains("prompting: .yes") { namesYes.append(file.lastPathComponent) }
     }
     check(namesYes.isEmpty, "and nothing reaches for the unconditional keychain prompt by hand")
+}
+
+section("Sessions that start by themselves")
+
+do {
+    let now = Date()
+    func figures(fiveHour: Int? = 20, reset: Date? = nil, week: Int = 30, weekReset: Date? = nil) -> Graft.Usage {
+        Graft.Usage(fiveHour: fiveHour, week: week, organization: nil, sampled: now,
+                    fiveHourReset: reset, weekReset: weekReset)
+    }
+    check(AutoSessions.due(nil, last: nil, now: now),
+          "an account nothing is known of is sent to, which is how its figures are learnt")
+    check(!AutoSessions.due(figures(reset: now + 3600), last: nil, now: now),
+          "an account with a window open is left alone")
+    check(AutoSessions.due(figures(reset: now - 60), last: nil, now: now),
+          "one whose window has run out is sent to")
+    check(AutoSessions.due(figures(fiveHour: 0), last: nil, now: now),
+          "and so is one with no window open at all")
+    check(!AutoSessions.due(figures(fiveHour: nil), last: nil, now: now),
+          "an account with no five-hour limit has no window to open")
+    check(!AutoSessions.due(figures(reset: now - 60, week: 100, weekReset: now + 86_400), last: nil, now: now),
+          "an account whose week is used up is not sent a message it would refuse")
+    check(AutoSessions.due(figures(reset: now - 60, week: 100, weekReset: now - 60), last: nil, now: now),
+          "until that week has started again")
+    let tried = AutoSessions.Attempt(at: now - 60, notBefore: now + 600, problem: "refused")
+    check(!AutoSessions.due(figures(reset: now - 60), last: tried, now: now),
+          "an account just tried is not tried again before its time")
+    check(!AutoSessions.due(nil, last: tried, now: now),
+          "even one nothing is known of")
+    check(AutoSessions.due(figures(reset: now - 60), last: tried, now: now + 601),
+          "and is once that time has come")
+
+    let closes = now + AutoSessions.window - 10
+    let opened = PoolLimits(fiveHourPercent: 1, fiveHourReset: closes, weekPercent: 30, weekReset: nil,
+                            observed: now)
+    check(AutoSessions.next(after: nil, limits: opened, now: now) == closes,
+          "a window that opened is not opened again until it closes")
+    check(AutoSessions.next(after: nil, limits: nil, now: now) == now + AutoSessions.window,
+          "which is five hours on where the answer did not say")
+    check(AutoSessions.next(after: .http(401, ""), limits: nil, now: now) == now + AutoSessions.retryRefused,
+          "a login the service refused is not asked with again for an hour")
+    check(AutoSessions.next(after: .refused("sign in again"), limits: nil, now: now) == now + AutoSessions.retryRefused,
+          "nor is a signed-in account's, which only signing in again renews")
+    check(AutoSessions.next(after: .unreachable("offline"), limits: nil, now: now) == now + AutoSessions.retry
+            && AutoSessions.next(after: .noLogin, limits: nil, now: now) == now + AutoSessions.retry,
+          "anything else that went wrong is tried again in a quarter of an hour")
+    var refused = opened
+    refused.refusedUntil = now + 2 * 3600
+    check(AutoSessions.next(after: .http(429, ""), limits: refused, now: now) == now + 2 * 3600
+            && AutoSessions.next(after: .http(429, ""), limits: nil, now: now) == now + AutoSessions.retry,
+          "an account that is full is left until the service says it has room")
+    check(AutoSessions.next(after: .inFlight, limits: nil, now: now) == now + AutoSessions.interval,
+          "and a press that got there first is looked at again a minute later")
+
+    let weekEnds = now + 3 * 24 * 3600
+    let weekFull = PoolLimits(fiveHourPercent: 10, fiveHourReset: now + 3600, weekPercent: 100, weekReset: weekEnds,
+                              observed: now)
+    check(PoolPolicy.fullUntil(weekFull, now: now) == weekEnds,
+          "an account full for the week is full until the week ends, not until its five hours do")
+    var bothFull = weekFull
+    bothFull.fiveHour = 1
+    bothFull.refusedUntil = now + 600
+    check(PoolPolicy.fullUntil(bothFull, now: now) == weekEnds,
+          "with several windows shut it is the last of them to open")
+    var unsaid = weekFull
+    unsaid.weekReset = nil
+    check(PoolPolicy.fullUntil(unsaid, now: now) == nil,
+          "and a full week that did not say when it ends is not given a time")
+
+    try? fm.removeItem(at: AutoSessions.file)
+    let switches = AutoSessions()
+    check(!switches.isOn(UsagePoolController.mainKey) && switches.state(of: UsagePoolController.mainKey) == nil,
+          "no account starts its own sessions until somebody says so")
+    switches.set(UsagePoolController.mainKey, on: true)
+    check(AutoSessions().isOn(UsagePoolController.mainKey),
+          "an account switched on is still on after Graft starts again")
+    check(switches.state(of: UsagePoolController.mainKey) == L10n.text("Starts within a minute"),
+          "and says a session is on its way while no window is known to be open")
+    switches.set(UsagePoolController.mainKey, on: false)
+    check(!AutoSessions().isOn(UsagePoolController.mainKey), "switched off, it stays off")
+    try? fm.removeItem(at: AutoSessions.file)
+
+    let resets: [String: Date] = ["a": now + 3 * 86_400, "b": now + 86_400]
+    func ordered(_ first: [String], account: @escaping (String) -> String? = { _ in nil }) -> [String] {
+        UsagePoolController.order(["a", "b", "c"], first: first, account: account,
+                                  reset: { resets[$0] }, now: now)
+    }
+    check(ordered([]) == ["b", "a", "c"],
+          "left to the resets, the account whose week starts again soonest is used first, one unknown last")
+    check(ordered(["c"]) == ["c", "b", "a"],
+          "an account somebody put first goes first, and the rest still go by their resets")
+    check(ordered(["a", "c"]) == ["a", "c", "b"], "several put first keep the order they were given")
+    check(ordered(["a-again"], account: { $0.hasPrefix("a") ? "A" : nil }) == ["a", "b", "c"],
+          "an account put first under its other name is still that account")
+
+    let twenty = (1...20).map { "claude-\($0)" }
+    let weeks = Dictionary(uniqueKeysWithValues: twenty.enumerated().map { ($1, now + Double(20 - $0) * 3600) })
+    let byReset = UsagePoolController.order(twenty, first: [], account: { _ in nil }, reset: { weeks[$0] }, now: now)
+    check(byReset == Array(twenty.reversed()), "twenty accounts are ranked the same way as three")
+    let lastFirst = UsagePoolController.moved("claude-1", to: 0, in: byReset)
+    check(lastFirst.first == "claude-1" && lastFirst.count == 20 && Set(lastFirst) == Set(twenty)
+            && Array(lastFirst.dropFirst()) == Array(byReset.dropLast()),
+          "the last of twenty put first moves the rest down one, and loses none")
+    check(UsagePoolController.order(twenty, first: lastFirst, account: { _ in nil }, reset: { weeks[$0] }, now: now)
+            == lastFirst, "and the order set is the order shown")
+    check(UsagePoolController.moved("claude-1", to: 20, in: byReset) == byReset
+            && UsagePoolController.moved("nobody", to: 0, in: byReset) == byReset,
+          "a place that does not exist, or an account that is not there, moves nothing")
 }
 
 // MARK: - Opening a Claude onto chats something else is already reading
@@ -2479,8 +2628,11 @@ do {
     let menuBar = read("App/MenuBarController.swift")
     check(menuBar.contains("setAccessibilityIdentifier(\"status-item\")"),
           "the menu bar item can be asked for by a name that does not change with its figure")
-    check(menuBar.contains("spokenTitle = [spoken, drawing?.spoken, updateTip]") && menuBar.contains("setAccessibilityTitle([spokenTitle, chat]"),
+    check(menuBar.contains("spokenTitle = [borrowed, spoken, drawing?.spoken, updateTip]") && menuBar.contains("setAccessibilityTitle([spokenTitle, chat]"),
           "and says in words whose figure it shows, which account answers, what its symbol stands for and which conversation has just begun")
+    check(menuBar.contains("answering.flatMap(pool.entry(of:)) ?? $0")
+            && menuBar.contains("statusEntry(front: nil, besides: pool.accountsWeighed())"),
+          "the figure beside a Claude is the answering account's, and accounts signed in here are weighed when no Claude is named")
     check(menuBar.contains("window.setAccessibilityParent(NSApp)"),
           "the open dropdown is among the app's windows, where a client looking for its controls searches")
     check(!menuBar.contains("setAccessibilityWindows("),
@@ -3209,6 +3361,23 @@ do {
           "a named Claude is the one whose figure stands beside its name")
     check(monitor.statusEntry(front: support.appending(path: "Somebody Else")).map { !$0.named } == true,
           "a profile Graft does not know is not named")
+
+    // An account signed in through Graft has no Claude to be open, so it is
+    // open while it answers a conversation, and is weighed like any other.
+    var lent = entry("Work", fiveHour: 91, running: true)
+    lent.account = "account:work"
+    monitor.setEntriesForTesting([entry("Claude", fiveHour: 30, running: true)])
+    check(monitor.headlineEntry(besides: [lent])?.name == "Work",
+          "an account signed in here that is answering a conversation counts toward the figure in the bar")
+    check(monitor.statusEntry(front: nil, besides: [lent]).map { !$0.named && $0.entry.name == "Work" } == true,
+          "and is the one shown when its window is the tightest being spent")
+    lent.isRunning = false
+    check(monitor.headlineEntry(besides: [lent])?.name == "Claude",
+          "one answering nothing does not shout over the Claude in use, however full it is")
+    monitor.setEntriesForTesting([entry("Claude", fiveHour: 30, running: false)])
+    check(monitor.headlineEntry(besides: [lent])?.name == "Work",
+          "and with nothing open it can be the one closest to its limit")
+    monitor.setEntriesForTesting([idle, busy])
 
     let old = Date().addingTimeInterval(-8 * 3600)
     let stale = entry("Claude 3", fiveHour: 99, running: true, live: false, sampled: old)
@@ -6496,16 +6665,52 @@ do {
                                      usable: true)
     check(order([fullOwn, later]) == ["later", "own"],
           "a sender with no room of its own is still the last resort, so the service decides")
-    check(order([later, own, soon], prefer: ["later"]).first == "later",
-          "a conversation stays on the account holding its prompt cache")
-    check(order([own, spent, later], prefer: ["soon"]).first == "own",
+    func held(by holder: String?, moved assigned: String? = nil, bound: Bool = false) -> [String] {
+        PoolPolicy.preferred(assigned: assigned, holder: holder, bound: bound, own: "own")
+    }
+    check(order([later, own, soon], prefer: held(by: "later")).first == "later",
+          "a conversation stays on the account that answered it last, whatever its model and however long it sat")
+    check(order([own, spent, later], prefer: held(by: "soon")).first == "own",
           "but not on one that has since run out of room")
-    check(order([later, own, soon], prefer: ["own", "later"]) == ["own", "later", "soon"],
-          "a conversation moved by hand goes where it was put, ahead of where its cache is")
-    check(PoolPolicy.cacheLifetime(of: Data(#"{"cache_control":{"type":"ephemeral","ttl":"1h"}}"#.utf8)) == 3600,
-          "a request that asked for an hour of cache keeps its conversation where it is for an hour")
-    check(PoolPolicy.cacheLifetime(of: Data(#"{"cache_control":{"type":"ephemeral"}}"#.utf8)) == 300,
-          "and one that did not, for the five minutes a cache lasts by default")
+    check(order([later, own, soon], prefer: held(by: "later", moved: "own")) == ["own", "later", "soon"],
+          "a conversation moved by hand goes where it was put, ahead of where it was answered")
+    check(held(by: nil, bound: true) == ["own"] && held(by: "later", bound: true) == ["later"],
+          "a request only its writer can read stays with its sender when nobody is known to have answered it")
+    check(held(by: nil).isEmpty && order([later, own, soon], prefer: held(by: nil)).first == "soon",
+          "and a new conversation goes where the ranking says")
+    func ranked(_ accounts: [PoolPolicy.Account], first: [String] = [], family: String? = nil) -> [String] {
+        PoolPolicy.order(own: "own", accounts: accounts, first: first, family: family, now: now)
+    }
+    check(ranked([later, own, soon], first: ["later"]) == ["later", "soon", "own"],
+          "an account somebody put first is used before the ones whose weeks reset sooner")
+    check(ranked([later, own, soon], first: ["own", "later"]) == ["own", "later", "soon"],
+          "the order given is kept among the accounts it names, and the rest follow by their resets")
+    check(ranked([later, own, spent], first: ["soon"]) == ["own", "later"],
+          "an account put first with no room left is passed over like any other")
+    var fableSpent = soon
+    fableSpent.limits?.models = ["fable": PoolLimits.Window(used: 1, reset: now + 2 * day)]
+    check(ranked([later, own, fableSpent], first: ["soon"], family: "fable") == ["own", "later"]
+            && ranked([later, own, fableSpent], first: ["soon"], family: "opus").first == "soon",
+          "an account put first and out of one model is skipped for that model and still first for the others")
+    var fableBack = soon
+    fableBack.limits?.models = ["fable": PoolLimits.Window(used: 1, reset: now - hour)]
+    check(ranked([own, fableBack], family: "fable").first == "soon",
+          "a week of one model that has reset counts as empty")
+    var lacking = soon
+    lacking.shut = true
+    check(ranked([own, lacking, later]) == ["own", "later"],
+          "an account that refused the model being asked for is left out for it")
+    check(PoolRequest.family(of: "claude-opus-5-5") == "opus" && PoolRequest.family(of: "claude-fable-5-2[1m]") == "fable"
+            && PoolRequest.family(of: "claude-3-5-sonnet-20241022") == "sonnet" && PoolRequest.family(of: nil) == nil,
+          "a model's family is its name without the version, wherever the name sits")
+    let oneModel = [(prefix + "status", "rejected"), (prefix + "reset", stamp(hour)),
+                    (prefix + "representative-claim", "seven_day_overage_included")]
+    check(PoolPolicy.outcome(status: 429, headers: oneModel, borrowed: true, now: now) == .modelExhausted(until: now + hour),
+          "a refusal naming a limit that counts one model closes the account for that model alone")
+    check(PoolLimits.parse(oneModel, now: now).map { $0.refusedUntil == nil } == true
+            && PoolLimits.parse([(prefix + "status", "rejected"), (prefix + "reset", stamp(hour)),
+                                 (prefix + "representative-claim", "seven_day")], now: now)?.refusedUntil == now + hour,
+          "and leaves it open to every other, where a refusal for the whole week closes it")
     check(PoolPolicy.nextWeekReset(now - day, now: now) == now + 6 * day,
           "a weekly reset that has passed is followed by one a week later")
 
@@ -6515,6 +6720,12 @@ do {
     check(PoolPolicy.outcome(status: 429, headers: [(prefix + "status", "rejected"), (prefix + "reset", stamp(hour))],
                              borrowed: false, now: now) == .exhausted(until: now + hour),
           "or until the reset it named")
+    check(PoolRequest.wantsCredits(Data(#"{"type":"error","error":{"type":"rate_limit_error","details":{"error_code":"credits_required"}}}"#.utf8))
+            && PoolRequest.wantsCredits(Data(#"{"error":{"message":"Usage credits are required for this model."}}"#.utf8)),
+          "a refusal for a model the plan sells apart is known by its code or its words")
+    check(!PoolRequest.wantsCredits(Data(#"{"type":"error","error":{"type":"rate_limit_error","message":"Too many requests."}}"#.utf8))
+            && !PoolRequest.wantsCredits(Data()),
+          "and a busy service's refusal, or one that cannot be read, is not taken for it")
     check(PoolPolicy.outcome(status: 401, headers: [], borrowed: true, now: now) == .loginRefused,
           "a borrowed login that is refused is not lent again")
     check(PoolPolicy.outcome(status: 401, headers: [], borrowed: false, now: now) == .deliver,
@@ -6698,19 +6909,107 @@ do {
 
     // A config caught mid-write reads as a login that cannot be read, and the
     // relay would forget who that Claude is for the pass.
-    let whole: UsagePoolController.Login = (.ready, ["digest"], "token")
-    let caughtMidWrite: UsagePoolController.Login = (.unreadable, [], nil)
+    let whole: UsagePoolController.Login = (.ready, ["digest"], "token", "org")
+    let caughtMidWrite: UsagePoolController.Login = (.unreadable, [], nil, nil)
     let carried = UsagePoolController.steady(caughtMidWrite, kept: (whole, now.addingTimeInterval(-30)), now: now)
     check(carried.state == .ready && carried.identify == ["digest"] && carried.token == "token",
           "a login caught mid-write is lent as it was last read whole")
     check(UsagePoolController.steady(caughtMidWrite, kept: (whole, now.addingTimeInterval(-3600)), now: now).state
             == .unreadable,
           "but not for long: a file still unreadable after ten minutes is not a rename")
-    check(UsagePoolController.steady((.signedOut, [], nil), kept: (whole, now.addingTimeInterval(-30)), now: now).state
+    check(UsagePoolController.steady((.signedOut, [], nil, nil), kept: (whole, now.addingTimeInterval(-30)), now: now).state
             == .signedOut,
           "and a login read whole always says what it says")
     check(UsagePool.digest("abc") == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
           "a login is known to the relay by its SHA-256 alone")
+
+    // One login can sit in two organizations, each with its own allowance.
+    let personal = Allowance(account: "login", organization: "org-a")
+    let team = Allowance(account: "login", organization: "org-b")
+    let unseen = Allowance(account: "login")
+    check(Allowance.names(["main": personal, "account:login": unseen,
+                           "other": Allowance(account: "else", organization: "org-a")])
+            == ["main": "login", "account:login": "login", "other": "else"],
+          "a login seen in one organization is one allowance, whoever knows the organization")
+    let split = Allowance.names(["main": personal, "two": team, "account:login": unseen])
+    check(split["main"] == "login/org-a" && split["two"] == "login/org-b",
+          "the same login in two organizations is two allowances")
+    check(split["account:login"] == "login", "and one whose organization nobody has seen is neither of them")
+    check(personal.isSame(as: unseen) && unseen.isSame(as: team) && !personal.isSame(as: team)
+            && !personal.isSame(as: Allowance(account: "else", organization: "org-a")),
+          "an organization nobody has seen is taken for the other's, and a different one never is")
+    check(ClaudeCredentials.organization(in: "acct:AAAA|client:ORG-1:https://api.anthropic.com:user:inference user:profile")
+            == "org-1"
+            && ClaudeCredentials.organization(in: "client:org-2:https://api.anthropic.com:user:inference") == "org-2"
+            && ClaudeCredentials.organization(in: "client:https://api.anthropic.com:user:inference") == nil
+            && ClaudeCredentials.organization(in: "something else") == nil,
+          "a cached login names its organization, with or without the account in front of it")
+    func cached(_ value: String, _ organization: String?, lasting: TimeInterval) -> ClaudeCredentials.Token {
+        ClaudeCredentials.Token(value: value, expires: now.addingTimeInterval(lasting), plan: nil,
+                                scopes: [UsagePool.lendingScope], organization: organization)
+    }
+    let both = [cached("a", "org-a", lasting: 3600), cached("b", "org-b", lasting: 7200)]
+    check(UsagePoolController.lent(from: both, inUse: "org-a")?.value == "a",
+          "a profile holding a login for each of two organizations lends the one it is using")
+    check(UsagePoolController.lent(from: both, inUse: nil)?.value == "b"
+            && UsagePoolController.lent(from: both, inUse: "org-c")?.value == "b",
+          "and the newest when nothing says which, or the one in use has no login")
+    func signedIn(_ id: String, _ organization: String?, named: String? = nil) -> PoolAccount {
+        PoolAccount(id: id, accountUuid: "login", email: "one@example.com", organizationName: organization,
+                    organizationUuid: organization, scopes: [], expires: now, added: now, sealed: "", name: named)
+    }
+    let twice = [signedIn("account:login", "Personal"), signedIn("account:login/team", "Team")]
+    check(twice[0].title(among: twice) == "one@example.com · Personal"
+            && twice[1].title(among: twice) == "one@example.com · Team",
+          "two organizations of one address each say which they are")
+    check(twice[0].title(among: [twice[0]]) == "one@example.com"
+            && signedIn("x", "Team", named: "Work").title(among: twice) == "Work",
+          "and an address here once, or an account somebody named, reads as it did")
+
+    // A program Claude Code starts has the proxy and not the authority.
+    let claudeApp = "/Applications/Claude.app/Contents/"
+    let code = "/Users/x/Library/Application Support/Claude/claude-code/2.1.330/claude.app/Contents/MacOS/claude"
+    let started = [claudeApp + "Helpers/disclaimer", claudeApp + "MacOS/Claude"]
+    func opened(_ lineage: [String]) -> Bool { PoolPeer.isOpened(lineage) { $0.hasPrefix(claudeApp) } }
+    check(opened([code] + started) && opened(started),
+          "Claude Code as Claude starts it has its connection to the service opened")
+    check(!opened(["/usr/bin/curl", "/bin/zsh", code] + started) && !opened(["/usr/bin/python3", code] + started),
+          "a program Claude Code started is passed through unopened, since it would refuse the certificate")
+    check(opened([code, "/bin/zsh", code] + started), "unless it is Claude Code again")
+    check(opened(["/usr/bin/curl", "/bin/zsh", "/sbin/launchd"]) && opened([]),
+          "and one not traced to Claude at all is opened as it always was")
+    let listening = socket(AF_INET, SOCK_STREAM, 0), calling = socket(AF_INET, SOCK_STREAM, 0)
+    var loopback = sockaddr_in()
+    loopback.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+    loopback.sin_family = sa_family_t(AF_INET)
+    loopback.sin_addr.s_addr = inet_addr("127.0.0.1")
+    func port(of descriptor: Int32) -> UInt16 {
+        var address = sockaddr_in()
+        var length = socklen_t(MemoryLayout<sockaddr_in>.size)
+        _ = withUnsafeMutablePointer(to: &address) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { getsockname(descriptor, $0, &length) }
+        }
+        return UInt16(bigEndian: address.sin_port)
+    }
+    func with(_ address: sockaddr_in, _ call: (UnsafePointer<sockaddr>, socklen_t) -> Int32) -> Int32 {
+        var address = address
+        return withUnsafePointer(to: &address) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { call($0, socklen_t(MemoryLayout<sockaddr_in>.size)) }
+        }
+    }
+    _ = with(loopback) { bind(listening, $0, $1) }
+    listen(listening, 1)
+    var far = loopback
+    far.sin_port = port(of: listening).bigEndian
+    let connected = with(far) { connect(calling, $0, $1) } == 0
+    check(connected && PoolPeer.holders(local: port(of: calling), remote: port(of: listening)) == [getpid()],
+          "the program at the other end of a loopback connection is found by its two ports")
+    check(PoolPeer.lineage(of: getpid()).first.map { ($0 as NSString).lastPathComponent }
+            == (CommandLine.arguments[0] as NSString).lastPathComponent
+            && PoolPeer.lineage(of: getpid()).count > 1,
+          "and its executable is read with every parent's above it")
+    close(calling)
+    close(listening)
     check(PoolEnvironment.lines == ["HTTPS_PROXY": "http://127.0.0.1:47823",
                                     "NODE_EXTRA_CA_CERTS": UsagePool.certificateFile.path],
           "Claude Code is pointed at a port on this Mac alone, and told to trust the relay's own certificate")
@@ -6749,6 +7048,86 @@ do {
     check(pool.accounts.isEmpty && UsagePoolController().accounts.isEmpty,
           "and goes, login and all, when nothing draws on it any more")
 
+    pool.add(account("account:a", uuid: "a", sealed: "first"), to: main)
+    pool.rename("account:a", to: "  Work  ")
+    check(pool.name(of: "account:a") == "Work" && UsagePoolController().accounts.first?.name == "Work",
+          "a signed-in account can be given a name, which is kept between launches")
+    pool.recolour("account:a", to: .violet)
+    check(pool.preset(of: "account:a") == .violet && UsagePoolController().accounts.first?.iconPreset == .violet,
+          "and a colour of its own")
+    var again = account("account:fresh", uuid: "a", sealed: "renewed")
+    again.scopes = AccountSignIn.scopes
+    pool.renew("account:a", with: again)
+    let renewed = pool.accounts.first
+    check(pool.accounts.count == 1 && renewed?.id == "account:a" && renewed?.sealed == "renewed"
+            && renewed?.scopes == AccountSignIn.scopes && renewed?.name == "Work" && renewed?.iconPreset == .violet
+            && pool.lenders(of: main) == ["account:a"],
+          "signing an account in again replaces its login, and leaves its name, its colour and who draws on it alone")
+    pool.renew("account:nobody", with: again)
+    check(pool.accounts.count == 1, "and signs nothing in that was not here already")
+    pool.add(account("account:other-id", uuid: "a", sealed: "added"), to: main)
+    check(pool.accounts.first?.name == "Work" && pool.accounts.first?.sealed == "added",
+          "adding it a second time keeps its name too")
+    pool.rename("account:a", to: "a@example.com")
+    check(pool.accounts.first?.name == nil && pool.name(of: "account:a") == "a@example.com",
+          "an account named for its own address goes by its address")
+    pool.rename("account:a", to: "Work")
+    pool.rename("account:a", to: "   ")
+    check(pool.accounts.first?.name == nil, "as does one whose name is cleared")
+    check(pool.borrowers(of: "account:a") == [main] && pool.borrowers(of: "account:nobody").isEmpty,
+          "an account knows which Claudes draw on it")
+    check(pool.accountsAlone.map(\.id) == ["account:a"],
+          "one that no Claude here is signed in to is listed by itself")
+    let noFigures = pool.entry(forAccount: "account:a")
+    check(noFigures?.id == "account:a" && noFigures?.name == "a@example.com" && noFigures?.usage == nil
+            && noFigures?.mayStartSession == true && pool.entry(forAccount: "account:nobody") == nil,
+          "an account nothing has been heard from has a row under its name, and no figures yet")
+    check(!pool.needsSignIn("account:a") && !pool.needsSignIn(main) && !pool.needsAttention("account:a"),
+          "nothing is asked to sign in again before its login has been looked at")
+
+    let said = PoolLimits(fiveHour: 0.42, fiveHourReset: now + hour, week: 0.18, weekReset: now + day,
+                          refusedUntil: nil, observed: now)
+    let shown = UsagePoolController.usage(from: said)
+    check(shown.fiveHour == 42 && shown.week == 18 && shown.fiveHourReset == now + hour
+            && shown.weekReset == now + day && shown.sampled == now,
+          "what the service says on an answer is shown as the percentages the usage endpoint gives")
+    var windowless = said
+    windowless.fiveHour = 0
+    windowless.fiveHourReset = nil
+    check(UsagePoolController.usage(from: windowless).fiveHour == nil,
+          "and an answer naming no five-hour reset is an account with no five-hour window")
+    var withFable = shown
+    withFable.fable = 7
+    check(UsagePoolController.usage(from: said, keeping: withFable).fable == 7,
+          "a figure the answers never carry is kept from the last time it was asked")
+
+    var lapsed = account("account:old", uuid: "old", sealed: "x")
+    // By the clock, which is what the login is held to: `now` here is a date to come.
+    lapsed.expires = Date().addingTimeInterval(-day)
+    var readLapsed = true
+    do { _ = try UsageMonitor.token(of: lapsed, prompting: .no) } catch ClaudeCredentials.Failure.expired {
+        readLapsed = false
+    } catch {}
+    check(!readLapsed, "a login past its date is never read out of its seal")
+    let unsent = SessionStarter.start(account: lapsed)
+    let saysExpired = unsent.failure?.errorDescription
+        == L10n.text("That account's login has expired. Sign in to it again.")
+    check(saysExpired && unsent.limits == nil,
+          "and a session is not started with one: the press is told to sign in again, and nothing is sent")
+    check(UsageMonitor.failureLine(ClaudeCredentials.Failure.expired, signedIn: true)
+            != UsageMonitor.failureLine(ClaudeCredentials.Failure.expired),
+          "an account's lapsed login says to sign in again, having no Claude to open")
+    check(UsageMonitor.Entry(name: "Work", profile: UsageMonitor.Entry.noProfile, usage: shown, isRunning: false,
+                             refreshed: now, account: "account:a").freshness(now: now)
+            != UsageMonitor.Entry(name: "Claude", profile: Graft.mainProfile, usage: shown, isRunning: false,
+                                  refreshed: now).freshness(now: now),
+          "figures heard on an account's answer are not passed off as a profile's own record")
+
+    pool.addLender("account:a", to: "elsewhere")
+    pool.remove(account: "account:a")
+    check(pool.accounts.isEmpty && pool.sharing.lenders.isEmpty && UsagePoolController().accounts.isEmpty,
+          "removing an account takes it out of every Claude at once, and its login with it")
+
     try? fm.createDirectory(at: Graft.mainProfile, withIntermediateDirectories: true)
     let mainConfig = Graft.mainProfile.appending(path: "config.json")
     let hadConfig = fm.fileExists(atPath: mainConfig.path)
@@ -6756,7 +7135,8 @@ do {
         try! Data(#"{"lastKnownAccountUuid":"a"}"#.utf8).write(to: mainConfig)
         check(pool.sameAccount(as: main, besides: "elsewhere") == nil,
               "nothing is known of a Claude's account until a pass has read it, which no view does")
-        pool.learnAccounts(UsagePoolController.readAccounts([(main, Graft.mainProfile)]))
+        pool.learnAccounts(UsagePoolController.readAccounts([(main, Graft.mainProfile)])
+            .mapValues { Allowance(account: $0) })
         pool.add(account("account:a", uuid: "a", sealed: "s"), to: "elsewhere")
         check(pool.sameAccount(as: "account:a", besides: "elsewhere") == main,
               "an account signed in here that a Claude already holds is named as the same account")
@@ -7006,10 +7386,19 @@ do {
                                                state: "st")
     let query = URLComponents(url: authorize, resolvingAgainstBaseURL: false)?.queryItems ?? []
     func item(_ name: String) -> String? { query.first { $0.name == name }?.value }
-    check(authorize.host == "claude.com" && item("scope") == "user:inference"
+    check(authorize.host == "claude.com" && item("scope") == "user:inference user:profile"
             && item("redirect_uri") == "http://localhost:4321/callback" && item("state") == "st"
             && item("client_id") == AccountSignIn.clientID,
-          "an account is signed in for model requests alone, back to this Mac")
+          "an account is signed in for model requests and its own usage, back to this Mac")
+    let narrow = AccountSignIn.authorizeURL(redirect: "http://localhost:4321/callback", verifier: verifier,
+                                            state: "st", scopes: [AccountSignIn.scope])
+    check(URLComponents(url: narrow, resolvingAgainstBaseURL: false)?.queryItems?
+            .first { $0.name == "scope" }?.value == "user:inference",
+          "and for model requests alone when the wider login is not granted")
+    check(AccountSignIn.Failure.refused(400, nil).isOfTheGrant && AccountSignIn.Failure.shortLived.isOfTheGrant
+            && !AccountSignIn.Failure.ownAccount.isOfTheGrant && !AccountSignIn.Failure.otherAccount.isOfTheGrant
+            && !AccountSignIn.Failure.cancelled.isOfTheGrant && !AccountSignIn.Failure.keychain.isOfTheGrant,
+          "only a refusal of what was asked for is asked again for less")
     let challenge = Data(SHA256.hash(data: Data(verifier.utf8))).base64EncodedString()
         .replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_")
         .replacingOccurrences(of: "=", with: "")
@@ -7087,7 +7476,36 @@ do {
     var archivedUnsent = unsent
     archivedUnsent.putAway = true
     let carriedOld = PoolSession(id: "old", from: "main", servedBy: "main", lastAt: now, requests: 1, model: nil,
-                                 cachedUntil: nil, passedOver: [])
+                                 passedOver: [])
+    func carried(_ id: String, by account: String?, at: Date) -> PoolSession {
+        PoolSession(id: id, from: "main", servedBy: account, lastAt: at, requests: 1, model: nil, passedOver: [])
+    }
+    let yesterday = now.addingTimeInterval(-86_400)
+    let remembered = UsagePoolController.holders(
+        ["left": .init(to: "gone", at: yesterday), "quiet": .init(to: "main", at: yesterday)],
+        hearing: [carried("busy", by: "c2", at: now), carried("unanswered", by: nil, at: now)], known: ["main", "c2"])
+    check(remembered == ["quiet": .init(to: "main", at: yesterday), "busy": .init(to: "c2", at: now)],
+          "the account that answered each conversation is kept for the next relay, and one no longer here is not")
+    check(UsagePoolController.holders(remembered, hearing: [carried("busy", by: "c2", at: now.addingTimeInterval(600))],
+                                      known: ["main", "c2"]) == remembered
+            && UsagePoolController.holders(remembered, hearing: [carried("busy", by: "main", at: now.addingTimeInterval(600))],
+                                           known: ["main", "c2"])["busy"]?.to == "main",
+          "a conversation still in use is not written again on every pass, and one that moved is")
+    let crowd = (0..<300).map { carried("s\($0)", by: "main", at: now.addingTimeInterval(Double($0))) }
+    let capped = UsagePoolController.holders([:], hearing: crowd, known: ["main"])
+    check(capped.count == UsagePoolController.holdersKept && capped["s299"] != nil && capped["s0"] == nil,
+          "only the newest conversations are kept, so the list handed over stays small")
+    let chosen = UsageSharing.Assignment(to: "c2", at: now.addingTimeInterval(-60))
+    check(UsagePoolController.passedOver(carried("moved", by: "main", at: now), choice: chosen)
+            && !UsagePoolController.passedOver(carried("moved", by: "main", at: now.addingTimeInterval(-120)), choice: chosen),
+          "a conversation answered elsewhere since it was moved says so, and one not answered since still names the choice")
+    check(!UsagePoolController.passedOver(carried("moved", by: "main", at: now), choice: chosen, account: { _ in "one" })
+            && !UsagePoolController.passedOver(carried("moved", by: "c2", at: now), choice: chosen),
+          "an account answering under its other name is the account chosen")
+    let fableFigures = Graft.Usage(fiveHour: 10, week: 20, organization: nil, sampled: now, fable: 100, fableReset: now)
+    check(UsagePoolController.modelWindows(fableFigures) == ["fable": PoolLimits.Window(used: 1, reset: now)]
+            && UsagePoolController.modelWindows(Graft.Usage(fiveHour: 10, week: 20, organization: nil, sampled: now)) == nil,
+          "the week Fable has of its own is told to the relay as a fraction, and an account without one tells nothing")
     check(UsagePoolController.uncarried(archivedUnsent, in: "main", carried: [], choices: [], assigned: nil) == nil
             && UsagePoolController.uncarried(unsent, in: "main", carried: [carriedOld], choices: [], assigned: nil) == nil,
           "but not once it is put away, nor when the relay carried it and its own row decides")
@@ -7108,6 +7526,36 @@ do {
     check(UsagePoolController.answeringKey(refused) == "main"
             && UsagePoolController.answeringKey(chat("a", servedBy: "main")) == "main",
           "and the one that answered in its place once it had no room, as for one left to the ranking")
+    // The bar's figure is the answering account's, found among the names the
+    // Claude in front lists, which need not be the name the relay used.
+    let uuids = ["main": "u-main", "c2": "u-two", "account:work": "u-work", "account:again": "u-two"]
+    let names = ["main", "c2", "account:work"]
+    check(UsagePoolController.answering(chat("a", servedBy: "account:work"), among: names, account: { uuids[$0] })
+            == "account:work",
+          "a conversation answered by an account signed in here has that account's figure beside it")
+    check(UsagePoolController.answering(chat("a", servedBy: "account:again"), among: names, account: { uuids[$0] })
+            == "c2",
+          "an account the relay knows by another of its names is found by the account itself")
+    check(UsagePoolController.answering(chat("a", servedBy: "main", assigned: "account:work"), among: names,
+                                        account: { uuids[$0] }) == "account:work",
+          "a conversation just moved shows the figure of the account it was moved to")
+    check(UsagePoolController.answering(chat("a", servedBy: nil), among: names, account: { uuids[$0] }) == nil
+            && UsagePoolController.answering(nil, among: names, account: { uuids[$0] }) == nil
+            && UsagePoolController.answering(chat("a", servedBy: "gone"), among: names, account: { uuids[$0] }) == nil,
+          "and with nobody known to answer, the Claude in front keeps its own figure")
+
+    var elsewhere = chat("b", servedBy: "account:work")
+    elsewhere.claude = "c2"
+    check(UsagePoolController.spent([chat("a", servedBy: "account:work")], open: ["main"],
+                                    account: { uuids[$0] }, now: now) == ["u-work"],
+          "an account answering a conversation in an open Claude is being spent")
+    check(UsagePoolController.spent([elsewhere, chat("a", quiet: 31 * 60, servedBy: "account:work")], open: ["main"],
+                                    account: { uuids[$0] }, now: now).isEmpty,
+          "one whose Claude has closed, or whose conversation went quiet half an hour ago, is not")
+    check(UsagePoolController.spent([chat("a", servedBy: "stranger")], open: ["main"],
+                                    account: { uuids[$0] }, now: now) == ["stranger"],
+          "and an account whose owner is not known yet still counts, by its own name")
+
     check(pool.automaticTitle(chat("a", servedBy: "main")) == "Automatic · now Claude",
           "Automatic says which account it has settled on")
     check(pool.automaticTitle(chat("a", servedBy: "c2", assigned: "c2")) == "Automatic"
@@ -7176,7 +7624,7 @@ do {
 
     let sessions = ["s-open", "s-earlier", "s-archived", "s-marked", "s-deleted", "s-mirrored", "s-untitled"].map {
         PoolSession(id: $0, from: "main", servedBy: "main", lastAt: now, requests: 1, model: nil,
-                    cachedUntil: nil, passedOver: [])
+                    passedOver: [])
     }
     let profiles = [("main", mainProfile), ("c2", otherProfile)]
     let first = pool.lookUpRecords(sessions, profiles: profiles, now: now)
@@ -7438,9 +7886,28 @@ do {
     MainActor.assumeIsolated { moving.place(in: button) }
     let laid = moving.strip?.frame ?? .zero
     let laidTop = button.isFlipped ? laid.minY : button.bounds.height - laid.maxY
+    // A plain button rounds a centred title to whole pixels as it draws
+    // itself, which a status item's does not, so the column may be a point out.
     check(moving.strip?.isHidden == false && laid.size == moving.image.size && solidCorner != nil
-            && laid.minX == solidCorner?.x && laidTop == solidCorner?.y,
-          "the moving text lies exactly where AppKit draws a picture of its size, in a title an icon makes taller")
+            && abs(laid.minX - (solidCorner?.x ?? -9)) <= 1 && laidTop == solidCorner?.y,
+          "the moving text lies on the row where AppKit draws a picture of its size, in a title an icon makes taller")
+    let frontSource = (try? String(contentsOf: URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        .deletingLastPathComponent().appending(path: "Sources/App/FrontClaude.swift"), encoding: .utf8)) ?? ""
+    check(!frontSource.contains("cacheDisplay(") && !frontSource.contains("marking")
+            && frontSource.contains("cell.controlView = nil\n            cell.attributedTitle = marked"),
+          "the mark that finds the text's place is drawn by a copy of the title, never by the button on the bar")
+    // The same title built again, as every pass builds it: new objects, same pieces.
+    let placedAt = moving.strip?.frame
+    moving.strip?.frame.origin.x += 40
+    button.attributedTitle = FrontTitle.make(icon: icon, tag: nil, figure: nil, font: font, ticker: moving.image)
+    MainActor.assumeIsolated { moving.place(in: button) }
+    check(moving.strip?.frame.origin.x == (placedAt?.origin.x ?? 0) + 40,
+          "a title built again from the same pieces is not measured again")
+    button.attributedTitle = FrontTitle.make(icon: icon, tag: nil, figure: Graft.Usage.Headline(percent: 35, isWeekly: false),
+                                             font: font, ticker: moving.image)
+    MainActor.assumeIsolated { moving.place(in: button) }
+    check((moving.strip?.frame.minX ?? 0) > (placedAt?.minX ?? 0) && moving.strip?.frame.origin.x != (placedAt?.origin.x ?? 0) + 40,
+          "a figure coming into the title moves the text along with its blank")
     button.attributedTitle = FrontTitle.make(icon: nil, tag: nil, figure: nil, font: font, ticker: still.image)
     MainActor.assumeIsolated { moving.place(in: button) }
     check(moving.strip?.isHidden == true, "moving text whose blank has left the title is not shown")
@@ -7477,6 +7944,8 @@ do {
     check(poolSource.contains("if let claude = claude(sameAccountAs: key) { return preset(of: claude) }")
             && poolSource.contains("stored.iconPreset = accounts[index].iconPreset"),
           "an account that is also a Claude wears that Claude's colour, and a login renewed keeps its colour")
+    check(poolSource.contains("entry.isRunning = spent.contains(accountUuid(of: account.id) ?? account.id)"),
+          "an account is found among those being spent by the name it is counted under, organisation and all")
     let contentSource = (try? String(contentsOf: URL(fileURLWithPath: #filePath).deletingLastPathComponent()
         .deletingLastPathComponent().appending(path: "Sources/App/ContentView.swift"),
         encoding: .utf8)) ?? ""
@@ -7529,8 +7998,21 @@ do {
           {"organization":{"uuid":"chat-org","capabilities":["chat","claude_pro"]}}]}
         """#.utf8)
     check(ArtifactAPI.identity(from: account)
-            == ArtifactAPI.Identity(accountUuid: "acc-1", email: "me@example.com", org: "chat-org"),
+            == ArtifactAPI.Identity(accountUuid: "acc-1", email: "me@example.com", org: "chat-org",
+                                    organizations: [ArtifactOrganization(id: "chat-org",
+                                                                         name: L10n.format("Organization %ld", 1))]),
           "an account in a team as well is asked about under the organization that chats")
+    let twoTeams = Data(#"""
+        {"uuid":"acc-2","email_address":"two@example.com","memberships":[
+          {"organization":{"uuid":"api-org","name":"Console","capabilities":["api"]}},
+          {"organization":{"uuid":"team-a","name":"Team A","capabilities":["chat","raven"]}},
+          {"organization":{"uuid":"team-b","name":"Team B","capabilities":["chat","raven"]}}]}
+        """#.utf8)
+    let inTwo = ArtifactAPI.identity(from: twoTeams)
+    check(inTwo?.org == "team-a"
+            && inTwo?.organizations == [ArtifactOrganization(id: "team-a", name: "Team A"),
+                                        ArtifactOrganization(id: "team-b", name: "Team B")],
+          "one address in two teams is offered both by name, and starts in the first")
     check(ArtifactAPI.identity(from: Data(#"{"error":"unauthorized"}"#.utf8)) == nil,
           "an answer that names no account is no sign-in")
 
@@ -7569,6 +8051,31 @@ do {
                                                                   org: "org-b2"))
     check(same.accounts.map(\.id) == [first.id, second.id] && same.accounts.last?.org == "org-b2" && same.retired.isEmpty,
           "signing in again to an account as itself keeps its store and its place")
+
+    if let inTwo {
+        let store = UUID()
+        let listed = ArtifactAccounts.signedIn([first], store: store, as: inTwo).accounts
+        check(listed.last?.org == "team-a" && listed.last?.organizations?.count == 2
+                && listed.last?.organizationName == "Team A" && first.organizationName == nil,
+              "an account with a choice of organization says which it is in, and one without says nothing")
+        let moved = ArtifactAccounts.choosing("team-b", for: store, in: listed)
+        check(moved?.last?.org == "team-b" && moved?.first == first,
+              "choosing the other organization moves that account and no other")
+        check(ArtifactAccounts.choosing("team-a", for: store, in: listed) == nil
+                && ArtifactAccounts.choosing("elsewhere", for: store, in: listed) == nil
+                && ArtifactAccounts.choosing("org-b", for: first.id, in: listed) == nil,
+              "and nothing moves to where it already is, or to an organization the account is not in")
+        let back = ArtifactAccounts.signedIn(moved ?? [], store: UUID(), as: inTwo).accounts
+        check(back.last?.org == "team-b", "signing in again keeps the organization that was chosen")
+        var left = inTwo
+        left.organizations.removeAll { $0.id == "team-b" }
+        check(ArtifactAccounts.signedIn(moved ?? [], store: UUID(), as: left).accounts.last?.org == "team-a",
+              "until the account no longer belongs to it")
+        let before = Data(#"[{"id":"\#(store.uuidString)","email":"two@example.com","accountUuid":"acc-2","org":"team-b"}]"#.utf8)
+        let kept = try? JSONDecoder().decode([ArtifactAccount].self, from: before)
+        check(kept?.first?.org == "team-b" && kept?.first?.organizations == nil,
+              "a record kept before organizations were listed still reads, and is asked for them")
+    }
 
     let mine = UUID(), other = UUID()
     let listing = Data(#"""
@@ -8145,9 +8652,14 @@ do {
             && !source("ArtifactCenter.swift").contains("merge(Array(lists.values))")
             && center.contains("guard generation == self.searchGeneration, accounts.account(id) != nil else { continue }")
             && center.contains("results = ClaudeAPI.interleave(accounts.accounts.compactMap { lists[$0.id] })")
-            && center.contains("guard accounts.account(id) != nil else { return }\n            projectLists[id] = found"),
+            && center.contains("var current: Bool { accounts.account(id) != nil && projectGenerations[id] == generation }")
+            && center.contains("guard current else { return }\n            projectLists[id] = found"),
           "an account signed out while its list or search was running does not come back with what it found")
-    check(source("ArtifactCenter.swift").components(separatedBy: "lastSignIn = SignIn(").count == 2
+    check(source("ArtifactCenter.swift").components(separatedBy: "lastSignIn = SignIn(account: id, at: Date(), moved: true)").count == 2
+            && center.contains("if moved {\n"),
+          "an account moved to another organization is announced as moved, and its projects and results are asked for again")
+    check(source("ArtifactCenter.swift").components(separatedBy: "lastSignIn = SignIn(account: id, at: Date())").count == 2
+            && source("ArtifactCenter.swift").components(separatedBy: "lastSignIn = SignIn(").count == 3
             && source("ArtifactCenter.swift").contains("ArtifactAccounts.signedIn(accounts, store: id, as: identity)")
             && source("ArtifactCenter.swift").contains("for earlier in change.retired { retire(earlier) }"),
           "a sign-in is announced under the store it was made in, whether it adds an account or finds one already there")

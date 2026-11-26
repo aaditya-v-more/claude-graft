@@ -90,12 +90,41 @@ class Service(http.server.BaseHTTPRequestHandler):
                   "anthropic-ratelimit-unified-7d-utilization": str(state["7d"]),
                   "anthropic-ratelimit-unified-5h-reset": str(int(now + 3600)),
                   "anthropic-ratelimit-unified-7d-reset": str(int(state["7d-reset"]))}
-        if state["reject"]:
+        model = re.search(rb'"model":"([^"]*)"', body)
+        model = model.group(1) if model else b""
+        if any(name in model for name in state.get("lacks", [])):
+            payload = b'{"type":"error","error":{"type":"permission_error"}}'
+            self.send_response(403)
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers(); self.wfile.write(payload); return
+        if any(name in model for name in state.get("credits", [])):
+            # A plan that sells the model apart: no limit named, and
+            # compressed like any other error.
+            payload = (b'{"type":"error","error":{"type":"rate_limit_error",'
+                       b'"details":{"error_code":"credits_required"}}}')
+            self.send_response(429)
+            if "gzip" in (self.headers.get("Accept-Encoding") or ""):
+                payload = gzip.compress(payload)
+                self.send_header("Content-Encoding", "gzip")
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers(); self.wfile.write(payload); return
+        if state.get("busy"):
+            # Too many requests at once: no limit named, only how long to wait.
+            state["busy"] -= 1
+            payload = b'{"type":"error","error":{"type":"rate_limit_error"}}'
+            self.send_response(429)
+            self.send_header("Retry-After", "1")
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers(); self.wfile.write(payload); return
+        spent = any(name in model for name in state.get("spent", []))
+        if state["reject"] or spent:
             payload = b'{"type":"error","error":{"type":"rate_limit_error"}}'
             self.send_response(429)
             for k, v in limits.items(): self.send_header(k, v)
             self.send_header("anthropic-ratelimit-unified-status", "rejected")
-            self.send_header("anthropic-ratelimit-unified-reset", str(int(now + 1800)))
+            self.send_header("anthropic-ratelimit-unified-reset", str(int(now + (2 * 86400 if spent else 1800))))
+            if spent:
+                self.send_header("anthropic-ratelimit-unified-representative-claim", "seven_day_overage_included")
             self.send_header("Content-Length", str(len(payload)))
             self.end_headers(); self.wfile.write(payload); return
         seen[-1]["accept"] = self.headers.get("Accept-Encoding")
@@ -137,8 +166,11 @@ work = tempfile.mkdtemp(prefix="relay-")
 support = os.path.join(work, "support")
 os.makedirs(support)
 port = free_port()
+# Whatever started this script stands in for Claude, which makes the script
+# Claude Code and anything it starts a program run from inside a session.
+parent = subprocess.run(["ps", "-o", "comm=", "-p", str(os.getppid())], capture_output=True, text=True).stdout.strip()
 args = [RELAY, "--support", support, "--port", str(port), "--socket", "r.sock",
-        "--upstream-loopback-port", str(upstream_port)]
+        "--upstream-loopback-port", str(upstream_port), "--claude", parent]
 relay = subprocess.Popen(args, cwd=work, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 socket_path = os.path.join(work, "r.sock")
 for _ in range(100):
@@ -297,7 +329,8 @@ control({"configure": {"enabled": True, "members": [
 response, payload, went = ask(conn, "tok-A", session="s11")
 check([w["token"] for w in went] == ["tok-A"], "a newer reading from Graft moves the order")
 response, payload, went = ask(conn, "tok-A", session="s8")
-check([w["token"] for w in went] == ["tok-B"], "a conversation stays on the account holding its cache")
+check([w["token"] for w in went] == ["tok-B"],
+      "a conversation stays on the account that answered it, whatever the ranking says since")
 
 # Each Claude has a list of its own, and lending runs one way.
 accounts["tok-D"] = {"5h": 0.1, "7d": 0.1, "7d-reset": now + 3600, "reject": False}
@@ -329,18 +362,25 @@ control({"configure": {"enabled": True, "members": [
     "assignments": {"s15": "B", "s17": "A"}}})
 response, payload, went = ask(conn, "tok-A", session="s17")
 check([w["token"] for w in went] == ["tok-A"], "a conversation moved back to its own account stays there")
-response, payload, went = ask(conn, "tok-A", session="s18",
-                              body=b'{"model":"x","system":[{"cache_control":{"type":"ephemeral","ttl":"1h"}}]}')
+response, payload, went = ask(conn, "tok-A", session="s16")
+check([w["token"] for w in went] == ["tok-A"],
+      "a conversation the ranking has turned away from stays with the account that answered it")
 sessions = {entry["id"]: entry for entry in control({})["sessions"]}
 check(sessions.get("s15", {}).get("servedBy") == "B" and sessions["s15"]["from"] == "A"
       and sessions.get("s17", {}).get("servedBy") == "A",
       "the relay lists each conversation with the account answering it")
-held = sessions.get("s18", {})
-check(held.get("cachedUntil") is not None and abs(held["cachedUntil"] - held["lastAt"] - 3600) < 1,
-      "a conversation that asked for an hour of cache is held where it is for an hour")
-check(sessions.get("s16", {}).get("cachedUntil") is not None
-      and abs(sessions["s16"]["cachedUntil"] - sessions["s16"]["lastAt"] - 300) < 1,
-      "and one that did not, for five minutes")
+# A relay that has started since holds no record of a conversation, and Graft
+# hands over where each was answered as the relay last reported it.
+control({"configure": {"enabled": True, "members": [
+    dict(member("A", "tok-A", borrows=["B"]), limits=pushed(now + 4 * 86400, 50)),
+    dict(member("B", "tok-B"), limits=pushed(now + 86400, 50))],
+    "assignments": {"s15": "B", "s17": "A"}, "holders": {"s18": "A", "s16": "B"}}})
+response, payload, went = ask(conn, "tok-A", session="s18")
+check([w["token"] for w in went] == ["tok-A"],
+      "a conversation the relay never saw goes to the account Graft says answered it last")
+response, payload, went = ask(conn, "tok-A", session="s16")
+check([w["token"] for w in went] == ["tok-A"],
+      "and what the relay saw answered itself comes before what Graft remembers")
 accounts["tok-B"]["reject"] = True
 response, payload, went = ask(conn, "tok-A", session="s15")
 check(response.status == 200 and [w["token"] for w in went] == ["tok-B", "tok-A"],
@@ -440,7 +480,17 @@ check([w["token"] for w in went] == ["tok-D"],
 opus = reasoned.replace(b"claude-sonnet-5-5", b"claude-opus-5-5")
 response, payload, went = ask(conn, "tok-E", session="s33", body=opus)
 check([w["token"] for w in went] == ["tok-D"],
-      "and a model whose reasoning survives the move is routed as before")
+      "a model whose reasoning survives the move, seen for the first time, goes where the ranking says")
+accounts["tok-D"]["7d-reset"] = now + 6 * 86400
+control({"configure": {"enabled": True, "members": [
+    dict(member("D", "tok-D"), limits=pushed(now + 6 * 86400, 91)),
+    dict(member("E", "tok-E", borrows=["D"]), limits=pushed(now + 5 * 86400, 91))],
+    "assignments": {"s32": "D"}}})
+response, payload, went = ask(conn, "tok-E", session="s33", body=opus)
+check([w["token"] for w in went] == ["tok-D"],
+      "and stays with the account that answered it like any other, once the ranking turns")
+response, payload, went = ask(conn, "tok-E", session="s34", body=opus)
+check([w["token"] for w in went] == ["tok-E"], "while a conversation beginning then goes by the new ranking")
 accounts["tok-D"]["reject"] = True
 response, payload, went = ask(conn, "tok-E", session="s30", body=reasoned)
 check(response.status == 200 and [w["token"] for w in went] == ["tok-D", "tok-E"],
@@ -626,6 +676,115 @@ response, payload, went = ask(conn, "tok-A", session="s20")
 check([w["token"] for w in went] == ["tok-E"],
       "an account listed twice lends under its second name when the first has no login to lend")
 
+# Some limits count one family of models alone, and some plans lack a model.
+# T borrows U and V: U's week resets soonest, then V's, then T's own. U has
+# spent its week of one model and V's plan is without it.
+accounts["tok-T"] = {"5h": 0.1, "7d": 0.1, "7d-reset": now + 5 * 86400, "reject": False}
+accounts["tok-U"] = {"5h": 0.1, "7d": 0.1, "7d-reset": now + 1800, "reject": False, "spent": [b"fable"]}
+accounts["tok-V"] = {"5h": 0.1, "7d": 0.1, "7d-reset": now + 86400, "reject": False, "lacks": [b"fable"]}
+def model_pool(observed, u=None, **more):
+    control({"configure": dict({"enabled": True, "members": [
+        dict(member("T", "tok-T", borrows=["U", "V"]), limits=pushed(now + 5 * 86400, observed)),
+        dict(member("U", "tok-U"), limits=dict(pushed(now + 1800, observed), **(u or {}))),
+        dict(member("V", "tok-V"), limits=pushed(now + 86400, observed))]}, **more)})
+def first_turn(model):
+    return b'{"model":"' + model + b'","messages":[{"role":"user","content":"hi"}]}'
+model_pool(130)
+response, payload, went = ask(conn, "tok-T", session="s70", body=first_turn(b"claude-fable-5-2"))
+check(response.status == 200 and [w["token"] for w in went] == ["tok-U", "tok-V", "tok-T"],
+      "an account out of one model is passed over for it, and one whose plan lacks it sends the request home")
+response, payload, went = ask(conn, "tok-T", session="s71", body=first_turn(b"claude-fable-5-2[1m]"))
+check([w["token"] for w in went] == ["tok-T"],
+      "neither is asked for that model again, whatever its version, while what it said stands")
+response, payload, went = ask(conn, "tok-T", session="s72", body=first_turn(b"claude-opus-5-5"))
+check([w["token"] for w in went] == ["tok-U"],
+      "and every other model still starts on the account that is out of one")
+accounts["tok-U"]["busy"] = 1
+response, payload, went = ask(conn, "tok-T", session="s72", body=first_turn(b"claude-opus-5-5"))
+check(response.status == 200 and [w["token"] for w in went] == ["tok-U", "tok-V"],
+      "an account too busy for a moment is passed over for that one request")
+time.sleep(1.2)
+response, payload, went = ask(conn, "tok-T", session="s72", body=first_turn(b"claude-opus-5-5"))
+check([w["token"] for w in went] == ["tok-U"],
+      "and its conversation comes back to it, since being busy says nothing of its room")
+# Graft reads the weeks one model has from the usage endpoint and says so.
+model_pool(135, u={"models": {"sonnet": {"used": 1.0, "reset": now + 2 * 86400 - 978307200}}})
+response, payload, went = ask(conn, "tok-T", session="s73", body=first_turn(b"claude-sonnet-5-5"))
+check([w["token"] for w in went] == ["tok-V"],
+      "an account Graft read as out of one model is not asked for it at all")
+response, payload, went = ask(conn, "tok-T", session="s74", body=first_turn(b"claude-opus-5-5"))
+check([w["token"] for w in went] == ["tok-U"], "and is still asked first for the rest")
+
+# The order somebody asked for comes before the resets.
+model_pool(140, first=["T"])
+response, payload, went = ask(conn, "tok-T", session="s75", body=first_turn(b"claude-opus-5-5"))
+check([w["token"] for w in went] == ["tok-T"],
+      "an account somebody put first is used before one whose week resets sooner")
+model_pool(141, first=["V", "T"])
+response, payload, went = ask(conn, "tok-T", session="s76", body=first_turn(b"claude-opus-5-5"))
+check([w["token"] for w in went] == ["tok-V"], "the order given is kept among the accounts it names")
+response, payload, went = ask(conn, "tok-T", session="s75", body=first_turn(b"claude-opus-5-5"))
+check([w["token"] for w in went] == ["tok-T"],
+      "and a conversation under way stays where it is when the order changes")
+model_pool(142, first=["U", "V", "T"])
+response, payload, went = ask(conn, "tok-T", session="s77", body=first_turn(b"claude-fable-5-2"))
+check([w["token"] for w in went] == ["tok-T"],
+      "an account put first and out of one model is skipped for that model")
+response, payload, went = ask(conn, "tok-T", session="s78", body=first_turn(b"claude-haiku-5-5"))
+check([w["token"] for w in went] == ["tok-U"], "and comes first for every other")
+
+# A plan can sell one model apart, and says so in a 429 that names no limit.
+accounts["tok-W"] = {"5h": 0.1, "7d": 0.1, "7d-reset": now + 5 * 86400, "reject": False}
+accounts["tok-X"] = {"5h": 0.1, "7d": 0.1, "7d-reset": now + 1800, "reject": False, "credits": [b"fable"]}
+control({"configure": {"enabled": True, "members": [
+    dict(member("W", "tok-W", borrows=["X"]), limits=pushed(now + 5 * 86400, 143)),
+    dict(member("X", "tok-X"), limits=pushed(now + 1800, 143))]}})
+packed = {"Accept-Encoding": "gzip, deflate, br"}
+response, payload, went = ask(conn, "tok-W", session="s80", body=first_turn(b"claude-fable-5-2"), extra=packed)
+check(response.status == 200 and [w["token"] for w in went] == ["tok-X", "tok-W"],
+      "an account whose plan sells the model apart sends the request home")
+response, payload, went = ask(conn, "tok-W", session="s81", body=first_turn(b"claude-opus-5-5"), extra=packed)
+check([w["token"] for w in went] == ["tok-X"],
+      "and is asked at once for every other model, where a busy one would have been left a minute")
+response, payload, went = ask(conn, "tok-W", session="s82", body=first_turn(b"claude-fable-5-2"), extra=packed)
+check([w["token"] for w in went] == ["tok-W"], "and is not asked for that model again while what it said stands")
+
+# A sender with no room is sure of nothing, so what one lender cannot serve
+# goes on to the next lender before it goes home.
+control({"configure": {"enabled": True, "members": [
+    dict(member("P", "tok-P"), limits=pushed(now + 1800, 150)),
+    dict(member("Q", "tok-Q", borrows=["P", "R"]),
+         limits=dict(pushed(now + 86400, 150), fiveHour=0.99, fiveHourReset=now + 3600 - 978307200)),
+    dict(member("R", "tok-R"), limits=pushed(now + 5 * 86400, 150))]}})
+response, payload, went = ask(conn, "tok-Q", session="s80", body=first_turn(b"claude-opus-5-5"))
+check(response.status == 200 and [w["token"] for w in went] == ["tok-P", "tok-R"],
+      "a request one lender cannot serve goes on to the next when its sender has no room")
+
+# Twenty accounts in one pool, each drawing on all the others.
+crowd = ["tok-N%02d" % n for n in range(20)]
+for n, token in enumerate(crowd):
+    accounts[token] = {"5h": 0.1, "7d": 0.1, "7d-reset": now + (20 - n) * 3600, "reject": False}
+def crowd_pool(observed, **more):
+    control({"configure": dict({"enabled": True, "members": [
+        dict(member("N%02d" % n, crowd[n], borrows=["N%02d" % m for m in range(20) if m != n]),
+             limits=pushed(now + (20 - n) * 3600, observed)) for n in range(20)]}, **more)})
+crowd_pool(160)
+response, payload, went = ask(conn, crowd[0], session="s90", body=first_turn(b"claude-opus-5-5"))
+check(response.status == 200 and [w["token"] for w in went] == [crowd[19]],
+      "of twenty accounts, a new conversation starts on the one whose week resets soonest")
+for token in crowd[2:]: accounts[token]["reject"] = True
+response, payload, went = ask(conn, crowd[0], session="s91", body=first_turn(b"claude-opus-5-5"))
+check(response.status == 200 and [w["token"] for w in went] == crowd[:0:-1],
+      "with eighteen of them full it asks each once, soonest reset first, down to the one with room")
+response, payload, went = ask(conn, crowd[0], session="s92", body=first_turn(b"claude-opus-5-5"))
+check([w["token"] for w in went] == [crowd[1]], "and the next conversation goes straight to that one")
+response, payload, went = ask(conn, crowd[7], session="s93", body=first_turn(b"claude-opus-5-5"))
+check([w["token"] for w in went] == [crowd[1]], "from whichever of the twenty it is sent")
+crowd_pool(161, first=["N00", "N01"])
+response, payload, went = ask(conn, crowd[7], session="s94", body=first_turn(b"claude-opus-5-5"))
+check([w["token"] for w in went] == [crowd[0]], "and an order set over twenty is kept")
+check(len(control({})["members"]) == 20, "the relay reports on all twenty")
+
 control({"configure": {"enabled": False, "members": [member("A", "tok-A", borrows=["B", "C"]), member("B", "tok-B")]}})
 response, payload, went = ask(conn, "tok-A", session="s10")
 check([w["token"] for w in went] == ["tok-A"], "a pool switched off sends everything as Claude sent it")
@@ -644,6 +803,34 @@ while True:
     data += chunk
 check(b'"path": "/plain"' in data, "and what goes through it arrives untouched")
 raw.close()
+
+# A program started from inside a session has the proxy and not the authority.
+def from_inside(program):
+    child = subprocess.Popen(program + ["127.0.0.1", str(port)], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                             stderr=subprocess.DEVNULL)
+    child.stdin.write(b"CONNECT api.anthropic.com:443 HTTP/1.1\r\nHost: api.anthropic.com:443\r\n\r\n"); child.stdin.flush()
+    reply = os.read(child.stdout.fileno(), 4096)
+    child.stdin.write(b"GET /plain HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n"); child.stdin.flush()
+    data = b""
+    def drain():
+        nonlocal data
+        while True:
+            chunk = os.read(child.stdout.fileno(), 65536)
+            if not chunk: break
+            data += chunk
+    reader = threading.Thread(target=drain, daemon=True); reader.start(); reader.join(3)
+    child.kill(); child.wait()
+    return reply, data
+
+reply, data = from_inside(["/usr/bin/nc"])
+check(reply.startswith(b"HTTP/1.1 200") and b'"path": "/plain"' in data,
+      "a program Claude Code started reaches the service through a tunnel left unopened")
+relayed = "import socket,sys,os\ns=socket.create_connection((sys.argv[1],int(sys.argv[2])))\n" \
+          "import threading\nthreading.Thread(target=lambda:[s.sendall(c) for c in iter(lambda:os.read(0,65536),b'')],daemon=True).start()\n" \
+          "while True:\n c=s.recv(65536)\n if not c: break\n os.write(1,c)\n"
+reply, data = from_inside([sys.executable, "-c", relayed])
+check(reply.startswith(b"HTTP/1.1 200") and b'"path": "/plain"' not in data,
+      "and Claude Code started by Claude Code still has its tunnel opened")
 
 # Without the leaf a starting relay would make a new authority and leaf; one
 # that finds another relay running must leave before it gets that far.

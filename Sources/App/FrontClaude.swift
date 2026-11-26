@@ -430,17 +430,12 @@ enum NewChatTicker {
             strip = cycle.map { Strip(text, attributes: attributes, length: length, height: height,
                                       pass: NewChatTicker.pass(cycle: $0), started: begun) }
             var told: (() -> Void)?
-            let marking = Marking()
-            self.marking = marking
             // Drawn when shown rather than now, so the label colour is the one the
             // bar's appearance gives it at that moment.
             let image = NSImage(size: NSSize(width: cycle == nil ? length : NewChatTicker.width, height: height),
-                                flipped: false) { rect in
+                                flipped: false) { _ in
                 if cycle == nil {
                     (text as NSString).draw(at: .zero, withAttributes: attributes)
-                } else if marking.on {
-                    NewChatTicker.mark.setFill()
-                    rect.fill()
                 } else {
                     // A frame changed in the middle of the button's own drawing
                     // is one AppKit may draw again, so the strip moves after it.
@@ -448,21 +443,17 @@ enum NewChatTicker {
                 }
                 return true
             }
-            // Kept from caching so the blank can be drawn marked when it is
-            // looked for, and still text with it, so the text that stands and
-            // the blank the strip is laid by are drawn the same way. Either is
-            // drawn only when the button is.
+            // Kept from caching so each drawing of the button is heard of, and
+            // still text with it, so it is drawn the way the strip is laid.
             image.cacheMode = .never
             image.accessibilityDescription = text
             self.image = image
             told = { [weak self] in self?.drawn?() }
         }
 
-        private final class Marking { var on = false }
-        private let marking: Marking
         /// What the strip was last placed for, so a button drawn again
-        /// unchanged is not looked over again.
-        private var placedFor: (title: NSAttributedString, size: NSSize, scale: CGFloat)?
+        /// with nothing moved is not looked over again.
+        private var placedFor: (shape: [String], size: NSSize, scale: CGFloat)?
 
         /// Lays the strip over the blank the title holds for it, or hides it
         /// when the title no longer ends with that blank.
@@ -471,7 +462,7 @@ enum NewChatTicker {
         /// publishes its margins, and working it out from the layout was a
         /// pixel out whenever the icons made the line taller than the text:
         /// still text then stood a pixel above the same text moving. So the
-        /// button is drawn once away from the screen with the blank filled in
+        /// title is drawn once away from the screen with the blank filled in
         /// a colour, and the strip goes where the colour came out.
         func place(in button: NSButton) {
             guard let strip else { return }
@@ -486,7 +477,8 @@ enum NewChatTicker {
                 return
             }
             let scale = window.backingScaleFactor
-            if let placedFor, placedFor.title.isEqual(to: title), placedFor.size == button.bounds.size,
+            let shape = Picture.shape(of: title, in: button)
+            if let placedFor, placedFor.shape == shape, placedFor.size == button.bounds.size,
                placedFor.scale == scale, !strip.isHidden {
                 return
             }
@@ -494,29 +486,79 @@ enum NewChatTicker {
             let height = button.bounds.height
             // Not found only if AppKit stopped drawing the picture where it is
             // asked to; the end of the title, centred, keeps the text readable.
-            let (left, top) = markedCorner(in: button, width: size.width, scale: scale)
+            let (left, top) = markedCorner(in: button, title: title, blank: attachment, scale: scale)
                 ?? (((button.cell as? NSButtonCell)?.titleRect(forBounds: button.bounds).maxX ?? 0) - size.width,
                     ((height - size.height) / 2).rounded())
             let frame = NSRect(x: left, y: button.isFlipped ? top : height - top - size.height,
                                width: size.width, height: size.height)
             if strip.frame != frame { strip.frame = frame }
             strip.isHidden = false
-            placedFor = (title, button.bounds.size, scale)
+            placedFor = (shape, button.bounds.size, scale)
+        }
+
+        /// What decides where a title's pieces fall. A title is built anew on
+        /// every pass, and one with the same pieces is laid out the same.
+        private static func shape(of title: NSAttributedString, in button: NSButton) -> [String] {
+            var pieces = [button.image.map { NSStringFromSize($0.size) } ?? "", "\(button.imagePosition.rawValue)"]
+            title.enumerateAttributes(in: NSRange(location: 0, length: title.length)) { attributes, range, _ in
+                let picture = (attributes[.attachment] as? NSTextAttachment).map { NSStringFromRect($0.bounds) }
+                let font = (attributes[.font] as? NSFont).map { "\($0.fontName) \($0.pointSize)" }
+                pieces.append([picture ?? title.attributedSubstring(from: range).string, font ?? "",
+                               "\(attributes[.baselineOffset] ?? 0)"].joined(separator: "|"))
+            }
+            return pieces
         }
 
         /// The blank's top left corner, measured from the button's top left:
-        /// the first row the marked blank fills across its whole width. Nothing
-        /// else in a title is as wide, and the strip is a layer of its own,
-        /// which drawing the button into a picture leaves out.
-        private func markedCorner(in button: NSButton, width: CGFloat, scale: CGFloat) -> (CGFloat, CGFloat)? {
-            guard let rep = button.bitmapImageRepForCachingDisplay(in: button.bounds) else { return nil }
-            marking.on = true
-            button.cacheDisplay(in: button.bounds, to: rep)
-            marking.on = false
-            let wide = Int((width * scale).rounded()) - 2
-            for row in 0..<rep.pixelsHigh {
-                let marked = (0..<rep.pixelsWide).filter { NewChatTicker.isMark(rep, $0, row) }
-                if let first = marked.first, marked.count >= wide {
+        /// the first row a marked blank fills across its whole width. Nothing
+        /// else in a title is as wide.
+        ///
+        /// The mark is never given to the button. A copy of its cell draws a
+        /// copy of the title, its last picture marked, into a picture of its
+        /// own; why is in notes/shared-usage-guide/dropdown-and-foreground-tracking.md.
+        private func markedCorner(in button: NSButton, title: NSAttributedString, blank: NSTextAttachment,
+                                  scale: CGFloat) -> (CGFloat, CGFloat)? {
+            let bounds = button.bounds
+            let wide = Int((bounds.width * scale).rounded(.up)), high = Int((bounds.height * scale).rounded(.up))
+            guard wide > 0, high > 0, let cell = (button.cell as? NSButtonCell)?.copy() as? NSButtonCell,
+                  let space = CGColorSpace(name: CGColorSpace.sRGB),
+                  let picture = CGContext(data: nil, width: wide, height: high, bitsPerComponent: 8,
+                                          bytesPerRow: wide * 4, space: space,
+                                          bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+            else { return nil }
+            let solid = NSImage(size: blank.bounds.size, flipped: false) { rect in
+                NewChatTicker.mark.setFill()
+                rect.fill()
+                return true
+            }
+            // Drawn the way the blank is, so both fall on the same pixels.
+            solid.cacheMode = .never
+            let stand = NSTextAttachment()
+            stand.image = solid
+            stand.bounds = blank.bounds
+            let marked = NSMutableAttributedString(attributedString: title)
+            marked.addAttribute(.attachment, value: stand, range: NSRange(location: title.length - 1, length: 1))
+            // Let go of the button first, or the copy's title asks it to draw.
+            cell.controlView = nil
+            cell.attributedTitle = marked
+            picture.scaleBy(x: scale, y: scale)
+            if button.isFlipped {
+                picture.translateBy(x: 0, y: bounds.height)
+                picture.scaleBy(x: 1, y: -1)
+            }
+            NSGraphicsContext.saveGraphicsState()
+            NSGraphicsContext.current = NSGraphicsContext(cgContext: picture, flipped: button.isFlipped)
+            button.effectiveAppearance.performAsCurrentDrawingAppearance {
+                cell.draw(withFrame: bounds, in: button)
+            }
+            NSGraphicsContext.restoreGraphicsState()
+            guard let data = picture.data else { return nil }
+            let pixels = data.assumingMemoryBound(to: UInt8.self)
+            let needed = Int((blank.bounds.width * scale).rounded()) - 2
+            for row in 0..<high {
+                let line = pixels + row * picture.bytesPerRow
+                let found = (0..<wide).filter { NewChatTicker.isMark(line + $0 * 4) }
+                if let first = found.first, found.count >= needed {
                     return (CGFloat(first) / scale, CGFloat(row) / scale)
                 }
             }
@@ -528,16 +570,9 @@ enum NewChatTicker {
     /// and the blank is found by both.
     fileprivate static let mark = NSColor(srgbRed: 1, green: 0, blue: 1, alpha: 1)
 
-    fileprivate static func isMark(_ rep: NSBitmapImageRep, _ column: Int, _ row: Int) -> Bool {
-        if rep.bitsPerSample == 8, rep.samplesPerPixel == 4, !rep.isPlanar, let data = rep.bitmapData {
-            let at = data + row * rep.bytesPerRow + column * 4
-            let alphaFirst = rep.bitmapFormat.contains(.alphaFirst)
-            let (red, green, blue, alpha) = alphaFirst ? (at[1], at[2], at[3], at[0]) : (at[0], at[1], at[2], at[3])
-            return alpha > 200 && red > 180 && green < 100 && blue > 180
-        }
-        guard let colour = rep.colorAt(x: column, y: row)?.usingColorSpace(.sRGB) else { return false }
-        return colour.alphaComponent > 0.8 && colour.redComponent > 0.7 && colour.greenComponent < 0.4
-            && colour.blueComponent > 0.7
+    /// One pixel of the picture the title is measured in: red, green, blue, alpha.
+    fileprivate static func isMark(_ pixel: UnsafePointer<UInt8>) -> Bool {
+        pixel[3] > 200 && pixel[0] > 180 && pixel[1] < 100 && pixel[2] > 180
     }
 
     /// Clips the moving text to the blank it covers. Clicks go through to the

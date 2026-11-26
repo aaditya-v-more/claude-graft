@@ -50,6 +50,7 @@ final class ProjectCenter: ObservableObject {
     /// Whether the Projects pane has asked yet. A sign-in made before it was
     /// ever shown waits for it, like every other account.
     private var askedForProjects = false
+    private var projectGenerations: [UUID: Int] = [:]
     private var watching: [AnyCancellable] = []
 
     init(accounts: ArtifactCenter) {
@@ -61,7 +62,7 @@ final class ProjectCenter: ObservableObject {
             self?.accountsChanged(to: Set(list.map(\.id)))
         })
         watching.append(accounts.$lastSignIn.compactMap { $0 }.sink { [weak self] signIn in
-            self?.signedIn(signIn.account)
+            self?.signedIn(signIn.account, moved: signIn.moved)
         })
     }
 
@@ -114,8 +115,13 @@ final class ProjectCenter: ObservableObject {
     /// An account signed in from any pane is asked for here as well, once,
     /// because a person just asked for it; a search on screen is run again
     /// so it covers the new account too.
-    private func signedIn(_ id: UUID) {
+    private func signedIn(_ id: UUID, moved: Bool) {
         guard !offline else { return }
+        if moved {
+            projectLists[id] = nil
+            projects = projects.filter { $0.account != id }
+            results = results.filter { $0.account != id }
+        }
         codeLists[id] = nil
         projectStates[id] = nil
         if askedForProjects { Task { await loadProjects(id) } }
@@ -151,6 +157,10 @@ final class ProjectCenter: ObservableObject {
     private func loadProjects(_ id: UUID) async {
         guard accounts.account(id) != nil, projectStates[id] != .loading else { return }
         projectStates[id] = .loading
+        // A load an organization change overtook was asked of the one left.
+        let generation = (projectGenerations[id] ?? 0) + 1
+        projectGenerations[id] = generation
+        var current: Bool { accounts.account(id) != nil && projectGenerations[id] == generation }
         do {
             let org = try await accounts.organization(of: id)
             let session = accounts.session(id)
@@ -164,17 +174,17 @@ final class ProjectCenter: ObservableObject {
                 if !list.hasMore { break }
             }
             // Signed out while this ran: what it found goes with the account.
-            guard accounts.account(id) != nil else { return }
+            guard current else { return }
             projectLists[id] = found
             projectStates[id] = .ready
             accounts.noteSignIn(id, accepted: true)
         } catch ClaudeWebSession.Failure.signedOut {
-            guard accounts.account(id) != nil else { return }
+            guard current else { return }
             projectLists[id] = nil
             projectStates[id] = .signedOut
             accounts.noteSignIn(id, accepted: false)
         } catch {
-            guard accounts.account(id) != nil else { return }
+            guard current else { return }
             projectStates[id] = .failed
             Diagnostics.note("projects.list failed", ["reason": "\(error)"])
         }

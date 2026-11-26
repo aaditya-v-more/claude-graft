@@ -30,6 +30,11 @@ Adding the two together was wrong the other way: in a window with a toolbar the
 clip view's insets repeat the scroll view's, and the sum counted the toolbar
 twice.
 
+The sidebar's foot is the opposite case: stacked under the list, not inset over
+it. As an inset it had no backdrop, the update line being clear on purpose, and
+with enough shortcuts to scroll the rows showed through the version and the
+links. The layout check holds the list's scroll view above the foot.
+
 What keeps the fullest page in, a shortcut lending two accounts with all three
 bars showing, is that nothing takes a row it does not need. Whether a Claude is
 running is the window's subtitle. When the figures are from, the refresh button
@@ -40,6 +45,22 @@ the others behind its ⓘ. A shortcut's name, folder and Show in Finder share a
 row, and where it reads chats from is a labelled picker with the sharing note
 under its label. At 820 by 560 that page has 6 points to spare, in both
 languages; a new row there needs another row to give one up.
+
+The Accounts page is one row for each account, Claudes included: its place in
+the order, its week, a Move menu and its Auto-start switch. As two lists, one
+for the order and one for the switches, it was 31 points over at three
+accounts and twice the height at twenty. A switch in a grouped form's row takes
+the whole row for its label, which left the rows with no name in them, so the
+switch hides its label and a caption beside it says what it is. That switch
+reached assistive apps with its name and its value and no press of its own
+(read on macOS 27.2, 26 November 2026: a pointer turned it and nothing else
+could), so `AutoSessionToggle` gives it one, and `./test-layout.sh` now asks
+every Auto-start for it. The sidebar
+gave up its second line for the pages that belong to every account — Artifacts,
+Projects, Search Chats and Accounts are one line each under "Every account" —
+which is what leaves room for the Accounts row to be there always. The layout
+suite draws twenty Claudes: every row keeps its name, switch and menu inside
+the window, and the sidebar scrolls above its foot.
 
 CI found the next row nobody had counted. Its runner has no Claude.app, and
 the "Claude.app was not found." notice was a section of its own, 46 points
@@ -78,6 +99,15 @@ The limit is the status item's screen's `visibleFrame` less 40 points for the
 arrow and the popover's inset, passed in by `MenuBarController` when it opens
 the dropdown. The list keeps at least `leastList` whatever the rest takes, so
 a long notice cannot leave no account in view.
+
+A row's heading tries three shapes and takes the first that fits
+(`ViewThatFits`): name, plan and both buttons on a line; the same without the
+plan; and the name over the buttons. Russian's "Запустить сессию" left "Claude
+2" wrapped onto two lines and the button cut short, and with the buttons held
+whole the name was cut instead. Auto-start is a small checkbox at the end of
+the five-hour bar's reset line, laid over it and outside `UsageBar`, whose
+stack is replaced for accessibility by one progress indicator; beside the
+buttons, where it was asked for, Russian had no width for it.
 
 A list that fits is never wrapped: a `ScrollView` states no height of its own
 to a popover, which sizes itself from what its content asks for, so wrapping

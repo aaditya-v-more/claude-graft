@@ -96,6 +96,30 @@ first shares, at a login or after one of Graft's updates, which install
 themselves at any hour. Trusting both authorities across the switch would
 avoid that and has not been built.
 
+A `CONNECT` for that name is opened only for Claude and Claude Code. Through
+2.2.1 every one was, whoever sent it, and a program Claude Code starts that is
+not Node inherits `HTTPS_PROXY` without the authority, so a `curl` or a Python
+client calling the service from inside a session failed its certificate check
+where it would have passed straight through. Telling such a program apart
+inside TLS would mean presenting a certificate first, so the relay looks at
+who holds the other end of the loopback connection instead (`PoolPeer`): the
+process whose socket has the same two ports the other way round, and the
+executable of each of its parents. Claude Code is started by Claude's own
+`Contents/Helpers/disclaimer`, so its lineage meets Claude's bundle one step
+up. A program it started meets the bundle two or more steps up and is passed
+through as bytes, logged as `relay left unopened`, unless it is the same
+executable as the one just below the bundle, which is Claude Code starting
+itself. A connection nobody can be found holding, or one not traced to Claude
+at all, is opened as before. Measured on the Mac Mini on 26 November 2026
+against the real bundle path: `curl` run by a Code session reached the service
+and got its 404 with no authority, and `curl` started directly below the
+helper, where Claude Code sits, was still opened.
+
+The connection to the service carries TCP keepalive, a probe after a minute
+idle and four more a quarter minute apart. A Mac that slept part-way through
+an answer heard nothing more on that connection, and a wait that never ends
+kept an old relay from ever stepping aside for its successor.
+
 **What cannot change accounts goes out as it came.** Only a model request from
 a member is ever taken apart and written again; everything else is sent byte
 for byte, head included. The first version rebuilt every request, and
@@ -127,6 +151,22 @@ takes Claude Code's requests on that last one has not been seen; a refusal is a
 refused login and the request goes back to its own account, so being wrong
 costs a retry.
 
+**The same allowance is a login in one organisation.** One address can belong
+to two organisations, each with limits of its own, and through 2.2.1 the
+account uuid alone named an allowance, so two such Claudes were counted as one
+and one of them never lent. Now the name is the login and the organisation
+(`Allowance`): the bare uuid as before, and `uuid/organisation` only once two
+organisations have been seen under one login, so a machine with one keeps the
+names its files already hold. An organisation not known matches any. It is read
+from three places: the key of Claude's token cache entry,
+`acct:<account>|<client>:<organisation>:<host>:<scope>`, the `acct:` part only
+in newer caches; the organisation of the profile's newest usage sample, which
+says which one it last ran under; and `organization.uuid` in a pane sign-in's
+answer. A profile holding logins for two organisations lends the one in use
+(`UsagePoolController.lent`). An account signed in from the pane before this
+has no organisation stored and matches either until it is signed in again. The
+relay takes the name as given and compares nothing else.
+
 A profile's token cache is read out of its `config.json`, which Claude replaces
 by renaming a new file over it, and a pass landing in between reads a file that
 will not parse. Read as no login, that handed the relay the member with nothing
@@ -135,10 +175,20 @@ the key in hand `UsagePoolController.steady` lends the last one read whole in
 its place, for ten minutes at most, after which an unreadable file is no rename
 and the token held may be one Claude has since replaced.
 
-An account signed in from the pane lends the one login it has: a
-`user:inference` token asked for with a year's lifetime, through the same
-authorization Claude Code's own long-lived token comes from, and sealed with
-Claude's safe-storage key into `ClaudeGraft/pool/accounts.json`. The answer
+An account signed in from the pane lends the one login it has: a token asked
+for with a year's lifetime, through the same authorization Claude Code's own
+long-lived token comes from, and sealed with Claude's safe-storage key into
+`ClaudeGraft/pool/accounts.json`. It is asked for as `user:inference
+user:profile`, the second being what the usage endpoint wants. Whether the
+service grants that pair for a year has not been seen, so a sign-in that is
+refused at the exchange, answers `invalid_scope`, or is granted for under
+thirty days is sent round again in the same tab for `user:inference` alone
+(`askNarrowly`), and the account lends without figures of its own until
+something answers for it. Signing in again from the row or the accounts page
+(`renew`) must come back as the same account, and replaces the login alone: the
+id, name, colour and the Claudes drawing on it stay. Graft tells the relay what
+it knows of such an account in `PoolMember.limits`, where before it sent nil;
+the relay already keeps the newest of what it is told and what it hears. The answer
 carries a refresh token as well, and it is never read: renewing would be a
 second kind of login to look after, a year is long enough to sign in again, and
 the suite fails if `AccountSignIn` so much as names it. The browser hands its code to
