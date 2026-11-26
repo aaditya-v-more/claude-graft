@@ -121,7 +121,7 @@
   </Target>
 
   <Target Name="BundleLauncher" AfterTargets="Build">
-    <Exec Command="dotnet publish &quot;$(MSBuildThisFileDirectory)..\GraftLaunch\GraftLaunch.csproj&quot; -c $(Configuration) -r $(RuntimeIdentifier) -p:GraftVersion=$(GraftVersion) -o &quot;$(OutDir)launcher&quot; --nologo -v q" />
+    <Exec Command="dotnet publish &quot;$(MSBuildThisFileDirectory)..\GraftLaunch\GraftLaunch.csproj&quot; -c $(Configuration) -r $(RuntimeIdentifier) -p:GraftVersion=$(GraftVersion) -p:GraftVersionSuffix=$(GraftVersionSuffix) -o &quot;$(OutDir)launcher&quot; --nologo -v q" />
   </Target>
 
   <!-- The publish output is what an install is copied from. The stub goes beside
@@ -129,12 +129,12 @@
        runtime; the two are built from the same SDK and the same packages, so the
        files they share are the same files. -->
   <Target Name="BundleLauncherOnPublish" AfterTargets="Publish">
-    <Exec Command="dotnet publish &quot;$(MSBuildThisFileDirectory)..\GraftLaunch\GraftLaunch.csproj&quot; -c $(Configuration) -r $(RuntimeIdentifier) -p:GraftVersion=$(GraftVersion) -o &quot;$(PublishDir).&quot; --nologo -v q" />
+    <Exec Command="dotnet publish &quot;$(MSBuildThisFileDirectory)..\GraftLaunch\GraftLaunch.csproj&quot; -c $(Configuration) -r $(RuntimeIdentifier) -p:GraftVersion=$(GraftVersion) -p:GraftVersionSuffix=$(GraftVersionSuffix) -o &quot;$(PublishDir).&quot; --nologo -v q" />
   </Target>
 
   <!-- In a folder of its own, as one file: it runs from a copy elsewhere, so it
        must not lean on the runtime files beside the app. -->
   <Target Name="BundleRelayOnPublish" AfterTargets="Publish">
-    <Exec Command="dotnet publish &quot;$(MSBuildThisFileDirectory)..\GraftRelay\GraftRelay.csproj&quot; -c $(Configuration) -r $(RuntimeIdentifier) -p:GraftVersion=$(GraftVersion) -o &quot;$(PublishDir)relay&quot; --nologo -v q" />
+    <Exec Command="dotnet publish &quot;$(MSBuildThisFileDirectory)..\GraftRelay\GraftRelay.csproj&quot; -c $(Configuration) -r $(RuntimeIdentifier) -p:GraftVersion=$(GraftVersion) -p:GraftVersionSuffix=$(GraftVersionSuffix) -o &quot;$(PublishDir)relay&quot; --nologo -v q" />
   </Target>
 </Project>
