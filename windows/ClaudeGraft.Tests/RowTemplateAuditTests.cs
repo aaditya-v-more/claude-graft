@@ -14,7 +14,9 @@ public class RowTemplateAuditTests
         Assert.DoesNotMatch(@"\s(Un)?Checked=""", xaml);
         Assert.Contains("Toggled=\"KeepWarm_Toggled\"", xaml);
         var code = File.ReadAllText(Path.Combine(WindowsRoot(), "ClaudeGraft", "MainPage.xaml.cs"));
-        Assert.Contains("box.FocusState == FocusState.Unfocused) return;", code);
+        Assert.Contains("Loaded=\"KeepWarm_Loaded\"", xaml);
+        Assert.Contains("if (!pressed) return;", code);
+        Assert.DoesNotContain("FocusState.Unfocused) return;", code);
     }
 
     [Fact(DisplayName = "the sidebar's open button goes through the page's open, never straight to the launcher")]

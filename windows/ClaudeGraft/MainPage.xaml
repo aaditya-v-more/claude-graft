@@ -270,7 +270,7 @@
                                                     <ToggleSwitch Style="{StaticResource CardSwitch}"
                                                                   AutomationProperties.AutomationId="{x:Bind local:Spoken.Id('manager', Key, 'keepWarm')}"
                                                                   AutomationProperties.Name="{x:Bind local:Spoken.KeepWarm(Name)}"
-                                                                  IsOn="{x:Bind KeepWarm, Mode=OneWay}" Toggled="KeepWarm_Toggled" Tag="{x:Bind}" />
+                                                                  IsOn="{x:Bind KeepWarm, Mode=OneWay}" Toggled="KeepWarm_Toggled" Loaded="KeepWarm_Loaded" Tag="{x:Bind}" />
                                                 </Grid>
                                             </StackPanel>
                                         </Grid>

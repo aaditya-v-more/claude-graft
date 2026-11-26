@@ -5,6 +5,7 @@ using ClaudeGraft.Core;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.Windows.System.Power;
 
@@ -657,19 +658,20 @@ public sealed partial class MainPage : Page
     /// background sweep reads both the next time it runs, so nothing else has to be
     /// nudged; a start is at most a few minutes away, not this instant.
     ///
-    /// Click, never Checked/Unchecked: a reused row's binding sets IsChecked before
-    /// Tag, so those fired for the row it used to hold and unticked it on a reload.
+    /// Saved only after a press on the switch itself: a reused row's binding sets
+    /// IsOn before Tag, and focus outlives the click, so a focus check let the next
+    /// Claude's "off" land on the one shown before it.
     private void KeepWarm_Toggled(object sender, RoutedEventArgs e)
     {
+        var pressed = ReferenceEquals(sender, _keepWarmPressed);
+        _keepWarmPressed = null;
         // A binding setting the switch to what is already saved also raises
         // Toggled, and must not write it again.
         // The word beside it follows the switch itself, which runs ahead of the saved row.
         if (sender is ToggleSwitch { Parent: FrameworkElement { Parent: StackPanel { Children: [TextBlock words, ..] } } } moved)
             words.Text = SettingsCard.OnOff(moved.IsOn);
         if (sender is not ToggleSwitch { Tag: ShortcutRow row } box || box.IsOn == row.KeepWarm) return;
-        // A reused row's binding can flip the switch before its Tag follows; only a
-        // person's toggle, which focuses it, is saved.
-        if (box.FocusState == FocusState.Unfocused) return;
+        if (!pressed) return;
         var on = box.IsOn;
         if (row.Shortcut is Shortcut shortcut)
         {
@@ -683,6 +685,22 @@ public sealed partial class MainPage : Page
             App.Settings.Save();
         }
     }
+
+    private ToggleSwitch? _keepWarmPressed;
+
+    // The switch handles its own pointer and key events, so only handledEventsToo sees the press.
+    private void KeepWarm_Loaded(object sender, RoutedEventArgs e)
+    {
+        if (sender is not ToggleSwitch toggle || _wiredSwitches.Contains(toggle)) return;
+        _wiredSwitches.Add(toggle);
+        toggle.AddHandler(PointerPressedEvent, new PointerEventHandler((s, _) => _keepWarmPressed = (ToggleSwitch)s), true);
+        toggle.AddHandler(KeyDownEvent, new KeyEventHandler((s, k) =>
+        {
+            if (k.Key is Windows.System.VirtualKey.Space or Windows.System.VirtualKey.Enter) _keepWarmPressed = (ToggleSwitch)s;
+        }), true);
+    }
+
+    private readonly HashSet<ToggleSwitch> _wiredSwitches = new();
 
     // A tick's drawing follows its icon's progress through an expression that sleep
     // can drop, leaving it on frame zero — the indeterminate dash. Setting the source
