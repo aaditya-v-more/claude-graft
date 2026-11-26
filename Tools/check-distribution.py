@@ -104,6 +104,25 @@ def check_pages():
             fail(f"brew install --cask {token}: {url} does not open ({error})")
 
 
+def check_pages_current(mac, windows_tag):
+    """A download pinned to a version names the one people should get: the
+    disk image the feed offers, and the newest release that carries Windows.
+    2.2.1 shipped for the Mac alone, so the Windows links were pinned to 2.2.0
+    and must move on with the next release that carries Windows."""
+    for page in PAGES:
+        text = (ROOT / page).read_text(encoding="utf-8")
+        for version in sorted(set(re.findall(r"/releases/download/v([0-9.]+)/ClaudeGraft-[0-9.]+\.dmg", text))):
+            if version == mac:
+                ok(f"{page} hands out the {version} disk image the feed offers")
+            else:
+                fail(f"{page} hands out the {version} disk image while the feed offers {mac}")
+        for version in sorted(set(re.findall(r"/releases/download/v([0-9.]+)/ClaudeGraftApp-win-Setup\.exe", text))):
+            if f"v{version}" == windows_tag:
+                ok(f"{page} hands out the newest Windows setup, {version}")
+            else:
+                fail(f"{page} hands out the {version} Windows setup while the newest is {windows_tag}")
+
+
 # MARK: - Mac
 
 def public_key():
@@ -246,6 +265,7 @@ def main():
             check_windows(release, None)
         else:
             fail("no published release carries a Windows feed")
+        check_pages_current(mac, release["tag_name"] if release else None)
 
     print()
     print(f"{len(failures)} problem(s)" if failures else "everything a person downloads checks out")

@@ -293,7 +293,7 @@
                                         <Button.Flyout>
                                             <Flyout>
                                                 <TextBlock MaxWidth="360" TextWrapping="Wrap"
-                                                           local:Localized.Text="The Code tab in this Claude can be answered by the accounts added here. Each request goes to whichever has room and the soonest weekly reset, and a conversation stays on one account while its cache is still warm there. Chats, artifacts, connectors and Claude in Chrome stay with this Claude's own account, and the Chat tab is never shared.&#x0a;&#x0a;A request answered by another account carries the conversation to that account. Anthropic's terms for Claude plans may not allow one person to combine subscriptions this way, so read them before adding one." />
+                                                           local:Localized.Text="The Code tab in this Claude can be answered by the accounts added here. Each request goes to whichever has room and the soonest weekly reset, and a conversation stays on one account while its cache is still warm there. Chats, artifacts, connectors and Claude in Chrome stay with this Claude's own account, and the Chat tab is never shared.&#x0a;&#x0a;A request answered by another account carries the conversation to that account." />
                                             </Flyout>
                                         </Button.Flyout>
                                     </Button>

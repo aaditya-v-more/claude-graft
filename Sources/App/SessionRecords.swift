@@ -65,7 +65,10 @@ final class SessionRecords: ObservableObject {
         DispatchQueue.global(qos: .utility).async { [weak self] in
             // The only pass that covers Claude opened straight from the
             // Dock, which runs no launcher and asks Graft nothing.
-            let filed = Graft.squareUp(filingInto: filing)
+            // A global queue drains only when its thread retires, and every
+            // pass decodes the whole transcript cache; the pool lets go of
+            // that pass's objects before the next one starts.
+            let filed = autoreleasepool { Graft.squareUp(filingInto: filing) }
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.inFlight = false

@@ -8,18 +8,16 @@
 # must be re-run after each mirror. The zip is cached under LocalAppData, so a
 # re-stage after the first download is a local unzip, not a fresh download.
 #
-# Run after publishing/mirroring and before packaging. Pass -Version to pin; the
-# default takes the latest stable. Pass -Force to re-extract even if present.
+# Run after publishing/mirroring and before packaging. The version comes from
+# electron-version.txt, the one place it is pinned: a newer Chromium than
+# Claude's can upgrade its IndexedDB beyond what Claude reads, so it moves only
+# with a try. Pass -Version to override; -Force re-extracts even if present.
 param([string]$Version = "", [switch]$Force)
 
 $ErrorActionPreference = 'Stop'
 $dest = Join-Path $PSScriptRoot 'dist\ClaudeGraft\electron'
 
-if (-not $Version) {
-    $release = Invoke-RestMethod 'https://api.github.com/repos/electron/electron/releases/latest' `
-        -Headers @{ 'User-Agent' = 'claude-graft' }
-    $Version = $release.tag_name.TrimStart('v')
-}
+if (-not $Version) { $Version = (Get-Content (Join-Path $PSScriptRoot 'electron-version.txt') -Raw).Trim().TrimStart('v') }
 
 if ((Test-Path (Join-Path $dest 'electron.exe')) -and -not $Force) {
     Write-Host "Electron already staged in $dest (use -Force to re-extract)"

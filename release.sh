@@ -280,22 +280,25 @@ machine from exactly the files and commands people will use. So it goes out
 staged first, as a prerelease, which neither updater offers and the site does
 not call latest, with the cask on a branch of the tap.
 
-1. Stage it. The tag starts the Windows workflow, which adds the setup and
-   packages to the same prerelease.
+1. Stage it as a draft. Once published, a release here takes no more files and
+   gives none up, a prerelease included. The tag starts the Windows workflow,
+   which adds the setup and packages to the same draft.
   git tag -a $TAG -m "Claude Graft $VERSION" && git push origin $TAG
-  gh release create $TAG "$ZIP" "$DMG" "$DIST/appcast-staged.xml" --prerelease \\
+  gh release create $TAG "$ZIP" "$DMG" "$DIST/appcast-staged.xml" --draft \\
       --title "Claude Graft $VERSION" --notes-file docs/release-notes/$VERSION.html
      (if the Windows workflow made it first: gh release upload $TAG "$ZIP" "$DMG" "$DIST/appcast-staged.xml")
   git -C "$TAP" push origin HEAD:release-$VERSION
 
-2. Check it, once the Windows workflow has finished:
+2. Once the Windows workflow has added its files, make it a prerelease, so it
+   can be fetched the way people will, and check it:
+  gh release view $TAG --json assets --jq '.assets[].name'
+  gh release edit $TAG --draft=false --prerelease
   gh workflow run distribution-checks.yml -f tag=$TAG
    Then run Tests/manual/release-install.md on clean test machines, Mac and
    Windows, against this prerelease. Do not go on until both have passed.
 
-3. Publish it, all of it together:
+3. Publish it, all of it together. appcast-staged.xml stays on the release.
   gh release edit $TAG --prerelease=false --latest
-  gh release delete-asset $TAG appcast-staged.xml -y
   git add docs/appcast.xml && git commit -m "Release $VERSION" && git push origin main
   git -C "$TAP" push origin HEAD:main && git -C "$TAP" push origin --delete release-$VERSION
 

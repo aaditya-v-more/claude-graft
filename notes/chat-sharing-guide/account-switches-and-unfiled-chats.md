@@ -95,3 +95,23 @@ What it leaves alone is the reading. Every pass still reads and hashes every
 record on both sides while holding the state lock, so at that size a pass costs
 minutes of disk and CPU. Remembering each file's inode, size and modification
 time against its digest would make a quiet pass a series of `lstat` calls.
+
+Windows asked the same question the same way, parsing every record several
+times a pass. Its collector kept the memory flat, so it never grew, but the
+parsing was all there; it takes the same byte check now, ignoring case as its
+path match does. Both also rewrote `mirrored-chats.json` at the end of every
+pass. The file holds every pair, so a quiet square-up over 18 pairs wrote all
+of it out 18 times; a pass now saves it only when its pair's baseline changed.
+
+The suite's "What the background walks cost" section keeps all this from
+coming back. It reads the live heap (`malloc_zone_statistics`) rather than the
+footprint, which keeps freed pages and so hides a walk that reuses what the
+walk before it freed. Against a history of long records made of many small
+objects, which is what costs a parse, the first mirror pass, sweep and menu-bar
+look each peak under 8 MB (150 MB and 50 MB without the pools), thirty more of
+each hold nothing, ten quiet passes change no file, a quiet pass costs under
+twice the reading of its records (five times without the byte check), and the
+diagnostics log stops at two generations. Long records of a few big strings
+showed almost no difference, since a parse that keeps one string keeps little.
+The Windows tests check the writes, and the allocation of a quiet pass against
+that of reading its records, which counts exactly where CPU time would not.
