@@ -49,8 +49,9 @@ judged from runs on real machines, each kept with its evidence.
 Steps that need a person on a real machine are cases in `Tests/manual/`. A
 case says what must not be touched and how to put the machine back, and never
 releases, commits or touches a chat. A keychain prompt, permission or
-setting it meets is answered by whoever runs the case: Allow, never Always
-Allow.
+setting it meets is answered by whoever runs the case: choose Allow unless the
+[usage and Start Session case](Tests/manual/usage-and-start-session.md) calls
+for Always Allow on Mac3.
 
 ## Commands
 
