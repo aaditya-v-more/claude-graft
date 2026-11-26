@@ -69,11 +69,14 @@ other account; your chats, files and connectors stay where they are. An account
 you sign in to is also asked how much of its allowance is left, so Graft can
 show it.
 
-A conversation stays with the account that answered it until that account runs
-out, so a chat you began on one allowance, or moved to it, is not carried off
-to another between turns. Accounts are used in the order their weeks end, the
-soonest first, and under **Accounts** you can put any of them ahead of the
-rest. An account that is out of one model, or whose plan does not have it, is
+A conversation starts on the account of the Claude you opened it in and stays
+there until that account runs out, so a chat is not carried off to another
+allowance between turns; a model's reasoning is kept only by the account that
+wrote it, and moving costs it. The accounts a Claude then turns to are used in
+the order their weeks end, the soonest first, and under **Accounts** you can
+put any of them ahead of the rest. To have new conversations start by that
+order straight away, turn off **Keep a conversation in the Claude it started
+in** in Settings. An account that is out of one model, or whose plan does not have it, is
 passed over for that model alone and still answers for the others.
 
 Sharing sends that Claude's Claude Code through a small relay Graft runs. Before

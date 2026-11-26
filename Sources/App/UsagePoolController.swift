@@ -15,6 +15,8 @@ struct UsageSharing: Codable, Equatable {
     var holders: [String: Assignment]? = nil
     /// The accounts to use up first, first one first; nil goes by the resets.
     var first: [String]? = nil
+    /// False sends a new conversation by the order alone; nil starts it at home.
+    var ownFirst: Bool? = nil
 
     struct Assignment: Codable, Equatable {
         var to: String
@@ -727,6 +729,14 @@ final class UsagePoolController: ObservableObject {
 
     var orderIsSet: Bool { sharing.first != nil }
 
+    var startsAtHome: Bool { sharing.ownFirst ?? true }
+
+    func setStartsAtHome(_ on: Bool) {
+        var next = sharing
+        next.ownFirst = on ? nil : false
+        save(next)
+    }
+
     /// Claudes that exist, then the accounts that are none of them.
     var everyone: [String] {
         [Self.mainKey] + (store?.shortcuts ?? []).filter { $0.installedName != nil }.map(Self.key(for:))
@@ -1172,6 +1182,7 @@ final class UsagePoolController: ObservableObject {
         let assignments = sharing.assignments.mapValues(\.to)
         let holders = sharing.holders?.mapValues(\.to)
         let first = sharing.first
+        let ownFirst = startsAtHome
 
         queue.async {
             var lending: [String: Lending] = [:]
@@ -1218,7 +1229,7 @@ final class UsagePoolController: ObservableObject {
                                   borrowsFrom: input.borrowsFrom)
             }
             let configuration = PoolConfiguration(enabled: true, members: members, assignments: assignments,
-                                                  holders: holders, first: first)
+                                                  holders: holders, first: first, ownFirst: ownFirst)
             let journal = PoolEnvironment.readJournal()
             let wanted = !members.isEmpty || !journal.profiles.isEmpty
             let paused = keyShut && !members.isEmpty

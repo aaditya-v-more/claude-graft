@@ -913,7 +913,8 @@ if let directory = ProcessInfo.processInfo.environment["GRAFT_LAYOUT_WINDOWS"] {
     capture(settingsWindow, as: "\(Bundle.main.preferredLocalizations.first ?? "en")-settings", in: directory)
 }
 let settingsTree = checkAccessibility(settingsWindow, surface: ControlSurface.settings, "Settings")
-check(["open-at-login", "show-in-menu-bar", "front-icon", "front-name", "manual-updates", "hold-updates"]
+check(["open-at-login", "show-in-menu-bar", "front-icon", "front-name", "manual-updates", "hold-updates",
+       "start-at-home"]
         .allSatisfy { element("settings.\($0)", in: settingsTree) != nil },
       "every switch in Settings can be asked for by name, apart from the dropdown's copy of it")
 settingsWindow.orderOut(nil)

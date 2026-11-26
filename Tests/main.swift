@@ -6740,6 +6740,19 @@ do {
           "a request only its writer can read stays with its sender when nobody is known to have answered it")
     check(held(by: nil).isEmpty && order([later, own, soon], prefer: held(by: nil)).first == "soon",
           "and a new conversation goes where the ranking says")
+    func home(_ accounts: [PoolPolicy.Account], prefer: [String] = [], first: [String] = []) -> [String] {
+        PoolPolicy.order(own: "own", accounts: accounts, prefer: prefer, first: first, ownFirst: true, now: now)
+    }
+    check(home([later, own, soon]) == ["own", "soon", "later"],
+          "told to begin at home, a new conversation starts on its sender's account whatever the resets say")
+    check(home([later, own, soon], first: ["later"]) == ["own", "later", "soon"],
+          "and whatever order somebody set, which is where it goes once its own account is spent")
+    check(home([fullOwn, later, soon]) == ["soon", "later", "own"],
+          "a sender with no room of its own begins by the order as before")
+    check(home([later, own, soon], prefer: held(by: "later")).first == "later",
+          "a conversation another account has answered stays there, though its sender has room again")
+    check(home([later, own, soon], prefer: held(by: nil, moved: "soon")) == ["soon", "own", "later"],
+          "and one moved by hand still goes where it was put")
     func ranked(_ accounts: [PoolPolicy.Account], first: [String] = [], family: String? = nil) -> [String] {
         PoolPolicy.order(own: "own", accounts: accounts, first: first, family: family, now: now)
     }
@@ -6913,7 +6926,7 @@ do {
 
     let member = PoolMember(id: "main", name: "Claude", identify: [UsagePool.digest("token")], token: "token",
                             limits: percent)
-    let command = PoolCommand(configure: PoolConfiguration(enabled: true, members: [member]))
+    let command = PoolCommand(configure: PoolConfiguration(enabled: true, members: [member], ownFirst: true))
     let delivered = (try? JSONEncoder().encode(command))
         .flatMap { try? JSONDecoder().decode(PoolCommand.self, from: $0) }
     check(delivered?.configure == command.configure, "the pool reaches the relay exactly as Graft described it")
@@ -7088,6 +7101,12 @@ do {
     pool.addLender(main, to: main)
     check(pool.lenders(of: main) == ["second"], "once, and never itself")
     check(UsagePoolController().lenders(of: main) == ["second"], "what each Claude draws on is kept between launches")
+    check(pool.startsAtHome, "a conversation begins in its own Claude unless somebody says otherwise")
+    pool.setStartsAtHome(false)
+    check(!UsagePoolController().startsAtHome, "and saying otherwise is kept between launches")
+    pool.setStartsAtHome(true)
+    check(UsagePoolController().sharing.ownFirst == nil && UsagePoolController().startsAtHome,
+          "going back to it leaves nothing written")
     check(pool.lenders(of: "second").isEmpty, "lending to a Claude does not make it a borrower")
     pool.removeLender("second", from: main)
     check(pool.sharing.lenders.isEmpty, "a Claude given nothing has no entry left")

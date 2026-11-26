@@ -369,6 +369,26 @@ sessions = {entry["id"]: entry for entry in control({})["sessions"]}
 check(sessions.get("s15", {}).get("servedBy") == "B" and sessions["s15"]["from"] == "A"
       and sessions.get("s17", {}).get("servedBy") == "A",
       "the relay lists each conversation with the account answering it")
+# With the ranking pointing at B, a new conversation told to begin at home
+# starts on A all the same, and nothing already answered or moved changes.
+def ranked_away(observed, **more):
+    return {"configure": dict({"enabled": True, "members": [
+        dict(member("A", "tok-A", borrows=["B"]), limits=pushed(now + 4 * 86400, observed)),
+        dict(member("B", "tok-B"), limits=pushed(now + 86400, observed))],
+        "assignments": {"s15": "B", "s17": "A"}}, **more)}
+control(ranked_away(60))
+response, payload, went = ask(conn, "tok-A", session="s16a")
+check([w["token"] for w in went] == ["tok-B"],
+      "a new conversation starts on the account ranked first, another Claude's included")
+control(ranked_away(65, ownFirst=True))
+response, payload, went = ask(conn, "tok-A", session="s16b")
+check([w["token"] for w in went] == ["tok-A"],
+      "told to begin at home, a new conversation starts on the account of the Claude it was opened in")
+response, payload, went = ask(conn, "tok-A", session="s16a")
+check([w["token"] for w in went] == ["tok-B"], "one another account already answers stays with that account")
+response, payload, went = ask(conn, "tok-A", session="s15")
+check([w["token"] for w in went] == ["tok-B"], "and so does one moved there by hand")
+control(ranked_away(70))
 # A relay that has started since holds no record of a conversation, and Graft
 # hands over where each was answered as the relay last reported it.
 control({"configure": {"enabled": True, "members": [
