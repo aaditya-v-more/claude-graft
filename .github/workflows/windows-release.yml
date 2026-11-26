@@ -104,9 +104,8 @@ jobs:
 
       # Added to the release the Mac made if there is one, leaving its title
       # and notes alone; made here, with the Windows notes, if not. Made as a
-      # prerelease, which installed copies are not offered and the site does not
-      # call latest, so the setup and packages can be installed on a clean
-      # machine before a person publishes it; release.sh says how.
+      # draft: a published release takes no more files, so a prerelease made
+      # here would refuse the Mac's. release.sh says how it goes on from there.
       - name: Publish to the version's release
         shell: bash
         env:
@@ -120,5 +119,5 @@ jobs:
             gh release upload "$GITHUB_REF_NAME" "${files[@]}" --clobber
           else
             gh release create "$GITHUB_REF_NAME" "${files[@]}" --verify-tag \
-              --title "Claude Graft $v" --notes-file "${{ steps.version.outputs.notes }}" --prerelease
+              --title "Claude Graft $v" --notes-file "${{ steps.version.outputs.notes }}" --draft
           fi

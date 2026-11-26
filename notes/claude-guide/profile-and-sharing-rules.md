@@ -42,8 +42,9 @@
 - **That offer is silenced at the door, never in the window.**
 - **A new Claude reads its own chats;** only `ContentView.add()` says so, and on Windows `ProfileEditor.Edit` for a new draft. `Shortcut`'s default and decoding stay `.main`, so no saved Claude changes what it reads.
 - **A store may spell account and organization by their first eight characters** — `counterpartDirectory`. Every walk asks `isDirectory`; `skills-plugin` is not an account.
-- **An unfiled chat is unfiled only under the profile reading it.** Claude compares `originCwd` with its own `scratch-workspaces`, so a mirrored scratch record gets a local alias on each side and its `originCwd` stays out of the digest. Only a record holding both `"originCwd"` and `scratch-workspaces` as bytes is parsed to ask.
+- **An unfiled chat is unfiled only under the profile reading it.** Claude compares `originCwd` with its own `scratch-workspaces`, so a mirrored scratch record gets a local alias on each side and its `originCwd` stays out of the digest. Only a record holding both `"originCwd"` and `scratch-workspaces` as bytes is parsed to ask (on Windows, the folder in any case).
 - **A walk that reads records whole lets each go before the next:** an `autoreleasepool` per record in the mirror, the sweep, the menu bar's look and sidebar sync. Nothing else drains on their queues, and 2.2.0 grew past 40 GB on a 66,000-record history.
+- **A pass that moves nothing writes nothing:** `mirrored-chats.json` holds every pair and is saved only when a pass changed its own. The suite measures the walks' heap, writes and CPU against a large history.
 
 ### Session records — [notes/session-records.md](../../notes/session-records.md)
 
