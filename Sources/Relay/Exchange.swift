@@ -114,6 +114,14 @@ final class Exchange {
         let continuing = PoolRequest.continuesThread(body: body)
         let model = PoolRequest.model(in: body)
         let family = PoolRequest.family(of: model)
+        if let session, !PoolRequest.startsConversation(body: body), await state.wantsLaunchers(of: session) {
+            let started = PoolLineage.launchers(of: session)
+            if let beside = started.first {
+                await state.learn(launchers: started, of: session)
+                Diagnostics.note("relay side chat", ["session": String(session.prefix(8)),
+                                                     "beside": String(beside.prefix(8))])
+            }
+        }
         let attempts = await state.plan(own: own, session: session, pinned: pinned,
                                         bound: continuing || PoolRequest.carriesBoundReasoning(body: body),
                                         family: family)

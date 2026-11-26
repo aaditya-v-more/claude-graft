@@ -1,7 +1,7 @@
 # Drives a built graft-relay against a stand-in for the service on loopback:
 # which account each request reached, what came back, and how the relay steps
 # aside. Nothing here touches a real profile, port 47823 or the network.
-import gzip, hashlib, http.client, http.server, json, os, re, shutil, socket, ssl, subprocess, sys, tempfile, threading, time
+import gzip, hashlib, http.client, http.server, json, os, re, shutil, socket, ssl, subprocess, sys, tempfile, threading, time, uuid
 
 RELAY = os.path.abspath(sys.argv[1])
 failures = 0
@@ -169,8 +169,9 @@ port = free_port()
 # Whatever started this script stands in for Claude, which makes the script
 # Claude Code and anything it starts a program run from inside a session.
 parent = subprocess.run(["ps", "-o", "comm=", "-p", str(os.getppid())], capture_output=True, text=True).stdout.strip()
+projects = os.path.join(work, "projects")
 args = [RELAY, "--support", support, "--port", str(port), "--socket", "r.sock",
-        "--upstream-loopback-port", str(upstream_port), "--claude", parent]
+        "--upstream-loopback-port", str(upstream_port), "--claude", parent, "--projects", projects]
 relay = subprocess.Popen(args, cwd=work, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 socket_path = os.path.join(work, "r.sock")
 for _ in range(100):
@@ -389,6 +390,34 @@ check([w["token"] for w in went] == ["tok-B"], "one another account already answ
 response, payload, went = ask(conn, "tok-A", session="s15")
 check([w["token"] for w in went] == ["tok-B"], "and so does one moved there by hand")
 control(ranked_away(70))
+# A side chat is a session of its own whose transcript names the conversation
+# it was asked beside, and it is answered where that one is.
+asked, side, stray = (str(uuid.uuid4()) for _ in range(3))
+turns = (b'{"model":"claude-test","messages":[{"role":"user","content":"a"},'
+         b'{"role":"assistant","content":"b"},{"role":"user","content":"c"}]}')
+def beside(observed):
+    control(ranked_away(observed, assignments={"s15": "B", "s17": "A", asked: "A"}))
+beside(72)
+response, payload, went = ask(conn, "tok-A", session=asked)
+os.makedirs(os.path.join(projects, "-work"))
+with open(os.path.join(projects, "-work", side + ".jsonl"), "w") as f:
+    f.write(json.dumps({"type": "derived-from", "v": 1, "sessionId": asked, "sessions": []},
+                       separators=(",", ":")) + "\n")
+    f.write(json.dumps({"type": "derived-from", "v": 1, "sessionId": side, "sessions": [
+        {"type": "claude_code_session", "id": asked, "via": "launch", "started": side}]},
+        separators=(",", ":")) + "\n")
+beside(74)
+response, payload, went = ask(conn, "tok-A", session=stray, body=turns)
+check([w["token"] for w in went] == ["tok-B"],
+      "a session with turns behind it and nothing known of it goes where the ranking says")
+beside(76)
+response, payload, went = ask(conn, "tok-A", session=side, body=turns)
+check([w["token"] for w in went] == ["tok-A"],
+      "but a side chat's first request goes to the account answering the conversation it was asked beside")
+beside(78)
+response, payload, went = ask(conn, "tok-A", session=side, body=turns)
+check([w["token"] for w in went] == ["tok-A"], "and it stays where it began")
+control(ranked_away(80))
 # A relay that has started since holds no record of a conversation, and Graft
 # hands over where each was answered as the relay last reported it.
 control({"configure": {"enabled": True, "members": [

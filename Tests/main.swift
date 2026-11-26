@@ -6743,6 +6743,38 @@ do {
           "a request only its writer can read stays with its sender when nobody is known to have answered it")
     check(held(by: nil).isEmpty && order([later, own, soon], prefer: held(by: nil)).first == "soon",
           "and a new conversation goes where the ranking says")
+
+    // A side chat's transcript: its conversation's lines, then its own.
+    do {
+        let sideChat = "5f0c2a8e-3b1d-4c6f-9a7e-2d4b6c8e0f1a", asked = "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d"
+        let before = "7e6d5c4b-3a29-4180-9f8e-7d6c5b4a3928"
+        func came(_ session: String, _ entries: [[String: String]]) -> String {
+            let line: [String: Any] = ["v": 1, "sessionId": session,
+                                       "sessions": entries.map { $0.merging(["type": "claude_code_session"]) { old, _ in old } }]
+            let rest = String(decoding: try! JSONSerialization.data(withJSONObject: line, options: .sortedKeys), as: UTF8.self)
+            return #"{"type":"derived-from","# + rest.dropFirst()
+        }
+        let itsOwn = came(sideChat, [["id": asked, "via": "compact"], ["id": asked, "via": "fork"],
+                                     ["id": asked, "via": "launch", "started": sideChat],
+                                     ["id": before, "via": "launch", "started": sideChat]])
+        let copied = came(asked, [["id": before, "via": "fork"], ["id": asked, "via": "compact"]])
+        let quoted = #"{"type":"user","message":{"role":"user","content":"\n{\"type\":\"derived-from\",\"sessionId\":\""#
+            + sideChat + #"\"}"},"sessionId":""# + sideChat + #""}"#
+        func launched(_ session: String, _ lines: [String]) -> [String] {
+            PoolLineage.launchers(of: session, transcript: Data(lines.joined(separator: "\n").utf8))
+        }
+        check(launched(sideChat, [copied, itsOwn, quoted]) == [asked, before],
+              "a side chat's transcript names the conversation it was asked beside, and what that one came from after it")
+        check(launched(sideChat, [copied, quoted]).isEmpty && launched(asked, [copied, itsOwn]).isEmpty,
+              "a line copied in with the conversation, or quoted in a message, says nothing of who started a session")
+        let lineage = Graft.claudeProjects.appending(path: "-Users-test-lineage")
+        try! fm.createDirectory(at: lineage, withIntermediateDirectories: true)
+        try! Data(([copied, itsOwn].joined(separator: "\n") + "\n").utf8)
+            .write(to: lineage.appending(path: "\(sideChat).jsonl"))
+        check(PoolLineage.launchers(of: sideChat) == [asked, before] && PoolLineage.launchers(of: asked).isEmpty
+                && PoolLineage.launchers(of: "../\(sideChat)").isEmpty,
+              "it is read from the transcript filed under the session's own id, and nothing is read for an id that is not one")
+    }
     func home(_ accounts: [PoolPolicy.Account], prefer: [String] = [], first: [String] = []) -> [String] {
         PoolPolicy.order(own: "own", accounts: accounts, prefer: prefer, first: first, ownFirst: true, now: now)
     }
