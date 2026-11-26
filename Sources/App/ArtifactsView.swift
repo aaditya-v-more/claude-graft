@@ -24,7 +24,9 @@ struct ArtifactsView: View {
     static let note = L10n.text("""
         Graft signs in to claude.ai once for each account, in a window of its own, \
         and keeps that sign-in in a web store of its own for that account. One \
-        sign-in serves Artifacts, Projects and Search Chats alike. It is used \
+        sign-in serves Artifacts, Projects and Search Chats alike, and tells the \
+        menu bar the usage of the same account where it is signed in under \
+        Shared usage. It is used \
         only by claude.ai's own pages and is never read by Graft or sent \
         anywhere else. Signing out deletes it.
 

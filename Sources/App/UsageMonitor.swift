@@ -90,6 +90,10 @@ final class UsageMonitor: ObservableObject {
     @Published private(set) var accountEntries: [Entry] = []
     /// Those accounts, handed over by the pool whenever its list changes.
     var signedIn: [PoolAccount] = []
+    /// Told whose login a Claude's is, the first time a pass holds it.
+    var learned: ((_ account: String, _ address: String) -> Void)?
+    /// Accounts already asked about since launch. Only touched on `queue`.
+    private var askedWhose: Set<String> = []
     /// Set when live usage is unavailable for a reason worth showing once.
     @Published private(set) var liveProblem: String?
     /// True once a background pass has found the keychain shut to it, so the
@@ -428,14 +432,17 @@ final class UsageMonitor: ObservableObject {
                 entry.refreshed = onDisk?.sampled
                 let allowed = Self.prompting(asking: asking, elsewhere: elsewhere,
                                              focused: focused, locked: locked)
+                var held: String?
                 let outcome = self.live(for: target.profile.path,
                                         interactive: interactive && focused,
                                         freshness: focused ? wanted : .cached,
                                         running: running,
                                         problem: &problem,
                                         locked: &locked) {
-                    try ClaudeCredentials.token(for: target.profile, prompting: allowed)?.value
+                    held = try ClaudeCredentials.token(for: target.profile, prompting: allowed)?.value
+                    return held
                 }
+                if let held { self.learnWhose(target.profile, token: held) }
                 if let live = outcome.reading, let fetched = outcome.fetched,
                    !Self.prefersLocal(liveFetched: fetched, localSampled: onDisk?.sampled) {
                     entry.usage = Graft.Usage(fiveHour: live.fiveHour,
@@ -514,6 +521,16 @@ final class UsageMonitor: ObservableObject {
                 }
             }
         }
+    }
+
+    /// Once for each account since launch, and only with a login the pass
+    /// was already holding: nothing is read from the keychain for this.
+    private func learnWhose(_ profile: URL, token: String) {
+        guard let account = Graft.account(of: profile), askedWhose.insert(account).inserted else { return }
+        let found = UsageAPI.identity(token: token)
+        Diagnostics.note("usage.whose", ["answered": found != nil])
+        guard let found else { return }
+        DispatchQueue.main.async { self.learned?(found.account, found.address) }
     }
 
     /// A plain record of what the last pass found, so the state of live usage

@@ -114,6 +114,7 @@ final class AppSettings: ObservableObject {
         static let holdUpdates = "holdUpdates"
         static let frontIcon = "showFrontIcon"
         static let frontName = "showFrontName"
+        static let usageByAccount = "usageByAccount"
     }
 
     private let defaults: UserDefaults
@@ -150,6 +151,12 @@ final class AppSettings: ObservableObject {
         didSet { defaults.set(showFrontName, forKey: Key.frontName) }
     }
 
+    /// On unless somebody turns it off: the dropdown lists every account once.
+    /// Off, it lists each Claude with the accounts it draws on.
+    @Published var usageByAccount: Bool {
+        didSet { defaults.set(usageByAccount, forKey: Key.usageByAccount) }
+    }
+
     /// Reflects what macOS reports, not a value of our own.
     @Published private(set) var openAtLogin: Bool
 
@@ -165,6 +172,7 @@ final class AppSettings: ObservableObject {
         holdUpdates = defaults.bool(forKey: Key.holdUpdates)
         showFrontIcon = defaults.object(forKey: Key.frontIcon) as? Bool ?? true
         showFrontName = defaults.bool(forKey: Key.frontName)
+        usageByAccount = defaults.object(forKey: Key.usageByAccount) as? Bool ?? true
         openAtLogin = AppSettings.loginItemEnabled
     }
 

@@ -173,6 +173,7 @@ actor PoolState {
         let prefer = PoolPolicy.preferred(assigned: chosen, holder: holder, bound: bound, own: own)
         var ids = PoolPolicy.order(own: own, accounts: accounts, prefer: prefer,
                                    first: (configuration.first ?? []).compactMap(counted),
+                                   ownFirst: configuration.ownFirst ?? false,
                                    family: family, now: now)
         // The last word is always the sender's own account, asked again if it
         // was asked already: whatever the lent accounts answered last — a

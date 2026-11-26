@@ -204,8 +204,10 @@ enum PoolPolicy {
     /// asked for, which comes before the resets for the accounts it names.
     /// Room is room for `family`, the model being asked for: an account out
     /// of one model, or without it, is passed over for that model alone.
+    /// `ownFirst` puts the sender ahead of the ranking while it has room, so
+    /// a conversation begins in the Claude it was opened in.
     static func order(own: String, accounts: [Account], prefer: [String] = [], first: [String] = [],
-                      family: String? = nil, now: Date) -> [String] {
+                      ownFirst: Bool = false, family: String? = nil, now: Date) -> [String] {
         let open = accounts.filter { $0.usable && !$0.shut && hasRoom($0.limits, family: family, now: now) }
         var ids = open.sorted { a, b in
             let pa = first.firstIndex(of: a.id) ?? Int.max, pb = first.firstIndex(of: b.id) ?? Int.max
@@ -223,7 +225,7 @@ enum PoolPolicy {
                 return a.id < b.id
             }
         }.map(\.id)
-        for id in prefer.reversed() {
+        for id in (ownFirst ? [own] : []) + prefer.reversed() {
             if let index = ids.firstIndex(of: id) { ids.insert(ids.remove(at: index), at: 0) }
         }
         if !ids.contains(own) { ids.append(own) }
@@ -455,6 +457,8 @@ struct PoolConfiguration: Codable, Equatable {
     /// The accounts somebody wants used up first, first one first. Any not
     /// named follow in the order of their weekly resets.
     var first: [String]?
+    /// A new conversation begins on its sender's account while that has room.
+    var ownFirst: Bool?
 }
 
 struct PoolCommand: Codable {

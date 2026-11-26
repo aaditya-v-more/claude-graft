@@ -12,8 +12,9 @@ not said no, its five-hour window is under 98% and its week under 99%, a window
 whose reset has passed counting as empty. Those with room go in the order
 somebody set under Accounts, for the accounts it names, and then by the
 soonest weekly reset, an unknown reset after every known one, and a tie to the
-sender, since staying costs nothing. The sender's own account takes its place in
-that order while it has room and goes last when it has none; the request then
+sender, since staying costs nothing. The sender's own account goes first while it has room, unless
+that was turned off (below), when it takes its place in the order; it goes last
+when it has none; the request then
 goes out as Claude sent it and the service decides.
 
 Whatever its rank, the sender's account is also the last attempt, asked a
@@ -67,6 +68,21 @@ and every other model still starts there. The same day, with the relay
 replaced: Fable was refused and logged as `credits_required`, a Sonnet
 conversation half a minute later began on that account, and the next Fable one
 was not offered to it.
+
+**A conversation begins in the Claude it was opened in.** Asked for on 26
+November 2026: with the ranking alone deciding, a conversation opened in one
+Claude began on another's account whenever that one's week ended sooner, and
+the dropdown named an account its owner had not expected. Graft now sends
+`ownFirst` with every configuration and `PoolPolicy.order` puts the sender in
+front of the ranking while it has room for the model asked for; a choice from
+the dropdown and the account that already answers still go ahead of it, so
+nothing under way moves. With its own account spent the conversation goes by
+the order as before and stays where it lands, its sender having room again or
+not. The switch is "Keep a conversation in the Claude it started in" in
+Settings, on unless turned off, kept as `ownFirst: false` in
+`usage-sharing.json` and as nothing at all when on. Off is the ranking as it
+was before 2.3.0, which spends first what would be lost first; a relay that is
+told nothing takes it for off.
 
 **A conversation stays with the account that answered it,** whatever its model
 and however long it sat, until that account has no room, and then stays
@@ -122,8 +138,9 @@ name the relay now counts it by: when a Claude's own login lapses and the same
 account signed in from the pane lends in its place, the name that answered is
 no longer a candidate, and holding it by that name let the conversation go by
 the ranking instead, away from an account that still had room. A request with no reasoning in it
-and nobody known to have answered it — a new conversation — goes by the order,
-which is where sharing spreads the load. A choice from the
+and nobody known to have answered it — a new conversation — begins at home,
+and goes by the order once home is spent or with that switch off, which is
+where sharing spreads the load. A choice from the
 dropdown still moves a held conversation: a person asking is the one move, made
 on purpose, and the conversation then stays on that account. The relay does not
 add the header that would make the service report a drop, since nothing that
