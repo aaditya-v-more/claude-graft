@@ -9047,6 +9047,214 @@ do {
           "an environment both accounts share by identifier is kept and duplicates are dropped")
 }
 
+section("Dictation")
+
+do {
+    var hold = DictationGesture()
+    check(hold.press(at: 0) == [.begin],
+          "a press opens the microphone at once, since people speak as they press")
+    check(hold.passed(0.1).isEmpty && hold.deadline == DictationGesture.tap,
+          "and nothing is sent while it could still be the start of a shortcut")
+    check(hold.passed(0.3) == [.commit], "a press held past a tap is dictation")
+    check(hold.press(at: 1).isEmpty, "a second report of the same press starts nothing")
+    check(hold.release(at: 4) == [.finish] && hold.state == .idle,
+          "letting go ends the recording, and the words are typed")
+
+    var quick = DictationGesture()
+    _ = quick.press(at: 0)
+    check(quick.release(at: 0.5) == [.commit, .finish],
+          "a hold let go before the clock looked at it is still a hold")
+
+    var twice = DictationGesture()
+    _ = twice.press(at: 0)
+    check(twice.release(at: 0.1).isEmpty && twice.state == .tapped(at: 0.1),
+          "a tap waits to see whether a second one follows")
+    check(twice.press(at: 0.3) == [.commit, .lock] && twice.isHandsFree,
+          "a second tap keeps the recording going with no key held")
+    check(twice.release(at: 2).isEmpty && twice.state == .locked,
+          "however long that second tap is held")
+    check(twice.otherKey(escape: false).isEmpty,
+          "typing while it records hands-free is no reason to stop")
+    check(twice.press(at: 30) == [.finish], "the next press ends a hands-free recording")
+    check(twice.release(at: 30.1).isEmpty && twice.state == .idle, "and its release starts nothing")
+
+    var stray = DictationGesture()
+    _ = stray.press(at: 0)
+    _ = stray.release(at: 0.1)
+    check(stray.passed(0.3).isEmpty, "a single tap is given time for its second")
+    check(stray.passed(0.6) == [.cancel(.strayTap)] && stray.state == .idle,
+          "and thrown away when none came")
+
+    var late = DictationGesture()
+    _ = late.press(at: 0)
+    _ = late.release(at: 0.1)
+    check(late.press(at: 2) == [.cancel(.strayTap), .begin] && late.state == .pressed(since: 2),
+          "a tap long after another is a new press, not the second half of a double")
+
+    var chord = DictationGesture()
+    _ = chord.press(at: 0)
+    check(chord.otherKey(escape: false) == [.cancel(.chord)] && chord.state == .spent,
+          "another key under the held one is a shortcut being typed, not speech")
+    check(chord.release(at: 1).isEmpty && chord.state == .idle,
+          "and letting go of that shortcut types nothing")
+
+    var escaped = DictationGesture()
+    _ = escaped.press(at: 0)
+    _ = escaped.release(at: 0.1)
+    _ = escaped.press(at: 0.2)
+    _ = escaped.release(at: 0.3)
+    check(escaped.otherKey(escape: true) == [.cancel(.escape)] && escaped.state == .idle,
+          "Escape discards a hands-free recording")
+
+    var cut = DictationGesture()
+    _ = cut.press(at: 0)
+    _ = cut.passed(0.3)
+    cut.ended()
+    check(cut.state == .spent && cut.keyIsExpectedDown && cut.release(at: 601).isEmpty && cut.state == .idle,
+          "a recording stopped at its limit is not ended a second time by the release")
+    var left = DictationGesture()
+    _ = left.press(at: 0)
+    _ = left.release(at: 0.1)
+    _ = left.press(at: 0.2)
+    _ = left.release(at: 0.3)
+    left.ended()
+    check(left.state == .idle && left.press(at: 700) == [.begin],
+          "a hands-free recording that ended by itself leaves the key ready for the next one")
+
+    check([DictationEnd.asked, .tooLong, .wentQuiet, .microphoneLost].allSatisfy(\.keepsWords)
+            && [DictationEnd.chord, .escape, .strayTap, .away, .switchedOff].allSatisfy { !$0.keepsWords },
+          "what was said is typed unless the person took the press back or went away")
+
+    check(DictationLimits.end(elapsed: 599, quietFor: 0, handsFree: false) == nil
+            && DictationLimits.end(elapsed: 600, quietFor: 0, handsFree: false) == .tooLong
+            && DictationLimits.end(elapsed: 600, quietFor: 0, handsFree: true) == .tooLong,
+          "a recording ends at ten minutes however it was started")
+    check(DictationLimits.end(elapsed: 100, quietFor: 60, handsFree: false) == nil
+            && DictationLimits.end(elapsed: 100, quietFor: 44, handsFree: true) == nil
+            && DictationLimits.end(elapsed: 100, quietFor: 45, handsFree: true) == .wentQuiet,
+          "silence ends a hands-free recording and never a held one")
+    check(DictationLimits.secondsLeft(elapsed: 500) == nil && DictationLimits.secondsLeft(elapsed: 575.5) == 25
+            && DictationLimits.secondsLeft(elapsed: 700) == 0,
+          "the last half minute is counted down")
+    check(DictationLimits.backlog == 480_000, "fifteen seconds of sound are kept while the connection opens")
+
+    var loud = Data()
+    for index in 0..<1600 { withUnsafeBytes(of: Int16(index % 2 == 0 ? 16_384 : -16_384).littleEndian) { loud.append(contentsOf: $0) } }
+    check(DictationSound.level(of: Data(count: 3200)) == -120 && DictationSound.level(of: Data()) == -120,
+          "silence and no sound at all both read as the quietest there is")
+    check(abs(DictationSound.level(of: loud) + 6.02) < 0.1, "half of full scale is six decibels below it")
+    var quiet = DictationQuiet(startedAt: 0)
+    quiet.heard(level: -60, at: 10)
+    check(quiet.lasted(until: 20) == 20, "a room's hum is not a voice")
+    quiet.heard(level: -20, at: 15)
+    check(quiet.lasted(until: 20) == 5, "and quiet is counted from the last thing loud enough to be one")
+
+    let request = DictationWire.request(token: " secret-login\n", language: "ru")
+    let asked = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)
+    func item(_ name: String) -> String? { asked?.queryItems?.first { $0.name == name }?.value }
+    check(request.url?.host == "api.anthropic.com" && request.url?.scheme == "wss",
+          "what is said goes to Anthropic, over an encrypted connection")
+    check(request.value(forHTTPHeaderField: "Authorization") == "Bearer secret-login"
+            && request.url?.absoluteString.contains("secret") == false,
+          "the borrowed login rides in a header and never in the address")
+    check(item("encoding") == "linear16" && item("sample_rate") == "16000" && item("channels") == "1"
+            && item("language") == "ru",
+          "the service is told the sound is sixteen-bit, 16 kHz, one channel, and in which language")
+    check(asked?.queryItems?.contains { $0.name.contains("conversation") || $0.name.contains("organization") } == false,
+          "and nothing ties a recording to a chat")
+    check(DictationWire.language(preferred: ["ru-RU", "en"]) == "ru"
+            && DictationWire.language(preferred: ["zh-Hans-CN"]) == "zh"
+            && DictationWire.language(preferred: []) == "en"
+            && DictationWire.language(preferred: ["x"]) == "en",
+          "the language is the Mac's first, bare, and English when that cannot be read")
+
+    check(DictationWire.frame(#"{"type": "TranscriptText", "data": "The quick brown fox."}"#) == .final("The quick brown fox.")
+            && DictationWire.frame(#"{"type":"TranscriptInterim","data":"the qui"}"#) == .interim("the qui")
+            && DictationWire.frame(#"{"type": "TranscriptEndpoint"}"#) == .endpoint,
+          "settled words, a guess still forming and the end of an utterance are told apart")
+    let refusal = #"{"type":"error","error":{"type":"permission_error","message":"Invalid authorization","details":{"error_visibility":"user_facing","error_code":"account_session_invalid"}},"request_id":"req_1"}"#
+    check(DictationWire.frame(refusal) == .failure(message: "Invalid authorization", code: "account_session_invalid"),
+          "a refused login is read as one, with the reason the service gave")
+    check(DictationWire.frame(#"{"type":"TranscriptError","error_code":"overloaded"}"#)
+            == .failure(message: nil, code: "overloaded")
+            && DictationWire.frame("not json") == .other && DictationWire.frame(#"{"type":"Surprise"}"#) == .other,
+          "an error mid-recording is a failure, and anything unrecognised is passed over")
+
+    var heard = DictationTranscript()
+    heard.take(.interim("the quick"))
+    check(heard.isEmpty && heard.preview == "the quick", "a guess is shown and not yet counted as said")
+    heard.take(.final("The quick brown fox."))
+    heard.take(.endpoint)
+    heard.take(.final("  Jumps\nover.  "))
+    check(heard.settled == "The quick brown fox. Jumps over.",
+          "utterances are joined in order on one line, since a line break typed into a chat sends it")
+    heard.take(.final("The quick brown fox. Jumps over. The end."))
+    check(heard.settled == "The quick brown fox. Jumps over. The end.",
+          "a service that repeats everything so far is not typed twice")
+    heard.take(.final("   "))
+    check(heard.settled.hasSuffix("The end."), "and an empty utterance adds nothing")
+
+    check(DictationText.insertion("hello", before: "word", afterOwn: false) == " hello"
+            && DictationText.insertion("hello", before: "word ", afterOwn: false) == "hello"
+            && DictationText.insertion("hello", before: "", afterOwn: true) == "hello"
+            && DictationText.insertion("hello", before: "(", afterOwn: false) == "hello",
+          "a space goes in front only where the words would run into what is there")
+    check(DictationText.insertion(", then", before: "word", afterOwn: true) == ", then",
+          "never before punctuation that closes what came before")
+    check(DictationText.insertion("hello", before: nil, afterOwn: true) == " hello"
+            && DictationText.insertion("hello", before: nil, afterOwn: false) == "hello",
+          "and in an app that says nothing, only after dictation's own last words")
+    let long = String(repeating: "a", count: 45)
+    check(DictationText.strokes(long).map(\.count) == [20, 20, 5], "words are typed twenty units to a press")
+    let faces = String(repeating: "😀", count: 11) + "\u{E9}"
+    let strokes = DictationText.strokes(faces)
+    check(strokes.map(\.count) == [20, 3] && Array(faces.utf16) == strokes.flatMap { $0 },
+          "no character is cut in half between two presses, and none is lost")
+    check(DictationText.strokes("").isEmpty, "nothing said types nothing")
+
+    check(DictationKey.key(code: 62) == .rightControl && DictationKey.key(code: 61) == .rightOption
+            && DictationKey.key(code: 0) == .rightCommand,
+          "a key nobody offers reads as Right Command, never as one that types")
+    check(Set(DictationKey.all.map(\.code)).count == DictationKey.all.count && DictationKey.all.first == .rightCommand,
+          "every offered key is a different key, Right Command first")
+    check(DictationKey.rightCommand.isDown(flags: 0x100010) && !DictationKey.rightCommand.isDown(flags: 0x100008),
+          "the left Command is not the right one")
+    check(DictationKey.rightControl.isDown(flags: 0x42000) && !DictationKey.rightControl.isDown(flags: 0x40001),
+          "the left Control is not the right one")
+
+    let fresh = UserDefaults(suiteName: "graft-dictation-\(UUID().uuidString)")!
+    check(!AppSettings(defaults: fresh).dictationEnabled && AppSettings(defaults: fresh).dictationKey == 54,
+          "dictation is off until somebody turns it on, and its key is Right Command")
+    fresh.set(4, forKey: "dictationKey")
+    check(AppSettings(defaults: fresh).dictationKey == 54, "a stored key that types is not taken")
+
+    let repo = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+    func read(_ path: String) -> String {
+        (try? String(contentsOf: repo.appending(path: path), encoding: .utf8)) ?? ""
+    }
+    let parts = ["Dictation", "DictationStream", "DictationMicrophone", "DictationTyping", "DictationController"]
+        .map { read("Sources/App/\($0).swift") }
+    check(parts.allSatisfy { !$0.isEmpty }, "dictation's source is there to be read")
+    check(parts[1].contains("session: URLSession = UsageAPI.session") && !parts.joined().contains("URLSession("),
+          "the login it borrows goes out through the session that writes nothing down")
+    check(parts.allSatisfy { part in
+              !["write(to", "FileHandle", "AVAudioFile", "FileManager", "UserDefaults"].contains { part.contains($0) } },
+          "nothing said, heard or written down is kept on disk")
+    check(parts.joined().components(separatedBy: "\n").filter { $0.contains("Diagnostics.note") }
+            .allSatisfy { !$0.contains("words") && !$0.contains("text") && !$0.contains("token") },
+          "and neither the words nor the login reach the diagnostics log")
+    check(parts[4].components(separatedBy: "DictationTyping.askForTrust()").count == 2
+            && parts[4].contains("private func switched(on: Bool)"),
+          "macOS is asked for Accessibility from the switch alone, where somebody is there to read it")
+    check(parts[3].contains("event.flags = []") && !parts[3].contains("NSPasteboard.general.string("),
+          "typed words carry no held modifier, and the clipboard is never read")
+    check(read("Resources/Info.plist").contains("<key>NSMicrophoneUsageDescription</key>"),
+          "the bundle says why it wants the microphone, without which macOS ends the app that asks")
+    let app = read("Sources/App/ClaudeGraftApp.swift")
+    check(app.contains("DictationControl()") && app.contains("Shared.dictation.start(settings: Shared.settings)"),
+          "Settings carries the switch and the key, and the launch starts listening for it")
+}
+
 print("\n\(checks - failures)/\(checks) checks passed")
 if failures > 0 {
     print("\(failures) FAILED")

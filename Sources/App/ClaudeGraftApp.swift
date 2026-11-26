@@ -59,6 +59,7 @@ enum Shared {
     static let usagePool = UsagePoolController()
     static let accountSignIn = AccountSignIn(pool: usagePool)
     static let autoSessions = AutoSessions()
+    static let dictation = DictationController()
     @MainActor static let artifacts = ArtifactCenter()
     @MainActor static let projects = ProjectCenter(accounts: artifacts)
 }
@@ -80,6 +81,7 @@ struct SettingsView: View {
                     .disabled(!settings.showInMenuBar)
                 ManualUpdateControl()
                 HoldUpdatesControl()
+                DictationControl()
             } footer: {
                 Text(problem ?? L10n.text("""
                      The menu bar item keeps reporting usage after this window is \
@@ -142,6 +144,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Shared.usagePool.start(store: Shared.store, usage: Shared.usage)
         Shared.autoSessions.start(store: Shared.store, usage: Shared.usage, pool: Shared.usagePool)
         Shared.updater.start(holding: Shared.settings)
+        Shared.dictation.start(settings: Shared.settings)
         // No prompts, no windows: filing records is a thing the menu bar
         // does on its own whether anyone is looking or not. Once, here —
         // the pass that matters runs in a shortcut's launcher, on its way

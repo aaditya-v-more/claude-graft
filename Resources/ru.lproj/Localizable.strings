@@ -552,3 +552,36 @@
 "Move Down" = "Ниже";
 "Change its place in the order" = "Изменить её место в порядке";
 "Move %@" = "Переместить %@";
+
+/* Dictation */
+"Dictation" = "Диктовка";
+"Dictate into any app" = "Диктовать в любое приложение";
+"Dictation key" = "Клавиша диктовки";
+"Right Control" = "Правый Control";
+"Right Option" = "Правый Option";
+"Right Command" = "Правый Command";
+"Fn (Globe)" = "Fn (глобус)";
+"Hold to speak, tap twice to keep recording" = "Удерживайте, чтобы говорить; двойное нажатие — запись без удержания";
+"Hold the key and speak; let go, and the words are typed where the cursor is. Tap it twice to keep recording until you press it again; Escape discards it. Your voice goes to Anthropic, the way Claude's own dictation sends it, with the login of a Claude here." = "Удерживайте клавишу и говорите; отпустите — и текст будет напечатан там, где стоит курсор. Нажмите её дважды, чтобы запись шла, пока вы не нажмёте снова; Escape отменяет запись. Ваш голос отправляется в Anthropic, как и при диктовке в самом Claude, со входом одного из Claude на этом Mac.";
+"Needs Accessibility to hear the key and type" = "Нужен «Универсальный доступ», чтобы слышать клавишу и печатать";
+"macOS lets an app watch a key and type into other apps only once it is allowed under Privacy & Security › Accessibility. After an update macOS may ask for this again." = "macOS позволяет приложению следить за клавишей и печатать в других приложениях только после разрешения в разделе «Конфиденциальность и безопасность» › «Универсальный доступ». После обновления macOS может запросить это снова.";
+"Needs the microphone" = "Нужен микрофон";
+"Allow Claude Graft under Privacy & Security › Microphone." = "Разрешите Claude Graft в разделе «Конфиденциальность и безопасность» › «Микрофон».";
+"Open System Settings…" = "Открыть Системные настройки…";
+"Listening…" = "Слушаю…";
+"Listening. Press %@ to finish." = "Слушаю. Нажмите %@, чтобы закончить.";
+"Dictation stops in %ld s" = "Диктовка остановится через %ld с";
+"Writing it down…" = "Записываю…";
+"Nothing was heard." = "Ничего не удалось расслышать.";
+"Couldn't type here, so the words are on the clipboard." = "Сюда напечатать не удалось, поэтому текст скопирован в буфер обмена.";
+"A password field has the keyboard, so dictation waits until you leave it." = "Клавиатура занята полем пароля, поэтому диктовка подождёт, пока вы из него не выйдете.";
+"Dictation needs the microphone. Allow Claude Graft in System Settings › Privacy & Security › Microphone." = "Диктовке нужен микрофон. Разрешите Claude Graft в «Системные настройки» › «Конфиденциальность и безопасность» › «Микрофон».";
+"No microphone could be started for dictation." = "Не удалось включить микрофон для диктовки.";
+"The microphone went away." = "Микрофон отключился.";
+"Dictation needs the “Claude Safe Storage” keychain item. Refresh Usage asks macOS for it again." = "Диктовке нужна запись «Claude Safe Storage» в Связке ключей. «Обновить данные» снова запросит её у macOS.";
+"No Claude here is signed in with a login dictation can use. Open one and sign in." = "Ни в одном Claude здесь нет входа, подходящего для диктовки. Откройте любой и войдите.";
+"Couldn't reach Anthropic for dictation." = "Не удалось связаться с Anthropic для диктовки.";
+"That login was refused for dictation. Open its Claude once so it can renew it." = "Этот вход не приняли для диктовки. Откройте его Claude один раз, чтобы он обновил вход.";
+"Dictation lost its connection." = "Диктовка потеряла соединение.";
+"Dictation stopped: %@" = "Диктовка остановлена: %@";
+"The dictation service ran into a problem." = "В сервисе диктовки произошла ошибка.";

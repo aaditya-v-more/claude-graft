@@ -39,6 +39,7 @@ swiftc -swift-version 5 \
     "$ROOT/Sources/App/Artifacts.swift" \
     "$ROOT/Sources/App/Projects.swift" \
     "$ROOT/Sources/App/Links.swift" \
+    "$ROOT/Sources/App/Dictation.swift" \
     "$ROOT/Tests/main.swift" \
     -o "$BUILD/tests"
 

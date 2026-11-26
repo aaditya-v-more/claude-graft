@@ -114,6 +114,8 @@ final class AppSettings: ObservableObject {
         static let holdUpdates = "holdUpdates"
         static let frontIcon = "showFrontIcon"
         static let frontName = "showFrontName"
+        static let dictation = "dictationEnabled"
+        static let dictationKey = "dictationKey"
     }
 
     private let defaults: UserDefaults
@@ -150,6 +152,17 @@ final class AppSettings: ObservableObject {
         didSet { defaults.set(showFrontName, forKey: Key.frontName) }
     }
 
+    /// Off unless somebody turns it on: it listens for a key in every app and
+    /// needs two permissions, which no update should ask of anybody.
+    @Published var dictationEnabled: Bool {
+        didSet { defaults.set(dictationEnabled, forKey: Key.dictation) }
+    }
+
+    /// A key code, held to the keys `DictationKey` offers.
+    @Published var dictationKey: Int {
+        didSet { defaults.set(dictationKey, forKey: Key.dictationKey) }
+    }
+
     /// Reflects what macOS reports, not a value of our own.
     @Published private(set) var openAtLogin: Bool
 
@@ -165,6 +178,9 @@ final class AppSettings: ObservableObject {
         holdUpdates = defaults.bool(forKey: Key.holdUpdates)
         showFrontIcon = defaults.object(forKey: Key.frontIcon) as? Bool ?? true
         showFrontName = defaults.bool(forKey: Key.frontName)
+        dictationEnabled = defaults.bool(forKey: Key.dictation)
+        dictationKey = Int(DictationKey.key(code: defaults.object(forKey: Key.dictationKey) as? Int
+            ?? Int(DictationKey.rightCommand.code)).code)
         openAtLogin = AppSettings.loginItemEnabled
     }
 

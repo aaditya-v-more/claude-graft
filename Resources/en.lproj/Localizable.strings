@@ -552,3 +552,36 @@
 "Move Down" = "Move Down";
 "Change its place in the order" = "Change its place in the order";
 "Move %@" = "Move %@";
+
+/* Dictation */
+"Dictation" = "Dictation";
+"Dictate into any app" = "Dictate into any app";
+"Dictation key" = "Dictation key";
+"Right Control" = "Right Control";
+"Right Option" = "Right Option";
+"Right Command" = "Right Command";
+"Fn (Globe)" = "Fn (Globe)";
+"Hold to speak, tap twice to keep recording" = "Hold to speak, tap twice to keep recording";
+"Hold the key and speak; let go, and the words are typed where the cursor is. Tap it twice to keep recording until you press it again; Escape discards it. Your voice goes to Anthropic, the way Claude's own dictation sends it, with the login of a Claude here." = "Hold the key and speak; let go, and the words are typed where the cursor is. Tap it twice to keep recording until you press it again; Escape discards it. Your voice goes to Anthropic, the way Claude's own dictation sends it, with the login of a Claude here.";
+"Needs Accessibility to hear the key and type" = "Needs Accessibility to hear the key and type";
+"macOS lets an app watch a key and type into other apps only once it is allowed under Privacy & Security › Accessibility. After an update macOS may ask for this again." = "macOS lets an app watch a key and type into other apps only once it is allowed under Privacy & Security › Accessibility. After an update macOS may ask for this again.";
+"Needs the microphone" = "Needs the microphone";
+"Allow Claude Graft under Privacy & Security › Microphone." = "Allow Claude Graft under Privacy & Security › Microphone.";
+"Open System Settings…" = "Open System Settings…";
+"Listening…" = "Listening…";
+"Listening. Press %@ to finish." = "Listening. Press %@ to finish.";
+"Dictation stops in %ld s" = "Dictation stops in %ld s";
+"Writing it down…" = "Writing it down…";
+"Nothing was heard." = "Nothing was heard.";
+"Couldn't type here, so the words are on the clipboard." = "Couldn't type here, so the words are on the clipboard.";
+"A password field has the keyboard, so dictation waits until you leave it." = "A password field has the keyboard, so dictation waits until you leave it.";
+"Dictation needs the microphone. Allow Claude Graft in System Settings › Privacy & Security › Microphone." = "Dictation needs the microphone. Allow Claude Graft in System Settings › Privacy & Security › Microphone.";
+"No microphone could be started for dictation." = "No microphone could be started for dictation.";
+"The microphone went away." = "The microphone went away.";
+"Dictation needs the “Claude Safe Storage” keychain item. Refresh Usage asks macOS for it again." = "Dictation needs the “Claude Safe Storage” keychain item. Refresh Usage asks macOS for it again.";
+"No Claude here is signed in with a login dictation can use. Open one and sign in." = "No Claude here is signed in with a login dictation can use. Open one and sign in.";
+"Couldn't reach Anthropic for dictation." = "Couldn't reach Anthropic for dictation.";
+"That login was refused for dictation. Open its Claude once so it can renew it." = "That login was refused for dictation. Open its Claude once so it can renew it.";
+"Dictation lost its connection." = "Dictation lost its connection.";
+"Dictation stopped: %@" = "Dictation stopped: %@";
+"The dictation service ran into a problem." = "The dictation service ran into a problem.";

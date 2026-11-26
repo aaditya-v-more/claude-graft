@@ -114,6 +114,18 @@ turn it on, one account at a time, in the dropdown or under **Accounts**.
 
 <img src="docs/images/03-dropdown.png" width="346" alt="Graft's menu bar dropdown with each account's usage">
 
+## Dictation in any app
+
+Claude's dictation, outside Claude. Turn on **Dictate into any app** in
+Settings on the Mac, hold the right Command key and speak, and when you let go the
+words are typed wherever your cursor is: a document, a browser, a chat.
+Tap the key twice to keep recording with your hands free, and press it once
+more when you are done; Escape throws the recording away. A recording stops by
+itself after ten minutes, or after a long silence when nobody is holding the
+key, and nothing is ever typed into a password field. The key is yours to
+choose, should the right Command key be one you already lean on for shortcuts.
+macOS asks for Accessibility and the microphone when you switch it on.
+
 ## Artifacts, projects and chats
 
 Sign in with an emailed code and see every account's artifacts, projects and
@@ -137,7 +149,9 @@ picks which one to show from its own menu.
 ## Safe by design
 
 Graft borrows each Claude's login rather than copying it, and its tokens go to
-Anthropic alone. It never touches an app it did not make. Updating keeps every
+Anthropic alone. Dictation listens only while you hold or have double-tapped
+its key; what it hears goes to Anthropic to be written down, with the login of
+a Claude you are signed in to, and Graft keeps neither the sound nor the words. It never touches an app it did not make. Updating keeps every
 Claude, setting and chat exactly as it was.
 
 <img src="docs/images/11-settings.png" width="420" alt="Graft's Settings">
