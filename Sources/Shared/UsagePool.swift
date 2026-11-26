@@ -181,6 +181,18 @@ enum PoolPolicy {
         return true
     }
 
+    /// When a full account has room again: the last of the windows shut on
+    /// it, and nil when one of them did not say.
+    static func fullUntil(_ limits: PoolLimits, now: Date) -> Date? {
+        var shut: [Date?] = []
+        if let until = limits.refusedUntil, until > now { shut.append(until) }
+        if limits.fiveHour >= fiveHourCeiling, (limits.fiveHourReset ?? .distantFuture) > now {
+            shut.append(limits.fiveHourReset)
+        }
+        if limits.week >= weekCeiling, (limits.weekReset ?? .distantFuture) > now { shut.append(limits.weekReset) }
+        return shut.contains(nil) ? nil : shut.compactMap { $0 }.max()
+    }
+
     /// The accounts to try, best first. The one the request came from is in
     /// there wherever it ranked, or last when it has no room either, since then
     /// the request goes out as Claude sent it and the service decides. An

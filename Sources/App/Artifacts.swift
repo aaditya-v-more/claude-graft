@@ -346,11 +346,8 @@ enum ArtifactAPI {
         var organizations: [ArtifactOrganization] = []
     }
 
-    /// The organization artifacts live under is one that can chat; an account
-    /// in a team as well as on its own plan belongs to both, and the first
-    /// membership listed is not reliably either. An address in two teams can
-    /// chat under each, so all of them are kept and the first is only where
-    /// it starts.
+    /// Every organization that can chat is kept, since the first membership
+    /// listed is not reliably the one artifacts live under; see notes/artifacts-guide/.
     static func identity(from data: Data) -> Identity? {
         guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let uuid = object["uuid"] as? String,

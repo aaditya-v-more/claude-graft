@@ -10,13 +10,8 @@ import Foundation
 /// line could only ever have started a window on whichever single account it
 /// happens to be signed into.
 ///
-/// `start` runs because somebody pressed the button: its callers are the three
-/// Start Session buttons and the pool, for a signed-in account's button.
-/// `startUnasked` is for `AutoSessions` alone, on an account somebody switched
-/// that on for. The suite checks that neither has another caller: a view
-/// refreshes on appearing and again every thirty seconds, so a session wired
-/// into one of those would start a five-hour window on every account, over
-/// and over, without anybody asking for one.
+/// `start` runs on a press and `startUnasked` for `AutoSessions` alone; the
+/// suite holds both to their callers, and notes/usage-and-credentials.md says why.
 enum SessionStarter {
     static let endpoint = URL(string: "https://api.anthropic.com/v1/messages")!
     static let model = "claude-haiku-4-5-20251001"
@@ -25,6 +20,8 @@ enum SessionStarter {
         case noLogin
         case inFlight
         case credentials(String)
+        /// A signed-in account's login the service will not take until somebody renews it.
+        case refused(String)
         case http(Int, String)
         case unreachable(String)
 
@@ -37,7 +34,7 @@ enum SessionStarter {
                     """)
             case .inFlight:
                 return L10n.text("A session is already being started for this account.")
-            case .credentials(let detail):
+            case .credentials(let detail), .refused(let detail):
                 return detail
             case .http(401, _), .http(403, _):
                 return L10n.text("That profile's login was refused. Open it once so Claude can renew it.")
@@ -107,7 +104,7 @@ enum SessionStarter {
         do {
             token = try UsageMonitor.token(of: account, prompting: interactive ? .yes : .no)
         } catch ClaudeCredentials.Failure.expired {
-            return (.credentials(L10n.text("That account's login has expired. Sign in to it again.")), nil)
+            return (.refused(L10n.text("That account's login has expired. Sign in to it again.")), nil)
         } catch {
             return (.credentials((error as? LocalizedError)?.errorDescription
                 ?? error.localizedDescription), nil)
@@ -117,7 +114,7 @@ enum SessionStarter {
         }
         let outcome = send(token: token, prompt: prompt)
         if case .http(let code, _)? = outcome.failure, code == 401 || code == 403 {
-            return (.credentials(L10n.text("That account's login was refused. Sign in to it again.")), outcome.limits)
+            return (.refused(L10n.text("That account's login was refused. Sign in to it again.")), outcome.limits)
         }
         return outcome
     }

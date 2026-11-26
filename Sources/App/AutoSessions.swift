@@ -94,7 +94,7 @@ final class AutoSessions: ObservableObject {
             return now.addingTimeInterval(interval)
         case .http(429, _)?:
             return max(limits?.refusedUntil ?? limits?.fiveHourReset ?? .distantPast, now.addingTimeInterval(retry))
-        case .http(401, _)?, .http(403, _)?:
+        case .http(401, _)?, .http(403, _)?, .refused?:
             return now.addingTimeInterval(retryRefused)
         default:
             return now.addingTimeInterval(retry)

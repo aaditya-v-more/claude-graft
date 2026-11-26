@@ -70,7 +70,9 @@ asked, since its first answer says what it has. What an attempt sets is `next`:
 the new window's reset after a success, or five hours on when the answer named
 none; a quarter of an hour after a failure; the reset a 429 named, and never
 sooner than that quarter hour; an hour after a 401 or 403, since a login the
-service turned away stays turned away until a person renews it. One account is
+service turned away stays turned away until a person renews it. A signed-in
+account's refusal reaches `next` as `.refused`, not as the status, because
+`start(account:)` has already put it into words. One account is
 sent one message however many names it has here, and the attempt is recorded
 against each. The switches and the last attempts are kept by the pool's keys in
 `ClaudeGraft/automatic-sessions.json`, and a Claude deleted or an account

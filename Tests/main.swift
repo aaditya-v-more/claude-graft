@@ -2247,6 +2247,8 @@ do {
           "which is five hours on where the answer did not say")
     check(AutoSessions.next(after: .http(401, ""), limits: nil, now: now) == now + AutoSessions.retryRefused,
           "a login the service refused is not asked with again for an hour")
+    check(AutoSessions.next(after: .refused("sign in again"), limits: nil, now: now) == now + AutoSessions.retryRefused,
+          "nor is a signed-in account's, which only signing in again renews")
     check(AutoSessions.next(after: .unreachable("offline"), limits: nil, now: now) == now + AutoSessions.retry
             && AutoSessions.next(after: .noLogin, limits: nil, now: now) == now + AutoSessions.retry,
           "anything else that went wrong is tried again in a quarter of an hour")
@@ -2257,6 +2259,21 @@ do {
           "an account that is full is left until the service says it has room")
     check(AutoSessions.next(after: .inFlight, limits: nil, now: now) == now + AutoSessions.interval,
           "and a press that got there first is looked at again a minute later")
+
+    let weekEnds = now + 3 * 24 * 3600
+    let weekFull = PoolLimits(fiveHourPercent: 10, fiveHourReset: now + 3600, weekPercent: 100, weekReset: weekEnds,
+                              observed: now)
+    check(PoolPolicy.fullUntil(weekFull, now: now) == weekEnds,
+          "an account full for the week is full until the week ends, not until its five hours do")
+    var bothFull = weekFull
+    bothFull.fiveHour = 1
+    bothFull.refusedUntil = now + 600
+    check(PoolPolicy.fullUntil(bothFull, now: now) == weekEnds,
+          "with several windows shut it is the last of them to open")
+    var unsaid = weekFull
+    unsaid.weekReset = nil
+    check(PoolPolicy.fullUntil(unsaid, now: now) == nil,
+          "and a full week that did not say when it ends is not given a time")
 
     try? fm.removeItem(at: AutoSessions.file)
     let switches = AutoSessions()
@@ -7920,6 +7937,8 @@ do {
     check(poolSource.contains("if let claude = claude(sameAccountAs: key) { return preset(of: claude) }")
             && poolSource.contains("stored.iconPreset = accounts[index].iconPreset"),
           "an account that is also a Claude wears that Claude's colour, and a login renewed keeps its colour")
+    check(poolSource.contains("entry.isRunning = spent.contains(accountUuid(of: account.id) ?? account.id)"),
+          "an account is found among those being spent by the name it is counted under, organisation and all")
     let contentSource = (try? String(contentsOf: URL(fileURLWithPath: #filePath).deletingLastPathComponent()
         .deletingLastPathComponent().appending(path: "Sources/App/ContentView.swift"),
         encoding: .utf8)) ?? ""

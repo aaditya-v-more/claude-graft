@@ -537,8 +537,8 @@ final class UsagePoolController: ObservableObject {
             break
         }
         if let limits = reported?.limits, !PoolPolicy.hasRoom(limits, now: now) {
-            if let until = limits.refusedUntil ?? limits.fiveHourReset {
-                return L10n.format("Full until %@", until.formatted(date: .omitted, time: .shortened))
+            if let until = PoolPolicy.fullUntil(limits, now: now) {
+                return L10n.format("Full until %@", UsageMonitor.clock(until, now: now))
             }
             return L10n.text("Full")
         }
@@ -635,7 +635,7 @@ final class UsagePoolController: ObservableObject {
                                account: accountUuid(of:), now: now)
         return accountsAlone.compactMap { account in
             guard var entry = entry(forAccount: account.id) else { return nil }
-            entry.isRunning = spent.contains(account.accountUuid ?? account.id)
+            entry.isRunning = spent.contains(accountUuid(of: account.id) ?? account.id)
             return entry
         }
     }
@@ -719,7 +719,9 @@ final class UsagePoolController: ObservableObject {
     /// Only ever from a Start Session button, as `SessionStarter` asks. The
     /// answer is nil when the window is open, or what went wrong.
     func startSession(account id: String, done: @escaping (String?) -> Void) {
-        guard let account = accounts.first(where: { $0.id == id }) else { return done(nil) }
+        guard let account = accounts.first(where: { $0.id == id }) else {
+            return done(L10n.text("That account's login could not be read on this Mac."))
+        }
         DispatchQueue.global(qos: .userInitiated).async {
             let outcome = SessionStarter.start(account: account, interactive: true)
             DispatchQueue.main.async {
