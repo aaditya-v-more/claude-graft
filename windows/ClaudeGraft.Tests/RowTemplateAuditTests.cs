@@ -5,18 +5,18 @@ namespace ClaudeGraft.Tests;
 
 public class RowTemplateAuditTests
 {
-    // A reused row's x:Bind sets IsChecked before Tag, so a Checked or Unchecked
-    // handler in the template writes the new row's value into the old row's setting.
-    [Fact(DisplayName = "keep-warm saves only on a person's toggle, never on a binding's change")]
-    public void KeepWarmSavesOnClickOnly()
+    // A reused card's Tag can still name the Claude it showed before; its
+    // DataContext is the one the switch was just bound from.
+    [Fact(DisplayName = "keep-warm judges a flip against the Claude the switch is bound to, never its Tag")]
+    public void KeepWarmReadsTheBoundClaude()
     {
         var xaml = File.ReadAllText(Path.Combine(WindowsRoot(), "ClaudeGraft", "MainPage.xaml"));
         Assert.DoesNotMatch(@"\s(Un)?Checked=""", xaml);
-        Assert.Contains("Toggled=\"KeepWarm_Toggled\"", xaml);
+        Assert.Contains("Toggled=\"KeepWarm_Toggled\" />", xaml);
         var code = File.ReadAllText(Path.Combine(WindowsRoot(), "ClaudeGraft", "MainPage.xaml.cs"));
-        Assert.Contains("DataContextChanged=\"KeepWarm_Rebinding\"", xaml);
-        Assert.Contains("if (_refilling.Contains(box)) return;", code);
-        Assert.DoesNotContain("FocusState.Unfocused) return;", code);
+        Assert.Contains("sender is not ToggleSwitch { DataContext: ShortcutRow row } box", code);
+        Assert.Contains("KeepWarmSwitch.ToSave(box.IsOn, row.KeepWarm)", code);
+        Assert.DoesNotContain("ToggleSwitch { Tag: ShortcutRow row }", code);
     }
 
     [Fact(DisplayName = "the sidebar's open button goes through the page's open, never straight to the launcher")]

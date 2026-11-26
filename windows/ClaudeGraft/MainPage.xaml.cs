@@ -657,19 +657,16 @@ public sealed partial class MainPage : Page
     /// background sweep reads both the next time it runs, so nothing else has to be
     /// nudged; a start is at most a few minutes away, not this instant.
     ///
-    /// Never saved while the switch is being refilled: a reused row's binding sets
-    /// IsOn before Tag, so that flip belongs to the next Claude, not the one in Tag.
-    /// Focus outlives a click, so a focus check let it through.
+    /// The Claude is read from the switch's DataContext, the row its binding set
+    /// IsOn from, never from a Tag that can still name the row the card showed
+    /// before; see KeepWarmSwitch for the rule.
     private void KeepWarm_Toggled(object sender, RoutedEventArgs e)
     {
-        // A binding setting the switch to what is already saved also raises
-        // Toggled, and must not write it again.
         // The word beside it follows the switch itself, which runs ahead of the saved row.
         if (sender is ToggleSwitch { Parent: FrameworkElement { Parent: StackPanel { Children: [TextBlock words, ..] } } } moved)
             words.Text = SettingsCard.OnOff(moved.IsOn);
-        if (sender is not ToggleSwitch { Tag: ShortcutRow row } box || box.IsOn == row.KeepWarm) return;
-        if (_refilling.Contains(box)) return;
-        var on = box.IsOn;
+        if (sender is not ToggleSwitch { DataContext: ShortcutRow row } box) return;
+        if (KeepWarmSwitch.ToSave(box.IsOn, row.KeepWarm) is not bool on) return;
         if (row.Shortcut is Shortcut shortcut)
         {
             if (App.Store.LoadError is not null) { box.IsOn = !on; _ = WarnListUnreadable(); return; }
@@ -681,16 +678,6 @@ public sealed partial class MainPage : Page
             App.Settings.KeepMainWarm = on;
             App.Settings.Save();
         }
-    }
-
-    private readonly HashSet<ToggleSwitch> _refilling = new();
-
-    // The bindings follow a new row in this same pass, so the mark lifts once the queue has run past it.
-    private void KeepWarm_Rebinding(FrameworkElement sender, DataContextChangedEventArgs e)
-    {
-        if (sender is not ToggleSwitch box || !_refilling.Add(box)) return;
-        if (!DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () => _refilling.Remove(box)))
-            _refilling.Remove(box);
     }
 
     // A tick's drawing follows its icon's progress through an expression that sleep
