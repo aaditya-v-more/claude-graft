@@ -2287,6 +2287,12 @@ do {
           "one whose window has run out is sent to")
     check(AutoSessions.due(figures(fiveHour: 0), last: nil, now: now),
           "and so is one with no window open at all")
+    var midWindow = figures(fiveHour: 56)
+    check(!AutoSessions.due(midWindow, last: nil, now: now),
+          "a figure above zero with no reset known is a window already open, and is left alone")
+    midWindow.sampled = now - 5 * 3600 - 60
+    check(AutoSessions.due(midWindow, last: nil, now: now),
+          "unless that figure is older than a window, which has closed since")
     check(!AutoSessions.due(figures(fiveHour: nil), last: nil, now: now),
           "an account with no five-hour limit has no window to open")
     check(!AutoSessions.due(figures(reset: now - 60, week: 100, weekReset: now + 86_400), last: nil, now: now),

@@ -66,7 +66,17 @@ the switch and not a prompt at three in the morning.
 Whether to send is `due`: nothing before the time the last attempt set, nothing
 to an account with no five-hour limit or with its week used up, and otherwise
 only once the window's reset has passed. An account nothing is known of is
-asked, since its first answer says what it has. What an attempt sets is `next`:
+asked, since its first answer says what it has. A reset that is not known is
+not a window that has closed: on 26 November 2026 a Claude with a window open
+until 22:40 was sent a message at 21:28, seventy-seven seconds after the sample
+Claude writes to `plan-usage-history.json` every quarter of an hour, and one
+sent at 20:12 came forty-one seconds after another. That sample is newer than
+the service's last answer, so for one pass the figures are the history's, and
+a history that begins part way through a window has no reset to give. So a
+figure above zero with no reset is taken for an open window, unless the figure
+is itself more than five hours old. It could happen once in a window, where no
+earlier attempt had set a time to wait for, as after the switch is turned on.
+The event now says which account, by the first eight characters of its key. What an attempt sets is `next`:
 the new window's reset after a success, or five hours on when the answer named
 none; a quarter of an hour after a failure; the reset a 429 named, and never
 sooner than that quarter hour; an hour after a 401 or 403, since a login the

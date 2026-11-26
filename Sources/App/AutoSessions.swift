@@ -81,7 +81,10 @@ final class AutoSessions: ObservableObject {
         guard usage.fiveHour != nil else { return false }
         // A week used up refuses the message that would open the window.
         if usage.week >= 100, usage.weekReset.map({ $0 > now }) ?? true { return false }
-        return usage.fiveHourReset.map { $0 <= now } ?? true
+        if let reset = usage.fiveHourReset { return reset <= now }
+        // A figure above zero is an open window whose start the history does
+        // not reach, unless the figure is itself older than a window.
+        return (usage.fiveHour ?? 0) == 0 || now.timeIntervalSince(usage.sampled) >= window
     }
 
     /// When an account may next be sent to: once its new window closes, or
@@ -171,7 +174,10 @@ final class AutoSessions: ObservableObject {
                     for name in self.accounts where name == key || (account != nil && pool.accountUuid(of: name) == account) {
                         self.attempts[name] = attempt
                     }
-                    Diagnostics.note("automatic session", ["opened": outcome.failure == nil])
+                    let named = key.hasPrefix(UsagePoolController.accountPrefix)
+                        ? key.dropFirst(UsagePoolController.accountPrefix.count) : Substring(key)
+                    Diagnostics.note("automatic session", ["opened": outcome.failure == nil,
+                                                           "account": String(named.prefix(8))])
                     switch target {
                     case .profile(let profile):
                         usage.invalidate(profile)
