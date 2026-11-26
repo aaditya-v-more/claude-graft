@@ -7,7 +7,7 @@ namespace ClaudeGraft.Core;
 public static class SharingText
 {
     public static string Explanation => L10n.Text(
-        "The Code tab in this Claude can be answered by the other Claudes chosen here. Each request goes to whichever has room and the soonest weekly reset, and a conversation stays on one account while its cache is still warm there. Chats, artifacts, connectors and Claude in Chrome stay with this Claude's own account, and the Chat tab is never shared.\n\nA request answered by another account carries the conversation to that account. Anthropic's terms for Claude plans may not allow one person to combine subscriptions this way, so read them before turning this on.");
+        "The Code tab in this Claude can be answered by the other Claudes chosen here. Each request goes to whichever has room and the soonest weekly reset, and a conversation stays on one account while its cache is still warm there. Chats, artifacts, connectors and Claude in Chrome stay with this Claude's own account, and the Chat tab is never shared.\n\nA request answered by another account carries the conversation to that account.");
 
     public static string Label(IReadOnlyList<string> lenders, Func<string, string> nameOf) =>
         lenders.Count == 0 ? L10n.Text("Shared usage: off") : L10n.Format("Draws on {0}", string.Join(", ", lenders.Select(nameOf)));
