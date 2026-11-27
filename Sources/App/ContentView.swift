@@ -253,7 +253,7 @@ struct ContentView: View {
 
             Section("Claude Graft") {
                 page("Dictation", icon: "mic", id: "dictation", tag: Self.dictationID,
-                     value: "Speak into any app")
+                     value: "Claude's built-in dictation, in any app")
                 page("Settings", icon: "gearshape", id: "settings", tag: Self.settingsID,
                      value: "Menu bar, updates and login")
                 page("How to Use Graft", icon: "book", id: "guide", tag: Self.guideID,

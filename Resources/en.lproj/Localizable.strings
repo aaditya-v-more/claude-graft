@@ -572,7 +572,8 @@
 "Under Shared usage a conversation keeps the account it started on until that account runs out, and a side chat follows it." = "Under Shared usage a conversation keeps the account it started on until that account runs out, and a side chat follows it.";
 "More than one organization" = "More than one organization";
 "An address in several organizations chooses which one Artifacts, Projects and Search Chats show." = "An address in several organizations chooses which one Artifacts, Projects and Search Chats show.";
-"Dictation in any app" = "Dictation in any app";
+"Claude's dictation in any app" = "Claude's dictation in any app";
+"Claude's own built-in dictation, working in every app." = "Claude's own built-in dictation, working in every app.";
 "Hold the right Command key and speak, and the words are typed where the cursor is. Off until you switch it on under Dictation." = "Hold the right Command key and speak, and the words are typed where the cursor is. Off until you switch it on under Dictation.";
 
 /* Dictation */
@@ -611,7 +612,7 @@
 "The dictation service ran into a problem." = "The dictation service ran into a problem.";
 "Claudes" = "Claudes";
 "Every Claude on this Mac" = "Every Claude on this Mac";
-"Speak into any app" = "Speak into any app";
+"Claude's built-in dictation, in any app" = "Claude's built-in dictation, in any app";
 "Settings" = "Settings";
 "Menu bar, updates and login" = "Menu bar, updates and login";
 "How to Use Graft" = "How to Use Graft";

@@ -14,6 +14,10 @@ struct DictationView: View {
     var body: some View {
         Form {
             Section {
+                Text("Claude's own built-in dictation, working in every app.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .identified("dictation-what")
                 DictationControl()
                 Toggle("Also copy what was said to the clipboard", isOn: $settings.dictationCopies)
                     .help("The words are typed as before, and are on the clipboard as well, to paste again somewhere else.")
@@ -58,7 +62,7 @@ struct DictationView: View {
             }
         }
         .formStyle(.grouped)
-        .navigationSubtitle(L10n.text("Speak into any app"))
+        .navigationSubtitle(L10n.text("Claude's built-in dictation, in any app"))
         .sheet(isPresented: $showingHistory) {
             DictationHistoryView(history: history) { showingHistory = false }
                 .environment(\.controlSurface, ControlSurface.window)

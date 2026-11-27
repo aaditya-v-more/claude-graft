@@ -493,6 +493,8 @@ for page in pages {
                         check(element("window.\(control)", in: tree) != nil,
                               "\(place): \(control) can be asked for by name")
                     }
+                    check(tree.contains { $0.identifier == "window.dictation-what" && ($0.name + $0.value).contains("Claude") },
+                          "\(place): it says whose dictation this is")
                     check(element("window.dictation-copies", in: tree)?.name
                             == L10n.text("Also copy what was said to the clipboard"),
                           "\(place): the clipboard switch says what it copies")

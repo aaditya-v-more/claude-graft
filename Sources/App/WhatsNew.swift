@@ -17,7 +17,7 @@ struct WhatsNew: Identifiable, Equatable {
     static let releases = [
         WhatsNew(version: "2.3", items: [
             Item(symbol: "mic",
-                 title: "Dictation in any app",
+                 title: "Claude's dictation in any app",
                  detail: "Hold the right Command key and speak, and the words are typed where the cursor is. Off until you switch it on under Dictation."),
             Item(symbol: "person.crop.circle",
                  title: "A page for every account",
