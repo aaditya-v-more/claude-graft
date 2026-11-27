@@ -1037,6 +1037,26 @@ check(["open-at-login", "show-in-menu-bar", "front-icon", "front-name", "manual-
       "every switch in Settings can be asked for by name, apart from the dropdown's copy of it")
 settingsWindow.orderOut(nil)
 
+// What a release opens with, as the sheet draws it.
+do {
+    let release = WhatsNew.releases[0]
+    let window = hosted(WhatsNewView(release: release)
+        .background(Color(nsColor: .windowBackgroundColor))
+        .environment(\.controlSurface, ControlSurface.window), title: "News check")
+    let tree = checkAccessibility(window, surface: ControlSurface.window, "what’s new")
+    check(element("window.whats-new.continue", in: tree)?.name == L10n.text("Continue")
+            && element("window.whats-new.release-notes", in: tree)?.name == L10n.text("All Release Notes"),
+          "what’s new: both buttons can be found and say what they do")
+    let said = tree.map { $0.name + "\n" + $0.value }.joined(separator: "\n")
+    check(release.items.allSatisfy { said.contains(L10n.text($0.title)) && said.contains(L10n.text($0.detail)) },
+          "what’s new: every change is read out with its title and what it does")
+    if let content = window.contentView {
+        check(content.fittingSize.height <= 620 && content.fittingSize.width <= 500,
+              "what’s new: the sheet fits a small window in this language (\(content.fittingSize))")
+    }
+    window.orderOut(nil)
+}
+
 // Artifacts, drawn from sample rows: the real list is asked of claude.ai,
 // which a layout check must never reach.
 MainActor.assumeIsolated {

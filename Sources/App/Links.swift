@@ -106,7 +106,16 @@ struct GraftHelpCommands: Commands {
     var body: some Commands {
         CommandGroup(replacing: .help) {
             Button(L10n.text("Claude Graft Help")) { Links.open(Links.site) }
-            Button(L10n.text("What’s New in Claude Graft")) { Links.open(Links.releases) }
+            Button(L10n.text("What’s New in Claude Graft")) {
+                if Shared.whatsNew.showAgain() {
+                    // A reopen makes SwiftUI build the window the sheet hangs on.
+                    if !NSApp.windows.contains(where: { $0.isVisible && $0.canBecomeMain }) {
+                        NSWorkspace.shared.open(Bundle.main.bundleURL)
+                    }
+                } else {
+                    Links.open(Links.releases)
+                }
+            }
             Divider()
             Button(L10n.text("Report a Problem…")) { Links.open(Links.newIssue) }
             Button(L10n.text("Email the Developer…")) { Links.open(Links.mail()) }
