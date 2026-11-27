@@ -162,6 +162,7 @@ enum SidebarSync {
 
     static func synchronize(beforeOpening profile: URL) {
         guard !storageBlocked else { return }
+        clearOldHelpers()
         var pairs = candidates()
         var connected: Set<String> = [profile.resolvingSymlinksInPath().path]
         for _ in 0..<pairs.count {
@@ -355,6 +356,20 @@ enum SidebarSync {
         return Dictionary(uniqueKeysWithValues: result.map { ($0.path, $0.snapshot) })
     }
 
+    static func helperHash(_ info: Data) -> String {
+        SHA256.hash(data: info + Data(SidebarStorage.script.utf8) + Data(helperFormat.utf8))
+            .map { String(format: "%02x", $0) }.joined()
+    }
+
+    /// A pass with nothing to copy, or one waiting on a Claude that never
+    /// quits, builds no helper and so never reached the prune.
+    static func clearOldHelpers(in cache: URL? = nil, builtFrom info: URL? = nil) {
+        let cache = cache ?? root.appending(path: "sidebar-runtime.noindex")
+        guard !storageBlocked, Graft.exists(cache), let data = try? Data(contentsOf: info
+            ?? Graft.claudeApp.appending(path: "Contents/Info.plist")) else { return }
+        pruneHelperCache(cache, keeping: String(helperHash(data).prefix(20)))
+    }
+
     /// Copies use APFS clones: the installed runtime stays untouched and the
     /// helper follows Claude's database format without shipping another browser.
     /// Framework symlinks do not work here; Electron resolves its application
@@ -362,8 +377,7 @@ enum SidebarSync {
     static func prepareHelper() throws -> URL {
         let source = Graft.claudeApp.appending(path: "Contents")
         let infoData = try Data(contentsOf: source.appending(path: "Info.plist"))
-        let hash = SHA256.hash(data: infoData + Data(SidebarStorage.script.utf8) + Data(helperFormat.utf8))
-            .map { String(format: "%02x", $0) }.joined()
+        let hash = helperHash(infoData)
         let cache = root.appending(path: "sidebar-runtime.noindex")
         let key = String(hash.prefix(20))
         let destination = cache.appending(path: "\(key)/Sidebar.app")

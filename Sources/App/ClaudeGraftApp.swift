@@ -176,6 +176,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         watchForWindowClose()
         watchForShutdown()
         watchForClaudeQuitting()
+        DispatchQueue.global(qos: .utility).async {
+            SidebarSync.withLaunchLock { SidebarSync.clearOldHelpers() }
+        }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {

@@ -77,6 +77,13 @@ other key's folder, `.build-` folders more than an hour old, and copies set
 aside as damaged, touches nothing whose name it did not make, and marks the
 cache as excluded from backups. `pruneBackups` keeps the newest twenty.
 
+That left out every machine where no helper is built: one with no shared
+histories, or whose Claude is never quit, so each pass waits. One such Mac was
+found on 27 Nov holding six copies from September to early November, 2.6 GB,
+all older than the Claude installed. `clearOldHelpers` runs the same prune from
+the installed Claude's key alone, when Graft starts and before a Claude is
+opened, under the launch lock.
+
 A copy at the destination that lacked its marker or failed verification used to
 stop the pass with `runtime-cache-damaged`, and since the key does not change
 until Claude does, every later pass stopped the same way until someone deleted
