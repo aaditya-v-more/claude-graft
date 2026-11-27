@@ -462,6 +462,7 @@ final class DictationController: ObservableObject {
         if let app = recording.app, app != NSWorkspace.shared.frontmostApplication?.processIdentifier {
             Diagnostics.note("dictation.delivered", ["typed": false, "moved": true])
             DictationTyping.copy(words)
+            Shared.dictationHistory.add(words, keeping: settings?.dictationHistory ?? 0)
             show(L10n.text("You moved to another app, so the words are on the clipboard."))
             return
         }
@@ -483,9 +484,9 @@ final class DictationController: ObservableObject {
             let afterOwn = last.map { $0.app == place.app && Date().timeIntervalSince($0.at) < 45 } ?? false
             let text = DictationText.insertion(words, before: place.before, afterOwn: afterOwn)
             let typed = !place.isPassword && DictationTyping.type(text)
-            if typed, copies { DictationTyping.copy(words) }
             DispatchQueue.main.async {
                 guard let self else { return }
+                if typed, copies { DictationTyping.copy(words) }
                 self.isDelivering = false
                 Diagnostics.note("dictation.delivered",
                                  ["typed": typed, "password": place.isPassword, "copied": copies || !typed])

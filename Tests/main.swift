@@ -7624,6 +7624,9 @@ do {
             && !AccountSignIn.Failure.ownAccount.isOfTheGrant && !AccountSignIn.Failure.otherAccount.isOfTheGrant
             && !AccountSignIn.Failure.cancelled.isOfTheGrant && !AccountSignIn.Failure.keychain.isOfTheGrant,
           "only a refusal of what was asked for is asked again for less")
+    check(!AccountSignIn.Failure.refused(0, nil).isOfTheGrant && !AccountSignIn.Failure.refused(503, nil).isOfTheGrant
+            && !AccountSignIn.Failure.refused(429, nil).isOfTheGrant && AccountSignIn.Failure.refused(403, nil).isOfTheGrant,
+          "and no answer at all, or a service in trouble, is not taken for one")
     let challenge = Data(SHA256.hash(data: Data(verifier.utf8))).base64EncodedString()
         .replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_")
         .replacingOccurrences(of: "=", with: "")

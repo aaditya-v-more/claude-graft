@@ -127,7 +127,9 @@ final class AccountSignIn: ObservableObject {
         /// account, which asking for less would not change.
         var isOfTheGrant: Bool {
             switch self {
-            case .refused, .shortLived: return true
+            case .shortLived: return true
+            // No answer at all, or the service failing, says nothing about what was asked for.
+            case .refused(let status, _): return (400..<500).contains(status) && status != 408 && status != 429
             default: return false
             }
         }

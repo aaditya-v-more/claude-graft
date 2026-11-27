@@ -94,6 +94,7 @@ final class UsageMonitor: ObservableObject {
     var learned: ((_ account: String, _ address: String) -> Void)?
     /// Accounts already asked about since launch. Only touched on `queue`.
     private var askedWhose: Set<String> = []
+    private var asksWhoseAgain: [String: Date] = [:]
     /// Set when live usage is unavailable for a reason worth showing once.
     @Published private(set) var liveProblem: String?
     /// True once a background pass has found the keychain shut to it, so the
@@ -534,10 +535,13 @@ final class UsageMonitor: ObservableObject {
     /// Once for each account since launch, and only with a login the pass
     /// was already holding: nothing is read from the keychain for this.
     private func learnWhose(_ profile: URL, token: String) {
-        guard let account = Graft.account(of: profile), askedWhose.insert(account).inserted else { return }
+        guard let account = Graft.account(of: profile), !askedWhose.contains(account),
+              asksWhoseAgain[account].map({ $0 <= Date() }) ?? true else { return }
         let found = UsageAPI.identity(token: token)
         Diagnostics.note("usage.whose", ["answered": found != nil])
-        guard let found else { return }
+        // Offline at login, a Claude would otherwise go unnamed until Graft was restarted.
+        guard let found else { asksWhoseAgain[account] = Date() + 15 * 60; return }
+        askedWhose.insert(account)
         DispatchQueue.main.async { self.learned?(found.account, found.address) }
     }
 

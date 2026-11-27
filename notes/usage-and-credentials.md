@@ -128,7 +128,10 @@ Fable figure from the last time the endpoint was asked, which no answer carries.
 login made with `user:inference` alone, which is what a sign-in on 25 November
 came back with, never reaches the usage endpoint, and the limit headers on its
 answers name the five hours and the week but no model's own week, so its Fable
-bar was simply missing. claude.ai's usage page reads
+bar was simply missing. Sign-in asks for less only when the wider login is
+refused with a 4xx: until 28 November a timeout or a 5xx while trading the code
+counted as a refusal too, and a passing failure left an account on the narrow
+login with nothing saying why. claude.ai's usage page reads
 `/api/organizations/<org>/usage`, and the answer has the same windows and the
 same `limits` list, so `UsageAPI.reading` reads it unchanged. Where the same
 account is signed in under Artifacts, `WebUsageReader` asks that path from the
