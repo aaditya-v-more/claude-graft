@@ -24,6 +24,9 @@ swiftc -swift-version 5 \
     "$ROOT/Sources/App/Model.swift" "$ROOT/Sources/App/Installer.swift" \
     "$ROOT/Sources/App/ProfileOpener.swift" "$ROOT/Sources/App/SessionStarter.swift" \
     "$ROOT/Sources/App/ClaudeCredentials.swift" "$ROOT/Sources/App/UsageAPI.swift" \
+    "$ROOT/Sources/App/UsageMonitor.swift" "$ROOT/Sources/App/UsagePoolController.swift" \
+    "$ROOT/Sources/App/WebUsage.swift" "$ROOT/Sources/App/ClaudeCodeEnvironment.swift" \
+    "$ROOT/Sources/App/Artifacts.swift" \
     "$ROOT/Tests/Opening/main.swift" \
     -o "$APP/Contents/MacOS/OpeningChecks"
 cat > "$APP/Contents/Info.plist" <<'PLIST'
