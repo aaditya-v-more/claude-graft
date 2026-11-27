@@ -94,6 +94,19 @@ against each. The switches and the last attempts are kept by the pool's keys in
 removed takes its switch with it. The suite holds the one caller, the absence
 of `interactive: true` from that file, and `due` and `next` case by case.
 
+An account can be given times of day instead, asked for by the owner on 27
+November 2026 so that a window can be made to end when the next is wanted.
+With times, `due` must still hold and one of the times must be `called`: it
+has come round since the times were given, or since the window the last of
+them opened, and no more than `grace`, half an hour, ago. So a time that comes
+round while a window is open opens nothing, a time given at ten past for the
+hour just gone waits for tomorrow, and a Mac that wakes within the half hour
+still acts on it. The times are minutes after midnight on this Mac's clock,
+kept in the same file beside the switches; a switch turned off keeps its times,
+and a file from before there were any reads as none. Giving a time turns the
+switch on. Nothing new reaches `consider`: taking the last time away leaves the
+minute timer to find the account back on the closing of its window.
+
 An account signed in through Graft has no profile, so its button goes through
 `UsagePoolController.startSession(account:)`, the one caller of
 `SessionStarter.start(account:)`, and the suite holds that to the accounts page

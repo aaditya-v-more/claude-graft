@@ -32,7 +32,8 @@ struct AccountsView: View {
         five-hour window has run out, so the next window is already counting \
         when you come to use it. The keychain is never asked for it: an account \
         whose login cannot be read, or is refused, is tried again later, and its \
-        row says why.
+        row says why. Give an account times with the clock beside its switch and \
+        its window is opened at those times instead, when none is open then.
         """)
 
     var body: some View {
@@ -105,7 +106,89 @@ struct AutoSessionToggle: View {
     }
 }
 
-/// One account: its place, what its week has left, and its two controls.
+/// Opens the times an account's sessions start at, beside its switch.
+struct AutoSessionTimesButton: View {
+    let key: String
+    let name: String
+    @ObservedObject private var sessions = Shared.autoSessions
+    @State private var shown = false
+
+    var body: some View {
+        let timed = !sessions.times(of: key).isEmpty
+        Button { shown = true } label: {
+            Label(L10n.format("Times %@ starts its sessions at", name),
+                  systemImage: timed ? "clock.fill" : "clock")
+                .labelStyle(.iconOnly)
+        }
+        .buttonStyle(.borderless)
+        .foregroundStyle(timed ? Color.accentColor : Color.secondary)
+        .help(timed ? L10n.text("Starts its sessions at set times") : L10n.text("Start its sessions at set times instead"))
+        .identified("auto-session-times")
+        .popover(isPresented: $shown, arrowEdge: .bottom) {
+            AutoSessionTimes(key: key, name: name)
+        }
+    }
+}
+
+/// The times themselves: each can go, and another can be added.
+struct AutoSessionTimes: View {
+    let key: String
+    let name: String
+    @ObservedObject private var sessions = Shared.autoSessions
+    @State private var adding = Calendar.current.date(bySettingHour: 6, minute: 0, second: 0, of: Date()) ?? Date()
+
+    private static func clock(_ minute: Int) -> String {
+        let day = Calendar.current.startOfDay(for: Date())
+        let moment = Calendar.current.date(bySettingHour: minute / 60, minute: minute % 60, second: 0, of: day) ?? day
+        return moment.formatted(date: .omitted, time: .shortened)
+    }
+
+    var body: some View {
+        let times = sessions.times(of: key)
+        VStack(alignment: .leading, spacing: 10) {
+            Text(L10n.format("When %@ starts a session", name)).font(.headline)
+            if times.isEmpty {
+                Text("Whenever the last one runs out")
+                    .foregroundStyle(.secondary)
+                    .identified("auto-session-times.none")
+            }
+            ForEach(times, id: \.self) { minute in
+                let clock = Self.clock(minute)
+                HStack {
+                    Text(clock).monospacedDigit()
+                    Spacer()
+                    Button { sessions.remove(minute, from: key) } label: {
+                        Label(L10n.format("Remove %@", clock), systemImage: "minus.circle")
+                            .labelStyle(.iconOnly)
+                    }
+                    .buttonStyle(.borderless)
+                    .identified("auto-session-times.\(minute).remove")
+                }
+            }
+            HStack {
+                DatePicker(L10n.text("Start at"), selection: $adding, displayedComponents: .hourAndMinute)
+                    // The stepper style's arrows reach assistive apps with no name.
+                    .datePickerStyle(.field)
+                    .fixedSize()
+                    .identified("auto-session-times.at")
+                Spacer()
+                Button("Add Time") {
+                    let parts = Calendar.current.dateComponents([.hour, .minute], from: adding)
+                    sessions.add((parts.hour ?? 0) * 60 + (parts.minute ?? 0), to: key)
+                }
+                .identified("auto-session-times.add")
+            }
+            Text("With times set, a five-hour window is opened at each of them if none is open then, and at no other time. A time this Mac sleeps through is acted on for half an hour after it. Adding one turns Auto-start on.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(14)
+        .frame(width: 300)
+    }
+}
+
+/// One account: its place, what its week has left, and its controls.
 private struct OrderRow: View {
     let key: String
     let place: Int
@@ -161,6 +244,7 @@ private struct OrderRow: View {
                 .foregroundStyle(.secondary)
                 .fixedSize()
                 .accessibilityHidden(true)
+            AutoSessionTimesButton(key: pool.autoStartKey(of: key), name: name)
             AutoSessionToggle(key: pool.autoStartKey(of: key), name: name)
                 .labelsHidden()
                 .toggleStyle(.switch)
