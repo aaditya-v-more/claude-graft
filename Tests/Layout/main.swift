@@ -316,7 +316,11 @@ let pages = [
     Page(name: "projects", selection: ContentView.projectsID, profile: nil),
     Page(name: "search", selection: ContentView.searchID, profile: nil),
     Page(name: "accounts", selection: ContentView.accountsID, profile: nil),
+    Page(name: "dictation", selection: ContentView.dictationID, profile: nil),
+    Page(name: "settings", selection: ContentView.settingsID, profile: nil),
+    Page(name: "guide", selection: ContentView.guideID, profile: nil),
 ]
+let ownPages = [ContentView.accountsID, ContentView.dictationID, ContentView.settingsID, ContentView.guideID]
 // The account signed in here, with figures of its own, as one the usage
 // endpoint answers for has them.
 let accountFigures = [
@@ -364,7 +368,9 @@ let pageProjects = sampleProjects(pageArtifacts)
 
 for appearance in [NSAppearance.Name.aqua, .darkAqua] {
 for page in pages {
-    let root = ContentView(selection: page.selection, artifacts: pageArtifacts, projects: pageProjects)
+    // A Claude's page is reached through the list of Claudes, so it is shown with it.
+    let root = ContentView(selection: page.selection, artifacts: pageArtifacts, projects: pageProjects,
+                           listsClaudes: page.profile != nil)
         .environmentObject(Shared.store)
         .environmentObject(Shared.settings)
         .environmentObject(Shared.usage)
@@ -443,8 +449,13 @@ for page in pages {
                           "\(place): the profile folder is read out under its own name")
                     check(element(scope + "open", in: tree)?.role == kAXButtonRole,
                           "\(place): Open can be asked for by the profile it opens")
-                    check(element("\(ControlSurface.window).sidebar.\(profile)", in: tree) != nil,
-                          "\(place): each sidebar row can be asked for by its profile")
+                    for claude in [Graft.mainProfile, shortcut.profileDir, draft.profileDir] {
+                        check(element("\(ControlSurface.window).sidebar.\(claude.lastPathComponent)", in: tree) != nil,
+                              "\(place): \(claude.lastPathComponent) can be asked for by its profile in the list of Claudes")
+                    }
+                    check(element("\(ControlSurface.window).sidebar.back", in: tree)?.pressable == true
+                            && element("\(ControlSurface.window).sidebar.new-shortcut", in: tree) != nil,
+                          "\(place): the list of Claudes has the way back to the pages and a new shortcut under it")
                     if page.profile != draft.profileDir {
                         check(element(scope + "week", in: tree)?.role == kAXProgressIndicatorRole,
                               "\(place): the week's figure is drawn")
@@ -466,12 +477,37 @@ for page in pages {
                               "\(place): an account signed in here shows what it has used and when that starts again (\(lentFigures))")
                     }
                 }
-                let accountsRow = element("\(ControlSurface.window).sidebar.accounts", in: tree)
-                let claudeRow = element("\(ControlSurface.window).sidebar.Claude", in: tree)
-                check(accountsRow != nil, "\(place): the sidebar leads to the accounts")
-                check((accountsRow?.frame.height ?? 99) < (claudeRow?.frame.height ?? 0),
-                      "\(place): a page for every account takes one line in the sidebar, where a Claude takes two")
-                if page.profile == nil, page.selection != ContentView.accountsID {
+                if page.profile == nil {
+                    let claudesRow = element("\(ControlSurface.window).sidebar.claudes", in: tree)
+                    check(claudesRow?.pressable == true && (claudesRow?.frame.height ?? 99) <= 24,
+                          "\(place): every Claude is behind one line among the pages, and it opens without a pointer (\(claudesRow?.frame.height ?? -1))")
+                    for row in ["accounts", "dictation", "settings", "guide"] {
+                        check(element("\(ControlSurface.window).sidebar.\(row)", in: tree) != nil,
+                              "\(place): the sidebar leads to \(row)")
+                    }
+                    check(element("\(ControlSurface.window).sidebar.back", in: tree) == nil,
+                          "\(place): the way back belongs to the list of Claudes alone")
+                }
+                if page.selection == ContentView.dictationID {
+                    for control in ["dictation", "dictation-key", "dictation-copies", "dictation-history", "dictation-info"] {
+                        check(element("window.\(control)", in: tree) != nil,
+                              "\(place): \(control) can be asked for by name")
+                    }
+                    check(element("window.dictation-copies", in: tree)?.name
+                            == L10n.text("Also copy what was said to the clipboard"),
+                          "\(place): the clipboard switch says what it copies")
+                } else if page.selection == ContentView.settingsID {
+                    check(["open-at-login", "show-in-menu-bar", "front-icon", "front-name", "manual-updates",
+                           "hold-updates", "start-at-home"].allSatisfy { element("window.\($0)", in: tree) != nil },
+                          "\(place): every switch Settings has is on its page in the window too")
+                } else if page.selection == ContentView.guideID {
+                    check(GuideView.Topic.allCases.allSatisfy {
+                              element("window.guide.topic.\($0.rawValue)", in: tree)?.pressable == true },
+                          "\(place): each subject of the guide can be chosen by name")
+                    check((1...4).allSatisfy { element("window.guide.step.\($0)", in: tree) != nil },
+                          "\(place): a subject is told in four steps")
+                }
+                if page.profile == nil, !ownPages.contains(page.selection) {
                     // One sign-in for all three: each page heads itself with
                     // the same accounts, each offering to sign in again or out.
                     let scope = page.selection == ContentView.projectsID ? "projects"
@@ -615,7 +651,7 @@ for page in pages {
             if let sidebarList {
                 let account = hosting.convert(sidebarList.rect(ofRow: 1), from: sidebarList)
                 check(account.minY >= titlebarHeight - 1 && account.maxY <= hosting.bounds.maxY,
-                      "\(place): the main account row is fully visible, below the titlebar")
+                      "\(place): the row every Claude is behind is fully visible, below the titlebar")
             }
             let sidebarLine = NSHostingController(rootView: ClaudeUpdateStatus(stacked: true))
                 .sizeThatFits(in: CGSize(width: 220, height: 1000)).height
@@ -1046,6 +1082,27 @@ do {
               "what’s new: the sheet fits a small window in this language (\(content.fittingSize))")
     }
     window.orderOut(nil)
+}
+
+do {
+    let kept = DictationHistory(file: URL(fileURLWithPath: NSTemporaryDirectory())
+        .appending(path: "graft-layout-history-\(UUID().uuidString).json"))
+    kept.add("The quick brown fox jumps over the lazy dog.", keeping: 10)
+    kept.add("A second thing said, long enough to run to another line in the list and show how it wraps there.", keeping: 10)
+    let window = hosted(DictationHistoryView(history: kept, done: {})
+        .background(Color(nsColor: .windowBackgroundColor))
+        .environment(\.controlSurface, ControlSurface.window), title: "History check")
+    let tree = checkAccessibility(window, surface: ControlSurface.window, "dictation history")
+    check(["history.0.copy", "history.1.copy", "history.0.remove", "history.clear", "history.done"]
+            .allSatisfy { element("window.\($0)", in: tree)?.pressable == true },
+          "dictation history: each entry can be copied or removed, and all of it cleared, by name")
+    check(tree.contains { ($0.name + $0.value).contains("The quick brown fox") },
+          "dictation history: what was said is read out")
+    if let directory = ProcessInfo.processInfo.environment["GRAFT_LAYOUT_WINDOWS"] {
+        capture(window, as: "\(Bundle.main.preferredLocalizations.first ?? "en")-dictation-history", in: directory)
+    }
+    window.orderOut(nil)
+    kept.keep(0)
 }
 
 // Artifacts, drawn from sample rows: the real list is asked of claude.ai,
@@ -1681,14 +1738,14 @@ do {
     check(splitBounds.minX >= -1 && splitBounds.maxX <= hosting.bounds.maxX + 1,
           "\(place): the page keeps to the window's width")
     let sidebarList = split.arrangedSubviews.first.map(descendants)?.compactMap { $0 as? NSOutlineView }.first
-    check(sidebarList.map { $0.numberOfRows >= 26 } == true,
-          "\(place): the sidebar lists all twenty and the four pages under them")
+    check(sidebarList.map { $0.numberOfRows <= 12 } == true,
+          "\(place): twenty Claudes take the one row in the sidebar that one does")
     let foot = NSHostingController(rootView: ClaudeUpdateStatus(stacked: true))
         .sizeThatFits(in: CGSize(width: 220, height: 1000)).height
     if let scroll = sidebarList?.enclosingScrollView {
         let list = hosting.convert(scroll.bounds, from: scroll)
-        check(list.maxY <= hosting.bounds.maxY - foot + 1 && (scroll.documentView?.frame.height ?? 0) > list.height,
-              "\(place): the sidebar scrolls above its foot rather than running under it")
+        check(list.maxY <= hosting.bounds.maxY - foot + 1 && (scroll.documentView?.frame.height ?? 0) <= list.height + 1,
+              "\(place): the sidebar ends above its foot and has nothing to scroll")
     }
     for name in ["support", "source", "claude-update.check"] {
         let rect = element("window.\(name)", in: tree)?.frame ?? .zero
@@ -1698,6 +1755,69 @@ do {
         capture(window, as: "\(Bundle.main.preferredLocalizations.first ?? "en")-accounts-twenty", in: directory)
     }
     window.orderOut(nil)
+
+    // Ten is what people run: all of them in view at once, in the default window.
+    Shared.store.shortcuts = Array(many.prefix(9))
+    let listed = NSHostingController(rootView: ContentView(selection: ContentView.mainProfileID,
+                                                           artifacts: pageArtifacts, projects: pageProjects,
+                                                           listsClaudes: true)
+        .environmentObject(Shared.store)
+        .environmentObject(Shared.settings)
+        .environmentObject(Shared.usage))
+    listed.sizingOptions = []
+    if #available(macOS 14, *) { listed.sceneBridgingOptions = .all }
+    let ten = LayoutWindow(contentRect: NSRect(x: 100, y: 100, width: 820, height: 560),
+                           styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+                           backing: .buffered, defer: false)
+    ten.contentViewController = listed
+    ten.setContentSize(NSSize(width: 820, height: 560))
+    ten.title = "Claude Graft"
+    ten.setFrameOrigin(NSPoint(x: -10000, y: -10000))
+    ten.orderBack(nil)
+    settle()
+    listed.view.layoutSubtreeIfNeeded()
+    // On macOS 26 the toolbar shows its overflow button until a second pass.
+    settle()
+    let tenTree = checkAccessibility(ten, surface: ControlSurface.window, "ten Claudes")
+    let rows = tenTree.filter {
+        $0.identifier.hasPrefix("window.sidebar.") && !$0.identifier.hasSuffix(".back")
+            && !$0.identifier.hasSuffix(".new-shortcut")
+    }
+    check(rows.count == 10, "ten Claudes: each has a row in the list the Claudes row opens (\(rows.count))")
+    let tenFrame = tenTree.first { $0.role == kAXWindowRole }?.frame ?? .zero
+    check(rows.allSatisfy { tenFrame.contains($0.frame) && $0.frame.height <= 24 },
+          "ten Claudes: every one is in the window, on a line of its own")
+    if let list = descendants(listed.view).compactMap({ $0 as? NSOutlineView }).first,
+       let scroll = list.enclosingScrollView {
+        let last = list.rect(ofRow: list.numberOfRows - 1).maxY
+        check(last <= room(in: scroll) + 1,
+              "ten Claudes: the list ends above the foot without scrolling (\(Int(last - room(in: scroll))) points over)")
+    }
+    if let directory = ProcessInfo.processInfo.environment["GRAFT_LAYOUT_WINDOWS"] {
+        capture(ten, as: "\(Bundle.main.preferredLocalizations.first ?? "en")-claudes-ten", in: directory)
+    }
+    ten.orderOut(nil)
+
+    // Twenty do not fit, so the list scrolls, above the foot and never under it.
+    Shared.store.shortcuts = many
+    settle()
+    ten.orderBack(nil)
+    settle()
+    listed.view.layoutSubtreeIfNeeded()
+    if let list = descendants(listed.view).compactMap({ $0 as? NSOutlineView }).first,
+       let scroll = list.enclosingScrollView {
+        let foot = NSHostingController(rootView: ClaudeUpdateStatus(stacked: true))
+            .sizeThatFits(in: CGSize(width: 220, height: 1000)).height
+        let shown = listed.view.convert(scroll.bounds, from: scroll)
+        check(list.numberOfRows >= 22, "twenty Claudes: each has a row in the list of Claudes (\(list.numberOfRows))")
+        check(shown.maxY <= listed.view.bounds.maxY - foot + 1
+                && list.rect(ofRow: list.numberOfRows - 1).maxY > room(in: scroll),
+              "twenty Claudes: the list scrolls above its foot rather than running under it or cutting any off")
+    }
+    if let directory = ProcessInfo.processInfo.environment["GRAFT_LAYOUT_WINDOWS"] {
+        capture(ten, as: "\(Bundle.main.preferredLocalizations.first ?? "en")-claudes-twenty", in: directory)
+    }
+    ten.orderOut(nil)
 
     let menu = hosted(MenuBarContent(openMainWindow: {}, maxHeight: 700)
         .environmentObject(Shared.store)

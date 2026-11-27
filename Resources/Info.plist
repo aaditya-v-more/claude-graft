@@ -18,6 +18,7 @@
     <key>NSHighResolutionCapable</key><true/>
     <key>NSPrincipalClass</key><string>NSApplication</string>
     <key>NSSupportsAutomaticTermination</key><true/>
+    <key>NSMicrophoneUsageDescription</key><string>Claude Graft listens while you hold the dictation key, and sends what it hears to Anthropic to be written down.</string>
     <!-- Sparkle. The feed is a GitHub Pages path and is baked into every copy
          ever shipped: a build that is out in the world polls the URL it was born
          with, and GitHub gives Pages no redirect if the account is ever renamed.

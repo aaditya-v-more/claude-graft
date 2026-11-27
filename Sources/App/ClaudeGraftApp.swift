@@ -60,6 +60,8 @@ enum Shared {
     static let accountSignIn = AccountSignIn(pool: usagePool)
     static let autoSessions = AutoSessions()
     static let whatsNew = WhatsNewPresenter()
+    static let dictation = DictationController()
+    static let dictationHistory = DictationHistory()
     @MainActor static let artifacts = ArtifactCenter()
     @MainActor static let projects = ProjectCenter(accounts: artifacts)
     @MainActor static let webUsage = WebUsageReader()
@@ -69,8 +71,23 @@ struct SettingsView: View {
     @EnvironmentObject private var settings: AppSettings
     @ObservedObject private var pool = Shared.usagePool
     @State private var problem: String?
+    /// The same rows as a page of the main window, which sizes itself.
+    var asPage = false
 
     var body: some View {
+        if asPage {
+            rows.navigationSubtitle(L10n.text("Settings"))
+        } else {
+            // A grouped form scrolls, so it asks for no height of its own and a
+            // window sized from it opens as a titlebar; held to its rows, the
+            // window is exactly as tall as what is in it.
+            rows.fixedSize(horizontal: false, vertical: true)
+                .frame(width: 420)
+                .environment(\.controlSurface, ControlSurface.settings)
+        }
+    }
+
+    private var rows: some View {
         Form {
             Section {
                 Toggle("Open at Login", isOn: Binding(
@@ -102,13 +119,7 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
-        // A grouped form scrolls, so it asks for no height of its own and a
-        // window sized from it opens as a titlebar; held to its rows, the
-        // window is exactly as tall as what is in it.
-        .fixedSize(horizontal: false, vertical: true)
-        .frame(width: 420)
         .onAppear { settings.refreshLoginItem() }
-        .environment(\.controlSurface, ControlSurface.settings)
     }
 }
 
@@ -157,6 +168,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Shared.usagePool.start(store: Shared.store, usage: Shared.usage)
         Shared.autoSessions.start(store: Shared.store, usage: Shared.usage, pool: Shared.usagePool)
         Shared.updater.start(holding: Shared.settings)
+        Shared.dictation.start(settings: Shared.settings)
         // No prompts, no windows: filing records is a thing the menu bar
         // does on its own whether anyone is looking or not. Once, here —
         // the pass that matters runs in a shortcut's launcher, on its way

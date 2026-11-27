@@ -12,6 +12,11 @@ struct ContentView: View {
     static let searchID = UUID(uuidString: "00000000-0000-0000-0000-000000000004")!
     /// Every account's sessions and order, and the ones signed in through Graft.
     static let accountsID = UUID(uuidString: "00000000-0000-0000-0000-000000000005")!
+    /// The one sidebar row every Claude is behind, however many there are.
+    static let claudesID = UUID(uuidString: "00000000-0000-0000-0000-000000000006")!
+    static let dictationID = UUID(uuidString: "00000000-0000-0000-0000-000000000007")!
+    static let settingsID = UUID(uuidString: "00000000-0000-0000-0000-000000000008")!
+    static let guideID = UUID(uuidString: "00000000-0000-0000-0000-000000000009")!
 
     @EnvironmentObject private var store: ShortcutStore
     @ObservedObject private var pool = Shared.usagePool
@@ -22,6 +27,10 @@ struct ContentView: View {
     @State private var problem: String?
     @State private var problemTitle = L10n.text("The shortcut was deleted")
     @State private var columns = NavigationSplitViewVisibility.all
+    /// The Claude the Claudes row goes back to.
+    @State private var lastClaude = ContentView.mainProfileID
+    /// Whether the sidebar is listing the Claudes rather than the pages.
+    @State private var listsClaudes: Bool
 
     /// Nil in the app, which shows `Shared.artifacts`; the layout suite hands
     /// in sample rows, since the real list is asked of claude.ai.
@@ -29,8 +38,9 @@ struct ContentView: View {
     private let projects: ProjectCenter?
 
     init(selection: UUID? = ContentView.mainProfileID, artifacts: ArtifactCenter? = nil,
-         projects: ProjectCenter? = nil) {
+         projects: ProjectCenter? = nil, listsClaudes: Bool = false) {
         _selection = State(initialValue: selection)
+        _listsClaudes = State(initialValue: listsClaudes)
         self.artifacts = artifacts
         self.projects = projects
     }
@@ -87,6 +97,9 @@ struct ContentView: View {
         } message: {
             Text(problem ?? "")
         }
+        .onChange(of: selection) { chosen in
+            if let chosen, showsClaude { lastClaude = chosen }
+        }
         .sheet(item: $news.showing, onDismiss: { news.markSeen() }) { release in
             WhatsNewView(release: release)
                 .environment(\.controlSurface, ControlSurface.window)
@@ -98,9 +111,7 @@ struct ContentView: View {
 
     @ViewBuilder
     private var profileDetail: some View {
-        if selection == Self.mainProfileID {
-            MainProfileDetail()
-        } else if selection == Self.artifactsID {
+        if selection == Self.artifactsID {
             ArtifactsView(center: artifacts ?? Shared.artifacts)
         } else if selection == Self.projectsID {
             ProjectsView(center: projects ?? Shared.projects)
@@ -108,20 +119,48 @@ struct ContentView: View {
             ChatSearchView(center: projects ?? Shared.projects)
         } else if selection == Self.accountsID {
             AccountsView()
+        } else if selection == Self.dictationID {
+            DictationView()
+        } else if selection == Self.settingsID {
+            SettingsView(asPage: true)
+        } else if selection == Self.guideID {
+            GuideView()
         } else if let selection, let index = store.shortcuts.firstIndex(where: { $0.id == selection }) {
             ShortcutDetail(shortcut: $store.shortcuts[index],
                            requestDelete: { requestDeletion(of: selection) })
                 .id(selection)
         } else {
-            EmptyState(hasShortcuts: !store.shortcuts.isEmpty, add: add)
+            MainProfileDetail()
         }
+    }
+
+    private var showsClaude: Bool {
+        selection == Self.mainProfileID || store.shortcuts.contains { $0.id == selection }
+    }
+
+    /// Among the pages every Claude is one row, so any of them lights it.
+    private var pageSelection: Binding<UUID?> {
+        Binding(get: { showsClaude ? Self.claudesID : selection },
+                set: { chosen in
+                    // A row clicked away from still has its page showing.
+                    guard let chosen else { return }
+                    if chosen == Self.claudesID { listClaudes() } else { selection = chosen }
+                })
+    }
+
+    /// Into the list of Claudes, on the one last looked at.
+    private func listClaudes() {
+        if !showsClaude {
+            selection = store.shortcut(lastClaude) == nil ? Self.mainProfileID : lastClaude
+        }
+        listsClaudes = true
     }
 
     /// A shortcut that was never created holds nothing, so it just goes.
     private func requestDeletion(of id: UUID) {
         guard id != Self.mainProfileID, let shortcut = store.shortcut(id) else { return }
         if store.isDraft(shortcut) {
-            if selection == id { selection = nil }
+            if selection == id { selection = Self.mainProfileID }
             store.shortcuts.removeAll { $0.id == id }
             return
         }
@@ -141,7 +180,7 @@ struct ContentView: View {
             problem = refusal
             return
         }
-        if selection == pendingDeletion { selection = nil }
+        if selection == pendingDeletion { selection = Self.mainProfileID }
         problemTitle = L10n.text("The shortcut was deleted")
         problem = store.delete(pendingDeletion, deletingProfile: alsoProfile)
         Shared.manualUpdates.shortcutsChanged()
@@ -168,56 +207,38 @@ struct ContentView: View {
         return L10n.format("Delete “%@”?", shortcut.name)
     }
 
+    /// The pages, or the Claudes in a list of their own that the Claudes row
+    /// opens: listed among the pages, ten of them left no room for the pages.
+    @ViewBuilder
     private var sidebar: some View {
-        List(selection: $selection) {
+        if listsClaudes { claudeList } else { pageList }
+    }
+
+    private var pageList: some View {
+        List(selection: pageSelection) {
             Section("Claude") {
-                Label {
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text("Claude")
-                        Text("Installed normally")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                } icon: {
-                    Image(systemName: "house")
-                        .foregroundStyle(.secondary)
-                }
-                .spoken("Claude", value: L10n.text("Installed normally"))
-                .identified("sidebar.\(Graft.mainProfile.lastPathComponent)")
-                .tag(Self.mainProfileID)
-
-                ForEach(store.shortcuts) { shortcut in
+                HStack(spacing: 4) {
                     Label {
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(shortcut.name)
-                            Text(shortcut.installedName == nil
-                                 ? L10n.text("Not created yet")
-                                 : store.label(for: shortcut.source))
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
+                        Text("Claudes")
                     } icon: {
-                        Image(systemName: shortcut.source == .own ? "circle" : "link")
+                        Image(systemName: "rectangle.stack")
                             .foregroundStyle(.secondary)
                     }
-                    .spoken(shortcut.name, value: sidebarValue(for: shortcut))
-                    .identified("sidebar.\(shortcut.profileDir.lastPathComponent)")
-                    .tag(shortcut.id)
-                    .contextMenu {
-                        Button(L10n.text(store.isDraft(shortcut) ? "Discard" : "Delete Shortcut…"),
-                               role: .destructive) {
-                            requestDeletion(of: shortcut.id)
-                        }
-                    }
-                }
-
-                Button(action: add) {
-                    Label("New Shortcut", systemImage: "plus")
+                    Spacer(minLength: 4)
+                    Text("\(store.shortcuts.count + 1)")
+                        .font(.caption.monospacedDigit())
                         .foregroundStyle(.secondary)
+                    Image(systemName: "chevron.forward")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.tertiary)
                 }
-                .buttonStyle(.plain)
-                .identified("sidebar.new-shortcut")
-                .padding(.vertical, 2)
+                // The row already lit says nothing when it is clicked again.
+                .contentShape(Rectangle())
+                .onTapGesture(perform: listClaudes)
+                .spoken(L10n.text("Claudes"), value: L10n.text("Every Claude on this Mac"))
+                .accessibilityAction(.default, listClaudes)
+                .identified("sidebar.claudes")
+                .tag(Self.claudesID)
             }
 
             // One line each under a heading that says it once: a caption on
@@ -229,8 +250,69 @@ struct ContentView: View {
                 page("Accounts", icon: "person.2", id: "accounts", tag: Self.accountsID,
                      value: "Sessions, order and sign-ins")
             }
+
+            Section("Claude Graft") {
+                page("Dictation", icon: "mic", id: "dictation", tag: Self.dictationID,
+                     value: "Speak into any app")
+                page("Settings", icon: "gearshape", id: "settings", tag: Self.settingsID,
+                     value: "Menu bar, updates and login")
+                page("How to Use Graft", icon: "book", id: "guide", tag: Self.guideID,
+                     value: "A guide in pictures")
+            }
+        }
+    }
+
+    private var claudeList: some View {
+        List(selection: Binding(get: { selection }, set: { if let chosen = $0 { selection = chosen } })) {
+            Section {
+                claudeRow("Claude", preset: .original, value: L10n.text("Installed normally"),
+                          profile: Graft.mainProfile)
+                    .tag(Self.mainProfileID)
+                ForEach(store.shortcuts) { shortcut in
+                    claudeRow(shortcut.name, preset: shortcut.iconPreset, value: sidebarValue(for: shortcut),
+                              profile: shortcut.profileDir)
+                        .tag(shortcut.id)
+                        .contextMenu {
+                            Button(L10n.text(store.isDraft(shortcut) ? "Discard" : "Delete Shortcut…"),
+                                   role: .destructive) {
+                                requestDeletion(of: shortcut.id)
+                            }
+                        }
+                }
+                Button(action: add) {
+                    Label("New Shortcut", systemImage: "plus")
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .identified("sidebar.new-shortcut")
+            } header: {
+                // The heading is the way back: a row of its own for it was
+                // the row ten Claudes had no room for in Russian.
+                Button { listsClaudes = false } label: {
+                    Label("All Pages", systemImage: "chevron.backward")
+                }
+                .buttonStyle(.plain)
+                .identified("sidebar.back")
+            }
         }
         .onDeleteCommand { if let selection { requestDeletion(of: selection) } }
+    }
+
+    /// One line to a Claude, so ten fit without scrolling; what its second
+    /// line used to say is its tooltip and what is read out.
+    private func claudeRow(_ name: String, preset: Shortcut.IconPreset, value: String, profile: URL) -> some View {
+        Label {
+            Text(name).lineLimit(1)
+        } icon: {
+            if let image = FrontIcon.image(for: preset) {
+                Image(nsImage: image).resizable().frame(width: 16, height: 16)
+            } else {
+                Image(systemName: "app.dashed").foregroundStyle(.secondary)
+            }
+        }
+        .help(value)
+        .spoken(name, value: value)
+        .identified("sidebar.\(profile.lastPathComponent)")
     }
 
     private func page(_ title: String, icon: String, id: String, tag: UUID,
@@ -309,33 +391,6 @@ struct ContentView: View {
         shortcut.iconPreset = Shortcut.IconPreset.next(besides: Shared.usagePool.coloursInUse)
         store.shortcuts.append(shortcut)
         selection = shortcut.id
-    }
-}
-
-private struct EmptyState: View {
-    let hasShortcuts: Bool
-    let add: () -> Void
-
-    var body: some View {
-        VStack(spacing: 10) {
-            Image(systemName: "square.on.square.dashed")
-                .font(.system(size: 34, weight: .light))
-                .foregroundStyle(.tertiary)
-                .accessibilityHidden(true)
-            Text(L10n.text(hasShortcuts ? "Select a shortcut" : "No shortcuts yet"))
-                .font(.title3)
-                .accessibilityAddTraits(.isHeader)
-            Text("Each shortcut opens Claude on its own account with its own chats,\nand can borrow another account's Claude Code chats if you choose.")
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-            if !hasShortcuts {
-                Button("New Shortcut", action: add)
-                    .identified("empty.new-shortcut")
-                    .padding(.top, 4)
-            }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding()
+        listsClaudes = true
     }
 }

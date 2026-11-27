@@ -115,6 +115,10 @@ final class AppSettings: ObservableObject {
         static let frontIcon = "showFrontIcon"
         static let frontName = "showFrontName"
         static let usageByAccount = "usageByAccount"
+        static let dictation = "dictationEnabled"
+        static let dictationKey = "dictationKey"
+        static let dictationCopies = "dictationCopies"
+        static let dictationHistory = "dictationHistory"
     }
 
     private let defaults: UserDefaults
@@ -157,6 +161,28 @@ final class AppSettings: ObservableObject {
         didSet { defaults.set(usageByAccount, forKey: Key.usageByAccount) }
     }
 
+    /// Off unless somebody turns it on: it listens for a key in every app and
+    /// needs two permissions, which no update should ask of anybody.
+    @Published var dictationEnabled: Bool {
+        didSet { defaults.set(dictationEnabled, forKey: Key.dictation) }
+    }
+
+    /// A key code, held to the keys `DictationKey` offers.
+    @Published var dictationKey: Int {
+        didSet { defaults.set(dictationKey, forKey: Key.dictationKey) }
+    }
+
+    /// Off unless asked for: the clipboard is somebody's, and typing needs none of it.
+    @Published var dictationCopies: Bool {
+        didSet { defaults.set(dictationCopies, forKey: Key.dictationCopies) }
+    }
+
+    /// How many dictations to keep the words of. None unless asked for: what
+    /// somebody said is theirs, and nothing of it is kept by default.
+    @Published var dictationHistory: Int {
+        didSet { defaults.set(dictationHistory, forKey: Key.dictationHistory) }
+    }
+
     /// Reflects what macOS reports, not a value of our own.
     @Published private(set) var openAtLogin: Bool
 
@@ -173,6 +199,11 @@ final class AppSettings: ObservableObject {
         showFrontIcon = defaults.object(forKey: Key.frontIcon) as? Bool ?? true
         showFrontName = defaults.bool(forKey: Key.frontName)
         usageByAccount = defaults.object(forKey: Key.usageByAccount) as? Bool ?? true
+        dictationEnabled = defaults.bool(forKey: Key.dictation)
+        dictationKey = Int(DictationKey.key(code: defaults.object(forKey: Key.dictationKey) as? Int
+            ?? Int(DictationKey.rightCommand.code)).code)
+        dictationCopies = defaults.bool(forKey: Key.dictationCopies)
+        dictationHistory = max(0, defaults.integer(forKey: Key.dictationHistory))
         openAtLogin = AppSettings.loginItemEnabled
     }
 
