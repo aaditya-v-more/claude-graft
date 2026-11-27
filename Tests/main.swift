@@ -1517,6 +1517,17 @@ do {
     let unlimited = Graft.usage(of: profile)
     check(unlimited.map { $0.fiveHour == nil && $0.weekReset.map { $0 > Date() } == true } == true,
           "an account with no five-hour limit still has its weekly reset worked out")
+
+    // One Claude moved between two organizations of its login writes samples
+    // of both into one history.
+    writeSamples(profile, [["t": now - 4 * hour, "org": "ORG1", "u": ["fh": 20, "sd": 40]],
+                           ["t": now - 2 * hour, "org": "ORG2", "u": ["fh": 0, "sd": 3]],
+                           ["t": now, "org": "ORG1", "u": ["fh": 30, "sd": 41]]])
+    let moved = Graft.usage(of: profile)
+    check(moved?.fiveHour == 30 && moved?.fiveHourReset == nil,
+          "an idle sample from the other organization is not this one's window opening")
+    check(moved?.weekReset == nil,
+          "nor is the other organization's emptier week this one's week starting again")
 }
 
 section("Countdown wording")
@@ -7136,6 +7147,19 @@ do {
     check(UsagePoolController.lent(from: both, inUse: nil)?.value == "b"
             && UsagePoolController.lent(from: both, inUse: "org-c")?.value == "b",
           "and the newest when nothing says which, or the one in use has no login")
+    check(ClaudeCredentials.inUse(both, organization: "ORG-A").map(\.value) == ["a"]
+            && ClaudeCredentials.inUse(both + [cached("c", nil, lasting: 60)], organization: "org-b").map(\.value) == ["b", "c"],
+          "its figures are asked for with the login of the organization it is in, or one that names none")
+    check(ClaudeCredentials.inUse(both, organization: nil).count == 2
+            && ClaudeCredentials.inUse(both, organization: "org-c").count == 2,
+          "and with any it holds where nothing says which, or that organization has none")
+    let reading = { (file: String) in
+        (try? String(contentsOf: URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .deletingLastPathComponent().appending(path: "Sources/App/" + file), encoding: .utf8)) ?? ""
+    }
+    check(reading("UsageMonitor.swift").contains("organization: onDisk?.organization)?.value")
+            && reading("SessionStarter.swift").contains("organization: Graft.usage(of: profile)?.organization)"),
+          "the usage bars and Start Session both say which organization their Claude is in")
     func signedIn(_ id: String, _ organization: String?, named: String? = nil) -> PoolAccount {
         PoolAccount(id: id, accountUuid: "login", email: "one@example.com", organizationName: organization,
                     organizationUuid: organization, scopes: [], expires: now, added: now, sealed: "", name: named)
@@ -8303,6 +8327,25 @@ do {
         left.organizations.removeAll { $0.id == "team-b" }
         check(ArtifactAccounts.signedIn(moved ?? [], store: UUID(), as: left).accounts.last?.org == "team-a",
               "until the account no longer belongs to it")
+        // Two Claudes on that one address, each in a team of its own.
+        let here = [ClaudeHere(name: "Claude", account: "acc-2", organization: "TEAM-A"),
+                    ClaudeHere(name: "Claude 2", account: "acc-2", organization: "team-b"),
+                    ClaudeHere(name: "Other", account: "acc-a", organization: "elsewhere")]
+        check(listed.last.flatMap { ArtifactAccounts.claude(for: $0, among: here) } == "Claude"
+                && moved?.last.flatMap { ArtifactAccounts.claude(for: $0, among: here) } == "Claude 2",
+              "an account is named after the Claude working in the organization it shows")
+        check(moved?.last.flatMap { ArtifactAccounts.claude(for: $0, among: [here[0]]) } == nil
+                && moved?.last.flatMap { ArtifactAccounts.claude(for: $0, among: [ClaudeHere(name: "Claude", account: "acc-2")]) } == "Claude",
+              "and after none where the only Claude on its address is in the other one, unless nothing says where that Claude is")
+        check(ArtifactAccounts.claude(for: first, among: here) == "Other",
+              "an account with no choice of organization goes by its Claude as before")
+        check(ArtifactAccounts.starting(inTwo, among: [here[1], here[0]]).org == "team-b"
+                && ArtifactAccounts.starting(inTwo, among: [here[2]]) == inTwo
+                && ArtifactAccounts.starting(inTwo, among: [ClaudeHere(name: "Gone", account: "acc-2", organization: "left")]) == inTwo,
+              "a sign-in starts in the organization a Claude here is working in, and in the first listed where none is")
+        check(ArtifactAccounts.signedIn(moved ?? [], store: UUID(),
+                                        as: ArtifactAccounts.starting(inTwo, among: [here[0]])).accounts.last?.org == "team-b",
+              "but an organization somebody chose still outlives signing in again")
         let before = Data(#"[{"id":"\#(store.uuidString)","email":"two@example.com","accountUuid":"acc-2","org":"team-b"}]"#.utf8)
         let kept = try? JSONDecoder().decode([ArtifactAccount].self, from: before)
         check(kept?.first?.org == "team-b" && kept?.first?.organizations == nil,

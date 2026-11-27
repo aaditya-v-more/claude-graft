@@ -24,7 +24,12 @@ request is kept to exactly what that page sends.
   the new list arrives. A record kept before the list was has none and is
   asked again. Whether the membership's `name` is always there has not been
   seen for every kind of organization; one without goes by its place in the
-  list.
+  list. A sign-in starts in the organization a Claude on this Mac is working
+  in on that address (`ArtifactAccounts.starting`, from that Claude's usage
+  history), and in the first listed where none is. An account with a choice
+  is named after the Claude in the organization shown, and by its address
+  when the only Claude on it is in the other. Named by the login alone, as it
+  was, an account showing the second Claude's organization read as the first.
 - `GET /api/frame/artifacts?rel=mine|shared&empty=exclude&limit=48&org=…&sort=last_viewed`
   lists one side, with `next_page_token` for the next page, followed as
   `page_token`. Five pages at most per side.

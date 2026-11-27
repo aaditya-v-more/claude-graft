@@ -348,6 +348,20 @@ control({"configure": {"enabled": True, "members": [
 response, payload, went = ask(conn, "tok-B", session="s14")
 check([w["token"] for w in went] == ["tok-B"],
       "an account a Claude is already signed into is not borrowed from under another name")
+# One login in two organizations has a limit in each, and Graft names them apart.
+control({"configure": {"enabled": True, "members": [
+    dict(member("B", "tok-B", borrows=["D"], account="login/org-a"), limits=pushed(now + 4 * 86400, 35)),
+    dict(member("D", "tok-D", account="login/org-b"), limits=pushed(now + 3600, 35))]}})
+response, payload, went = ask(conn, "tok-B", session="s14b")
+check([w["token"] for w in went] == ["tok-D"],
+      "the same login in another organization is an account of its own to draw on")
+accounts["tok-D"]["reject"] = True
+response, payload, went = ask(conn, "tok-B", session="s14c")
+check([w["token"] for w in went] == ["tok-D", "tok-B"], "and when that one is full the request comes home")
+response, payload, went = ask(conn, "tok-B", session="s14d")
+check([w["token"] for w in went] == ["tok-B"],
+      "where a full organization has not made the login's other one full with it")
+accounts["tok-D"]["reject"] = False
 
 control({"configure": {"enabled": True, "members": [
     dict(member("A", "tok-A", borrows=["B"]), limits=pushed(now + 86400, 40)),

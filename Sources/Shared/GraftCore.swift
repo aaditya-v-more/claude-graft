@@ -2787,19 +2787,22 @@ enum Graft {
                             week, sample["org"] as? String))
         }
         guard let newest = samples.last else { return nil }
+        // A profile moved between two organizations holds samples of both,
+        // and a reset worked out across them is neither's.
+        let own = samples.filter { $0.org == newest.org }
 
         if hasNoFiveHourLimit(samples) {
             return Usage(fiveHour: nil,
                          week: newest.week,
                          organization: newest.org,
                          sampled: newest.time,
-                         weekReset: weekReset(from: samples))
+                         weekReset: weekReset(from: own))
         }
         // A limited account's sample without the figure is a gap rather than
         // an empty window. Read as zero it dropped the bar to nothing, and the
         // zero then passed for the window reopening, moving its reset.
-        let complete = samples.filter { $0.fiveHour != nil }
-        guard let latest = complete.last(where: { $0.org == newest.org }) else { return nil }
+        let complete = own.filter { $0.fiveHour != nil }
+        guard let latest = complete.last else { return nil }
         return Usage(fiveHour: latest.fiveHour,
                      week: latest.week,
                      organization: latest.org,

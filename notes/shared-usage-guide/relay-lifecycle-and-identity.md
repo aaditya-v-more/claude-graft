@@ -163,7 +163,14 @@ from three places: the key of Claude's token cache entry,
 in newer caches; the organisation of the profile's newest usage sample, which
 says which one it last ran under; and `organization.uuid` in a pane sign-in's
 answer. A profile holding logins for two organisations lends the one in use
-(`UsagePoolController.lent`). An account signed in from the pane before this
+(`UsagePoolController.lent`), and its figures and its Start Session are asked
+with that same login (`ClaudeCredentials.inUse`). Through 2.2.1 those two took
+whichever login the profile held longest, whatever its organisation, so a
+Claude moved with Claude's own switcher could be shown the organisation it
+left, be handed to the relay as full until that one's reset, and have a
+window opened where nobody was working. Found reading the code for issue 40;
+no test machine has a login in two organisations, so it has not been seen
+live. An account signed in from the pane before this
 has no organisation stored and matches either until it is signed in again. The
 relay takes the name as given and compares nothing else.
 

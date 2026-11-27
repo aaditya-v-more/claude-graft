@@ -1316,9 +1316,7 @@ final class UsagePoolController: ObservableObject {
     /// A profile that has been in two organizations holds a login for each,
     /// and the one lent is the one its Claude Code is using.
     static func lent(from all: [ClaudeCredentials.Token], inUse: String?) -> ClaudeCredentials.Token? {
-        let current = all.filter(\.isCurrent)
-        let here = current.filter { inUse == nil || $0.organization == nil || $0.organization == inUse }
-        let candidates = here.isEmpty ? current : here
+        let candidates = ClaudeCredentials.inUse(all.filter(\.isCurrent), organization: inUse)
         return candidates.filter { $0.scopes.contains(UsagePool.lendingScope) }
             .max { $0.expires < $1.expires }
             ?? candidates.filter { $0.covers([ClaudeCredentials.inferenceScope]) }
