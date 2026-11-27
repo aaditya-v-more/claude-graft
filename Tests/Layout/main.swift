@@ -120,69 +120,59 @@ struct Seen {
     var described: String { "\(role) “\(name)” \(identifier)" }
 }
 
-/// Reads `window` from outside, through the calls an assistive app makes,
-/// from another thread while this one answers them.
+/// Reads `window` through the calls an assistive app makes, on the main
+/// thread.
 ///
-/// Nothing asked from inside the process would do. SwiftUI builds a window's
-/// accessibility tree only once a request has come in from outside, and the
-/// elements it builds then do not adopt the protocol a local walk would go
-/// through; both were measured, the first as an empty tree under every
-/// window. Reading from outside is also the only way to see what VoiceOver
-/// is actually given, which is the thing being checked.
+/// Nothing asked through AppKit's own protocol would do. SwiftUI builds a
+/// window's accessibility tree only once a request has come in through these
+/// calls, and the elements it builds then do not adopt the protocol a local
+/// walk would go through; both were measured, the first as an empty tree
+/// under every window. A request to this process's own number is answered on
+/// the thread that makes it, which is why none is made from another.
 func seen(_ window: NSWindow) -> [Seen]? {
-    let title = window.title
-    var result: [Seen]?
-    var finished = false
-    DispatchQueue.global(qos: .userInitiated).async {
-        let app = AXUIElementCreateApplication(getpid())
-        AXUIElementSetMessagingTimeout(app, 5)
-        func attribute(_ element: AXUIElement, _ name: String) -> CFTypeRef? {
-            var value: CFTypeRef?
-            return AXUIElementCopyAttributeValue(element, name as CFString, &value) == .success ? value : nil
-        }
-        func text(_ element: AXUIElement, _ name: String) -> String {
-            switch attribute(element, name) {
-            case let value as String: return value
-            case let value as NSNumber: return value.stringValue
-            default: return ""
-            }
-        }
-        func frame(_ element: AXUIElement) -> CGRect {
-            var origin = CGPoint.zero, size = CGSize.zero
-            if let value = attribute(element, kAXPositionAttribute) { AXValueGetValue(value as! AXValue, .cgPoint, &origin) }
-            if let value = attribute(element, kAXSizeAttribute) { AXValueGetValue(value as! AXValue, .cgSize, &size) }
-            return CGRect(origin: origin, size: size)
-        }
-        // A scroller's arrows belong to AppKit, which names them itself.
-        func walk(_ element: AXUIElement) -> [Seen] {
-            let role = text(element, kAXRoleAttribute)
-            guard role != kAXScrollBarRole else { return [] }
-            // A bar's value is a fraction, and what VoiceOver says is the
-            // description that comes with it.
-            let described = text(element, "AXValueDescription")
-            let titledBy = attribute(element, kAXTitleUIElementAttribute)
-                .flatMap { CFGetTypeID($0) == AXUIElementGetTypeID() ? ($0 as! AXUIElement) : nil }
-                .map { text($0, kAXValueAttribute) } ?? ""
-            var actions: CFArray?
-            AXUIElementCopyActionNames(element, &actions)
-            var here = Seen(role: role, subrole: text(element, kAXSubroleAttribute),
-                            label: text(element, kAXDescriptionAttribute),
-                            title: text(element, kAXTitleAttribute),
-                            titledBy: titledBy,
-                            value: described.isEmpty ? text(element, kAXValueAttribute) : described,
-                            identifier: text(element, "AXIdentifier"),
-                            frame: frame(element))
-            here.pressable = (actions as? [String])?.contains(kAXPressAction) == true
-            return [here] + ((attribute(element, kAXChildrenAttribute) as? [AXUIElement]) ?? []).flatMap(walk)
-        }
-        let windows = (attribute(app, kAXWindowsAttribute) as? [AXUIElement]) ?? []
-        // A subtitle is read as part of the title, after it.
-        let found = windows.first { text($0, kAXTitleAttribute).hasPrefix(title) }.map(walk)
-        DispatchQueue.main.async { result = found; finished = true }
+    let app = AXUIElementCreateApplication(getpid())
+    func attribute(_ element: AXUIElement, _ name: String) -> CFTypeRef? {
+        var value: CFTypeRef?
+        return AXUIElementCopyAttributeValue(element, name as CFString, &value) == .success ? value : nil
     }
-    let deadline = Date().addingTimeInterval(30)
-    while !finished && Date() < deadline { RunLoop.main.run(until: Date().addingTimeInterval(0.05)) }
-    return result
+    func text(_ element: AXUIElement, _ name: String) -> String {
+        switch attribute(element, name) {
+        case let value as String: return value
+        case let value as NSNumber: return value.stringValue
+        default: return ""
+        }
+    }
+    func frame(_ element: AXUIElement) -> CGRect {
+        var origin = CGPoint.zero, size = CGSize.zero
+        if let value = attribute(element, kAXPositionAttribute) { AXValueGetValue(value as! AXValue, .cgPoint, &origin) }
+        if let value = attribute(element, kAXSizeAttribute) { AXValueGetValue(value as! AXValue, .cgSize, &size) }
+        return CGRect(origin: origin, size: size)
+    }
+    // A scroller's arrows belong to AppKit, which names them itself.
+    func walk(_ element: AXUIElement) -> [Seen] {
+        let role = text(element, kAXRoleAttribute)
+        guard role != kAXScrollBarRole else { return [] }
+        // A bar's value is a fraction, and what VoiceOver says is the
+        // description that comes with it.
+        let described = text(element, "AXValueDescription")
+        let titledBy = attribute(element, kAXTitleUIElementAttribute)
+            .flatMap { CFGetTypeID($0) == AXUIElementGetTypeID() ? ($0 as! AXUIElement) : nil }
+            .map { text($0, kAXValueAttribute) } ?? ""
+        var actions: CFArray?
+        AXUIElementCopyActionNames(element, &actions)
+        var here = Seen(role: role, subrole: text(element, kAXSubroleAttribute),
+                        label: text(element, kAXDescriptionAttribute),
+                        title: text(element, kAXTitleAttribute),
+                        titledBy: titledBy,
+                        value: described.isEmpty ? text(element, kAXValueAttribute) : described,
+                        identifier: text(element, "AXIdentifier"),
+                        frame: frame(element))
+        here.pressable = (actions as? [String])?.contains(kAXPressAction) == true
+        return [here] + ((attribute(element, kAXChildrenAttribute) as? [AXUIElement]) ?? []).flatMap(walk)
+    }
+    let windows = (attribute(app, kAXWindowsAttribute) as? [AXUIElement]) ?? []
+    // A subtitle is read as part of the title, after it.
+    return windows.first { text($0, kAXTitleAttribute).hasPrefix(window.title) }.map(walk)
 }
 
 let controlRoles: Set<String> = [
