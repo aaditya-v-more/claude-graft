@@ -114,6 +114,7 @@ final class AppSettings: ObservableObject {
         static let holdUpdates = "holdUpdates"
         static let frontIcon = "showFrontIcon"
         static let frontName = "showFrontName"
+        static let usageByAccount = "usageByAccount"
         static let dictation = "dictationEnabled"
         static let dictationKey = "dictationKey"
     }
@@ -152,6 +153,12 @@ final class AppSettings: ObservableObject {
         didSet { defaults.set(showFrontName, forKey: Key.frontName) }
     }
 
+    /// On unless somebody turns it off: the dropdown lists every account once.
+    /// Off, it lists each Claude with the accounts it draws on.
+    @Published var usageByAccount: Bool {
+        didSet { defaults.set(usageByAccount, forKey: Key.usageByAccount) }
+    }
+
     /// Off unless somebody turns it on: it listens for a key in every app and
     /// needs two permissions, which no update should ask of anybody.
     @Published var dictationEnabled: Bool {
@@ -178,6 +185,7 @@ final class AppSettings: ObservableObject {
         holdUpdates = defaults.bool(forKey: Key.holdUpdates)
         showFrontIcon = defaults.object(forKey: Key.frontIcon) as? Bool ?? true
         showFrontName = defaults.bool(forKey: Key.frontName)
+        usageByAccount = defaults.object(forKey: Key.usageByAccount) as? Bool ?? true
         dictationEnabled = defaults.bool(forKey: Key.dictation)
         dictationKey = Int(DictationKey.key(code: defaults.object(forKey: Key.dictationKey) as? Int
             ?? Int(DictationKey.rightCommand.code)).code)

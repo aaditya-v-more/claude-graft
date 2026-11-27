@@ -204,8 +204,10 @@ enum PoolPolicy {
     /// asked for, which comes before the resets for the accounts it names.
     /// Room is room for `family`, the model being asked for: an account out
     /// of one model, or without it, is passed over for that model alone.
+    /// `ownFirst` puts the sender ahead of the ranking while it has room, so
+    /// a conversation begins in the Claude it was opened in.
     static func order(own: String, accounts: [Account], prefer: [String] = [], first: [String] = [],
-                      family: String? = nil, now: Date) -> [String] {
+                      ownFirst: Bool = false, family: String? = nil, now: Date) -> [String] {
         let open = accounts.filter { $0.usable && !$0.shut && hasRoom($0.limits, family: family, now: now) }
         var ids = open.sorted { a, b in
             let pa = first.firstIndex(of: a.id) ?? Int.max, pb = first.firstIndex(of: b.id) ?? Int.max
@@ -223,7 +225,7 @@ enum PoolPolicy {
                 return a.id < b.id
             }
         }.map(\.id)
-        for id in prefer.reversed() {
+        for id in (ownFirst ? [own] : []) + prefer.reversed() {
             if let index = ids.firstIndex(of: id) { ids.insert(ids.remove(at: index), at: 0) }
         }
         if !ids.contains(own) { ids.append(own) }
@@ -442,6 +444,53 @@ struct PoolMember: Codable, Equatable {
     var borrowsFrom: [String]?
 }
 
+/// What a session's transcript says of the session that started it.
+enum PoolLineage {
+    /// Further back than a first message and whatever was attached to it.
+    static let reach: UInt64 = 4 * 1024 * 1024
+
+    /// The sessions `session` was started from, nearest first. A side chat's
+    /// transcript is its conversation's with one `derived-from` line of its
+    /// own, written before its first request, naming that conversation as
+    /// the one that launched it. A line quoted inside a message is escaped,
+    /// so only a real one starts a line.
+    static func launchers(of session: String, transcript: Data) -> [String] {
+        let mark = Data("{\"type\":\"derived-from\"".utf8)
+        var end = transcript.endIndex
+        while let found = transcript.range(of: mark, options: .backwards, in: transcript.startIndex..<end) {
+            end = found.lowerBound
+            guard found.lowerBound == transcript.startIndex
+                    || transcript[transcript.index(before: found.lowerBound)] == 0x0A else { continue }
+            let stop = transcript[found.lowerBound...].firstIndex(of: 0x0A) ?? transcript.endIndex
+            guard let line = (try? JSONSerialization.jsonObject(with: transcript[found.lowerBound..<stop]))
+                    as? [String: Any], line["sessionId"] as? String == session else { continue }
+            var ids: [String] = []
+            for entry in line["sessions"] as? [[String: Any]] ?? []
+            where entry["via"] as? String == "launch" && entry["started"] as? String == session {
+                if let id = entry["id"] as? String, id != session, !ids.contains(id) { ids.append(id) }
+            }
+            return ids
+        }
+        return []
+    }
+
+    static func launchers(of session: String) -> [String] {
+        // It came off the wire and goes into a path.
+        guard UUID(uuidString: session) != nil else { return [] }
+        let fm = FileManager.default
+        let projects = Graft.claudeProjects
+        for project in (try? fm.contentsOfDirectory(atPath: projects.path)) ?? [] {
+            let url = projects.appending(path: project).appending(path: "\(session).jsonl")
+            guard let handle = try? FileHandle(forReadingFrom: url) else { continue }
+            defer { try? handle.close() }
+            let size = (try? handle.seekToEnd()) ?? 0
+            try? handle.seek(toOffset: size > reach ? size - reach : 0)
+            return launchers(of: session, transcript: handle.readDataToEndOfFile())
+        }
+        return []
+    }
+}
+
 struct PoolConfiguration: Codable, Equatable {
     var enabled: Bool
     var members: [PoolMember]
@@ -455,6 +504,8 @@ struct PoolConfiguration: Codable, Equatable {
     /// The accounts somebody wants used up first, first one first. Any not
     /// named follow in the order of their weekly resets.
     var first: [String]?
+    /// A new conversation begins on its sender's account while that has room.
+    var ownFirst: Bool?
 }
 
 struct PoolCommand: Codable {

@@ -69,11 +69,14 @@ other account; your chats, files and connectors stay where they are. An account
 you sign in to is also asked how much of its allowance is left, so Graft can
 show it.
 
-A conversation stays with the account that answered it until that account runs
-out, so a chat you began on one allowance, or moved to it, is not carried off
-to another between turns. Accounts are used in the order their weeks end, the
-soonest first, and under **Accounts** you can put any of them ahead of the
-rest. An account that is out of one model, or whose plan does not have it, is
+A conversation starts on the account of the Claude you opened it in and stays
+there until that account runs out, so a chat is not carried off to another
+allowance between turns; a model's reasoning is kept only by the account that
+wrote it, and moving costs it. The accounts a Claude then turns to are used in
+the order their weeks end, the soonest first, and under **Accounts** you can
+put any of them ahead of the rest. To have new conversations start by that
+order straight away, turn off **Keep a conversation in the Claude it started
+in** in Settings. An account that is out of one model, or whose plan does not have it, is
 passed over for that model alone and still answers for the others.
 
 Sharing sends that Claude's Claude Code through a small relay Graft runs. Before
@@ -102,15 +105,17 @@ that account's usage beside it, and the conversation on screen runs across it
 with that account's name, so you always know who is answering the chat in front
 of you and how much it has left. An older chat that no account
 has answered since you began sharing shows by its name alone. Archive or delete
-a conversation and it leaves the bar. The dropdown lists every account's
-five-hour and weekly usage, kept current while the Claudes are closed, and lets
-you pick which account answers each conversation, with a tick beside the one in
-force.
+a conversation and it leaves the bar. The dropdown lists every account once
+with its five-hour, weekly and Fable usage side by side, kept current while the
+Claudes are closed; switch it to **By Claude** to see each Claude with every
+account it draws on, each by its address. It also lets you pick which account
+answers each conversation, with a tick beside the one in force.
 
 **Start Session** opens an account's five-hour window with one short message.
 **Auto-start** does that for you each time the account's window has closed, so
 the next one is already running when you sit down to work. It is off until you
-turn it on, one account at a time, in the dropdown or under **Accounts**.
+turn it on, one account at a time, in the dropdown or under **Accounts**, and
+an account lent to several Claudes has the one switch wherever it is listed.
 
 <img src="docs/images/03-dropdown.png" width="346" alt="Graft's menu bar dropdown with each account's usage">
 

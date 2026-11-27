@@ -4,6 +4,48 @@
 
 ## The dropdown
 
+**The dropdown lists every account once unless told otherwise,** and by Claude
+on the switch above the list (`usageByAccount`, on unless turned off). The
+switch shows only while something is shared: with nothing lent the two are the
+same list. By Claude was the default for a day, on the reasoning that the
+question asked is what the Claude in use has left; the owner, using it, asked
+for the list of accounts back as the default (26 November 2026), since the
+same account repeated under each Claude made the list long before it said
+anything new.
+
+By Claude, each Claude is a line with its name, Start Session and Open
+(`ClaudeHeading`), and under it come its own account and then the accounts it
+draws on (`drawnOn(by:)`, its `members` without itself), every one the same
+row (`ClaudeAccountRow`). The first version drew the Claude's own account as
+the old tall row and the lent ones as short rows under it, and the owner's
+first look at it was that three accounts in one list should look the same. An
+account lent to two Claudes is listed under both. Start Session is on the
+Claude's line and starts its own account; a button on every row was asked to
+go, so an account with no Claude of its own is started from the list by
+account or from Accounts.
+
+**Both lists draw an account the same way,** in three lines: who it is, its
+windows three abreast (`UsageMeters`, each a `UsageMeter` with the figure over
+the bar and the reset under it), then Auto-start, when the figure was taken
+and the refresh (`AccountFoot`). The meters are always thirds, so a week
+stands under the week above it on an account without the other two. One bar
+to a line with eleven-point text was five lines an account, hard to read and
+mostly empty at the right. The list's scroll bar is forced to the overlay kind
+(`OverlayScroller`): with a mouse attached macOS gave it a gutter of its own.
+
+A Claude's line carries its icon in both lists, beside the dot that says it is
+running. A name too long to share the line with Start Session and Open takes a
+line of its own with the buttons under it, cut in the middle if it is longer
+than the row; a plan beside it is never squeezed. In Russian the two buttons
+leave a name about nine letters, so "Claude 2" still shares the line there.
+
+Auto-start goes by the account, not by the row (`autoStartKey`): an account
+that is also a Claude here uses that Claude's switch, so turning it under one
+Claude turns it under every other, and in Shared usage. A lent account's row
+is identified as `dropdown.<Claude's folder>.<lender>.<control>`, the lender
+being a signed-in account's saved id or another Claude's folder; the Claude's
+own keeps `dropdown.<Claude's folder>.<control>`, as in the list by account.
+
 **The dropdown lists what the relay carried.** The relay keeps the
 conversations it has seen by `X-Claude-Code-Session-Id`, which is the
 `cliSessionId` a record names, so a title comes from that record or, before one
@@ -81,6 +123,20 @@ conversation beginning is not always the one on screen: a scheduled task, or a
 session another one started, begins the same way, and only the records say
 which conversation the window shows. The second live run timed it: each new
 chat's name was on the bar within a tenth of a second of Claude's first record.
+
+**A side chat's focus is the conversation's it was asked beside.** A question
+asked with `/btw` is a session of its own, with its own record, and Claude
+shows it in a pane of the conversation it was asked in. Bringing that
+conversation on screen focuses both records within a few seconds, in either
+order: on 26 November the bar named a conversation for half a second and then
+its side chat, with the account answering the side chat beside it, and stayed
+there. Such a record says so in `spawnedFrom`, with `btw` true and the
+`sessionId` of the record it was asked in, which is that record's file name and
+not its `cliSessionId`. So its focus counts for that conversation and never for
+itself, unless that conversation's record is gone. A session another one
+started carries `spawnedFrom` too, without `btw`, and is a conversation of its
+own in the sidebar. The side chat keeps its row in the dropdown, where it can
+still be moved.
 
 **A focus belongs to the store it turned up in first.** Claudes that share
 chats each keep a mirrored folder, and the mirror copies a changed record

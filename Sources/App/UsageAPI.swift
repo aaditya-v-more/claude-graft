@@ -51,7 +51,30 @@ enum UsageAPI {
 
     /// Blocking; call it off the main thread.
     static func fetch(token: String, timeout: TimeInterval = 10) throws -> Reading {
-        var request = URLRequest(url: endpoint, timeoutInterval: timeout)
+        guard let reading = reading(from: try answer(endpoint, token: token, timeout: timeout))
+        else { throw Failure.unreadable }
+        return reading
+    }
+
+    static let whose = URL(string: "https://api.anthropic.com/api/oauth/profile")!
+
+    /// Whose login a token is, for the address shown beside a Claude.
+    /// Blocking, like `fetch`.
+    static func identity(token: String, timeout: TimeInterval = 10) -> (account: String, address: String)? {
+        (try? answer(whose, token: token, timeout: timeout)).flatMap(identity(from:))
+    }
+
+    static func identity(from body: [String: Any]) -> (account: String, address: String)? {
+        guard let account = body["account"] as? [String: Any],
+              let uuid = account["uuid"] as? String,
+              let address = (account["email"] ?? account["email_address"]) as? String,
+              !uuid.isEmpty, !address.isEmpty
+        else { return nil }
+        return (uuid, address)
+    }
+
+    private static func answer(_ url: URL, token: String, timeout: TimeInterval) throws -> [String: Any] {
+        var request = URLRequest(url: url, timeoutInterval: timeout)
         request.httpMethod = "GET"
         request.setValue("Bearer \(token.trimmingCharacters(in: .whitespacesAndNewlines))",
                          forHTTPHeaderField: "Authorization")
@@ -78,10 +101,9 @@ enum UsageAPI {
             throw Failure.http(code, retryAfter: header.flatMap(TimeInterval.init))
         }
         guard let payload,
-              let body = try? JSONSerialization.jsonObject(with: payload) as? [String: Any],
-              let reading = reading(from: body)
+              let body = try? JSONSerialization.jsonObject(with: payload) as? [String: Any]
         else { throw Failure.unreadable }
-        return reading
+        return body
     }
 
     /// Separated from the request so the shape of the answer can be tested.

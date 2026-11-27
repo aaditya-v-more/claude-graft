@@ -28,6 +28,19 @@ struct MenuBarContent: View {
             UpdateRecoveryNotice()
             ClaudeUpdateStatus(compact: true)
             Divider()
+            // Only where the two lists differ: with nothing shared they are one.
+            if pool.sharing.lenders.values.contains(where: { !$0.isEmpty }) {
+                // Two buttons, not a segmented picker: its segments reach
+                // assistive apps with no identifier to ask for them by.
+                HStack(spacing: 4) {
+                    listChoice("By account", id: "usage-view.by-account", byAccount: true)
+                    listChoice("By Claude", id: "usage-view.by-claude", byAccount: false)
+                }
+                .help("By account lists each account once. By Claude lists each Claude with every account it draws on.")
+                .padding(.horizontal, 14)
+                .padding(.top, 8)
+                .padding(.bottom, 2)
+            }
         } list: {
             if usage.entries.isEmpty {
                 Text("No Claude profiles yet")
@@ -37,23 +50,35 @@ struct MenuBarContent: View {
                     .padding(.vertical, 10)
             } else {
                 ForEach(usage.entries) { entry in
-                    UsageRow(entry: entry,
-                             starting: starting == entry.id,
-                             open: { open(entry) },
-                             start: { startSession(entry) },
-                             refresh: { usage.refresh(store, interactive: true, focus: entry.profile) })
-                    if entry.id != usage.entries.last?.id {
-                        Divider().padding(.leading, 14)
+                    if byClaude {
+                        let accounts = [entry.key] + pool.drawnOn(by: entry.key)
+                        ClaudeHeading(entry: entry, starting: starting == entry.id,
+                                      open: { open(entry) }, start: { startSession(entry) })
+                        ForEach(accounts, id: \.self) { account in
+                            ClaudeAccountRow(claude: entry, account: account, refresh: { refresh(account) })
+                            if account != accounts.last { Divider().padding(.leading, 12) }
+                        }
+                    } else {
+                        UsageRow(entry: entry,
+                                 starting: starting == entry.id,
+                                 open: { open(entry) },
+                                 start: { startSession(entry) },
+                                 refresh: { usage.refresh(store, interactive: true, focus: entry.profile) })
+                        if entry.id != usage.entries.last?.id {
+                            Divider().padding(.leading, 12)
+                        }
                     }
                 }
             }
             // An account that is also one of the Claudes above is that
             // Claude's row already: one allowance, one pair of bars.
-            ForEach(pool.accountsAlone) { account in
-                Divider().padding(.leading, 14)
+            ForEach(byClaude ? pool.accountsAlone(besides: usage.entries.map(\.key))
+                             : pool.accountsAlone) { account in
+                Divider().padding(.leading, 12)
                 AccountUsageRow(account: account,
                                 starting: starting == account.id,
-                                start: { startSession(account) })
+                                start: { startSession(account) },
+                                refresh: { refresh(account.id) })
             }
             SharedChats()
         } foot: {
@@ -137,6 +162,7 @@ struct MenuBarContent: View {
             VStack(alignment: .leading, spacing: 4) {
                 MenuButton(usage.isRefreshing ? "Refreshing…" : "Refresh Usage", id: "refresh-usage") {
                     usage.refresh(store, interactive: true)
+                    pool.askSignIns(pressed: true)
                 }
                 MenuButton(updater.canCheck ? "Check for Claude Graft Updates" : "Checking for Claude Graft Updates…",
                            id: "check-graft-updates") {
@@ -153,8 +179,42 @@ struct MenuBarContent: View {
         .onAppear {
             settings.refreshLoginItem()
             usage.refresh(store, prompting: .onceIfShut, freshness: .recent)
+            pool.askSignIns()
         }
         .environment(\.controlSurface, ControlSurface.dropdown)
+    }
+
+    private var byClaude: Bool { !settings.usageByAccount }
+
+    private func listChoice(_ title: String, id: String, byAccount: Bool) -> some View {
+        let chosen = settings.usageByAccount == byAccount
+        return Button { settings.usageByAccount = byAccount } label: {
+            Text(L10n.text(title))
+                .font(.callout)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 3)
+                .background(chosen ? Color.accentColor.opacity(0.2) : Color.secondary.opacity(0.08),
+                            in: RoundedRectangle(cornerRadius: 5))
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(chosen ? .isSelected : [])
+        .identified(id)
+    }
+
+    /// The Claude a pool key names, where it names one listed here.
+    private func claudeEntry(_ key: String) -> UsageMonitor.Entry? {
+        usage.entries.first { $0.key == key }
+    }
+
+    private func refresh(_ key: String) {
+        if let entry = claudeEntry(key) {
+            usage.refresh(store, interactive: true, focus: entry.profile)
+        } else if pool.accounts.first(where: { $0.id == key })?.scopes.contains(ClaudeCredentials.usageScope) == true {
+            usage.refresh(store, interactive: true, account: key)
+        } else {
+            pool.askSignIns(pressed: true)
+        }
     }
 
     /// The dropdown is where a Claude actually gets opened most of the time,
@@ -237,6 +297,7 @@ struct DropdownColumn<Head: View, Rows: View, Foot: View>: View {
                                           foot: heights[.foot] ?? 0, limit: maxHeight) {
                 ScrollView(.vertical) {
                     VStack(alignment: .leading, spacing: 0) { list }.measured(.list)
+                        .background(OverlayScroller())
                 }
                 .frame(height: room)
             } else {
@@ -255,6 +316,20 @@ struct DropdownColumn<Head: View, Rows: View, Foot: View>: View {
         return max(room, min(list, leastList))
     }
 
+}
+
+/// With a mouse attached macOS gives every scroll view a bar with a gutter of
+/// its own, a twentieth of the dropdown's width. The overlay one takes none
+/// and shows only while the list moves.
+private struct OverlayScroller: NSViewRepresentable {
+    final class Probe: NSView {
+        override func viewDidMoveToSuperview() { apply() }
+        override func viewDidMoveToWindow() { apply() }
+        func apply() { enclosingScrollView?.scrollerStyle = .overlay }
+    }
+
+    func makeNSView(context: Context) -> Probe { Probe() }
+    func updateNSView(_ view: Probe, context: Context) { view.apply() }
 }
 
 private enum DropdownPart: Hashable { case head, list, foot }
@@ -322,6 +397,8 @@ struct UsageRow: View {
     let start: () -> Void
     let refresh: () -> Void
 
+    @ObservedObject private var pool = Shared.usagePool
+
     /// The dot is the only thing saying whether that Claude is open, and a
     /// dot says nothing to somebody who cannot see it.
     private var status: String {
@@ -330,39 +407,46 @@ struct UsageRow: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 4) {
             // A long name of the button, as in Russian, left no room for the
             // rest: the name wrapped and the button was cut short.
             ViewThatFits(in: .horizontal) {
-                HStack(spacing: 6) { title(plan: entry.plan); Spacer(); buttons }
-                HStack(spacing: 6) { title(plan: nil); Spacer(); buttons }
+                HStack(spacing: 6) { title(plan: entry.plan); Spacer(minLength: 6); buttons }
+                HStack(spacing: 4) { title(plan: nil); Spacer(minLength: 2); buttons }
                 VStack(alignment: .leading, spacing: 6) {
                     title(plan: entry.plan)
                     HStack(spacing: 6) { Spacer(); buttons }
                 }
             }
 
-            UsageWindows(entry: entry)
-            UsageFreshness(entry: entry, refresh: refresh)
+            UsageMeters(entry: entry)
+            AccountFoot(entry: entry, account: entry.key, name: entry.name, refresh: refresh)
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 9)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 7)
         .controls(profile: entry.profile)
     }
 
     private func title(plan: String?) -> some View {
-        HStack(spacing: 6) {
+        HStack(spacing: 5) {
             Circle()
                 .fill(entry.isRunning ? Color.green : Color.secondary.opacity(0.35))
-                .frame(width: 6, height: 6)
-            Text(entry.name).fontWeight(.medium).lineLimit(1)
+                .frame(width: 7, height: 7)
+            // The picture the bar lights for it, as its rows by Claude have.
+            if let icon = FrontIcon.image(for: pool.preset(of: entry.key)) {
+                Image(nsImage: icon).resizable().frame(width: 17, height: 17)
+            }
+            Text(entry.name).fontWeight(.semibold).lineLimit(1).truncationMode(.middle)
             if let plan {
                 Text(plan)
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .fixedSize()
             }
         }
         .spoken(entry.name, value: status)
+        .help(entry.name)
         .accessibilityAddTraits(.isHeader)
         .identified("account")
     }
@@ -394,46 +478,89 @@ struct UsageRow: View {
     }
 }
 
-/// An account's windows as the dropdown draws them, for a Claude's row and a
-/// signed-in account's alike.
-struct UsageWindows: View {
+/// An account's windows as the dropdown draws them, three abreast and always
+/// in thirds, so a week stands under the week above it whether or not the
+/// account has the other two.
+struct UsageMeters: View {
     let entry: UsageMonitor.Entry
 
     var body: some View {
         if let usage = entry.usage {
-            if let fiveHour = usage.fiveHour {
-                UsageBar(label: "5 hours",
-                         percent: fiveHour,
-                         resets: usage.fiveHourReset,
-                         dimmed: entry.isDimmed,
-                         keepsLine: true)
-                    .identified("five-hour")
-                    // Outside the bar, which is read out as one thing, and on
-                    // its reset line: the buttons' row has no width to give.
-                    .overlay(alignment: .bottomTrailing) {
-                        AutoSessionToggle(key: entry.key, name: entry.name)
-                            .toggleStyle(.checkbox)
-                            .controlSize(.mini)
-                            .font(.caption2)
-                    }
-            } else {
-                NoFiveHourLimit(font: .caption, dimmed: entry.isDimmed)
+            if usage.fiveHour == nil {
+                NoFiveHourLimit(font: .subheadline, dimmed: entry.isDimmed)
             }
-            UsageBar(label: "Week",
-                     percent: usage.week,
-                     resets: usage.weekReset,
-                     dimmed: entry.isDimmed)
-                .identified("week")
-            if let fable = usage.fable {
-                UsageBar(label: "Fable", percent: fable,
-                         resets: usage.fableReset, dimmed: entry.isDimmed)
-                    .identified("fable")
+            HStack(alignment: .top, spacing: 10) {
+                if let fiveHour = usage.fiveHour {
+                    UsageMeter(label: "5 hours", percent: fiveHour, resets: usage.fiveHourReset,
+                               dimmed: entry.isDimmed)
+                        .identified("five-hour")
+                }
+                UsageMeter(label: "Week", percent: usage.week, resets: usage.weekReset, dimmed: entry.isDimmed)
+                    .identified("week")
+                if let fable = usage.fable {
+                    UsageMeter(label: "Fable", percent: fable, resets: usage.fableReset, dimmed: entry.isDimmed)
+                        .identified("fable")
+                }
+                let shown = 1 + (usage.fiveHour == nil ? 0 : 1) + (usage.fable == nil ? 0 : 1)
+                ForEach(shown..<3, id: \.self) { _ in
+                    Color.clear.frame(maxWidth: .infinity).frame(height: 0).accessibilityHidden(true)
+                }
             }
         } else {
             Text("No usage reported yet")
-                .font(.caption)
-                .foregroundStyle(.tertiary)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
                 .identified("no-usage")
+        }
+    }
+}
+
+/// Under an account's windows: its Auto-start, when its figures were taken or
+/// why they are not live ones, and a way to ask again.
+struct AccountFoot: View {
+    let entry: UsageMonitor.Entry
+    /// The pool's key of the account, which is where its Auto-start is kept.
+    let account: String
+    let name: String
+    let refresh: () -> Void
+
+    @ObservedObject private var pool = Shared.usagePool
+    @ObservedObject private var monitor = Shared.usage
+
+    var body: some View {
+        let spinning = monitor.isRefreshing
+            && (monitor.refreshingProfile == nil || monitor.refreshingProfile == entry.id)
+        HStack(spacing: 6) {
+            if entry.mayStartSession {
+                AutoSessionToggle(key: pool.autoStartKey(of: account), name: name)
+                    .toggleStyle(.checkbox)
+                    .controlSize(.small)
+                    .font(.subheadline)
+                    .fixedSize()
+            }
+            Spacer(minLength: 4)
+            TimelineView(.periodic(from: .now, by: 30)) { context in
+                let when = entry.freshness(now: context.date)
+                // Why the figure is not a live one takes the line when there is a reason.
+                Text(entry.note ?? when)
+                    .font(.subheadline)
+                    .foregroundStyle(entry.note == nil ? AnyShapeStyle(.secondary) : AnyShapeStyle(.orange))
+                    .lineLimit(1)
+                    .help([when, entry.note].compactMap { $0 }.joined(separator: " · "))
+                    .identified("freshness")
+            }
+            Button(action: refresh) {
+                if spinning {
+                    ProgressView().controlSize(.mini)
+                } else {
+                    Image(systemName: "arrow.clockwise").font(.subheadline)
+                }
+            }
+            .buttonStyle(.borderless)
+            .disabled(spinning)
+            .help("Ask Anthropic for this account's usage now")
+            .accessibilityLabel(L10n.format("Refresh usage for %@", name))
+            .identified("refresh-usage")
         }
     }
 }
@@ -444,32 +571,34 @@ struct AccountUsageRow: View {
     let account: PoolAccount
     let starting: Bool
     let start: () -> Void
+    let refresh: () -> Void
 
-    @EnvironmentObject private var store: ShortcutStore
-    @EnvironmentObject private var usage: UsageMonitor
     @ObservedObject private var pool = Shared.usagePool
 
     var body: some View {
         let name = pool.name(of: account.id)
         let condition = pool.condition(of: account.id)
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 6) {
                 HStack(spacing: 6) {
                     // The colour it wears on the bar when it is answering.
                     if let icon = FrontIcon.image(for: pool.preset(of: account.id)) {
-                        Image(nsImage: icon).resizable().frame(width: 14, height: 14)
+                        Image(nsImage: icon).resizable().frame(width: 17, height: 17)
                     }
-                    Text(name).fontWeight(.medium).lineLimit(1)
+                    Text(name).fontWeight(.semibold).lineLimit(1).truncationMode(.middle)
                     if let plan = entry?.plan {
                         Text(plan)
-                            .font(.caption)
-                            .foregroundStyle(.tertiary)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .fixedSize()
                     }
                 }
                 .spoken(name, value: [entry?.plan, condition].compactMap { $0 }.joined(separator: ", "))
+                .help(name)
                 .accessibilityAddTraits(.isHeader)
                 .identified("account")
-                Spacer()
+                Spacer(minLength: 6)
                 if pool.lending[account.id] == .ready, entry?.mayStartSession ?? true {
                     Button(action: start) {
                         if starting {
@@ -483,38 +612,218 @@ struct AccountUsageRow: View {
                     .help("Sends one short message to this account to open its five-hour window")
                     .accessibilityLabel(L10n.format("Start Session for %@", name))
                     .identified("start-session")
+                    .fixedSize()
                 }
             }
             if pool.needsAttention(account.id) {
                 Text(condition)
-                    .font(.caption)
+                    .font(.subheadline)
                     .foregroundStyle(.orange)
                     .lineLimit(1)
                     .help(condition)
                     .identified("state")
             }
             if let entry {
-                UsageWindows(entry: entry)
-                if account.scopes.contains(ClaudeCredentials.usageScope) {
-                    UsageFreshness(entry: entry) {
-                        usage.refresh(store, interactive: true, account: account.id)
-                    }
-                } else if entry.refreshed != nil {
-                    // Nothing to ask again: its figures come with its answers.
-                    Text(entry.freshness())
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
-                        .lineLimit(1)
-                        .identified("freshness")
-                }
+                UsageMeters(entry: entry)
+                AccountFoot(entry: entry, account: account.id, name: name, refresh: refresh)
             }
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 9)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 7)
         .controls(account: account.id)
     }
 
     private var entry: UsageMonitor.Entry? { pool.entry(forAccount: account.id) }
+}
+
+/// A Claude's line in the list by Claude: its name, a session on its own
+/// account, and the way to open it. The accounts are the rows under it.
+struct ClaudeHeading: View {
+    let entry: UsageMonitor.Entry
+    let starting: Bool
+    let open: () -> Void
+    let start: () -> Void
+
+    var body: some View {
+        // Both buttons in Russian leave the plan no room beside the name,
+        // and a long name none beside the buttons.
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 6) { title(plan: entry.plan); Spacer(minLength: 6); buttons }
+            HStack(spacing: 6) { title(plan: nil); Spacer(minLength: 6); buttons }
+            VStack(alignment: .leading, spacing: 4) {
+                title(plan: entry.plan)
+                HStack(spacing: 6) { Spacer(); buttons }
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 5)
+        .background(Color.primary.opacity(0.06))
+        .controls(profile: entry.profile)
+    }
+
+    private func title(plan: String?) -> some View {
+        HStack(spacing: 6) {
+            Circle()
+                .fill(entry.isRunning ? Color.green : Color.secondary.opacity(0.35))
+                .frame(width: 7, height: 7)
+            Text(entry.name).fontWeight(.semibold).lineLimit(1).truncationMode(.middle)
+            if let plan {
+                Text(plan)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .fixedSize()
+            }
+        }
+        .spoken(entry.name, value: [entry.plan, L10n.text(entry.isRunning ? "Running" : "Not running")]
+            .compactMap { $0 }.joined(separator: ", "))
+        .help(entry.name)
+        .accessibilityAddTraits(.isHeader)
+        .identified("account")
+    }
+
+    @ViewBuilder private var buttons: some View {
+        if entry.mayStartSession {
+            Button(action: start) {
+                if starting {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Text("Start Session")
+                }
+            }
+            .controlSize(.small)
+            .disabled(starting)
+            .help("Sends one short message to this account to open its five-hour window")
+            .accessibilityLabel(L10n.format("Start Session for %@", entry.name))
+            .identified("start-session")
+            .fixedSize()
+        }
+        Button("Open", action: open)
+            .controlSize(.small)
+            .accessibilityLabel(L10n.format("Open %@", entry.name))
+            .identified("open")
+            .fixedSize()
+    }
+}
+
+/// One account under a Claude in the list by Claude: its own first, then each
+/// it draws on, all drawn alike. One lent to several Claudes is under each,
+/// with the one Auto-start switch between them.
+struct ClaudeAccountRow: View {
+    let claude: UsageMonitor.Entry
+    /// The pool's key of the account: the Claude's own, or one it draws on.
+    let account: String
+    let refresh: () -> Void
+
+    @ObservedObject private var pool = Shared.usagePool
+
+    private var isOwn: Bool { account == claude.key }
+
+    var body: some View {
+        let entry = isOwn ? claude : pool.entry(of: account)
+        let address = pool.address(of: account)
+        // Its own goes by its address: the Claude's name is the line above.
+        let name = isOwn ? address ?? claude.name : pool.name(of: account)
+        let beside = address.flatMap { $0 == name ? nil : $0 }
+        let spoken = isOwn ? claude.name : name
+        let condition = isOwn ? nil : pool.condition(of: account)
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 6) {
+                if let icon = FrontIcon.image(for: pool.preset(of: account)) {
+                    Image(nsImage: icon).resizable().frame(width: 17, height: 17)
+                }
+                Text(name).fontWeight(.medium).lineLimit(1).truncationMode(.middle)
+                if let beside {
+                    Text(beside)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+            }
+            .spoken(name, value: [beside, isOwn ? nil : entry?.plan, condition]
+                .compactMap { $0 }.joined(separator: ", "))
+            .help([name, beside].compactMap { $0 }.joined(separator: " · "))
+            .identified(isOwn ? "own-account" : "account")
+            if let condition, pool.needsAttention(account) {
+                Text(condition)
+                    .font(.subheadline)
+                    .foregroundStyle(.orange)
+                    .lineLimit(1)
+                    .help(condition)
+                    .identified("state")
+            }
+            if let entry {
+                UsageMeters(entry: entry)
+                AccountFoot(entry: entry, account: account, name: spoken, refresh: refresh)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.top, 6)
+        .padding(.bottom, 5)
+        .environment(\.controlProfile, isOwn ? claude.profile.lastPathComponent
+                                             : claude.profile.lastPathComponent + "." + part)
+    }
+
+    /// The folder of a Claude's account, the saved id of a signed-in one.
+    private var part: String {
+        account.hasPrefix(UsagePoolController.accountPrefix)
+            ? String(account.dropFirst(UsagePoolController.accountPrefix.count))
+            : pool.profile(of: account)?.lastPathComponent ?? account
+    }
+}
+
+/// One window as a third of an account's row: what it is and how much is
+/// spent over the bar, when it resets under it.
+struct UsageMeter: View {
+    let label: String
+    let percent: Int
+    var resets: Date?
+    var dimmed = false
+
+    private var fraction: Double { min(max(Double(percent) / 100, 0), 1) }
+
+    var body: some View {
+        // On a clock of its own, as `UsageBar` is and for its reason.
+        TimelineView(.periodic(from: .now, by: 30)) { context in
+            let remaining = resets.flatMap { Graft.countdown(to: $0, from: context.date) }
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(alignment: .firstTextBaseline, spacing: 4) {
+                    Text(L10n.text(label))
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                    Spacer(minLength: 2)
+                    Text("\(percent)%")
+                        .font(.body.monospacedDigit().weight(.medium))
+                        .foregroundStyle(percent < 70 ? AnyShapeStyle(.primary) : AnyShapeStyle(UsageBar.tint(percent)))
+                }
+                GeometryReader { geometry in
+                    ZStack(alignment: .leading) {
+                        Capsule().fill(Color.secondary.opacity(0.2))
+                        Capsule()
+                            .fill(UsageBar.tint(percent))
+                            .frame(width: max(2, geometry.size.width * fraction))
+                    }
+                }
+                .frame(height: 5)
+                Text(remaining ?? " ")
+                    .font(.subheadline.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+                    .help(remaining.map { L10n.format("Resets in %@", $0) } ?? "")
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityRepresentation {
+                ProgressView(value: fraction) { Text(L10n.text(label)) }
+            }
+            .accessibilityValue(remaining.map {
+                L10n.format("%1$ld%% used, resets in %2$@", percent, $0)
+            } ?? L10n.format("%ld%% used", percent))
+        }
+        .opacity(dimmed ? 0.45 : 1)
+    }
 }
 
 /// Where the five-hour bar would be, on an account that has no such window.
@@ -548,7 +857,9 @@ struct UsageBar: View {
 
     private var fraction: Double { min(max(Double(percent) / 100, 0), 1) }
 
-    private var tint: Color {
+    private var tint: Color { Self.tint(percent) }
+
+    static func tint(_ percent: Int) -> Color {
         switch percent {
         case ..<70: return .green
         case ..<90: return .orange

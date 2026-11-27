@@ -1372,7 +1372,8 @@ do {
 
     let rows = (try? String(contentsOf: views.appending(path: "MenuBarContent.swift"), encoding: .utf8)) ?? ""
     let summary = (try? String(contentsOf: views.appending(path: "ShortcutDetail.swift"), encoding: .utf8)) ?? ""
-    check(rows.contains("UsageFreshness(entry: entry, refresh: refresh)")
+    check(rows.contains("AccountFoot(entry: entry, account: entry.key, name: entry.name, refresh: refresh)")
+            && rows.contains("AccountFoot(entry: entry, account: account.id, name: name, refresh: refresh)")
             && summary.contains("UsageFreshness(entry: entry, refresh: refresh)"),
           "every account in the dropdown and the window says when its figure was taken and offers a refresh")
     let bar = rows.components(separatedBy: "struct UsageBar").dropFirst().first?
@@ -1437,6 +1438,12 @@ do {
     check(AppSettings(defaults: suite).holdUpdates, "and a hold survives a restart")
     reopened.holdUpdates = false
     check(!AppSettings(defaults: suite).holdUpdates, "as does letting go of it")
+
+    check(reopened.usageByAccount, "the dropdown lists usage by account unless somebody chooses otherwise")
+    reopened.usageByAccount = false
+    check(!AppSettings(defaults: suite).usageByAccount, "and listing it by Claude survives a restart")
+    reopened.usageByAccount = true
+    check(AppSettings(defaults: suite).usageByAccount, "as does going back")
 
     // The name widens the item, and a full bar drops an item rather than
     // squeezing it, so an update must not turn it on for anybody.
@@ -1550,6 +1557,55 @@ do {
     check(reading?.fiveHourReset != nil, "a plain ISO reset time parses")
     check(reading?.weekReset != nil, "and so does one with fractional seconds")
     check(reading?.fableReset != nil, "the Fable reset comes from its scoped window")
+    let onClaudeAI = UsageAPI.reading(from: [
+        "five_hour": ["utilization": 12, "resets_at": "2026-08-20T22:51:00Z"],
+        "seven_day": ["utilization": 40, "resets_at": "2026-08-25T22:51:00.000Z"],
+        "seven_day_opus": NSNull(),
+        "extra_usage": NSNull(),
+        "limits": [[
+            "kind": "weekly_scoped", "group": "model", "percent": 68, "severity": "ok",
+            "resets_at": "2026-08-26T22:51:00.000Z",
+            "scope": ["model": ["display_name": "Claude Fable 5"], "surface": NSNull()],
+        ]],
+    ])
+    check(onClaudeAI?.fiveHour == 12 && onClaudeAI?.week == 40 && onClaudeAI?.fable == 68 && onClaudeAI?.plan == nil,
+          "claude.ai's own usage answer reads the same way, each model's week included")
+    let whose = UsageAPI.identity(from: ["account": ["uuid": "a-1", "email": "one@example.com"],
+                                         "organization": ["uuid": "o-1"]])
+    check(whose?.account == "a-1" && whose?.address == "one@example.com",
+          "a login's own answer says whose it is and the address it signs in with")
+    check(UsageAPI.identity(from: ["account": ["uuid": "a-1", "email_address": "one@example.com"]])?.address
+            == "one@example.com", "under either name the service gives the address")
+    check(UsageAPI.identity(from: ["account": ["uuid": "a-1"]]) == nil,
+          "and an answer with no address names nobody")
+
+    let inferenceOnly = PoolAccount(id: "account:a-1", accountUuid: "a-1", email: "one@example.com",
+                                    organizationName: nil, scopes: ["user:inference"],
+                                    expires: Date().addingTimeInterval(3e7), added: Date(), sealed: "")
+    let sameSignIn = ArtifactAccount(id: UUID(), email: "one@example.com", accountUuid: "a-1", org: "o-1",
+                                     organizations: [ArtifactOrganization(id: "o-1", name: "One"),
+                                                     ArtifactOrganization(id: "O-2", name: "Two")])
+    let otherSignIn = ArtifactAccount(id: UUID(), email: "two@example.com", accountUuid: "a-2", org: "o-9")
+    let route = WebUsage.route(for: inferenceOnly, among: [otherSignIn, sameSignIn])
+    check(route?.signIn == sameSignIn.id && route?.organization == "o-1",
+          "an account's figures are asked through the claude.ai sign-in of that same account, about the organization it is on")
+    var inOrganization = inferenceOnly
+    inOrganization.organizationUuid = "o-2"
+    check(WebUsage.route(for: inOrganization, among: [sameSignIn])?.organization == "O-2",
+          "a login made in one organization is asked about that one, as the sign-in names it")
+    inOrganization.organizationUuid = "o-7"
+    check(WebUsage.route(for: inOrganization, among: [sameSignIn]) == nil,
+          "and not at all where the sign-in cannot see that organization")
+    check(WebUsage.route(for: inferenceOnly, among: [otherSignIn]) == nil,
+          "an account with no claude.ai sign-in of its own here is asked nothing")
+    check(WebUsage.path(organization: "o-1") == "/api/organizations/o-1/usage?skip_spend=1",
+          "the figures are asked for without the spending the usage page also draws")
+    let asked = Date()
+    check(WebUsage.mayAsk(last: nil, pressed: false, now: asked)
+            && !WebUsage.mayAsk(last: asked.addingTimeInterval(-60), pressed: false, now: asked)
+            && WebUsage.mayAsk(last: asked.addingTimeInterval(-60), pressed: true, now: asked)
+            && !WebUsage.mayAsk(last: asked.addingTimeInterval(-10), pressed: true, now: asked),
+          "claude.ai is asked once on opening the dropdown and again after five minutes, or half a minute for a press")
     let alternateFable = UsageAPI.reading(from: [
         "five_hour": ["utilization": 1],
         "limits": [[
@@ -2223,14 +2279,22 @@ do {
         Graft.Usage(fiveHour: fiveHour, week: week, organization: nil, sampled: now,
                     fiveHourReset: reset, weekReset: weekReset)
     }
-    check(AutoSessions.due(nil, last: nil, now: now),
+    check(AutoSessions.due(nil, last: nil, unknownSince: now - 120, now: now),
           "an account nothing is known of is sent to, which is how its figures are learnt")
+    check(!AutoSessions.due(nil, last: nil, unknownSince: now - 5, now: now) && !AutoSessions.due(nil, last: nil, now: now),
+          "but not in the moment before its figures have had time to arrive")
     check(!AutoSessions.due(figures(reset: now + 3600), last: nil, now: now),
           "an account with a window open is left alone")
     check(AutoSessions.due(figures(reset: now - 60), last: nil, now: now),
           "one whose window has run out is sent to")
     check(AutoSessions.due(figures(fiveHour: 0), last: nil, now: now),
           "and so is one with no window open at all")
+    var midWindow = figures(fiveHour: 56)
+    check(!AutoSessions.due(midWindow, last: nil, now: now),
+          "a figure above zero with no reset known is a window already open, and is left alone")
+    midWindow.sampled = now - 5 * 3600 - 60
+    check(AutoSessions.due(midWindow, last: nil, now: now),
+          "unless that figure is older than a window, which has closed since")
     check(!AutoSessions.due(figures(fiveHour: nil), last: nil, now: now),
           "an account with no five-hour limit has no window to open")
     check(!AutoSessions.due(figures(reset: now - 60, week: 100, weekReset: now + 86_400), last: nil, now: now),
@@ -2240,7 +2304,7 @@ do {
     let tried = AutoSessions.Attempt(at: now - 60, notBefore: now + 600, problem: "refused")
     check(!AutoSessions.due(figures(reset: now - 60), last: tried, now: now),
           "an account just tried is not tried again before its time")
-    check(!AutoSessions.due(nil, last: tried, now: now),
+    check(!AutoSessions.due(nil, last: tried, unknownSince: now - 120, now: now),
           "even one nothing is known of")
     check(AutoSessions.due(figures(reset: now - 60), last: tried, now: now + 601),
           "and is once that time has come")
@@ -2633,6 +2697,15 @@ do {
     check(menuBar.contains("answering.flatMap(pool.entry(of:)) ?? $0")
             && menuBar.contains("statusEntry(front: nil, besides: pool.accountsWeighed())"),
           "the figure beside a Claude is the answering account's, and accounts signed in here are weighed when no Claude is named")
+    let dropdownSource = read("App/MenuBarContent.swift")
+    check(dropdownSource.contains("AutoSessionToggle(key: pool.autoStartKey(of: account)")
+            && read("App/AccountsView.swift").contains("AutoSessionToggle(key: pool.autoStartKey(of: key)"),
+          "an account has one Auto-start switch, under every Claude that draws on it and in Shared usage alike")
+    let webReader = read("App/WebUsageReader.swift")
+    check(!webReader.isEmpty && !webReader.contains("Timer") && dropdownSource.contains("pool.askSignIns()")
+            && dropdownSource.contains("pool.askSignIns(pressed: true)")
+            && read("App/AccountsView.swift").contains(".onAppear { pool.askSignIns() }"),
+          "claude.ai is asked for usage when the dropdown or the accounts page opens or is refreshed, never on a timer")
     check(menuBar.contains("window.setAccessibilityParent(NSApp)"),
           "the open dropdown is among the app's windows, where a client looking for its controls searches")
     check(!menuBar.contains("setAccessibilityWindows("),
@@ -2968,6 +3041,16 @@ do {
     try! ManualUpdates.synchronize([later])
     check(read(selected(later))["disableAutoUpdates"] as? Bool == true,
           "a shortcut created after manual mode was enabled is protected too")
+    let gone = Graft.applicationSupport.appending(path: "Claude-Gone")
+    try! ManualUpdates.synchronize([gone])
+    let goneLibrary = try! ManualUpdates.library(for: gone)
+    try! ManualUpdates.release(allBut: profiles + [later])
+    check(!Graft.exists(goneLibrary.deletingLastPathComponent())
+          && !(try! ManualUpdates.readState().changes.values.contains { $0.folder == "Claude-Gone-3p" }),
+          "a deleted shortcut's policy folder and undo record go with it")
+    check(read(selected(later))["disableAutoUpdates"] as? Bool == true
+          && read(configFile)["disableAutoUpdates"] as? Bool == true,
+          "and every Claude that is still here keeps its policy")
     var edited = read(configFile)
     edited["deploymentDisplayName"] = "Renamed while protected"
     write(edited, to: configFile)
@@ -6678,6 +6761,51 @@ do {
           "a request only its writer can read stays with its sender when nobody is known to have answered it")
     check(held(by: nil).isEmpty && order([later, own, soon], prefer: held(by: nil)).first == "soon",
           "and a new conversation goes where the ranking says")
+
+    // A side chat's transcript: its conversation's lines, then its own.
+    do {
+        let sideChat = "5f0c2a8e-3b1d-4c6f-9a7e-2d4b6c8e0f1a", asked = "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d"
+        let before = "7e6d5c4b-3a29-4180-9f8e-7d6c5b4a3928"
+        func came(_ session: String, _ entries: [[String: String]]) -> String {
+            let line: [String: Any] = ["v": 1, "sessionId": session,
+                                       "sessions": entries.map { $0.merging(["type": "claude_code_session"]) { old, _ in old } }]
+            let rest = String(decoding: try! JSONSerialization.data(withJSONObject: line, options: .sortedKeys), as: UTF8.self)
+            return #"{"type":"derived-from","# + rest.dropFirst()
+        }
+        let itsOwn = came(sideChat, [["id": asked, "via": "compact"], ["id": asked, "via": "fork"],
+                                     ["id": asked, "via": "launch", "started": sideChat],
+                                     ["id": before, "via": "launch", "started": sideChat]])
+        let copied = came(asked, [["id": before, "via": "fork"], ["id": asked, "via": "compact"]])
+        let quoted = #"{"type":"user","message":{"role":"user","content":"\n{\"type\":\"derived-from\",\"sessionId\":\""#
+            + sideChat + #"\"}"},"sessionId":""# + sideChat + #""}"#
+        func launched(_ session: String, _ lines: [String]) -> [String] {
+            PoolLineage.launchers(of: session, transcript: Data(lines.joined(separator: "\n").utf8))
+        }
+        check(launched(sideChat, [copied, itsOwn, quoted]) == [asked, before],
+              "a side chat's transcript names the conversation it was asked beside, and what that one came from after it")
+        check(launched(sideChat, [copied, quoted]).isEmpty && launched(asked, [copied, itsOwn]).isEmpty,
+              "a line copied in with the conversation, or quoted in a message, says nothing of who started a session")
+        let lineage = Graft.claudeProjects.appending(path: "-Users-test-lineage")
+        try! fm.createDirectory(at: lineage, withIntermediateDirectories: true)
+        try! Data(([copied, itsOwn].joined(separator: "\n") + "\n").utf8)
+            .write(to: lineage.appending(path: "\(sideChat).jsonl"))
+        check(PoolLineage.launchers(of: sideChat) == [asked, before] && PoolLineage.launchers(of: asked).isEmpty
+                && PoolLineage.launchers(of: "../\(sideChat)").isEmpty,
+              "it is read from the transcript filed under the session's own id, and nothing is read for an id that is not one")
+    }
+    func home(_ accounts: [PoolPolicy.Account], prefer: [String] = [], first: [String] = []) -> [String] {
+        PoolPolicy.order(own: "own", accounts: accounts, prefer: prefer, first: first, ownFirst: true, now: now)
+    }
+    check(home([later, own, soon]) == ["own", "soon", "later"],
+          "told to begin at home, a new conversation starts on its sender's account whatever the resets say")
+    check(home([later, own, soon], first: ["later"]) == ["own", "later", "soon"],
+          "and whatever order somebody set, which is where it goes once its own account is spent")
+    check(home([fullOwn, later, soon]) == ["soon", "later", "own"],
+          "a sender with no room of its own begins by the order as before")
+    check(home([later, own, soon], prefer: held(by: "later")).first == "later",
+          "a conversation another account has answered stays there, though its sender has room again")
+    check(home([later, own, soon], prefer: held(by: nil, moved: "soon")) == ["soon", "own", "later"],
+          "and one moved by hand still goes where it was put")
     func ranked(_ accounts: [PoolPolicy.Account], first: [String] = [], family: String? = nil) -> [String] {
         PoolPolicy.order(own: "own", accounts: accounts, first: first, family: family, now: now)
     }
@@ -6851,7 +6979,7 @@ do {
 
     let member = PoolMember(id: "main", name: "Claude", identify: [UsagePool.digest("token")], token: "token",
                             limits: percent)
-    let command = PoolCommand(configure: PoolConfiguration(enabled: true, members: [member]))
+    let command = PoolCommand(configure: PoolConfiguration(enabled: true, members: [member], ownFirst: true))
     let delivered = (try? JSONEncoder().encode(command))
         .flatMap { try? JSONDecoder().decode(PoolCommand.self, from: $0) }
     check(delivered?.configure == command.configure, "the pool reaches the relay exactly as Graft described it")
@@ -7026,6 +7154,12 @@ do {
     pool.addLender(main, to: main)
     check(pool.lenders(of: main) == ["second"], "once, and never itself")
     check(UsagePoolController().lenders(of: main) == ["second"], "what each Claude draws on is kept between launches")
+    check(pool.startsAtHome, "a conversation begins in its own Claude unless somebody says otherwise")
+    pool.setStartsAtHome(false)
+    check(!UsagePoolController().startsAtHome, "and saying otherwise is kept between launches")
+    pool.setStartsAtHome(true)
+    check(UsagePoolController().sharing.ownFirst == nil && UsagePoolController().startsAtHome,
+          "going back to it leaves nothing written")
     check(pool.lenders(of: "second").isEmpty, "lending to a Claude does not make it a borrower")
     pool.removeLender("second", from: main)
     check(pool.sharing.lenders.isEmpty, "a Claude given nothing has no entry left")
@@ -7055,6 +7189,14 @@ do {
     pool.recolour("account:a", to: .violet)
     check(pool.preset(of: "account:a") == .violet && UsagePoolController().accounts.first?.iconPreset == .violet,
           "and a colour of its own")
+    check(pool.drawnOn(by: main) == ["account:a"] && pool.address(of: "account:a") == "a@example.com",
+          "a Claude lists each account it draws on besides its own, by the address it signs in with")
+    check(pool.accountsAlone(besides: [main]).isEmpty && pool.accountsAlone(besides: []).map(\.id) == ["account:a"],
+          "an account listed under a Claude is not listed again alone, and one under no Claude shown still is")
+    check(pool.autoStartKey(of: "account:a") == "account:a" && pool.autoStartKey(of: main) == main,
+          "an account's Auto-start goes by the account, wherever it is listed")
+    pool.learn(addresses: ["someone-else": "else@example.com"])
+    check(pool.address(of: main) == nil, "a Claude whose login has not said whose it is shows no address")
     var again = account("account:fresh", uuid: "a", sealed: "renewed")
     again.scopes = AccountSignIn.scopes
     pool.renew("account:a", with: again)
@@ -7084,6 +7226,15 @@ do {
           "an account nothing has been heard from has a row under its name, and no figures yet")
     check(!pool.needsSignIn("account:a") && !pool.needsSignIn(main) && !pool.needsAttention("account:a"),
           "nothing is asked to sign in again before its login has been looked at")
+    let onWeb = WebUsage.Held(reading: UsageAPI.Reading(fiveHour: 12, week: 40, fable: 68), fetched: Date())
+    // Another reading of the same files, so the checks below see none of it.
+    let webPool = UsagePoolController()
+    webPool.learn(web: onWeb, for: "account:a")
+    webPool.learn(web: onWeb, for: "account:gone")
+    let webEntry = webPool.entry(forAccount: "account:a")
+    check(webEntry?.usage?.fable == 68 && webEntry?.usage?.week == 40 && webEntry?.isLive == true,
+          "what an account's claude.ai sign-in says of it is shown as its figures, its Fable week included")
+    check(webPool.seenOnWeb["account:gone"] == nil, "and nothing is kept for an account no longer signed in")
 
     let said = PoolLimits(fiveHour: 0.42, fiveHourReset: now + hour, week: 0.18, weekReset: now + day,
                           refusedUntil: nil, observed: now)
@@ -7594,9 +7745,10 @@ do {
         return dir
     }
     func record(_ profile: URL, _ name: String, session: String, title: String? = nil,
-                archived: Bool = false, focused: TimeInterval? = nil) {
+                archived: Bool = false, focused: TimeInterval? = nil, startedBy: [String: Any]? = nil) {
         var json: [String: Any] = ["sessionId": "local_\(name)", "cliSessionId": session, "isArchived": archived]
         if let title { json["title"] = title }
+        if let startedBy { json["spawnedFrom"] = startedBy }
         if let focused { json["lastFocusedAt"] = Int(now.addingTimeInterval(-focused).timeIntervalSince1970 * 1000) }
         try! JSONSerialization.data(withJSONObject: json).write(to: store(profile).appending(path: "local_\(name).json"))
     }
@@ -7707,6 +7859,32 @@ do {
     record(here, "m-d", session: "s-untitled", focused: 0.5)
     check(mirrorPool.lookUpRecords([], profiles: pair, now: now).focused["main"]?.title == "Prime \"numbers\" — checked",
           "one on screen whose record has no title yet takes it from the transcript")
+
+    // A conversation with a side chat asked beside it, as Claude records the two.
+    let sidePool = UsagePoolController()
+    let desk = [("main", root.appending(path: "side-chat/Claude"))]
+    let askedBeside: [String: Any] = ["sessionId": "local_p-main", "sideSession": true, "userFork": true, "btw": true]
+    func onScreen() -> UsagePoolController.Focus? { sidePool.lookUpRecords([], profiles: desk, now: now).focused["main"] }
+    record(desk[0].1, "p-main", session: "p-resumed", title: "Ledger import", focused: 60)
+    record(desk[0].1, "p-side", session: "p-side", title: "btw: which column is the date", focused: 58, startedBy: askedBeside)
+    record(desk[0].1, "p-other", session: "p-other", title: "Elsewhere", focused: 300)
+    let besideIt = onScreen()
+    check(besideIt?.session == "p-resumed" && besideIt?.title == "Ledger import"
+            && besideIt.map { abs($0.at.timeIntervalSince(now.addingTimeInterval(-58))) < 0.01 } == true,
+          "a side chat focused after the conversation it was asked beside leaves that conversation the one on screen")
+    record(desk[0].1, "p-other", session: "p-other", title: "Elsewhere", focused: 30)
+    let away = onScreen()
+    record(desk[0].1, "p-side", session: "p-side", title: "btw: which column is the date", focused: 10, startedBy: askedBeside)
+    check(away?.session == "p-other" && onScreen()?.session == "p-resumed",
+          "and after another conversation, a focus on the side chat alone brings back the one it sits beside")
+    record(desk[0].1, "p-task", session: "p-task", title: "Nightly export", focused: 5,
+           startedBy: ["sessionId": "local_p-main", "sideSession": true, "title": "Nightly export"])
+    check(onScreen()?.session == "p-task",
+          "a session another one started is a conversation of its own")
+    gone(desk[0].1, "p-main")
+    record(desk[0].1, "p-side", session: "p-side", title: "btw: which column is the date", focused: 2, startedBy: askedBeside)
+    check(onScreen()?.session == "p-side",
+          "a side chat whose conversation was deleted is named itself")
 
     let stampFile = root.appending(path: "stamped.json"), stampLink = root.appending(path: "stamped-link.json")
     try! Data("{}".utf8).write(to: stampFile)

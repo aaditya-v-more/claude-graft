@@ -66,7 +66,22 @@ the switch and not a prompt at three in the morning.
 Whether to send is `due`: nothing before the time the last attempt set, nothing
 to an account with no five-hour limit or with its week used up, and otherwise
 only once the window's reset has passed. An account nothing is known of is
-asked, since its first answer says what it has. What an attempt sets is `next`:
+asked, since its first answer says what it has. A reset that is not known is
+not a window that has closed: on 26 November 2026 a Claude with a window open
+until 22:40 was sent a message at 21:28, seventy-seven seconds after the sample
+Claude writes to `plan-usage-history.json` every quarter of an hour, and one
+sent at 20:12 came forty-one seconds after another. That sample is newer than
+the service's last answer, so for one pass the figures are the history's, and
+a history that begins part way through a window has no reset to give. So a
+figure above zero with no reset is taken for an open window, unless the figure
+is itself more than five hours old. It could happen once in a window, where no
+earlier attempt had set a time to wait for, as after the switch is turned on.
+The event now says which account, by the first eight characters of its key.
+Nothing known is likewise not a reason at once: the same evening a build
+started with the keychain locked sent to a Claude the second its logins could
+be read, two tenths of a second before that Claude's figures arrived saying its
+window was open. An account is asked only after two minutes with no figures,
+counted from the first pass on which it could be sent to. What an attempt sets is `next`:
 the new window's reset after a success, or five hours on when the answer named
 none; a quarter of an hour after a failure; the reset a 429 named, and never
 sooner than that quarter hour; an hour after a 401 or 403, since a login the
@@ -86,14 +101,37 @@ and the dropdown. The answer's `anthropic-ratelimit-unified-*` headers are kept
 (`heard`), because for a login the usage endpoint will not answer they are the
 only figure there is.
 
-**A signed-in account's figure has three sources, and the newest wins**
+**A signed-in account's figure has four sources, and the newest wins**
 (`UsagePoolController.entry(forAccount:)`): the usage endpoint, asked by the
 same pass and under the same cache and backoff as a profile, keyed by the
 account's id, and only for a login carrying `user:profile`; a Claude signed in
-to the same account; and what the service said on that account's own answers,
-through the relay or on its Start Session. A figure taken from an answer is
+to the same account; the account's claude.ai sign-in, described next; and what
+the service said on that account's own answers, through the relay or on its
+Start Session. A figure taken from an answer is
 marked as such under the bars, never as a profile's own record, and keeps the
 Fable figure from the last time the endpoint was asked, which no answer carries.
+
+**A login the endpoint will not answer is asked about through claude.ai.** A
+login made with `user:inference` alone, which is what a sign-in on 25 November
+came back with, never reaches the usage endpoint, and the limit headers on its
+answers name the five hours and the week but no model's own week, so its Fable
+bar was simply missing. claude.ai's usage page reads
+`/api/organizations/<org>/usage`, and the answer has the same windows and the
+same `limits` list, so `UsageAPI.reading` reads it unchanged. Where the same
+account is signed in under Artifacts, `WebUsageReader` asks that path from the
+sign-in's own page (`ClaudeWebSession.send`), about the organization the login
+is in or, for a login that names none, the one the sign-in is on
+(`WebUsage.route`). It loads a page of claude.ai, so it is asked when the
+dropdown or the Accounts page opens and when Refresh Usage is pressed, at most once in five minutes
+or half a minute for a press, and never on a clock. An account with no sign-in
+under Artifacts, or one that is also a Claude here, is not asked this way.
+
+**A Claude's address is learned, not stored.** A profile's `config.json` names
+its account by id alone. The address shown beside a Claude comes from an
+account signed in here or under Artifacts with the same id, and otherwise from
+`/api/oauth/profile`, asked once for each account since launch with the login
+the usage pass was already holding (`UsageMonitor.learnWhose`). Nothing is
+written down, and nothing is read from the keychain for it.
 
 `config.json` holds `oauth:tokenCacheV2` in Chromium safe storage: keychain item
 service `Claude Safe Storage`, account `Claude Key`, PBKDF2-HMAC-SHA1 with salt

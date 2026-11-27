@@ -120,69 +120,59 @@ struct Seen {
     var described: String { "\(role) “\(name)” \(identifier)" }
 }
 
-/// Reads `window` from outside, through the calls an assistive app makes,
-/// from another thread while this one answers them.
+/// Reads `window` through the calls an assistive app makes, on the main
+/// thread.
 ///
-/// Nothing asked from inside the process would do. SwiftUI builds a window's
-/// accessibility tree only once a request has come in from outside, and the
-/// elements it builds then do not adopt the protocol a local walk would go
-/// through; both were measured, the first as an empty tree under every
-/// window. Reading from outside is also the only way to see what VoiceOver
-/// is actually given, which is the thing being checked.
+/// Nothing asked through AppKit's own protocol would do. SwiftUI builds a
+/// window's accessibility tree only once a request has come in through these
+/// calls, and the elements it builds then do not adopt the protocol a local
+/// walk would go through; both were measured, the first as an empty tree
+/// under every window. A request to this process's own number is answered on
+/// the thread that makes it, which is why none is made from another.
 func seen(_ window: NSWindow) -> [Seen]? {
-    let title = window.title
-    var result: [Seen]?
-    var finished = false
-    DispatchQueue.global(qos: .userInitiated).async {
-        let app = AXUIElementCreateApplication(getpid())
-        AXUIElementSetMessagingTimeout(app, 5)
-        func attribute(_ element: AXUIElement, _ name: String) -> CFTypeRef? {
-            var value: CFTypeRef?
-            return AXUIElementCopyAttributeValue(element, name as CFString, &value) == .success ? value : nil
-        }
-        func text(_ element: AXUIElement, _ name: String) -> String {
-            switch attribute(element, name) {
-            case let value as String: return value
-            case let value as NSNumber: return value.stringValue
-            default: return ""
-            }
-        }
-        func frame(_ element: AXUIElement) -> CGRect {
-            var origin = CGPoint.zero, size = CGSize.zero
-            if let value = attribute(element, kAXPositionAttribute) { AXValueGetValue(value as! AXValue, .cgPoint, &origin) }
-            if let value = attribute(element, kAXSizeAttribute) { AXValueGetValue(value as! AXValue, .cgSize, &size) }
-            return CGRect(origin: origin, size: size)
-        }
-        // A scroller's arrows belong to AppKit, which names them itself.
-        func walk(_ element: AXUIElement) -> [Seen] {
-            let role = text(element, kAXRoleAttribute)
-            guard role != kAXScrollBarRole else { return [] }
-            // A bar's value is a fraction, and what VoiceOver says is the
-            // description that comes with it.
-            let described = text(element, "AXValueDescription")
-            let titledBy = attribute(element, kAXTitleUIElementAttribute)
-                .flatMap { CFGetTypeID($0) == AXUIElementGetTypeID() ? ($0 as! AXUIElement) : nil }
-                .map { text($0, kAXValueAttribute) } ?? ""
-            var actions: CFArray?
-            AXUIElementCopyActionNames(element, &actions)
-            var here = Seen(role: role, subrole: text(element, kAXSubroleAttribute),
-                            label: text(element, kAXDescriptionAttribute),
-                            title: text(element, kAXTitleAttribute),
-                            titledBy: titledBy,
-                            value: described.isEmpty ? text(element, kAXValueAttribute) : described,
-                            identifier: text(element, "AXIdentifier"),
-                            frame: frame(element))
-            here.pressable = (actions as? [String])?.contains(kAXPressAction) == true
-            return [here] + ((attribute(element, kAXChildrenAttribute) as? [AXUIElement]) ?? []).flatMap(walk)
-        }
-        let windows = (attribute(app, kAXWindowsAttribute) as? [AXUIElement]) ?? []
-        // A subtitle is read as part of the title, after it.
-        let found = windows.first { text($0, kAXTitleAttribute).hasPrefix(title) }.map(walk)
-        DispatchQueue.main.async { result = found; finished = true }
+    let app = AXUIElementCreateApplication(getpid())
+    func attribute(_ element: AXUIElement, _ name: String) -> CFTypeRef? {
+        var value: CFTypeRef?
+        return AXUIElementCopyAttributeValue(element, name as CFString, &value) == .success ? value : nil
     }
-    let deadline = Date().addingTimeInterval(30)
-    while !finished && Date() < deadline { RunLoop.main.run(until: Date().addingTimeInterval(0.05)) }
-    return result
+    func text(_ element: AXUIElement, _ name: String) -> String {
+        switch attribute(element, name) {
+        case let value as String: return value
+        case let value as NSNumber: return value.stringValue
+        default: return ""
+        }
+    }
+    func frame(_ element: AXUIElement) -> CGRect {
+        var origin = CGPoint.zero, size = CGSize.zero
+        if let value = attribute(element, kAXPositionAttribute) { AXValueGetValue(value as! AXValue, .cgPoint, &origin) }
+        if let value = attribute(element, kAXSizeAttribute) { AXValueGetValue(value as! AXValue, .cgSize, &size) }
+        return CGRect(origin: origin, size: size)
+    }
+    // A scroller's arrows belong to AppKit, which names them itself.
+    func walk(_ element: AXUIElement) -> [Seen] {
+        let role = text(element, kAXRoleAttribute)
+        guard role != kAXScrollBarRole else { return [] }
+        // A bar's value is a fraction, and what VoiceOver says is the
+        // description that comes with it.
+        let described = text(element, "AXValueDescription")
+        let titledBy = attribute(element, kAXTitleUIElementAttribute)
+            .flatMap { CFGetTypeID($0) == AXUIElementGetTypeID() ? ($0 as! AXUIElement) : nil }
+            .map { text($0, kAXValueAttribute) } ?? ""
+        var actions: CFArray?
+        AXUIElementCopyActionNames(element, &actions)
+        var here = Seen(role: role, subrole: text(element, kAXSubroleAttribute),
+                        label: text(element, kAXDescriptionAttribute),
+                        title: text(element, kAXTitleAttribute),
+                        titledBy: titledBy,
+                        value: described.isEmpty ? text(element, kAXValueAttribute) : described,
+                        identifier: text(element, "AXIdentifier"),
+                        frame: frame(element))
+        here.pressable = (actions as? [String])?.contains(kAXPressAction) == true
+        return [here] + ((attribute(element, kAXChildrenAttribute) as? [AXUIElement]) ?? []).flatMap(walk)
+    }
+    let windows = (attribute(app, kAXWindowsAttribute) as? [AXUIElement]) ?? []
+    // A subtitle is read as part of the title, after it.
+    return windows.first { text($0, kAXTitleAttribute).hasPrefix(window.title) }.map(walk)
 }
 
 let controlRoles: Set<String> = [
@@ -692,6 +682,8 @@ func hosted<V: View>(_ view: V, title: String) -> NSWindow {
     return window
 }
 
+// By account is what a dropdown opens on; the list by Claude is checked first.
+Shared.settings.usageByAccount = false
 let dropdown = hosted(MenuBarContent(openMainWindow: {})
     .environmentObject(Shared.store)
     .environmentObject(Shared.settings)
@@ -702,10 +694,63 @@ for control in ["open-at-login", "show-in-menu-bar", "front-icon", "front-name",
                 "claude-update.check"] {
     check(element("dropdown.\(control)", in: dropdownTree) != nil, "the dropdown's \(control) can be asked for by name")
 }
-check(element("dropdown.lent-account.account", in: dropdownTree)?.name == "lent@example.com",
-      "an account signed in here has a row of its own in the dropdown, under its name")
-check(element("dropdown.lent-account.start-session", in: dropdownTree) == nil,
+check(element("dropdown.usage-view.by-claude", in: dropdownTree) != nil
+        && element("dropdown.usage-view.by-account", in: dropdownTree) != nil,
+      "with accounts shared, the dropdown offers its two ways of listing them")
+let underClaude = "dropdown.\(Graft.mainProfile.lastPathComponent)."
+let underClaude2 = "dropdown.\(shortcut.profileDir.lastPathComponent)."
+check(element(underClaude + "lent-account.account", in: dropdownTree)?.name == "lent@example.com",
+      "an account a Claude draws on is listed under that Claude, by its address")
+check(element(underClaude2 + "lent-account.account", in: dropdownTree)?.name == "lent@example.com",
+      "and again under every other Claude that draws on it")
+check(element(underClaude + shortcut.profileDir.lastPathComponent + ".account", in: dropdownTree)?.name == "Claude 2",
+      "another Claude it draws on is listed under it as well")
+check(element("dropdown.lent-account.account", in: dropdownTree) == nil,
+      "and an account listed under its Claudes is not listed again by itself")
+check(element(underClaude + "own-account", in: dropdownTree) != nil
+        && element(underClaude + "account", in: dropdownTree)?.name == "Claude",
+      "a Claude's own account has a row under its name like the ones it draws on")
+for control in ["auto-session", "refresh-usage", "freshness"] {
+    check(element(underClaude + control, in: dropdownTree) != nil
+            && element(underClaude + "lent-account." + control, in: dropdownTree) != nil
+            && element(underClaude + shortcut.profileDir.lastPathComponent + "." + control, in: dropdownTree) != nil,
+          "every account under a Claude has the same \(control), its own and the ones it draws on")
+}
+check(element(underClaude + "open", in: dropdownTree)?.name == L10n.format("Open %@", "Claude"),
+      "and the Claude is opened from the line that names it")
+check(element(underClaude + "start-session", in: dropdownTree)?.name == L10n.format("Start Session for %@", "Claude")
+        && element(underClaude + "lent-account.start-session", in: dropdownTree) == nil
+        && element(underClaude + shortcut.profileDir.lastPathComponent + ".start-session", in: dropdownTree) == nil,
+      "a session is started from the Claude's line, on its own account, and from no row under it")
+if let directory = ProcessInfo.processInfo.environment["GRAFT_LAYOUT_WINDOWS"] {
+    let language = Bundle.main.preferredLocalizations.first ?? "en"
+    for (name, appearance) in [("light", NSAppearance.Name.aqua), ("dark", .darkAqua)] {
+        dropdown.appearance = NSAppearance(named: appearance)
+        capture(dropdown, as: "\(language)-dropdown-\(name)", in: directory)
+    }
+    dropdown.appearance = nil
+}
+check(element(underClaude + "lent-account.auto-session", in: dropdownTree)?.pressable == true,
+      "its Auto-start turns without a pointer")
+let autoStartBefore = element(underClaude2 + "lent-account.auto-session", in: dropdownTree)?.value
+Shared.autoSessions.set(lentAccount.id, on: true)
+settle()
+let autoStartTree = checkAccessibility(dropdown, surface: ControlSurface.dropdown, "the dropdown with Auto-start on")
+check(element(underClaude + "lent-account.auto-session", in: autoStartTree)?.value
+        == element(underClaude2 + "lent-account.auto-session", in: autoStartTree)?.value
+        && element(underClaude2 + "lent-account.auto-session", in: autoStartTree)?.value != autoStartBefore,
+      "Auto-start turned on for an account shows on under every Claude that draws on it")
+Shared.autoSessions.set(lentAccount.id, on: false)
+Shared.settings.usageByAccount = true
+settle()
+let byAccountTree = checkAccessibility(dropdown, surface: ControlSurface.dropdown, "the dropdown listed by account")
+check(element("dropdown.lent-account.account", in: byAccountTree)?.name == "lent@example.com",
+      "listed by account, an account signed in here has a row of its own, under its name")
+check(element(underClaude + "lent-account.account", in: byAccountTree) == nil,
+      "and none under the Claudes that draw on it")
+check(element("dropdown.lent-account.start-session", in: byAccountTree) == nil,
       "which offers no session on a login nobody has looked at")
+Shared.settings.usageByAccount = false
 dropdown.orderOut(nil)
 
 // Someone with seven accounts found the dropdown running off the bottom of
@@ -789,7 +834,8 @@ check(element(second + "refresh-usage", in: rowTree)?.name
 let fiveHours = element(second + "five-hour", in: rowTree)
 check(fiveHours?.role == kAXProgressIndicatorRole && fiveHours?.name == L10n.text("5 hours")
         && fiveHours?.value.hasPrefix(L10n.format("%1$ld%% used, resets in %2$@", 6, "")) == true,
-      "a usage bar is read as one progress bar: what it measures, how much is used and when it resets")
+      "a usage bar is read as one progress bar: what it measures, how much is used and when it resets "
+        + "(\(fiveHours.map { "\($0.described) “\($0.value)”" } ?? "not found"))")
 let account = element(second + "account", in: rowTree)
 check(account?.name == "Claude 2"
         && account?.value == "Max, \(L10n.text("Not running"))",
@@ -805,6 +851,33 @@ check(element(second + "auto-session", in: rowTree)?.pressable == true,
 check(element(third + "auto-session", in: rowTree) == nil,
       "and an account with no five-hour window has none to start")
 rows.orderOut(nil)
+
+// A name somebody typed at length shares its line with two buttons.
+let longProfile = shortcut.profileDir.deletingLastPathComponent().appending(path: "Claude-Long")
+let longNamed = UsageMonitor.Entry(name: "Client work for the Northern Lights studio (billing account)",
+                                   profile: longProfile,
+                                   usage: Graft.Usage(fiveHour: 37, week: 52, organization: nil, sampled: now,
+                                                      fiveHourReset: now.addingTimeInterval(3600),
+                                                      weekReset: now.addingTimeInterval(2 * 86400)),
+                                   isRunning: false, shortcut: UUID(), isLive: true, plan: "Max", refreshed: now)
+for (place, row) in [("listed by account", AnyView(UsageRow(entry: longNamed, starting: false, open: {}, start: {},
+                                                            refresh: {}))),
+                     ("listed by Claude", AnyView(ClaudeHeading(entry: longNamed, starting: false, open: {},
+                                                                start: {})))] {
+    let long = hosted(row.frame(width: 320).environment(\.controlSurface, ControlSurface.dropdown),
+                      title: "Long name check")
+    let longTree = checkAccessibility(long, surface: ControlSurface.dropdown, "a long name \(place)")
+    let scope = "dropdown.\(longProfile.lastPathComponent)."
+    let named = element(scope + "account", in: longTree)?.frame ?? .zero
+    let opens = element(scope + "open", in: longTree)?.frame ?? .zero
+    let starts = element(scope + "start-session", in: longTree)?.frame ?? .zero
+    let width = long.contentView?.fittingSize.width ?? 0
+    check(!named.isEmpty && !opens.isEmpty && !starts.isEmpty && width <= 321
+            && named.width <= 320 && opens.maxX - min(named.minX, starts.minX) <= 320
+            && !named.intersects(opens) && !named.intersects(starts),
+          "a long name \(place) is cut short inside its row and leaves both buttons whole")
+    long.orderOut(nil)
+}
 
 // Drawn from figures, since in here no relay has carried a conversation.
 let claude2 = UsagePoolController.key(for: shortcut)
@@ -832,7 +905,86 @@ check(element("dropdown.conversation.second-session", in: conversationTree)?.val
       "a conversation the chosen account could not take says so out loud as well as in orange")
 check(element("dropdown.conversations.others", in: conversationTree)?.value == L10n.text("Shown"),
       "the other conversations sit behind a line that says whether they are shown")
+if let directory = ProcessInfo.processInfo.environment["GRAFT_LAYOUT_WINDOWS"] {
+    conversations.appearance = NSAppearance(named: .darkAqua)
+    capture(conversations, as: "\(Bundle.main.preferredLocalizations.first ?? "en")-conversations-dark", in: directory)
+    conversations.appearance = nil
+}
 conversations.orderOut(nil)
+// The by-Claude list with figures in it, for a picture alone: the dropdown
+// above is drawn before any account in here has been heard from.
+if let directory = ProcessInfo.processInfo.environment["GRAFT_LAYOUT_WINDOWS"] {
+    func pictured(_ name: String, _ profile: URL, _ id: UUID?, five: Int?, week: Int, fable: Int?) -> UsageMonitor.Entry {
+        UsageMonitor.Entry(name: name, profile: profile,
+                           usage: Graft.Usage(fiveHour: five, week: week, organization: nil, sampled: now,
+                                              fiveHourReset: five == nil ? nil : now.addingTimeInterval(2 * 3600 + 43 * 60),
+                                              weekReset: now.addingTimeInterval(4 * 86400 + 5 * 3600 + 33 * 60),
+                                              fable: fable,
+                                              fableReset: fable == nil ? nil : now.addingTimeInterval(4 * 86400 + 5 * 3600)),
+                           isRunning: id == nil, shortcut: id, isLive: true, plan: "Max", refreshed: now)
+    }
+    Shared.usagePool.learn(web: WebUsage.Held(reading: UsageAPI.Reading(
+        fiveHour: 84, week: 43, fiveHourReset: now.addingTimeInterval(3 * 3600 + 33 * 60),
+        weekReset: now.addingTimeInterval(33 * 60), plan: nil, fable: 91,
+        fableReset: now.addingTimeInterval(33 * 60)), fetched: now), for: lentAccount.id)
+    let one = pictured("Claude", Graft.mainProfile, nil, five: 24, week: 46, fable: 68)
+    let two = pictured("Claude 2", shortcut.profileDir, shortcut.id, five: 15, week: 16, fable: nil)
+    let picture = hosted(VStack(alignment: .leading, spacing: 0) {
+        ClaudeHeading(entry: one, starting: false, open: {}, start: {})
+        ClaudeAccountRow(claude: one, account: one.key, refresh: {})
+        Divider().padding(.leading, 12)
+        ClaudeAccountRow(claude: one, account: lentAccount.id, refresh: {})
+        ClaudeHeading(entry: two, starting: false, open: {}, start: {})
+        ClaudeAccountRow(claude: two, account: two.key, refresh: {})
+        Divider().padding(.leading, 12)
+        ClaudeAccountRow(claude: two, account: lentAccount.id, refresh: {})
+        ClaudeHeading(entry: unlimited, starting: false, open: {}, start: {})
+        ClaudeAccountRow(claude: unlimited, account: unlimited.key, refresh: {})
+        ClaudeHeading(entry: longNamed, starting: false, open: {}, start: {})
+        Divider()
+        ConversationList(chats: [
+            UsagePoolController.Chat(id: "first-session", title: "Plan the next release",
+                                     claude: UsagePoolController.mainKey, servedBy: UsagePoolController.mainKey,
+                                     assigned: nil, choices: [UsagePoolController.mainKey, claude2],
+                                     lastAt: now, passedOver: false),
+            UsagePoolController.Chat(id: "second-session", title: "Refactor the usage monitor", claude: claude2,
+                                     servedBy: claude2, assigned: claude2,
+                                     choices: [UsagePoolController.mainKey, claude2],
+                                     lastAt: now.addingTimeInterval(-60), passedOver: false),
+            UsagePoolController.Chat(id: "third-session", title: "Fix the relay's certificate check",
+                                     claude: UsagePoolController.mainKey, servedBy: UsagePoolController.mainKey,
+                                     assigned: claude2, choices: [UsagePoolController.mainKey, claude2],
+                                     lastAt: now.addingTimeInterval(-120), passedOver: true),
+        ], front: UsagePoolController.mainKey, othersShown: true)
+        .padding(.bottom, 8)
+    }
+    .frame(width: 320)
+    .environment(\.controlSurface, ControlSurface.dropdown), title: "Dropdown picture")
+    let language = Bundle.main.preferredLocalizations.first ?? "en"
+    for (name, appearance) in [("light", NSAppearance.Name.aqua), ("dark", .darkAqua)] {
+        picture.appearance = NSAppearance(named: appearance)
+        capture(picture, as: "\(language)-dropdown-figures-\(name)", in: directory)
+    }
+    picture.orderOut(nil)
+    let byAccount = hosted(VStack(alignment: .leading, spacing: 0) {
+        UsageRow(entry: one, starting: false, open: {}, start: {}, refresh: {})
+        Divider().padding(.leading, 12)
+        UsageRow(entry: two, starting: false, open: {}, start: {}, refresh: {})
+        Divider().padding(.leading, 12)
+        UsageRow(entry: longNamed, starting: false, open: {}, start: {}, refresh: {})
+        Divider().padding(.leading, 12)
+        UsageRow(entry: unlimited, starting: false, open: {}, start: {}, refresh: {})
+        Divider().padding(.leading, 12)
+        AccountUsageRow(account: lentAccount, starting: false, start: {}, refresh: {})
+    }
+    .frame(width: 320)
+    .environment(\.controlSurface, ControlSurface.dropdown), title: "Dropdown by account")
+    for (name, appearance) in [("light", NSAppearance.Name.aqua), ("dark", .darkAqua)] {
+        byAccount.appearance = NSAppearance(named: appearance)
+        capture(byAccount, as: "\(language)-dropdown-accounts-\(name)", in: directory)
+    }
+    byAccount.orderOut(nil)
+}
 
 let folded = hosted(ConversationList(chats: [
     UsagePoolController.Chat(id: "first-session", title: "Plan the next release", claude: UsagePoolController.mainKey,
@@ -870,7 +1022,8 @@ if let directory = ProcessInfo.processInfo.environment["GRAFT_LAYOUT_WINDOWS"] {
     capture(settingsWindow, as: "\(Bundle.main.preferredLocalizations.first ?? "en")-settings", in: directory)
 }
 let settingsTree = checkAccessibility(settingsWindow, surface: ControlSurface.settings, "Settings")
-check(["open-at-login", "show-in-menu-bar", "front-icon", "front-name", "manual-updates", "hold-updates"]
+check(["open-at-login", "show-in-menu-bar", "front-icon", "front-name", "manual-updates", "hold-updates",
+       "start-at-home"]
         .allSatisfy { element("settings.\($0)", in: settingsTree) != nil },
       "every switch in Settings can be asked for by name, apart from the dropdown's copy of it")
 settingsWindow.orderOut(nil)

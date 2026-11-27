@@ -139,6 +139,7 @@ struct ContentView: View {
         if selection == pendingDeletion { selection = nil }
         problemTitle = L10n.text("The shortcut was deleted")
         problem = store.delete(pendingDeletion, deletingProfile: alsoProfile)
+        Shared.manualUpdates.shortcutsChanged()
     }
 
     private var deletionMessage: String {

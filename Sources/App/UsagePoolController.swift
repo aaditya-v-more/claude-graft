@@ -15,6 +15,8 @@ struct UsageSharing: Codable, Equatable {
     var holders: [String: Assignment]? = nil
     /// The accounts to use up first, first one first; nil goes by the resets.
     var first: [String]? = nil
+    /// False sends a new conversation by the order alone; nil starts it at home.
+    var ownFirst: Bool? = nil
 
     struct Assignment: Codable, Equatable {
         var to: String
@@ -249,6 +251,12 @@ final class UsagePoolController: ObservableObject {
     /// Session, by account: the one figure for a login nobody borrows from
     /// and the usage endpoint will not answer.
     @Published private(set) var heard: [String: PoolLimits] = [:]
+    /// What an account's claude.ai sign-in said of it, by account: the
+    /// figures of a login the usage endpoint will not answer. See WebUsage.
+    @Published private(set) var seenOnWeb: [String: WebUsage.Held] = [:]
+    /// The address each account signs in with, by account id, as a Claude's
+    /// own login or a claude.ai sign-in told this Mac since launch.
+    @Published private(set) var addresses: [String: String] = [:]
     @Published private(set) var status: PoolStatus?
     @Published private(set) var problem: String?
     /// Something is lent and this Graft cannot read the key the logins are
@@ -290,7 +298,8 @@ final class UsagePoolController: ObservableObject {
     /// Touched on `queue` alone: each Claude's last login read whole, by key.
     private var lastLogins: [String: (login: Login, at: Date)] = [:]
     private var lastSpawn = Date.distantPast
-    private var recordCache: [String: (stamp: Date, session: String?, filed: Filed)] = [:]
+    /// `beside` names the record of the conversation a side chat was asked in.
+    private var recordCache: [String: (stamp: Date, session: String?, filed: Filed, beside: String?)] = [:]
     /// Sessions a record was seen for, in their own Claude's store and in
     /// another's. One of them with no record any more was deleted from its
     /// sidebar; one never seen is too new to have one.
@@ -325,6 +334,7 @@ final class UsagePoolController: ObservableObject {
         self.store = store
         self.usage = usage
         usage.signedIn = accounts
+        usage.learned = { [weak self] in self?.learn(addresses: [$0: $1]) }
     }
 
     func start(store: ShortcutStore, usage: UsageMonitor) {
@@ -505,6 +515,7 @@ final class UsagePoolController: ObservableObject {
         guard kept.count != accounts.count else { return }
         accounts = kept
         heard = heard.filter { used.contains($0.key) }
+        seenOnWeb = seenOnWeb.filter { used.contains($0.key) }
         saveAccounts()
     }
 
@@ -590,6 +601,15 @@ final class UsagePoolController: ObservableObject {
             entry.plan = its.plan ?? entry.plan
             entry.refreshed = its.refreshed
         }
+        if let web = seenOnWeb[id], web.fetched > (entry.refreshed ?? .distantPast) {
+            let live = web.reading
+            entry.usage = Graft.Usage(fiveHour: live.fiveHour, week: live.week, organization: nil,
+                                      sampled: web.fetched, fiveHourReset: live.fiveHourReset,
+                                      weekReset: live.weekReset, fable: live.fable, fableReset: live.fableReset)
+            entry.isLive = true
+            entry.plan = live.plan ?? entry.plan
+            entry.refreshed = web.fetched
+        }
         let answers = [status?.members.first { $0.id == id }?.limits, heard[id]].compactMap { $0 }
         for limits in answers where limits.observed > (entry.refreshed ?? .distantPast) {
             entry.usage = Self.usage(from: limits, keeping: entry.usage)
@@ -597,6 +617,43 @@ final class UsagePoolController: ObservableObject {
             entry.refreshed = limits.observed
         }
         return entry
+    }
+
+    func learn(web held: WebUsage.Held, for id: String) {
+        guard accounts.contains(where: { $0.id == id }) else { return }
+        seenOnWeb[id] = held
+    }
+
+    func learn(addresses found: [String: String]) {
+        let next = addresses.merging(found) { $1 }
+        if next != addresses { addresses = next }
+    }
+
+    /// The address an account signs in with, where this Mac has been told.
+    func address(of key: String) -> String? {
+        if let account = accounts.first(where: { $0.id == key }) {
+            return account.email ?? account.accountUuid.flatMap { addresses[$0] }
+        }
+        guard let uuid = claudeLogins[key]?.account else { return nil }
+        return addresses[uuid] ?? accounts.first { $0.accountUuid == uuid }?.email
+    }
+
+    /// The accounts a Claude draws on besides its own, in the order it asks.
+    func drawnOn(by claude: String) -> [String] {
+        Array(members(of: claude).dropFirst())
+    }
+
+    /// The accounts no Claude in a list draws on, which a list by Claude
+    /// would otherwise leave out.
+    func accountsAlone(besides claudes: [String]) -> [PoolAccount] {
+        let shown = Set(claudes.flatMap(drawnOn(by:)).map { accountUuid(of: $0) ?? $0 })
+        return accountsAlone.filter { !shown.contains(accountUuid(of: $0.id) ?? $0.id) }
+    }
+
+    /// One Auto-start switch to an account, wherever it is listed: an
+    /// account that is also a Claude here goes by that Claude.
+    func autoStartKey(of key: String) -> String {
+        key.hasPrefix(Self.accountPrefix) ? claude(sameAccountAs: key) ?? key : key
     }
 
     /// Accounts with no Claude of their own here, which the list of Claudes
@@ -672,6 +729,14 @@ final class UsagePoolController: ObservableObject {
     }
 
     var orderIsSet: Bool { sharing.first != nil }
+
+    var startsAtHome: Bool { sharing.ownFirst ?? true }
+
+    func setStartsAtHome(_ on: Bool) {
+        var next = sharing
+        next.ownFirst = on ? nil : false
+        save(next)
+    }
 
     /// Claudes that exist, then the accounts that are none of them.
     var everyone: [String] {
@@ -1118,6 +1183,7 @@ final class UsagePoolController: ObservableObject {
         let assignments = sharing.assignments.mapValues(\.to)
         let holders = sharing.holders?.mapValues(\.to)
         let first = sharing.first
+        let ownFirst = startsAtHome
 
         queue.async {
             var lending: [String: Lending] = [:]
@@ -1164,7 +1230,7 @@ final class UsagePoolController: ObservableObject {
                                   borrowsFrom: input.borrowsFrom)
             }
             let configuration = PoolConfiguration(enabled: true, members: members, assignments: assignments,
-                                                  holders: holders, first: first)
+                                                  holders: holders, first: first, ownFirst: ownFirst)
             let journal = PoolEnvironment.readJournal()
             let wanted = !members.isEmpty || !journal.profiles.isEmpty
             let paused = keyShut && !members.isEmpty
@@ -1278,6 +1344,9 @@ final class UsagePoolController: ObservableObject {
         var elsewhere: [String: [Filed]] = [:]
         var markers: Set<String> = []
         var walked: Set<String> = []
+        // By Claude key: each record's session, and every side chat's focus.
+        var named: [String: [String: String]] = [:]
+        var asides: [String: [(session: String, beside: String, at: Date)]] = [:]
         // A store that would not open is not an empty one, and what it holds
         // is not gone; nothing is judged missing on such a pass.
         var unreadable = false
@@ -1317,30 +1386,38 @@ final class UsagePoolController: ObservableObject {
                         var entry = recordCache[path]
                         if entry?.stamp != stamp {
                             // The first look reads every record of every Claude whole.
-                            let fresh = autoreleasepool { () -> (stamp: Date, session: String?, filed: Filed) in
+                            let fresh = autoreleasepool { () -> (stamp: Date, session: String?, filed: Filed,
+                                                                 beside: String?) in
                                 let record = (try? Data(contentsOf: URL(fileURLWithPath: path)))
                                     .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
                                 let focused = (record?["lastFocusedAt"] as? NSNumber)
                                     .map { Date(timeIntervalSince1970: $0.doubleValue / 1000) }
+                                let spawned = record?["spawnedFrom"] as? [String: Any]
                                 return (stamp, record?["cliSessionId"] as? String,
                                         Filed(title: (record?["title"] as? String).flatMap { $0.isEmpty ? nil : $0 },
                                               archived: record?["isArchived"] as? Bool ?? false,
-                                              focusedAt: focused))
+                                              focusedAt: focused),
+                                        spawned?["btw"] as? Bool == true ? spawned?["sessionId"] as? String : nil)
                             }
                             entry = fresh
                             recordCache[path] = fresh
                         }
                         guard let entry, let session = entry.session else { return }
-                        if entry.filed.focusedAt ?? .distantPast
-                            >= held[key]?[session]?.focusedAt ?? .distantPast {
-                            held[key, default: [:]][session] = entry.filed
+                        var filed = entry.filed
+                        named[key, default: [:]][String(name.dropLast(5))] = session
+                        if let beside = entry.beside, let at = filed.focusedAt {
+                            asides[key, default: []].append((session, beside, at))
+                            filed.focusedAt = nil
+                        }
+                        if filed.focusedAt ?? .distantPast >= held[key]?[session]?.focusedAt ?? .distantPast {
+                            held[key, default: [:]][session] = filed
                         }
                         guard let owner = from[session] else { return }
                         if owner == key {
-                            own[session, default: []].append(entry.filed)
+                            own[session, default: []].append(filed)
                             everOwn.insert(session)
                         } else {
-                            elsewhere[session, default: []].append(entry.filed)
+                            elsewhere[session, default: []].append(filed)
                             everElsewhere.insert(session)
                         }
                     } }
@@ -1348,6 +1425,19 @@ final class UsagePoolController: ObservableObject {
             }
         }
         recordCache = recordCache.filter { walked.contains($0.key) }
+
+        // A side chat is a pane of the conversation it was asked beside, and
+        // Claude focuses the two together in either order, so its focus is
+        // that conversation's. With that one deleted it stands for itself.
+        for (key, sides) in asides {
+            for side in sides {
+                if let main = named[key]?[side.beside], let before = held[key]?[main] {
+                    if side.at > before.focusedAt ?? .distantPast { held[key]?[main]?.focusedAt = side.at }
+                } else {
+                    held[key]?[side.session]?.focusedAt = side.at
+                }
+            }
+        }
 
         // A focus belongs to the store it turned up in first. The mirror
         // carries a record across with its focus, and read as this store's
