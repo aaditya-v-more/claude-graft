@@ -81,9 +81,12 @@ enum SessionStarter {
 
         let token: ClaudeCredentials.Token?
         do {
+            // Opens the window of the organization this Claude is in, not of
+            // one it left and still holds a login for.
             token = try ClaudeCredentials.token(for: profile,
                                                 prompting: interactive ? .yes : .no,
-                                                requiring: [ClaudeCredentials.inferenceScope])
+                                                requiring: [ClaudeCredentials.inferenceScope],
+                                                organization: Graft.usage(of: profile)?.organization)
         } catch {
             return (.credentials((error as? LocalizedError)?.errorDescription
                 ?? error.localizedDescription), nil)

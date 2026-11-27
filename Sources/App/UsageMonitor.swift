@@ -141,6 +141,9 @@ final class UsageMonitor: ObservableObject {
 
     /// The API is polled far less often than the disk, and only per profile.
     private var liveCache: [String: (fetched: Date, reading: UsageAPI.Reading)] = [:]
+    /// The organization each profile's reading was asked about. A Claude moved
+    /// to its other organization is not shown the figures of the one it left.
+    private var askedAbout: [String: String] = [:]
     /// What went wrong the last time a profile's figures were asked for, kept
     /// until an answer comes back so every pass in between can say so.
     private var lastFailure: [String: String] = [:]
@@ -433,13 +436,18 @@ final class UsageMonitor: ObservableObject {
                 let allowed = Self.prompting(asking: asking, elsewhere: elsewhere,
                                              focused: focused, locked: locked)
                 var held: String?
+                if let organization = onDisk?.organization, self.askedAbout[target.profile.path] != organization {
+                    if self.askedAbout[target.profile.path] != nil { self.liveCache[target.profile.path] = nil }
+                    self.askedAbout[target.profile.path] = organization
+                }
                 let outcome = self.live(for: target.profile.path,
                                         interactive: interactive && focused,
                                         freshness: focused ? wanted : .cached,
                                         running: running,
                                         problem: &problem,
                                         locked: &locked) {
-                    held = try ClaudeCredentials.token(for: target.profile, prompting: allowed)?.value
+                    held = try ClaudeCredentials.token(for: target.profile, prompting: allowed,
+                                                       organization: onDisk?.organization)?.value
                     return held
                 }
                 if let held { self.learnWhose(target.profile, token: held) }
