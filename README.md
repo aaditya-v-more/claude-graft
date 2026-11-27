@@ -74,10 +74,7 @@ stays there until that account runs out, so a chat is not carried off to
 another allowance between turns; a model's reasoning is kept only by the
 account that wrote it, and moving costs it. The order is the one their weeks
 end in, the soonest first, so what would be lost first is spent first, and
-under **Accounts** you can put any account ahead of the rest. To have a new
-conversation start on the account of the Claude you opened it in, and go by
-the order only once that runs out, turn on **Start a new conversation on its
-own Claude's account** in Settings. An account that is out of one model, or whose plan does not have it, is
+under **Accounts** you can put any account ahead of the rest. An account that is out of one model, or whose plan does not have it, is
 passed over for that model alone and still answers for the others.
 
 Sharing sends that Claude's Claude Code through a small relay Graft runs. Before

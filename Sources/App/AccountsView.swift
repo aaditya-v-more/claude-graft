@@ -19,10 +19,8 @@ struct AccountsView: View {
         Where Claudes share usage, a new conversation in the Code tab starts on \
         the first account here that has room, and stays on it until that account \
         has nothing left or you move it. It then goes to the next with room, and \
-        stays on that one. With “Start a new conversation on its own Claude's \
-        account” on in Settings, it starts on the account of the Claude it was \
-        opened in instead, and goes by this order once that has nothing left. By \
-        weekly reset, the account whose week \
+        stays on that one, however long it sits and whichever week ends first by \
+        then. By weekly reset, the account whose week \
         starts again soonest goes first, so what would be lost first is spent first.
 
         An account with nothing left, or nothing left for the model asked for, \

@@ -498,7 +498,7 @@ for page in pages {
                           "\(place): the clipboard switch says what it copies")
                 } else if page.selection == ContentView.settingsID {
                     check(["open-at-login", "show-in-menu-bar", "front-icon", "front-name", "manual-updates",
-                           "hold-updates", "start-at-home"].allSatisfy { element("window.\($0)", in: tree) != nil },
+                           "hold-updates"].allSatisfy { element("window.\($0)", in: tree) != nil },
                           "\(place): every switch Settings has is on its page in the window too")
                 } else if page.selection == ContentView.guideID {
                     check(GuideView.Topic.allCases.allSatisfy {
@@ -1058,8 +1058,7 @@ if let directory = ProcessInfo.processInfo.environment["GRAFT_LAYOUT_WINDOWS"] {
     capture(settingsWindow, as: "\(Bundle.main.preferredLocalizations.first ?? "en")-settings", in: directory)
 }
 let settingsTree = checkAccessibility(settingsWindow, surface: ControlSurface.settings, "Settings")
-check(["open-at-login", "show-in-menu-bar", "front-icon", "front-name", "manual-updates", "hold-updates",
-       "start-at-home"]
+check(["open-at-login", "show-in-menu-bar", "front-icon", "front-name", "manual-updates", "hold-updates"]
         .allSatisfy { element("settings.\($0)", in: settingsTree) != nil },
       "every switch in Settings can be asked for by name, apart from the dropdown's copy of it")
 settingsWindow.orderOut(nil)

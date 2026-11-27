@@ -2244,6 +2244,8 @@ do {
           "a session nobody pressed for is sent from one place, and from one line of it")
     check(Set(considering) == ["AutoSessions.swift"],
           "which nothing outside it can set going")
+    check(swiftFiles.allSatisfy { (try? String(contentsOf: $0, encoding: .utf8))?.contains("ownFirst") != true },
+          "nothing in the app asks for a new conversation to begin anywhere but by the order")
     let automaticSource = (try? String(contentsOf: appSource.appending(path: "AutoSessions.swift"),
                                        encoding: .utf8)) ?? ""
     check(!automaticSource.contains("interactive: true") && !automaticSource.contains("onceIfShut")
@@ -7232,12 +7234,6 @@ do {
     pool.addLender(main, to: main)
     check(pool.lenders(of: main) == ["second"], "once, and never itself")
     check(UsagePoolController().lenders(of: main) == ["second"], "what each Claude draws on is kept between launches")
-    check(!pool.startsAtHome, "a new conversation goes by the order unless somebody says otherwise")
-    pool.setStartsAtHome(true)
-    check(UsagePoolController().startsAtHome, "and one asked to begin in its own Claude still is after a launch")
-    pool.setStartsAtHome(false)
-    check(UsagePoolController().sharing.ownFirst == nil && !UsagePoolController().startsAtHome,
-          "going back to the order leaves nothing written")
     check(pool.lenders(of: "second").isEmpty, "lending to a Claude does not make it a borrower")
     pool.removeLender("second", from: main)
     check(pool.sharing.lenders.isEmpty, "a Claude given nothing has no entry left")

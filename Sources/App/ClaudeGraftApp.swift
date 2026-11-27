@@ -100,13 +100,6 @@ struct SettingsView: View {
                     .disabled(!settings.showInMenuBar)
                 ManualUpdateControl()
                 HoldUpdatesControl()
-                Toggle("Start a new conversation on its own Claude's account", isOn: Binding(
-                    get: { pool.startsAtHome }, set: { pool.setStartsAtHome($0) }))
-                    .help("Where Claudes share usage, a new Code tab conversation starts on the first account in the order under Accounts that has room. On, it starts on the account of the Claude it was opened in, and goes by the order only when that one has nothing left. Either way it then stays on the account that answered it.")
-                    .identified("start-at-home")
-                    .disabled(!pool.isAnyoneBorrowing)
-                    .font(.callout)
-                    .fixedSize(horizontal: false, vertical: true)
             } footer: {
                 Text(problem ?? L10n.text("""
                      The menu bar item keeps reporting usage after this window is \
