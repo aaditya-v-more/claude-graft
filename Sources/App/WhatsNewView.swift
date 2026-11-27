@@ -20,6 +20,10 @@ final class WhatsNewPresenter: ObservableObject {
         guard let release = WhatsNew.releases.first(where: { $0.version == WhatsNew.line(of: Installer.graftVersion) })
         else { return false }
         showing = release
+        // A reopen makes SwiftUI build the window the sheet hangs on.
+        if !NSApp.windows.contains(where: { $0.isVisible && $0.canBecomeMain }) {
+            NSWorkspace.shared.open(Bundle.main.bundleURL)
+        }
         return true
     }
 }

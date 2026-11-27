@@ -23,6 +23,8 @@ enum Links {
     static let source = URL(string: "https://github.com/\(owner)/claude-graft")!
     static let support = URL(string: "https://ko-fi.com/\(kofiAccount)")!
     static let releases = URL(string: "https://github.com/\(owner)/claude-graft/releases")!
+    /// Set by the app: shows this version's list, or answers that it has none.
+    static var showWhatsNew: () -> Bool = { false }
     static let newIssue = URL(string: "https://github.com/\(owner)/claude-graft/issues/new")!
 
     /// The developer, as a person rather than a repository. A third and fourth
@@ -107,14 +109,7 @@ struct GraftHelpCommands: Commands {
         CommandGroup(replacing: .help) {
             Button(L10n.text("Claude Graft Help")) { Links.open(Links.site) }
             Button(L10n.text("What’s New in Claude Graft")) {
-                if Shared.whatsNew.showAgain() {
-                    // A reopen makes SwiftUI build the window the sheet hangs on.
-                    if !NSApp.windows.contains(where: { $0.isVisible && $0.canBecomeMain }) {
-                        NSWorkspace.shared.open(Bundle.main.bundleURL)
-                    }
-                } else {
-                    Links.open(Links.releases)
-                }
+                if !Links.showWhatsNew() { Links.open(Links.releases) }
             }
             Divider()
             Button(L10n.text("Report a Problem…")) { Links.open(Links.newIssue) }

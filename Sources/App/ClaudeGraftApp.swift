@@ -131,6 +131,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillFinishLaunching(_ notification: Notification) {
         let lastWindow = UserDefaults.standard.object(forKey: Self.windowOpenKey) as? Bool
         Shared.whatsNew.start(usedBefore: lastWindow != nil)
+        Links.showWhatsNew = { Shared.whatsNew.showAgain() }
         // An update with something to show opens the window once, however it
         // was left: the sheet has nowhere else to appear.
         Shared.startHidden = lastWindow == false && Shared.settings.showInMenuBar
