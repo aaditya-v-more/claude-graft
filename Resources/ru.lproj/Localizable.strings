@@ -569,6 +569,8 @@
 "Under Shared usage a conversation keeps the account it started on until that account runs out, and a side chat follows it." = "При общих лимитах разговор остаётся на учётной записи, с которой начат, пока её лимит не исчерпан, и побочный чат идёт за ним.";
 "More than one organization" = "Несколько организаций";
 "An address in several organizations chooses which one Artifacts, Projects and Search Chats show." = "Если адрес состоит в нескольких организациях, можно выбрать, какую из них показывают «Артефакты», «Проекты» и «Поиск по чатам».";
+"Dictation in any app" = "Диктовка в любом приложении";
+"Hold the right Command key and speak, and the words are typed where the cursor is. Off until you switch it on in Settings." = "Удерживайте правую клавишу Command и говорите: слова набираются там, где стоит курсор. Выключена, пока вы не включите её в настройках.";
 
 /* Dictation */
 "Dictation" = "Диктовка";
