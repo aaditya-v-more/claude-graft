@@ -116,9 +116,16 @@ SwiftUI builds a window's accessibility tree only once a request arrives from
 another process, and only after `finishLaunching`; asked from inside, every
 window measured as an empty tree, and the elements it builds then do not adopt
 `NSAccessibilityProtocol` anyway. So `test-layout.sh` reads each surface
-through the `AXUIElement` calls an assistive app makes, from a second thread
-while the main one answers, and needs Accessibility allowed for whatever starts
-it. Two things it follows that a plain walk would miss: a control in a grouped
+through the `AXUIElement` calls an assistive app makes, and needs
+Accessibility allowed for whatever starts it. It makes them on the main thread.
+A call addressed to the process's own number is not sent anywhere: the system
+runs AppKit's answer on the calling thread. The suite used to call from a
+second thread, believing the main one answered, so every walk built table rows
+and their layout engines beside the main thread, which AppKit logged as
+"modifying the autolayout engine from a background thread", thirteen times in
+one run. Mostly nothing came of it. On the hosted runner, four runs in one day
+ended in an abort over a dictionary freed while still in use, or in one usage
+bar read without its description. Two things it follows that a plain walk would miss: a control in a grouped
 form has no name of its own and is linked to the label beside it through
 `AXTitleUIElement`, which is what VoiceOver reads; and an SF Symbol leaves its
 own name as an image's identifier, which is why the check asks for this app's
