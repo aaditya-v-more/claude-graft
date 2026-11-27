@@ -100,6 +100,23 @@ enum ManualUpdates {
         }
     }
 
+    /// Takes the policy back from every folder that belongs to none of
+    /// `profiles`. A deleted shortcut left its folder and undo record behind.
+    static func release(allBut profiles: [URL]) throws {
+        guard Graft.exists(stateFile) else { return }
+        let kept = Set(try profiles.map {
+            try library(for: $0).deletingLastPathComponent().lastPathComponent.lowercased()
+        })
+        try withState { state in
+            for key in state.changes.keys.sorted() {
+                guard let change = state.changes[key], !kept.contains(change.folder.lowercased()) else { continue }
+                try restore(change)
+                state.changes[key] = nil
+                try save(state)
+            }
+        }
+    }
+
     // Device-managed values can override local ones. Refusing that arrangement
     // is safer than showing a protection switch that Claude would ignore.
     static func checkManagedPolicy() throws {

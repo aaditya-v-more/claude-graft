@@ -13,6 +13,9 @@ final class ManualUpdateSettings: ObservableObject {
         update(nil)
     }
 
+    /// After a shortcut is deleted, so what was written for it goes with it.
+    func shortcutsChanged() { update(nil) }
+
     func setEnabled(_ wanted: Bool) {
         guard !changing else { return }
         update(wanted)
@@ -22,11 +25,13 @@ final class ManualUpdateSettings: ObservableObject {
         changing = true
         let profiles = [Graft.mainProfile] + (store?.shortcuts ?? [])
             .filter { $0.installedName != nil }.map(\.profileDir)
+        let everyProfile = [Graft.mainProfile] + (store?.shortcuts ?? []).map(\.profileDir)
         queue.async {
             var problem: String?
             do {
                 if let wanted { try ManualUpdates.setEnabled(wanted, profiles: profiles) }
                 else { try ManualUpdates.synchronize(profiles) }
+                try ManualUpdates.release(allBut: everyProfile)
             } catch { problem = error.localizedDescription }
             let state = try? ManualUpdates.readState()
             DispatchQueue.main.async {
