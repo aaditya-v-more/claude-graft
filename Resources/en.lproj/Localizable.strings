@@ -593,6 +593,8 @@
 "Writing it down…" = "Writing it down…";
 "Nothing was heard." = "Nothing was heard.";
 "Couldn't type here, so the words are on the clipboard." = "Couldn't type here, so the words are on the clipboard.";
+"You moved to another app, so the words are on the clipboard." = "You moved to another app, so the words are on the clipboard.";
+"Dictation needs the microphone. Open Settings in Claude Graft to allow it." = "Dictation needs the microphone. Open Settings in Claude Graft to allow it.";
 "A password field has the keyboard, so dictation waits until you leave it." = "A password field has the keyboard, so dictation waits until you leave it.";
 "Dictation needs the microphone. Allow Claude Graft in System Settings › Privacy & Security › Microphone." = "Dictation needs the microphone. Allow Claude Graft in System Settings › Privacy & Security › Microphone.";
 "No microphone could be started for dictation." = "No microphone could be started for dictation.";

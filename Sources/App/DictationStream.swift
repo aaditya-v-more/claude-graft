@@ -11,6 +11,16 @@ final class DictationStream {
         case lost
         case service(String?)
 
+        /// For the log, which takes nothing the service wrote.
+        var kind: String {
+            switch self {
+            case .unreachable: return "unreachable"
+            case .refused: return "refused"
+            case .lost: return "lost"
+            case .service: return "service"
+            }
+        }
+
         var message: String {
             switch self {
             case .unreachable:

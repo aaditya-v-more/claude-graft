@@ -570,7 +570,7 @@
 "More than one organization" = "Несколько организаций";
 "An address in several organizations chooses which one Artifacts, Projects and Search Chats show." = "Если адрес состоит в нескольких организациях, можно выбрать, какую из них показывают «Артефакты», «Проекты» и «Поиск по чатам».";
 "Dictation in any app" = "Диктовка в любом приложении";
-"Hold the right Command key and speak, and the words are typed where the cursor is. Off until you switch it on in Settings." = "Удерживайте правую клавишу Command и говорите: слова набираются там, где стоит курсор. Выключена, пока вы не включите её в настройках.";
+"Hold the right Command key and speak, and the words are typed where the cursor is. Off until you switch it on in Settings." = "Удерживайте правую Command и говорите: слова набираются там, где курсор. Включается в настройках.";
 
 /* Dictation */
 "Dictation" = "Диктовка";
@@ -593,6 +593,8 @@
 "Writing it down…" = "Записываю…";
 "Nothing was heard." = "Ничего не удалось расслышать.";
 "Couldn't type here, so the words are on the clipboard." = "Сюда напечатать не удалось, поэтому текст скопирован в буфер обмена.";
+"You moved to another app, so the words are on the clipboard." = "Вы перешли в другое приложение, поэтому слова в буфере обмена.";
+"Dictation needs the microphone. Open Settings in Claude Graft to allow it." = "Диктовке нужен микрофон. Откройте настройки Claude Graft, чтобы разрешить его.";
 "A password field has the keyboard, so dictation waits until you leave it." = "Клавиатура занята полем пароля, поэтому диктовка подождёт, пока вы из него не выйдете.";
 "Dictation needs the microphone. Allow Claude Graft in System Settings › Privacy & Security › Microphone." = "Диктовке нужен микрофон. Разрешите Claude Graft в «Системные настройки» › «Конфиденциальность и безопасность» › «Микрофон».";
 "No microphone could be started for dictation." = "Не удалось включить микрофон для диктовки.";

@@ -43,6 +43,9 @@ final class DictationController: ObservableObject {
         var transcript = DictationTranscript()
         var quiet = DictationQuiet(startedAt: ProcessInfo.processInfo.systemUptime)
         var microphoneFailure: String?
+        /// The app in front when the recording ended, which is where its words belong.
+        var app: pid_t?
+        var awake: NSObjectProtocol?
 
         var stream: DictationStream?
         var backlog = Data()
@@ -52,7 +55,6 @@ final class DictationController: ObservableObject {
 
     private enum Refusal {
         case notice(String)
-        case askForMicrophone
     }
 
     private weak var settings: AppSettings?
@@ -113,6 +115,10 @@ final class DictationController: ObservableObject {
             need = .accessibility
         } else if [.denied, .restricted].contains(DictationMicrophone.permission) {
             need = .microphone
+        } else if DictationMicrophone.permission == .notDetermined {
+            need = .microphone
+            // Graft is in front, so somebody is there to read the request.
+            if NSApp.isActive { DictationMicrophone.askPermission { [weak self] _ in self?.refreshNeed() } }
         } else {
             need = nil
         }
@@ -144,7 +150,8 @@ final class DictationController: ObservableObject {
 
     private func listen() {
         unlisten()
-        let keys: NSEvent.EventTypeMask = [.flagsChanged, .keyDown, .keyUp]
+        let keys: NSEvent.EventTypeMask = [.flagsChanged, .keyDown, .keyUp, .leftMouseDown, .rightMouseDown,
+                                           .otherMouseDown, .scrollWheel]
         if let global = NSEvent.addGlobalMonitorForEvents(matching: keys, handler: { [weak self] event in
             self?.pressed(event)
         }) { monitors.append(global) }
@@ -173,6 +180,17 @@ final class DictationController: ObservableObject {
     }
 
     private func pressed(_ event: NSEvent) {
+        switch event.type {
+        case .leftMouseDown, .rightMouseDown, .otherMouseDown:
+            perform(gesture.otherKey(escape: false))
+            return
+        case .scrollWheel:
+            // A flick goes on scrolling after the fingers have left.
+            if event.momentumPhase.isEmpty { perform(gesture.otherKey(escape: false)) }
+            return
+        default:
+            break
+        }
         guard event.cgEvent?.getIntegerValueField(.eventSourceUserData) != DictationTyping.mark else { return }
         switch event.type {
         case .flagsChanged where key.isModifier && event.keyCode == key.code:
@@ -182,6 +200,7 @@ final class DictationController: ObservableObject {
         case .keyUp where !key.isModifier && event.keyCode == key.code:
             perform(gesture.release(at: now))
         case .keyDown where !event.isARepeat:
+            if event.keyCode == 53, recording?.isEnding == true { end(.escape, fromKey: true) }
             perform(gesture.otherKey(escape: event.keyCode == 53))
         default:
             break
@@ -219,7 +238,7 @@ final class DictationController: ObservableObject {
         switch DictationMicrophone.permission {
         case .authorized: break
         case .notDetermined:
-            refusal = .askForMicrophone
+            refusal = .notice(L10n.text("Dictation needs the microphone. Open Settings in Claude Graft to allow it."))
             return
         default:
             refusal = .notice(L10n.text("Dictation needs the microphone. Allow Claude Graft in System Settings › Privacy & Security › Microphone."))
@@ -248,7 +267,6 @@ final class DictationController: ObservableObject {
             gesture.ended()
             switch refusal {
             case .notice(let text): show(text)
-            case .askForMicrophone: DictationMicrophone.askPermission { [weak self] _ in self?.refreshNeed() }
             }
             return
         }
@@ -260,6 +278,8 @@ final class DictationController: ObservableObject {
         }
         preview = ""
         phase = .listening(handsFree: gesture.isHandsFree)
+        // Read aloud hands-free, nothing touches the Mac to keep its screen on.
+        recording.awake = ProcessInfo.processInfo.beginActivity(options: .idleDisplaySleepDisabled, reason: "Dictation")
         Diagnostics.note("dictation.began", ["key": key.name, "handsFree": gesture.isHandsFree])
         dial(for: recording)
     }
@@ -288,38 +308,43 @@ final class DictationController: ObservableObject {
         if let front = Shared.frontmost.profile { profiles.insert(front, at: 0) }
         let accounts = Shared.usagePool.accounts
         let language = DictationWire.language(preferred: Locale.preferredLanguages)
-        work.async { [weak self] in
-            guard let self, !recording.isOver else { return }
+        // A keychain dialog can sit unanswered, and `work` is where the microphone is stopped.
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             let login = Self.login(profiles: profiles, accounts: accounts)
-            guard let token = login.token else {
-                let problem = login.problem
-                DispatchQueue.main.async { self.fail(recording, problem) }
-                return
-            }
-            let stream = DictationStream(request: DictationWire.request(token: token, language: language),
-                                         queue: self.work)
-            stream.onFrame = { frame in
-                DispatchQueue.main.async {
-                    guard self.recording === recording else { return }
-                    recording.transcript.take(frame)
-                    self.preview = recording.transcript.preview
-                }
-            }
-            stream.onEnd = { failure in
-                DispatchQueue.main.async { self.streamEnded(recording, failure) }
-            }
-            recording.stream = stream
-            stream.open()
-            let backlog = recording.backlog
-            recording.backlog = Data()
-            var sent = 0
-            while sent < backlog.count {
-                let next = min(sent + 6400, backlog.count)
-                stream.send(backlog.subdata(in: sent..<next))
-                sent = next
-            }
-            if recording.wantsClose { stream.finish() }
+            self?.work.async { self?.open(recording, login: login, language: language) }
         }
+    }
+
+    private func open(_ recording: Recording, login: (token: String?, problem: String), language: String) {
+        guard !recording.isOver else { return }
+        guard let token = login.token else {
+            let problem = login.problem
+            DispatchQueue.main.async { self.fail(recording, problem) }
+            return
+        }
+        let stream = DictationStream(request: DictationWire.request(token: token, language: language),
+                                     queue: work)
+        stream.onFrame = { frame in
+            DispatchQueue.main.async {
+                guard self.recording === recording else { return }
+                recording.transcript.take(frame)
+                self.preview = recording.transcript.preview
+            }
+        }
+        stream.onEnd = { failure in
+            DispatchQueue.main.async { self.streamEnded(recording, failure) }
+        }
+        recording.stream = stream
+        stream.open()
+        let backlog = recording.backlog
+        recording.backlog = Data()
+        var sent = 0
+        while sent < backlog.count {
+            let next = min(sent + 6400, backlog.count)
+            stream.send(backlog.subdata(in: sent..<next))
+            sent = next
+        }
+        if recording.wantsClose { stream.finish() }
     }
 
     /// The first login that may be used for this: the Claude in front, then
@@ -358,7 +383,16 @@ final class DictationController: ObservableObject {
     private func end(_ reason: DictationEnd, fromKey: Bool) {
         refusal = nil
         if !fromKey { gesture.ended() }
-        guard let recording, !recording.isEnding else { return }
+        guard let recording else { return }
+        guard !recording.isEnding else {
+            // Being written down, it can still be taken back and nothing else.
+            guard [.escape, .away, .switchedOff].contains(reason) else { return }
+            Diagnostics.note("dictation.taken-back", ["reason": "\(reason)"])
+            discard(recording)
+            preview = ""
+            if case .notice = phase {} else { phase = .idle }
+            return
+        }
         recording.isEnding = true
         if recording.isCommitted {
             Diagnostics.note("dictation.ended", ["reason": "\(reason)", "seconds": Int(now - recording.began)])
@@ -366,6 +400,7 @@ final class DictationController: ObservableObject {
         level = -120
         secondsLeft = nil
         if reason.keepsWords, recording.isCommitted {
+            recording.app = NSWorkspace.shared.frontmostApplication?.processIdentifier
             phase = .transcribing
             work.async {
                 recording.microphone.stop()
@@ -381,6 +416,8 @@ final class DictationController: ObservableObject {
 
     private func discard(_ recording: Recording) {
         if self.recording === recording { self.recording = nil }
+        if let awake = recording.awake { ProcessInfo.processInfo.endActivity(awake) }
+        recording.awake = nil
         work.async {
             recording.isOver = true
             recording.microphone.stop()
@@ -409,9 +446,16 @@ final class DictationController: ObservableObject {
         secondsLeft = nil
         preview = ""
         let length = words.count
-        Diagnostics.note("dictation.answered", ["characters": length, "failure": failure.map { "\($0)" } ?? "none"])
+        Diagnostics.note("dictation.answered", ["characters": length, "failure": failure?.kind ?? "none"])
         guard !words.isEmpty else {
             show(failure?.message ?? L10n.text("Nothing was heard."))
+            return
+        }
+        // Written down while the person went elsewhere, they are not typed there.
+        if let app = recording.app, app != NSWorkspace.shared.frontmostApplication?.processIdentifier {
+            Diagnostics.note("dictation.delivered", ["typed": false, "moved": true])
+            DictationTyping.copy(words)
+            show(L10n.text("You moved to another app, so the words are on the clipboard."))
             return
         }
         deliver(words, trouble: failure?.message)
@@ -482,6 +526,10 @@ final class DictationController: ObservableObject {
             missedReleases = 0
         }
 
+        if let recording, recording.isCommitted, !recording.isEnding, gesture.isHandsFree,
+           DictationTyping.keyboardIsGuarded {
+            end(.guarded, fromKey: false)
+        }
         if let recording, recording.isCommitted, !recording.isEnding {
             let elapsed = now - recording.began
             let left = DictationLimits.secondsLeft(elapsed: elapsed)

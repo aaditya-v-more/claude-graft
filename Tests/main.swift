@@ -9344,7 +9344,7 @@ do {
     check(left.state == .idle && left.press(at: 700) == [.begin],
           "a hands-free recording that ended by itself leaves the key ready for the next one")
 
-    check([DictationEnd.asked, .tooLong, .wentQuiet, .microphoneLost].allSatisfy(\.keepsWords)
+    check([DictationEnd.asked, .tooLong, .wentQuiet, .microphoneLost, .guarded].allSatisfy(\.keepsWords)
             && [DictationEnd.chord, .escape, .strayTap, .away, .switchedOff].allSatisfy { !$0.keepsWords },
           "what was said is typed unless the person took the press back or went away")
 
@@ -9377,6 +9377,8 @@ do {
     func item(_ name: String) -> String? { asked?.queryItems?.first { $0.name == name }?.value }
     check(request.url?.host == "api.anthropic.com" && request.url?.scheme == "wss",
           "what is said goes to Anthropic, over an encrypted connection")
+    check(request.timeoutInterval > DictationLimits.longest,
+          "a service that says nothing while it listens is not taken for one that has gone")
     check(request.value(forHTTPHeaderField: "Authorization") == "Bearer secret-login"
             && request.url?.absoluteString.contains("secret") == false,
           "the borrowed login rides in a header and never in the address")
@@ -9416,6 +9418,11 @@ do {
           "a service that repeats everything so far is not typed twice")
     heard.take(.final("   "))
     check(heard.settled.hasSuffix("The end."), "and an empty utterance adds nothing")
+    var short = DictationTranscript()
+    short.take(.final("No"))
+    short.take(.final("Nothing else"))
+    check(short.settled == "No Nothing else",
+          "an utterance that only begins with the letters of the last one is not taken for a repeat of it")
 
     check(DictationText.insertion("hello", before: "word", afterOwn: false) == " hello"
             && DictationText.insertion("hello", before: "word ", afterOwn: false) == "hello"
@@ -9469,6 +9476,13 @@ do {
     check(parts[4].components(separatedBy: "DictationTyping.askForTrust()").count == 2
             && parts[4].contains("private func switched(on: Bool)"),
           "macOS is asked for Accessibility from the switch alone, where somebody is there to read it")
+    check(parts[4].contains(".leftMouseDown") && parts[4].contains(".scrollWheel"),
+          "a click or a scroll under the held key is a shortcut, as a letter under it is")
+    check(parts[4].components(separatedBy: "DictationMicrophone.askPermission").count == 3
+            && parts[4].contains("if NSApp.isActive { DictationMicrophone.askPermission"),
+          "the microphone is asked for from the switch or with Graft in front, never from a press of the key")
+    check(parts[4].contains("app != NSWorkspace.shared.frontmostApplication?.processIdentifier"),
+          "words written down after the person moved to another app are not typed into it")
     check(parts[3].contains("event.flags = []") && !parts[3].contains("NSPasteboard.general.string("),
           "typed words carry no held modifier, and the clipboard is never read")
     check(read("Resources/Info.plist").contains("<key>NSMicrophoneUsageDescription</key>"),

@@ -75,10 +75,10 @@
 - **Off until switched on, and the Mac alone.** Accessibility and the microphone are asked from the switch, never from a key press.
 - **What is said goes to `api.anthropic.com` alone,** with a borrowed `user:inference` login through `UsageAPI.session`; the login rides in a header, never the address. Nothing said is written to disk or to the diagnostics log.
 - **Only keys that type nothing are offered** (`DictationKey.all`); a stored code outside them reads as Right Command.
-- **The microphone opens with the press; nothing is sent or shown until it outlasts a tap or is doubled** (`DictationGesture`). Another key under the held one is a shortcut and discards the recording.
+- **The microphone opens with the press; nothing is sent or shown until it outlasts a tap or is doubled** (`DictationGesture`). Another key, a click or a scroll under the held one is a shortcut and discards the recording.
 - **A recording ends by itself** at ten minutes, after forty-five quiet seconds hands-free, and when the microphone goes (`DictationLimits`), typing what was heard; sleep, a locked screen and the switch going off discard it.
 - **A release may go unseen,** so the clock asks the keyboard itself whether the key is still down.
-- **Words are typed, never pasted,** on one line with modifier flags cleared; a password field is never typed into, and what cannot be typed goes to the clipboard and says so.
+- **Words are typed, never pasted,** on one line with modifier flags cleared; a password field is never typed into, and what cannot be typed, or was written down after the person moved to another app, goes to the clipboard and says so.
 
 ### Shared usage — [notes/shared-usage.md](../../notes/shared-usage.md)
 

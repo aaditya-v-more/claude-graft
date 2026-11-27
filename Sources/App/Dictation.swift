@@ -52,6 +52,8 @@ enum DictationEnd: Equatable {
     case tooLong
     case wentQuiet
     case microphoneLost
+    /// A password field took the keyboard, and with it the key that would finish.
+    case guarded
     case chord
     case escape
     case strayTap
@@ -61,7 +63,7 @@ enum DictationEnd: Equatable {
     /// What was said is typed unless the person took the press back.
     var keepsWords: Bool {
         switch self {
-        case .asked, .tooLong, .wentQuiet, .microphoneLost: return true
+        case .asked, .tooLong, .wentQuiet, .microphoneLost, .guarded: return true
         case .chord, .escape, .strayTap, .away, .switchedOff: return false
         }
     }
@@ -172,8 +174,8 @@ struct DictationGesture {
         }
     }
 
-    /// Another key went down. With the key held that is a shortcut being
-    /// typed; hands-free, only Escape means anything.
+    /// Another key went down, or the pointer was clicked or scrolled. With
+    /// the key held that is a shortcut; hands-free, only Escape means anything.
     mutating func otherKey(escape: Bool) -> [Action] {
         switch state {
         case .pressed, .held:
@@ -280,7 +282,10 @@ enum DictationWire {
             URLQueryItem(name: "utterance_end_ms", value: "1000"),
             URLQueryItem(name: "language", value: language),
         ]
-        var request = URLRequest(url: address.url!, timeoutInterval: DictationLimits.openWait)
+        // The stream's own clock gives up on a connection that will not open.
+        // This one also counts silence from the service, which sends nothing while it listens.
+        var request = URLRequest(url: address.url!, timeoutInterval: DictationLimits.longest
+                                    + DictationLimits.openWait + DictationLimits.answerWait)
         request.setValue("Bearer \(token.trimmingCharacters(in: .whitespacesAndNewlines))",
                          forHTTPHeaderField: "Authorization")
         return request
@@ -338,10 +343,16 @@ struct DictationTranscript: Equatable {
             interim = ""
             guard !words.isEmpty else { return }
             // A service that repeats everything so far must not be typed twice.
-            settled = !settled.isEmpty && words.hasPrefix(settled) ? words : Self.tidy(settled + " " + words)
+            settled = Self.repeats(settled, in: words) ? words : Self.tidy(settled + " " + words)
         case .endpoint, .failure, .other:
             break
         }
+    }
+
+    /// "No" is not said again by "Nothing else": the repeat has to end on a word.
+    private static func repeats(_ settled: String, in words: String) -> Bool {
+        guard !settled.isEmpty, words.hasPrefix(settled) else { return false }
+        return words.dropFirst(settled.count).first.map { !$0.isLetter && !$0.isNumber } ?? true
     }
 
     /// One line: a line break typed into a chat box sends the message.

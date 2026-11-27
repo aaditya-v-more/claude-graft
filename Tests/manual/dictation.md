@@ -25,8 +25,10 @@ not there before.
    held, and both sentences are typed after the last press.
 5. Tap right Command twice, say a few words, press Escape.
    Expect: the pill goes and nothing is typed.
-6. Press right Command+A (hold right Command, press A).
-   Expect: TextEdit selects everything, as Command+A always does. No pill, nothing typed.
+6. Press right Command+A (hold right Command, press A). Then hold right
+   Command for a second and click in the document before letting go.
+   Expect: TextEdit selects everything, as Command+A always does. No pill
+   after the A; the pill goes at the click. Nothing typed either time.
 7. Tap right Command once and wait.
    Expect: nothing is typed and no pill stays.
 8. Tap right Command twice and stay silent.
@@ -44,7 +46,12 @@ not there before.
     Expect: Right Option dictates and right Command no longer does.
 12. Tap the key twice, speak for a few seconds, then lock the screen. Unlock.
     Expect: the recording is gone, nothing is typed, and the key works again.
-13. Optional, ten minutes: tap the key twice and read aloud until it stops.
+13. Hold the key, say a sentence, let go, and press Escape while the pill
+    says "Writing it down…". Then do it again and click into another app
+    instead of pressing Escape.
+    Expect: after Escape nothing is typed. After the click nothing is typed in
+    either app, and the pill says the words are on the clipboard.
+14. Optional, ten minutes: tap the key twice and read aloud until it stops.
     Expect: a countdown over the last 30 seconds, then everything said is typed.
 
 Pass when: held and hands-free recordings both type what was said where the
