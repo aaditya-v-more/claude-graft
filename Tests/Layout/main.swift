@@ -1075,12 +1075,35 @@ do {
     check(element("window.whats-new.continue", in: tree)?.name == L10n.text("Continue")
             && element("window.whats-new.release-notes", in: tree)?.name == L10n.text("All Release Notes"),
           "what’s new: both buttons can be found and say what they do")
+    check(element("window.whats-new.donate", in: tree)?.name == L10n.text("Donate")
+            && element("window.whats-new.donate", in: tree)?.pressable == true,
+          "what’s new: Donate is there beside them")
     let said = tree.map { $0.name + "\n" + $0.value }.joined(separator: "\n")
     check(release.items.allSatisfy { said.contains(L10n.text($0.title)) && said.contains(L10n.text($0.detail)) },
           "what’s new: every change is read out with its title and what it does")
     if let content = window.contentView {
         check(content.fittingSize.height <= 620 && content.fittingSize.width <= 500,
               "what’s new: the sheet fits a small window in this language (\(content.fittingSize))")
+    }
+    window.orderOut(nil)
+}
+
+do {
+    let window = hosted(DonateView()
+        .background(Color(nsColor: .windowBackgroundColor))
+        .environment(\.controlSurface, ControlSurface.window), title: "Donate check")
+    let tree = checkAccessibility(window, surface: ControlSurface.window, "the donation sheet")
+    check(element("window.donate.donate", in: tree)?.pressable == true
+            && element("window.donate.not-now", in: tree)?.name == L10n.text("Not Now"),
+          "the donation sheet: giving and not giving are both a button with a name")
+    check(tree.contains { ($0.name + $0.value).contains("Ko-fi") },
+          "the donation sheet: it says where the money goes")
+    if let content = window.contentView {
+        check(content.fittingSize.height <= 300 && content.fittingSize.width <= 400,
+              "the donation sheet: it is a small sheet in this language (\(content.fittingSize))")
+    }
+    if let directory = ProcessInfo.processInfo.environment["GRAFT_LAYOUT_WINDOWS"] {
+        capture(window, as: "\(Bundle.main.preferredLocalizations.first ?? "en")-donate", in: directory)
     }
     window.orderOut(nil)
 }

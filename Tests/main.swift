@@ -8964,6 +8964,12 @@ do {
     let lines = WhatsNew.releases.flatMap(\.items).flatMap { [$0.title, $0.detail] }
     check(lines.allSatisfy { line in english[line] == line && russian[line].map { $0 != line } == true },
           "every line of it is in the catalog and reads in Russian when macOS does")
+    check(WhatsNew.asksForSupport(running: "2.3.0", asked: nil)
+            && WhatsNew.asksForSupport(running: "2.3.0", asked: "2.2"),
+          "a donation is asked for once the list of a release has been put away")
+    check(!WhatsNew.asksForSupport(running: "2.3.0", asked: "2.3")
+            && !WhatsNew.asksForSupport(running: "2.3.1", asked: "2.3"),
+          "and not again for that release, however often the list is opened or patched")
     let app = (try? String(contentsOf: repo.appending(path: "Sources/App/ClaudeGraftApp.swift"))) ?? ""
     check(app.contains("Shared.whatsNew.start(usedBefore: lastWindow != nil)")
             && app.contains("&& Shared.whatsNew.showing == nil"),

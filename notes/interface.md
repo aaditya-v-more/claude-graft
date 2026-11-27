@@ -177,6 +177,17 @@ and an update relaunch is the moment it is for. Help › What's New opens it
 again, or the releases page for a version that announced nothing. A release
 worth announcing adds its entry and both languages' strings; a patch adds none.
 
+**A donation is asked for once, after that list.** Asked for by the owner on
+28 November 2026: Donate sits in the sheet beside All Release Notes, and when
+the list is put away, by Continue or by Escape, a small sheet says the app is
+free and offers Donate and Not Now. It follows the list once for a release
+line (`donationAskedVersion`), so opening the list again from Help does not ask
+again, and a release with no list asks nothing. Donate is not the default
+button there and Not Now takes Escape: Return had just closed the list, and a
+key pressed out of habit must not open a page that asks for money. The second
+sheet goes up on the next turn of the run loop, since one cannot be presented
+while the one before it is still coming down.
+
 **A popover is not one of the app's windows until it is put there.** AppKit
 hangs an `NSPopover`'s window under the status item that opened it, as an
 `AXPopover`, and leaves it out of the app's `AXWindows` — the one list most

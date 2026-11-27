@@ -26,6 +26,9 @@
 "Claude" = "Claude";
 "Claude Graft" = "Claude Graft";
 "Claude Graft is free. A tip on Ko-fi is what keeps it worked on." = "Claude Graft is free. A tip on Ko-fi is what keeps it worked on.";
+"Claude Graft is free" = "Claude Graft is free";
+"A tip on Ko-fi is what keeps it worked on. The app is the same whether you give one or not." = "A tip on Ko-fi is what keeps it worked on. The app is the same whether you give one or not.";
+"Not Now" = "Not Now";
 "Claude Desktop is updating" = "Claude Desktop is updating";
 "Claude Desktop %@ is available" = "Claude Desktop %@ is available";
 "Claude's application icon could not be read." = "Claude's application icon could not be read.";

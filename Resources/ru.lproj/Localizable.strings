@@ -26,6 +26,9 @@
 "Claude" = "Claude";
 "Claude Graft" = "Claude Graft";
 "Claude Graft is free. A tip on Ko-fi is what keeps it worked on." = "Claude Graft бесплатен. Поддержка на Ko-fi помогает продолжать его разработку.";
+"Claude Graft is free" = "Claude Graft бесплатен";
+"A tip on Ko-fi is what keeps it worked on. The app is the same whether you give one or not." = "Поддержка на Ko-fi помогает продолжать его разработку. Приложение остаётся тем же, поддержите вы его или нет.";
+"Not Now" = "Не сейчас";
 "Claude Desktop is updating" = "Claude Desktop обновляется";
 "Claude Desktop %@ is available" = "Доступен Claude Desktop %@";
 "Claude's application icon could not be read." = "Не удалось прочитать иконку приложения Claude.";

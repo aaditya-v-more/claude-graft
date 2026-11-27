@@ -37,6 +37,12 @@ struct WhatsNew: Identifiable, Equatable {
         ]),
     ]
 
+    /// A donation is asked for once for a release with a list, however often
+    /// the list is opened again.
+    static func asksForSupport(running: String, asked: String?) -> Bool {
+        asked != line(of: running)
+    }
+
     static func line(of version: String) -> String {
         version.split(separator: ".").prefix(2).joined(separator: ".")
     }

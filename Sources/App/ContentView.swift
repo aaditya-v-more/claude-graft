@@ -100,8 +100,12 @@ struct ContentView: View {
         .onChange(of: selection) { chosen in
             if let chosen, showsClaude { lastClaude = chosen }
         }
-        .sheet(item: $news.showing, onDismiss: { news.markSeen() }) { release in
+        .sheet(item: $news.showing, onDismiss: { news.listClosed() }) { release in
             WhatsNewView(release: release)
+                .environment(\.controlSurface, ControlSurface.window)
+        }
+        .sheet(isPresented: $news.asking) {
+            DonateView()
                 .environment(\.controlSurface, ControlSurface.window)
         }
         // Last, so the toolbar and the dialogs hanging off this view are
