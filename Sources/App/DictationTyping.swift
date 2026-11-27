@@ -22,9 +22,11 @@ enum DictationTyping {
     /// every monitor, the release of the dictation key among them.
     static var keyboardIsGuarded: Bool { IsSecureEventInputEnabled() }
 
+    /// A modifier is read from the flags: `keyState` says a held modifier is
+    /// up, which ended every held recording a third of a second in.
     static func isDown(_ key: DictationKey) -> Bool {
-        if key == .function {
-            return CGEventSource.flagsState(.combinedSessionState).contains(.maskSecondaryFn)
+        if key.isModifier {
+            return key.isDown(flags: UInt(CGEventSource.flagsState(.combinedSessionState).rawValue))
         }
         return CGEventSource.keyState(.combinedSessionState, key: CGKeyCode(key.code))
     }

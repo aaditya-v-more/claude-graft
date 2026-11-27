@@ -9478,6 +9478,8 @@ do {
           "macOS is asked for Accessibility from the switch alone, where somebody is there to read it")
     check(parts[4].contains(".leftMouseDown") && parts[4].contains(".scrollWheel"),
           "a click or a scroll under the held key is a shortcut, as a letter under it is")
+    check(parts[3].contains("if key.isModifier {\n            return key.isDown(flags:"),
+          "a held modifier is read from the flags, since the key table says it is up")
     check(parts[4].components(separatedBy: "DictationMicrophone.askPermission").count == 3
             && parts[4].contains("if NSApp.isActive { DictationMicrophone.askPermission"),
           "the microphone is asked for from the switch or with Graft in front, never from a press of the key")

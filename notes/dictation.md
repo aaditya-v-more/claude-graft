@@ -25,7 +25,7 @@ Only keys that type nothing are offered. A monitor sees a key in another app and
 
 The key is a modifier, and every shortcut that uses it begins exactly as dictation does. So the microphone opens with the press, because people speak as they press, and nothing is sent or shown until the press has outlasted a tap (`DictationGesture.tap`) or been doubled. Another key under the held one is a shortcut, and so is a click or a scroll: the recording is thrown away. A scroll still coasting from an earlier flick is not one. Hands-free, typing is no reason to stop and only Escape discards.
 
-A release can go unseen. While a password field has the keyboard macOS hands key presses to no monitor, and a locked screen does the same, so the clock asks the keyboard itself whether the key is still down and takes three looks in a row as a release.
+A release can go unseen. While a password field has the keyboard macOS hands key presses to no monitor, and a locked screen does the same, so the clock asks the keyboard itself whether the key is still down and takes three looks in a row as a release. For a modifier that question is put to the session's flags (`CGEventSource.flagsState`) and never to `CGEventSource.keyState`, which answers that a held modifier is up. Asked of `keyState`, every held recording ended 0.3 s after the press, with the log showing `dictation.began` and `dictation.ended` in the same millisecond and no characters; the owner hit it on the Air on 27 Nov with a real keyboard, and a simulated key showed the same. Only the F keys, which are not modifiers, are asked of `keyState`.
 
 ## When a recording ends by itself
 
