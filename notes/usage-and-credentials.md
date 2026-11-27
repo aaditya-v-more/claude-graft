@@ -192,7 +192,10 @@ to any other account in use.
 `plan-usage-history.json` is the fallback: samples of `{t, org, u:{fh, sd}}`
 where `fh` is the five-hour percentage used and `sd` the seven-day one, written
 only while that instance runs. It is ~180KB and grows, so it is parsed once per
-change and cached against modification time and size.
+change and cached against modification time and size. A Claude moved between
+two organizations of its login writes samples of both, so the resets are
+worked out from the newest sample's organization alone: across both, an idle
+sample of one read as the other's window opening.
 
 A sample without `fh` is what Claude writes for an account with no five-hour
 limit, but one alone does not prove it: a limited account goes on writing `fh`,

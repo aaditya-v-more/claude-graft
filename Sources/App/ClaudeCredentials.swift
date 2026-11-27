@@ -293,14 +293,26 @@ enum ClaudeCredentials {
 
     // MARK: - The token
 
-    /// Nil when this profile has no login cached at all.
+    /// Nil when this profile has no login cached at all. `organization` is
+    /// the one its Claude is working in, which says whose login to take.
     static func token(for profile: URL,
                       prompting: Prompting,
-                      requiring scopes: [String] = [usageScope]) throws -> Token? {
+                      requiring scopes: [String] = [usageScope],
+                      organization: String? = nil) throws -> Token? {
         guard let all = try tokens(for: profile, prompting: prompting) else { return nil }
-        let best = all.filter { $0.isCurrent && $0.covers(scopes) }.max { $0.expires < $1.expires }
+        let best = inUse(all.filter(\.isCurrent), organization: organization)
+            .filter { $0.covers(scopes) }.max { $0.expires < $1.expires }
         guard let best else { throw Failure.expired }
         return best
+    }
+
+    /// A profile that has been in two organizations holds a login for each.
+    /// These are the ones for the organization it is in, or every one where
+    /// nothing says which or that organization has none.
+    static func inUse(_ tokens: [Token], organization: String?) -> [Token] {
+        guard let wanted = organization?.lowercased() else { return tokens }
+        let here = tokens.filter { $0.organization == nil || $0.organization == wanted }
+        return here.isEmpty ? tokens : here
     }
 
     /// Every entry the profile's cache holds, current or not. The usage pool

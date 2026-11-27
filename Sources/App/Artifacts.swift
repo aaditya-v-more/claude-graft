@@ -31,8 +31,39 @@ struct ArtifactOrganization: Codable, Equatable, Identifiable {
     var name: String
 }
 
+/// A Claude on this Mac: the login it is signed in to, and the organization
+/// its usage history says it last ran under.
+struct ClaudeHere: Equatable {
+    var name: String
+    var account: String
+    var organization: String? = nil
+}
+
 /// What a finished sign-in does to the list of accounts.
 enum ArtifactAccounts {
+    /// The Claude an account is named after. Two Claudes can share a login in
+    /// different organizations, and where the account has that choice it is
+    /// the one working in the organization shown, or neither of them.
+    static func claude(for account: ArtifactAccount, among claudes: [ClaudeHere]) -> String? {
+        let onLogin = claudes.filter { $0.account == account.accountUuid }
+        guard (account.organizations?.count ?? 0) > 1, let org = account.org?.lowercased()
+        else { return onLogin.first?.name }
+        return (onLogin.first { $0.organization?.lowercased() == org }
+            ?? onLogin.first { $0.organization == nil })?.name
+    }
+
+    /// A sign-in starts in the organization a Claude here is working in on
+    /// that login, since the first claude.ai lists is as often the other one.
+    static func starting(_ identity: ArtifactAPI.Identity, among claudes: [ClaudeHere]) -> ArtifactAPI.Identity {
+        let inUse = claudes.filter { $0.account == identity.accountUuid }.compactMap { $0.organization?.lowercased() }
+        guard let org = inUse.lazy.compactMap({ wanted in
+            identity.organizations.first { $0.id.lowercased() == wanted }?.id
+        }).first else { return identity }
+        var identity = identity
+        identity.org = org
+        return identity
+    }
+
     /// The store just signed into is the one that works. A second sign-in to
     /// an account already listed is made because the first one stopped
     /// working, and a sign-in cannot be moved between stores without reading

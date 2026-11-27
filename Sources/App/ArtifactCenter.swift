@@ -355,8 +355,8 @@ final class ArtifactCenter: ObservableObject {
     /// One line saying how the last thing done went.
     @Published private(set) var status: String?
     @Published private(set) var busy: Set<String> = []
-    /// Which Claude on this Mac each account belongs to, by account UUID.
-    @Published private(set) var claudeNames: [String: String] = [:]
+    /// The Claudes on this Mac, which an account is named after.
+    @Published private(set) var claudes: [ClaudeHere] = []
     /// The last sign-in to finish, whichever pane it was started from, so
     /// every pane can ask for that account at once rather than at its next
     /// refresh.
@@ -472,8 +472,7 @@ final class ArtifactCenter: ObservableObject {
     /// to on this Mac when there is one, its address otherwise.
     func name(of id: UUID) -> String {
         guard let account = account(id) else { return "" }
-        if let uuid = account.accountUuid, let claude = claudeNames[uuid] { return claude }
-        return account.email ?? L10n.text("Signing in…")
+        return ArtifactAccounts.claude(for: account, among: claudes) ?? account.email ?? L10n.text("Signing in…")
     }
 
     var anyLoading: Bool { states.values.contains(.loading) }
@@ -500,6 +499,7 @@ final class ArtifactCenter: ObservableObject {
 
     private func signedIn(_ id: UUID, _ identity: ArtifactAPI.Identity) {
         signIn = nil
+        let identity = ArtifactAccounts.starting(identity, among: claudes)
         let wasAnother = account(id).map { $0.accountUuid != identity.accountUuid } ?? false
         let change = ArtifactAccounts.signedIn(accounts, store: id, as: identity)
         accounts = change.accounts
@@ -569,8 +569,8 @@ final class ArtifactCenter: ObservableObject {
 
     func refreshNames() {
         Task.detached(priority: .utility) {
-            let names = Self.claudeNamesOnThisMac()
-            await MainActor.run { self.claudeNames = names }
+            let claudes = Self.claudesOnThisMac()
+            await MainActor.run { if self.claudes != claudes { self.claudes = claudes } }
         }
     }
 
@@ -579,7 +579,7 @@ final class ArtifactCenter: ObservableObject {
     func organization(of id: UUID) async throws -> String {
         var account = account(id) ?? ArtifactAccount(id: id)
         if account.org == nil || account.email == nil || account.organizations == nil {
-            let identity = try await session(id).identity()
+            let identity = ArtifactAccounts.starting(try await session(id).identity(), among: claudes)
             account.email = identity.email
             account.accountUuid = identity.accountUuid
             account.org = ArtifactAccounts.organization(chosen: account.org, among: identity)
@@ -943,17 +943,16 @@ final class ArtifactCenter: ObservableObject {
     }
 
     /// Off the main thread: each Claude's account is read out of its profile.
-    nonisolated static func claudeNamesOnThisMac() -> [String: String] {
-        var names: [String: String] = [:]
+    nonisolated static func claudesOnThisMac() -> [ClaudeHere] {
         let main = (Graft.mainProfile, "Claude")
         let saved = (try? Data(contentsOf: Graft.shortcutsFile))
             .flatMap { try? JSONDecoder().decode([Shortcut].self, from: $0) } ?? []
         let shortcuts = saved.map { ($0.profileDir, $0.name) }
-        for (profile, name) in [main] + shortcuts {
-            guard let uuid = Graft.account(of: profile), names[uuid] == nil else { continue }
-            names[uuid] = name
+        return ([main] + shortcuts).compactMap { profile, name in
+            Graft.account(of: profile).map {
+                ClaudeHere(name: name, account: $0, organization: Graft.usage(of: profile)?.organization)
+            }
         }
-        return names
     }
 }
 
