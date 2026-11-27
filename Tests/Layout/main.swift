@@ -461,6 +461,8 @@ for page in pages {
                               "\(place): the week's figure is drawn")
                         check(element(scope + "shared-usage.add", in: tree) != nil,
                               "\(place): adding an account can be asked for by name")
+                        check(element(scope + "shared-usage-info.caution", in: tree)?.pressable == true,
+                              "\(place): the caution about plan terms sits beside the heading and opens")
                     }
                     if page.selection == ContentView.mainProfileID {
                         let lent = scope + "lender.\(shortcut.profileDir.lastPathComponent)"

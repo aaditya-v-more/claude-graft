@@ -260,6 +260,8 @@
 "The relay could not be started." = "The relay could not be started.";
 "The relay's certificate could not be made: %@" = "The relay's certificate could not be made: %@";
 "Shared usage" = "Shared usage";
+"Anthropic's terms for Claude plans may not allow one person to combine subscriptions this way. Read them before adding an account." = "Anthropic's terms for Claude plans may not allow one person to combine subscriptions this way. Read them before adding an account.";
+"Caution about %@" = "Caution about %@";
 "The Code tab in this Claude can be answered by the accounts added here. A new conversation goes to the first that has room, in the order set under Accounts, and stays on that account until it has no room left or you move it. Chats, artifacts, connectors and Claude in Chrome stay with this Claude's own account, and the Chat tab is never shared.\n\nA request answered by another account carries the conversation to that account." = "The Code tab in this Claude can be answered by the accounts added here. A new conversation goes to the first that has room, in the order set under Accounts, and stays on that account until it has no room left or you move it. Chats, artifacts, connectors and Claude in Chrome stay with this Claude's own account, and the Chat tab is never shared.\n\nA request answered by another account carries the conversation to that account.";
 "Sharing usage needs macOS 15 or later." = "Sharing usage needs macOS 15 or later.";
 "Add an Account" = "Add an Account";

@@ -24,6 +24,11 @@ struct SharedUsageSection: View {
         account.
         """)
 
+    static let caution = L10n.text("""
+        Anthropic's terms for Claude plans may not allow one person to combine \
+        subscriptions this way. Read them before adding an account.
+        """)
+
     var body: some View {
         Section {
             if !UsagePoolController.isSupported {
@@ -48,7 +53,8 @@ struct SharedUsageSection: View {
         } header: {
             // Adding is in the heading, where it belongs to the whole list
             // and costs no row of its own.
-            SectionHeader(title: "Shared usage", info: Self.explanation, id: "shared-usage-info") {
+            SectionHeader(title: "Shared usage", info: Self.explanation, id: "shared-usage-info",
+                          caution: Self.caution) {
                 if UsagePoolController.isSupported { headerTrailing }
             }
         }

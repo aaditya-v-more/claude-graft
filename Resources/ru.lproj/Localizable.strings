@@ -260,6 +260,8 @@
 "The relay could not be started." = "Не удалось запустить ретранслятор.";
 "The relay's certificate could not be made: %@" = "Не удалось создать сертификат ретранслятора: %@";
 "Shared usage" = "Общие лимиты";
+"Anthropic's terms for Claude plans may not allow one person to combine subscriptions this way. Read them before adding an account." = "Условия Anthropic для тарифов Claude могут не разрешать одному человеку так объединять подписки. Прочитайте их, прежде чем добавлять учётную запись.";
+"Caution about %@" = "Предупреждение: %@";
 "The Code tab in this Claude can be answered by the accounts added here. A new conversation goes to the first that has room, in the order set under Accounts, and stays on that account until it has no room left or you move it. Chats, artifacts, connectors and Claude in Chrome stay with this Claude's own account, and the Chat tab is never shared.\n\nA request answered by another account carries the conversation to that account." = "На запросы вкладки Code в этом Claude могут отвечать добавленные здесь учётные записи. Новый разговор уходит первой, у которой есть запас, в порядке, заданном в разделе «Учётные записи», и остаётся у неё, пока у неё не кончится запас или вы его не перенесёте. Чаты, артефакты, коннекторы и Claude in Chrome остаются у собственной учётной записи этого Claude, а вкладка Chat не делится никогда.\n\nЗапрос, на который отвечает другая учётная запись, передаёт ей разговор.";
 "Sharing usage needs macOS 15 or later." = "Для общих лимитов нужна macOS 15 или новее.";
 "Add an Account" = "Добавить учётную запись";

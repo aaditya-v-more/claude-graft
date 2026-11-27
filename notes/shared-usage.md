@@ -58,6 +58,13 @@ accounts are used in and each one's Auto-start switch, Claudes included. The dro
 show the ones no Claude here is signed in to, under the Claudes; one that is
 also a Claude is that Claude's row already.
 
+**The plan terms are said once, behind a symbol.** Anthropic's terms for Claude
+plans may not allow one person to combine subscriptions this way. That sentence
+closed the heading's explanation until 25 November 2026, was taken out, and came
+back three days later at the owner's asking as a triangle beside the ⓘ, opening
+the sentence alone: what it is, with nothing added about consequences. It is
+left out of What's New and the release notes.
+
 ## Reaching Claude Code
 
 **Claude Code is reached through a proxy because nothing else gets in.** Desktop
