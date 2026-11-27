@@ -834,7 +834,8 @@ check(element(second + "refresh-usage", in: rowTree)?.name
 let fiveHours = element(second + "five-hour", in: rowTree)
 check(fiveHours?.role == kAXProgressIndicatorRole && fiveHours?.name == L10n.text("5 hours")
         && fiveHours?.value.hasPrefix(L10n.format("%1$ld%% used, resets in %2$@", 6, "")) == true,
-      "a usage bar is read as one progress bar: what it measures, how much is used and when it resets")
+      "a usage bar is read as one progress bar: what it measures, how much is used and when it resets "
+        + "(\(fiveHours.map { "\($0.described) “\($0.value)”" } ?? "not found"))")
 let account = element(second + "account", in: rowTree)
 check(account?.name == "Claude 2"
         && account?.value == "Max, \(L10n.text("Not running"))",
