@@ -730,11 +730,13 @@ final class UsagePoolController: ObservableObject {
 
     var orderIsSet: Bool { sharing.first != nil }
 
-    var startsAtHome: Bool { sharing.ownFirst ?? true }
+    /// Off unless asked for: a new conversation goes by the order, which
+    /// is what the Accounts page shows and what people take it to mean.
+    var startsAtHome: Bool { sharing.ownFirst ?? false }
 
     func setStartsAtHome(_ on: Bool) {
         var next = sharing
-        next.ownFirst = on ? nil : false
+        next.ownFirst = on ? true : nil
         save(next)
     }
 

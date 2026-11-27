@@ -12,9 +12,9 @@ not said no, its five-hour window is under 98% and its week under 99%, a window
 whose reset has passed counting as empty. Those with room go in the order
 somebody set under Accounts, for the accounts it names, and then by the
 soonest weekly reset, an unknown reset after every known one, and a tie to the
-sender, since staying costs nothing. The sender's own account goes first while it has room, unless
-that was turned off (below), when it takes its place in the order; it goes last
-when it has none; the request then
+sender, since staying costs nothing. The sender's own account takes its place
+in that order, or goes first while it has room where that was asked for
+(below); it goes last when it has none; the request then
 goes out as Claude sent it and the service decides.
 
 Whatever its rank, the sender's account is also the last attempt, asked a
@@ -69,20 +69,25 @@ replaced: Fable was refused and logged as `credits_required`, a Sonnet
 conversation half a minute later began on that account, and the next Fable one
 was not offered to it.
 
-**A conversation begins in the Claude it was opened in.** Asked for on 26
-November 2026: with the ranking alone deciding, a conversation opened in one
-Claude began on another's account whenever that one's week ended sooner, and
-the dropdown named an account its owner had not expected. Graft now sends
-`ownFirst` with every configuration and `PoolPolicy.order` puts the sender in
-front of the ranking while it has room for the model asked for; a choice from
-the dropdown and the account that already answers still go ahead of it, so
-nothing under way moves. With its own account spent the conversation goes by
-the order as before and stays where it lands, its sender having room again or
-not. The switch is "Keep a conversation in the Claude it started in" in
-Settings, on unless turned off, kept as `ownFirst: false` in
-`usage-sharing.json` and as nothing at all when on. Off is the ranking as it
-was before 2.3.0, which spends first what would be lost first; a relay that is
-told nothing takes it for off.
+**A new conversation goes by the order, unless asked to begin at home.** Twice
+decided. On 26 November 2026 the owner asked that a conversation begin in the
+Claude it was opened in: with the ranking alone deciding it began on another's
+account whenever that one's week ended sooner, and the dropdown named an
+account its owner had not expected. So Graft sends `ownFirst` with every
+configuration and `PoolPolicy.order` puts the sender in front of the ranking
+while it has room for the model asked for; a choice from the dropdown and the
+account that already answers still go ahead of it, so nothing under way moves.
+That shipped in no release as the default. Two days later the same owner
+opened three Opus conversations in Claude, whose week ended on the 30th, and
+asked why they had not begun on Claude 2, whose week ended on the 29th: the
+Accounts page listed Claude 2 first under "Order of use", and the switch, then
+named "Keep a conversation in the Claude it started in", read as the staying
+that happens either way and not as where a new one begins. So the order is the
+default again, as it was through 2.2.1, and the switch is "Start a new
+conversation on its own Claude's account" in Settings, off unless turned on,
+kept as `ownFirst: true` in `usage-sharing.json` and as nothing at all when
+off; a relay that is told nothing takes it for off. What made the first
+complaint was the surprise, and the page and the switch now say the same thing.
 
 **A side chat begins where its conversation is answered.** Asked for on 26
 November 2026. A question asked with `/btw` is a session of its own, so the
@@ -160,8 +165,8 @@ name the relay now counts it by: when a Claude's own login lapses and the same
 account signed in from the pane lends in its place, the name that answered is
 no longer a candidate, and holding it by that name let the conversation go by
 the ranking instead, away from an account that still had room. A request with no reasoning in it
-and nobody known to have answered it — a new conversation — begins at home,
-and goes by the order once home is spent or with that switch off, which is
+and nobody known to have answered it — a new conversation — goes by the
+order, or begins at home where that switch is on, which is
 where sharing spreads the load. A choice from the
 dropdown still moves a held conversation: a person asking is the one move, made
 on purpose, and the conversation then stays on that account. The relay does not
