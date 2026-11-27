@@ -6578,6 +6578,17 @@ do {
         check((try? cache.resourceValues(forKeys: [.isExcludedFromBackupKey]))?.isExcludedFromBackup == true,
               "the helper cache is left out of backups")
 
+        let plist = cache.appending(path: "Notes/Info.plist")
+        try! Data("a Claude".utf8).write(to: plist)
+        let wanted = String(SidebarSync.helperHash(Data("a Claude".utf8)).prefix(20))
+        try! fm.createDirectory(at: cache.appending(path: "\(wanted)/Sidebar.app"), withIntermediateDirectories: true)
+        try! fm.createDirectory(at: cache.appending(path: older), withIntermediateDirectories: true)
+        SidebarSync.clearOldHelpers(in: cache, builtFrom: plist)
+        let cleared = Set((try? fm.contentsOfDirectory(atPath: cache.path)) ?? [])
+        check(cleared.contains(wanted) && !cleared.contains(older) && !cleared.contains(current),
+              "helpers for earlier Claudes go when a Claude is opened, with no helper having to be built first")
+        try! fm.createDirectory(at: cache.appending(path: "\(current)/Sidebar.app"), withIntermediateDirectories: true)
+
         let destination = cache.appending(path: "\(current)/Sidebar.app")
         try! Data("half written".utf8).write(to: destination.appending(path: "leftover"))
         let fresh = cache.appending(path: ".build-new.noindex/Sidebar.app")
