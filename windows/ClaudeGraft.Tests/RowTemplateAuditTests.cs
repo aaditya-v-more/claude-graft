@@ -5,16 +5,18 @@ namespace ClaudeGraft.Tests;
 
 public class RowTemplateAuditTests
 {
-    // A reused row's x:Bind sets IsChecked before Tag, so a Checked or Unchecked
-    // handler in the template writes the new row's value into the old row's setting.
-    [Fact(DisplayName = "keep-warm saves only on a person's toggle, never on a binding's change")]
-    public void KeepWarmSavesOnClickOnly()
+    // A new card's switch has no focus on its first click, so a focus check
+    // dropped that click and the setting came back off on the next rebuild.
+    [Fact(DisplayName = "keep-warm saves every flip that disagrees with the shown Claude, with no focus check")]
+    public void KeepWarmSavesWithoutFocus()
     {
         var xaml = File.ReadAllText(Path.Combine(WindowsRoot(), "ClaudeGraft", "MainPage.xaml"));
         Assert.DoesNotMatch(@"\s(Un)?Checked=""", xaml);
-        Assert.Contains("Toggled=\"KeepWarm_Toggled\"", xaml);
+        Assert.Contains("Toggled=\"KeepWarm_Toggled\" />", xaml);
         var code = File.ReadAllText(Path.Combine(WindowsRoot(), "ClaudeGraft", "MainPage.xaml.cs"));
-        Assert.Contains("box.FocusState == FocusState.Unfocused) return;", code);
+        Assert.Contains("sender is not ToggleSwitch { DataContext: ShortcutRow row } box", code);
+        Assert.Contains("KeepWarmSwitch.ToSave(box.IsOn, row.KeepWarm)", code);
+        Assert.DoesNotContain("box.FocusState", code);
     }
 
     [Fact(DisplayName = "the sidebar's open button goes through the page's open, never straight to the launcher")]
