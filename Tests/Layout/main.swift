@@ -1776,6 +1776,8 @@ do {
     ten.orderBack(nil)
     settle()
     listed.view.layoutSubtreeIfNeeded()
+    // On macOS 26 the toolbar shows its overflow button until a second pass.
+    settle()
     let tenTree = checkAccessibility(ten, surface: ControlSurface.window, "ten Claudes")
     let rows = tenTree.filter {
         $0.identifier.hasPrefix("window.sidebar.") && !$0.identifier.hasSuffix(".back")
