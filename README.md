@@ -121,14 +121,18 @@ an account lent to several Claudes has the one switch wherever it is listed.
 
 ## Dictation in any app
 
-Claude's dictation, outside Claude. Turn on **Dictate into any app** in
-Settings on the Mac, hold the right Command key and speak, and when you let go the
-words are typed wherever your cursor is: a document, a browser, a chat.
+Claude's dictation, outside Claude. Turn on **Dictate into any app** under
+**Dictation** on the Mac, hold the right Command key and speak. The words show
+in a small panel as you say them, and when you let go they are typed wherever
+your cursor is: a document, a browser, a chat.
 Tap the key twice to keep recording with your hands free, and press it once
 more when you are done; Escape throws the recording away. A recording stops by
 itself after ten minutes, or after a long silence when nobody is holding the
 key, and nothing is ever typed into a password field. The key is yours to
-choose, should the right Command key be one you already lean on for shortcuts.
+choose, should the right Command key be one you already lean on for shortcuts,
+and what you said can be left on the clipboard as well if you ask for that.
+**History**, off until you turn it on, keeps the words of your last ten to a
+thousand dictations on your Mac to find and copy again; the sound is never kept.
 macOS asks for Accessibility and the microphone when you switch it on.
 
 ## Artifacts, projects and chats
@@ -156,7 +160,7 @@ picks which one to show from its own menu.
 Graft borrows each Claude's login rather than copying it, and its tokens go to
 Anthropic alone. Dictation listens only while you hold or have double-tapped
 its key; what it hears goes to Anthropic to be written down, with the login of
-a Claude you are signed in to, and Graft keeps neither the sound nor the words. It never touches an app it did not make. Updating keeps every
+a Claude you are signed in to. Graft never keeps the sound, and keeps the words only if you turn on its history, which stays on your Mac and is deleted when you turn it off. It never touches an app it did not make. Updating keeps every
 Claude, setting and chat exactly as it was.
 
 <img src="docs/images/11-settings.png" width="420" alt="Graft's Settings">
@@ -164,7 +168,9 @@ Claude, setting and chat exactly as it was.
 ## Help
 
 The Help menu has the guide, what's new, a way to report a problem and to
-reach me.
+reach me. On the Mac the window's sidebar has **How to Use Graft**, which walks
+through each part of the app in pictures, and **Settings**, with the same
+switches as the Settings window.
 
 <img src="docs/images/12-help-menu.png" width="450" alt="Graft's Help menu">
 

@@ -8,15 +8,18 @@ Put back: turn **Dictate into any app** off, and in System Settings › Privacy 
 Security remove Claude Graft from Accessibility and from Microphone if it was
 not there before.
 
-1. Open Graft's Settings and turn on **Dictate into any app**.
+1. Open Graft's window, choose **Dictation** in the sidebar and turn on
+   **Dictate into any app**.
    Expect: macOS asks for Accessibility and for the microphone. Allow both.
    The line under the key reads "Hold to speak, tap twice to keep recording".
    Until both are allowed it says which is missing, in orange, with a button
    that opens the right page of System Settings.
 2. Click into TextEdit. Hold right Command, say "the quick brown fox", let go.
-   Expect: a small pill at the bottom of the screen says "Listening…" while the
-   key is down and "Writing it down…" after. Within about two seconds the
-   sentence is typed in TextEdit. Focus never left TextEdit.
+   Expect: a small pill at the bottom of the screen says "Listening…" and then
+   shows the words as they are said, changing as they are corrected, and
+   grows upward as they run to more lines rather than cutting them short. On
+   letting go the sentence is typed in TextEdit within about two seconds, as
+   the pill last showed it. Focus never left TextEdit.
 3. Hold right Command and say "jumps over the lazy dog". Let go.
    Expect: the words follow the first sentence with one space between.
 4. Tap right Command twice quickly, take your hands off the keyboard, and speak
@@ -42,7 +45,8 @@ not there before.
     back on.
     Expect: within about ten seconds the pill says Anthropic could not be
     reached. Nothing is typed, and the next recording works once Wi-Fi is back.
-11. Change the key to Right Option in Settings and repeat step 2 with it.
+11. Change the key to Right Option on the Dictation page and repeat step 2
+    with it.
     Expect: Right Option dictates and right Command no longer does.
 12. Tap the key twice, speak for a few seconds, then lock the screen. Unlock.
     Expect: the recording is gone, nothing is typed, and the key works again.
@@ -51,7 +55,11 @@ not there before.
     instead of pressing Escape.
     Expect: after Escape nothing is typed. After the click nothing is typed in
     either app, and the pill says the words are on the clipboard.
-14. Optional, ten minutes: tap the key twice and read aloud until it stops.
+14. Copy any word in TextEdit. Dictate a sentence and paste.
+    Expect: the copied word is pasted, not the sentence. Turn on **Also copy
+    what was said to the clipboard**, dictate another sentence and paste.
+    Expect: that sentence is typed once and pasted once. Turn the switch off.
+15. Optional, ten minutes: tap the key twice and read aloud until it stops.
     Expect: a countdown over the last 30 seconds, then everything said is typed.
 
 Pass when: held and hands-free recordings both type what was said where the

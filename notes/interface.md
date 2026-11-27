@@ -55,6 +55,40 @@ once, since its window closes before the item has been placed, so it asks again
 `placementGrace` later and puts the window up if the item is still out of
 reach.
 
+## The sidebar and its pages
+
+**Every Claude is behind one sidebar row, which opens a list of them.** A row
+each, two lines tall, put the pages under them out of sight once there were a
+handful, and people run ten. Among the pages the row is tagged
+`ContentView.claudesID`, and `pageSelection` lights it for whichever Claude is
+showing. Choosing it sets `listsClaudes`, and the sidebar becomes `claudeList`:
+All Pages as its heading, which goes back, then every Claude on one line with its own icon, what its
+second line used to say now its tooltip, and New Shortcut under them. Ten fit
+the default window without scrolling. `selection` still holds a Claude's own
+id throughout, so everything that selects one is unchanged, and deleting the
+Claude being shown goes back to Claude, never to nothing.
+
+Two things were tried first and are not to be tried again. A row of chips
+above the page put the fullest page 36 points past the bottom of the default
+window; segments in the titlebar fitted five Claudes and no more. And the
+Claudes row once carried its count as a `.badge`, applied after `.tag`: the
+row then took no selection at all, so a click on it did nothing and it never
+lit. The count is drawn in the row itself, and the row also takes the click
+with a tap gesture, since a row already lit says nothing when clicked again.
+
+**Settings is a page as well as a window.** The Settings scene is reached only
+by ⌘, or the app menu, which somebody who lives in the menu bar never opens.
+`SettingsView(asPage: true)` is the same rows in the main window; the scene
+stays, since a Mac app is expected to answer ⌘,. Dictation's switches are on
+its own page and on neither.
+
+**The guide is drawn, not photographed.** `GuideView` shows one subject at a
+time so it fits one view as every page must, and `GuidePicture` draws each
+picture from shapes, so it follows the appearance, the accent colour and the
+language, and no screenshot goes stale. Every step names a control by the
+label it has in the app; change a label and the step that names it changes
+with it.
+
 ## SwiftUI and accessibility
 
 **The profile selector is a `NavigationSplitView`, and the notices sit inside

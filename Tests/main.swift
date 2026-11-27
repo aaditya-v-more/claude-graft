@@ -9407,22 +9407,42 @@ do {
 
     var heard = DictationTranscript()
     heard.take(.interim("the quick"))
-    check(heard.isEmpty && heard.preview == "the quick", "a guess is shown and not yet counted as said")
+    check(heard.spoken == "the quick" && heard.settled.isEmpty, "a guess is shown while it forms")
     heard.take(.final("The quick brown fox."))
+    check(heard.spoken == "The quick brown fox.", "and its correction takes the guess's place")
     heard.take(.endpoint)
+    heard.take(.interim("jumps"))
     heard.take(.final("  Jumps\nover.  "))
-    check(heard.settled == "The quick brown fox. Jumps over.",
+    check(heard.spoken == "The quick brown fox. Jumps over.",
           "utterances are joined in order on one line, since a line break typed into a chat sends it")
+    heard.take(.endpoint)
     heard.take(.final("The quick brown fox. Jumps over. The end."))
-    check(heard.settled == "The quick brown fox. Jumps over. The end.",
+    check(heard.spoken == "The quick brown fox. Jumps over. The end.",
           "a service that repeats everything so far is not typed twice")
     heard.take(.final("   "))
-    check(heard.settled.hasSuffix("The end."), "and an empty utterance adds nothing")
+    check(heard.spoken.hasSuffix("The end."), "and an empty correction leaves what was heard")
     var short = DictationTranscript()
     short.take(.final("No"))
+    short.take(.endpoint)
     short.take(.final("Nothing else"))
-    check(short.settled == "No Nothing else",
+    check(short.spoken == "No Nothing else",
           "an utterance that only begins with the letters of the last one is not taken for a repeat of it")
+    var revised = DictationTranscript()
+    revised.take(.final("Their going home."))
+    revised.take(.final("They're going home."))
+    check(revised.spoken == "They're going home.", "a second correction of the same utterance replaces the first")
+    var unsettled = DictationTranscript()
+    unsettled.take(.final("First."))
+    unsettled.take(.interim("sec"))
+    check(unsettled.spoken == "First. sec",
+          "a guess after a correction begins the next utterance, and the corrected one is kept")
+    var unfinished = DictationTranscript()
+    unfinished.take(.interim("only a guess"))
+    check(unfinished.spoken == "only a guess", "words the service never got to correct are still typed")
+    check(unsettled.guesses == 1 && unsettled.corrections == 1 && unfinished.guesses == 1 && unfinished.corrections == 0,
+          "guesses and corrections are counted apart, for a log that may not hold the words")
+    check(DictationWire.request(token: "t", language: "en").url?.query?.contains("forward_interims=typed") == true,
+          "the service is asked for its guesses as they form, which is what the pill shows")
 
     check(DictationText.insertion("hello", before: "word", afterOwn: false) == " hello"
             && DictationText.insertion("hello", before: "word ", afterOwn: false) == "hello"
@@ -9455,6 +9475,8 @@ do {
     let fresh = UserDefaults(suiteName: "graft-dictation-\(UUID().uuidString)")!
     check(!AppSettings(defaults: fresh).dictationEnabled && AppSettings(defaults: fresh).dictationKey == 54,
           "dictation is off until somebody turns it on, and its key is Right Command")
+    check(!AppSettings(defaults: fresh).dictationCopies, "nothing is copied to the clipboard until that is asked for")
+    check(AppSettings(defaults: fresh).dictationHistory == 0, "no history is kept until somebody asks for one")
     fresh.set(4, forKey: "dictationKey")
     check(AppSettings(defaults: fresh).dictationKey == 54, "a stored key that types is not taken")
 
@@ -9469,7 +9491,26 @@ do {
           "the login it borrows goes out through the session that writes nothing down")
     check(parts.allSatisfy { part in
               !["write(to", "FileHandle", "AVAudioFile", "FileManager", "UserDefaults"].contains { part.contains($0) } },
-          "nothing said, heard or written down is kept on disk")
+          "nothing said, heard or written down is kept on disk by what records, sends or types it")
+    let keeping = read("Sources/App/DictationHistory.swift")
+    check(!keeping.isEmpty && !["AVAudio", "pcm", "samples", "Diagnostics"].contains { keeping.contains($0) }
+            && parts[4].contains("if !place.isPassword { Shared.dictationHistory.add(words, keeping: kept) }"),
+          "the history holds words alone, never sound, and nothing said at a password field")
+    let store = URL(fileURLWithPath: NSTemporaryDirectory()).appending(path: "graft-history-\(UUID().uuidString).json")
+    let history = DictationHistory(file: store)
+    history.add("never kept", keeping: 0)
+    check(history.entries.isEmpty && !FileManager.default.fileExists(atPath: store.path),
+          "with history off nothing is kept, and no file is made")
+    for word in ["one", "two", "three"] { history.add(word, keeping: 2) }
+    check(history.entries.map(\.words) == ["three", "two"], "the history keeps the newest, as many as were asked for")
+    let mode = (try? FileManager.default.attributesOfItem(atPath: store.path)[.posixPermissions] as? Int) ?? 0
+    check(DictationHistory(file: store).entries.map(\.words) == ["three", "two"] && mode == 0o600,
+          "it is read back on the next launch, from a file only its owner can read")
+    history.remove(history.entries[0].id)
+    check(history.entries.map(\.words) == ["two"], "one entry can be taken out")
+    history.keep(0)
+    check(history.entries.isEmpty && !FileManager.default.fileExists(atPath: store.path),
+          "turned off, what was kept is deleted and the file with it")
     check(parts.joined().components(separatedBy: "\n").filter { $0.contains("Diagnostics.note") }
             .allSatisfy { !$0.contains("words") && !$0.contains("text") && !$0.contains("token") },
           "and neither the words nor the login reach the diagnostics log")
@@ -9490,8 +9531,19 @@ do {
     check(read("Resources/Info.plist").contains("<key>NSMicrophoneUsageDescription</key>"),
           "the bundle says why it wants the microphone, without which macOS ends the app that asks")
     let app = read("Sources/App/ClaudeGraftApp.swift")
-    check(app.contains("DictationControl()") && app.contains("Shared.dictation.start(settings: Shared.settings)"),
-          "Settings carries the switch and the key, and the launch starts listening for it")
+    let page = read("Sources/App/DictationView.swift")
+    check(page.contains("DictationControl()") && !app.contains("DictationControl()")
+            && app.contains("Shared.dictation.start(settings: Shared.settings)"),
+          "dictation's own page carries the switch and the key, and the launch starts listening for it")
+    check(page.contains("$settings.dictationCopies")
+            && parts[4].contains("if typed, copies { DictationTyping.copy(words) }"),
+          "words that were typed go to the clipboard too only where that was asked for")
+    let window = read("Sources/App/ContentView.swift")
+    check(window.contains(".tag(Self.claudesID)") && window.contains("if listsClaudes { claudeList } else { pageList }"),
+          "among the pages every Claude is behind one row, which opens a list of them")
+    check(["dictationID", "settingsID", "guideID"].allSatisfy { window.contains("tag: Self.\($0)") }
+            && window.contains("SettingsView(asPage: true)"),
+          "dictation, the settings and the guide each have a page the sidebar leads to")
 }
 
 print("\n\(checks - failures)/\(checks) checks passed")

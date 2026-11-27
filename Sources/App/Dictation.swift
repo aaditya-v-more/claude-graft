@@ -281,6 +281,8 @@ enum DictationWire {
             URLQueryItem(name: "endpointing_ms", value: "300"),
             URLQueryItem(name: "utterance_end_ms", value: "1000"),
             URLQueryItem(name: "language", value: language),
+            // Without it the service sends nothing until an utterance is over.
+            URLQueryItem(name: "forward_interims", value: "typed"),
         ]
         // The stream's own clock gives up on a connection that will not open.
         // This one also counts silence from the service, which sends nothing while it listens.
@@ -325,28 +327,48 @@ enum DictationWire {
     }
 }
 
-/// What has been heard so far, in the order it was said.
+/// What has been heard so far, in the order it was said. Kept as Claude
+/// Desktop keeps it: each guess, then its correction, replaces the utterance
+/// being said, and the service's endpoint settles it.
 struct DictationTranscript: Equatable {
     private(set) var settled = ""
-    private(set) var interim = ""
+    private(set) var open = ""
+    private var openIsCorrected = false
+    /// How many of each arrived, which is all the log may say of them.
+    private(set) var guesses = 0
+    private(set) var corrections = 0
 
-    var isEmpty: Bool { settled.isEmpty }
-    /// What a person watching should see: the settled words and the guess.
-    var preview: String { Self.tidy(settled + " " + interim) }
+    /// Everything said, the open utterance included: what is shown, and what is typed.
+    var spoken: String {
+        guard !open.isEmpty else { return settled }
+        // A service that repeats everything so far must not be typed twice.
+        return Self.repeats(settled, in: open) ? open : Self.tidy(settled + " " + open)
+    }
 
     mutating func take(_ frame: DictationWire.Frame) {
         switch frame {
         case .interim(let text):
-            interim = text
+            // A guess after a correction is the next utterance beginning.
+            if openIsCorrected { settle() }
+            open = Self.tidy(text)
+            guesses += 1
         case .final(let text):
             let words = Self.tidy(text)
-            interim = ""
             guard !words.isEmpty else { return }
-            // A service that repeats everything so far must not be typed twice.
-            settled = Self.repeats(settled, in: words) ? words : Self.tidy(settled + " " + words)
-        case .endpoint, .failure, .other:
+            open = words
+            openIsCorrected = true
+            corrections += 1
+        case .endpoint:
+            settle()
+        case .failure, .other:
             break
         }
+    }
+
+    private mutating func settle() {
+        settled = spoken
+        open = ""
+        openIsCorrected = false
     }
 
     /// "No" is not said again by "Nothing else": the repeat has to end on a word.

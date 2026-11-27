@@ -59,7 +59,6 @@
 "No Claude Desktop login was found for this profile." = "Для этого профиля не найдены данные входа Claude Desktop.";
 "No Claude profiles yet" = "Профилей Claude пока нет";
 "No login is stored for this profile yet. Open it once and sign in, then a session can be started from here." = "Для этого профиля ещё не сохранены данные входа. Откройте его и войдите в учётную запись, после чего сессию можно будет запускать отсюда.";
-"No shortcuts yet" = "Ярлыков пока нет";
 "No usage reported yet" = "Данные об использовании пока не получены";
 "Not created yet" = "Ещё не создан";
 "Not running" = "Не запущен";
@@ -88,7 +87,6 @@
 "Removed shortcut" = "Удалённый ярлык";
 "Research" = "Исследования";
 "Resets in %@" = "Сброс через %@";
-"Select a shortcut" = "Выберите ярлык";
 "Selected" = "Выбрано";
 "Sends one short message to this account so its five-hour window opens. Nothing appears on screen.\n\nIt uses that profile's own login, borrowed the same way the usage figures are, so each account can be started separately." = "Отправляет одно короткое сообщение от этой учётной записи, чтобы открыть её пятичасовой лимит. На экране ничего не появляется.\n\nИспользуются собственные данные входа профиля — так же, как при получении данных об использовании, — поэтому каждую учётную запись можно запускать отдельно.";
 "Sends one short message to this account to open its five-hour window" = "Отправляет одно короткое сообщение от этой учётной записи, чтобы открыть её пятичасовой лимит";
@@ -503,7 +501,6 @@
 "Remove %@" = "Убрать %@";
 "Remove from the group" = "Убрать из группы";
 "Use Continue with email and the code claude.ai sends you" = "Выберите «Continue with email» и введите код из письма claude.ai";
-"Each shortcut opens Claude on its own account with its own chats,\nand can borrow another account's Claude Code chats if you choose." = "Каждый ярлык открывает Claude со своей учётной записью и своими чатами\nи по вашему выбору может использовать чаты Claude Code другой учётной записи.";
 "Graft signs in to claude.ai once for each account, in a window of its own, and keeps that sign-in in a web store of its own for that account. One sign-in serves Artifacts, Projects and Search Chats alike, and tells the menu bar the usage of the same account where it is signed in under Shared usage. It is used only by claude.ai's own pages and is never read by Graft or sent anywhere else. Signing out deletes it.\n\nSign in with an emailed code: enter the account's address on claude.ai's page, choose Continue with email, and type the code claude.ai sends. That is the one way of signing in Graft supports.\n\nGroups are kept by Graft on this Mac. Sharing with a group invites each person with the role the group gives them, and claude.ai emails each one, as it does when you invite them from the artifact's own Share panel. Where an artifact takes no commenters or editors, they are invited with the most it does take, never more." = "Graft входит в claude.ai один раз для каждого аккаунта, в собственном окне, и хранит этот вход в отдельном веб-хранилище этого аккаунта. Один вход служит «Артефактам», «Проектам» и «Поиску по чатам», а ещё сообщает в строку меню расход того же аккаунта, если он добавлен в «Общие лимиты». Им пользуются только страницы самого claude.ai; Graft его не читает и никуда больше не отправляет. Выход из аккаунта удаляет его.\n\nВходите по коду из письма: введите адрес аккаунта на странице claude.ai, выберите «Continue with email» и введите код, который пришлёт claude.ai. Graft поддерживает только этот способ входа.\n\nГруппы Graft хранит на этом Mac. Поделиться с группой — значит пригласить каждого с ролью, которую ему даёт группа; claude.ai отправит каждому письмо, как при приглашении из панели «Поделиться» самого артефакта. Если артефакт не принимает комментаторов или редакторов, человек получит наибольшую из доступных ролей, но не больше.";
 
 /* Help menu */
@@ -570,7 +567,7 @@
 "More than one organization" = "Несколько организаций";
 "An address in several organizations chooses which one Artifacts, Projects and Search Chats show." = "Если адрес состоит в нескольких организациях, можно выбрать, какую из них показывают «Артефакты», «Проекты» и «Поиск по чатам».";
 "Dictation in any app" = "Диктовка в любом приложении";
-"Hold the right Command key and speak, and the words are typed where the cursor is. Off until you switch it on in Settings." = "Удерживайте правую Command и говорите: слова набираются там, где курсор. Включается в настройках.";
+"Hold the right Command key and speak, and the words are typed where the cursor is. Off until you switch it on under Dictation." = "Удерживайте правую Command и говорите: слова набираются там, где курсор. Включается в «Диктовке».";
 
 /* Dictation */
 "Dictation" = "Диктовка";
@@ -594,7 +591,7 @@
 "Nothing was heard." = "Ничего не удалось расслышать.";
 "Couldn't type here, so the words are on the clipboard." = "Сюда напечатать не удалось, поэтому текст скопирован в буфер обмена.";
 "You moved to another app, so the words are on the clipboard." = "Вы перешли в другое приложение, поэтому слова в буфере обмена.";
-"Dictation needs the microphone. Open Settings in Claude Graft to allow it." = "Диктовке нужен микрофон. Откройте настройки Claude Graft, чтобы разрешить его.";
+"Dictation needs the microphone. Open Dictation in Claude Graft to allow it." = "Диктовке нужен микрофон. Откройте «Диктовку» в Claude Graft, чтобы разрешить его.";
 "A password field has the keyboard, so dictation waits until you leave it." = "Клавиатура занята полем пароля, поэтому диктовка подождёт, пока вы из него не выйдете.";
 "Dictation needs the microphone. Allow Claude Graft in System Settings › Privacy & Security › Microphone." = "Диктовке нужен микрофон. Разрешите Claude Graft в «Системные настройки» › «Конфиденциальность и безопасность» › «Микрофон».";
 "No microphone could be started for dictation." = "Не удалось включить микрофон для диктовки.";
@@ -606,3 +603,60 @@
 "Dictation lost its connection." = "Диктовка потеряла соединение.";
 "Dictation stopped: %@" = "Диктовка остановлена: %@";
 "The dictation service ran into a problem." = "В сервисе диктовки произошла ошибка.";
+"Claudes" = "Все Claude";
+"Every Claude on this Mac" = "Все Claude на этом Mac";
+"Speak into any app" = "Говорите в любое приложение";
+"Settings" = "Настройки";
+"Menu bar, updates and login" = "Строка меню, обновления и вход";
+"How to Use Graft" = "Как пользоваться Graft";
+"A guide in pictures" = "Руководство в картинках";
+"Also copy what was said to the clipboard" = "Также копировать сказанное в буфер обмена";
+"The words are typed as before, and are on the clipboard as well, to paste again somewhere else." = "Слова набираются как прежде и вдобавок остаются в буфере обмена, чтобы вставить их ещё где-нибудь.";
+"How to use it" = "Как пользоваться";
+"What is heard goes to Anthropic to be written down, with the login of a Claude you are signed in to. Claude Graft never keeps the sound, and keeps the words only if you turn History on, on this Mac alone." = "Услышанное отправляется в Anthropic для расшифровки, со входом того Claude, в который вы вошли. Claude Graft никогда не хранит звук, а слова хранит, только если вы включите «Историю», и только на этом Mac.";
+"Hold and speak" = "Удерживайте и говорите";
+"Let go, and the words are typed where the cursor is." = "Отпустите — и слова будут набраны там, где курсор.";
+"Tap twice" = "Нажмите дважды";
+"Keeps recording with your hands free. Press once more to finish." = "Запись идёт без рук. Нажмите ещё раз, чтобы закончить.";
+"Escape" = "Escape";
+"Throws the recording away." = "Отменяет запись.";
+"A Claude for every account" = "Свой Claude для каждого аккаунта";
+"Accounts and sessions" = "Аккаунты и сессии";
+"The menu bar" = "Строка меню";
+"Artifacts, projects and chats" = "Артефакты, проекты и чаты";
+"Choose Claudes in the sidebar and press New Shortcut. Give it a name, then press Create Shortcut." = "Выберите «Все Claude» в боковой панели и нажмите «Новый ярлык». Дайте ему имя и нажмите «Создать ярлык».";
+"Graft puts a small app with that name in your Applications folder. Open it and sign in to another account." = "Graft кладёт небольшое приложение с этим именем в папку «Программы». Откройте его и войдите в другой аккаунт.";
+"It stays signed in, and runs beside your other Claudes, so switching accounts never means signing out." = "Вход сохраняется, и он работает рядом с остальными Claude, так что для смены аккаунта не нужно выходить.";
+"A new Claude keeps chats of its own. Under Chats you can have it read another Claude’s Code tab chats instead." = "У нового Claude свои чаты. В разделе «Чаты» можно выбрать, чтобы он читал чаты вкладки Code другого Claude.";
+"Open a Claude’s page and look for Shared usage. Add another of your Claudes, or sign in to another account." = "Откройте страницу Claude и найдите «Общие лимиты». Добавьте другой свой Claude или войдите в другой аккаунт.";
+"Sharing starts the next time that Claude opens, so close it and open it again once." = "Общие лимиты начинают действовать при следующем запуске этого Claude, поэтому закройте его и откройте снова.";
+"When its own account nears the five-hour or weekly limit, the Code tab carries on with the next account’s allowance." = "Когда его аккаунт подходит к пятичасовому или недельному лимиту, вкладка Code продолжает работу за счёт следующего аккаунта.";
+"Only the answers come from the other account. Your chats, files and connectors stay where they are." = "От другого аккаунта приходят только ответы. Ваши чаты, файлы и коннекторы остаются на месте.";
+"Accounts shows every account once: what it has used, when its windows start again and which Claudes draw on it." = "В «Учётных записях» каждый аккаунт показан один раз: сколько израсходовано, когда окна начнутся заново и какие Claude им пользуются.";
+"Start Session opens an account’s five-hour window with one short message, so it is counting before you need it." = "«Запустить сессию» открывает пятичасовое окно аккаунта одним коротким сообщением, чтобы отсчёт шёл заранее.";
+"Auto-start does that by itself each time the window closes. It is off until you switch it on, one account at a time." = "«Автозапуск» делает это сам каждый раз, когда окно закрывается. Он выключен, пока вы не включите его для нужного аккаунта.";
+"Order of use decides which account is turned to next. Left alone, the one whose week ends soonest goes first." = "«Порядок использования» решает, какой аккаунт будет следующим. По умолчанию первым идёт тот, чья неделя кончается раньше.";
+"The menu bar shows the Claude in front and how much its account has used." = "В строке меню видно, какой Claude на переднем плане и сколько израсходовал его аккаунт.";
+"Click it to see every account’s five-hour and weekly usage side by side, by Claude or by account." = "Нажмите на него, чтобы увидеть пятичасовой и недельный расход каждого аккаунта рядом, по Claude или по аккаунтам.";
+"Under a Claude that shares usage, pick which account answers each conversation. A tick marks the one in force." = "У Claude с общими лимитами можно выбрать, какой аккаунт отвечает в каждом разговоре. Действующий отмечен галочкой.";
+"Closing the window leaves Graft running in the menu bar. Quit Claude Graft, in the same menu, is what ends it." = "Если закрыть окно, Graft продолжит работать в строке меню. Завершает его пункт «Завершить Claude Graft» в том же меню.";
+"Open Artifacts and press Sign In…. The one sign-in serves Artifacts, Projects and Search Chats alike." = "Откройте «Артефакты» и нажмите «Войти…». Один вход служит и артефактам, и проектам, и поиску по чатам.";
+"Add Account… signs in to a second address. Each page then shows every account’s work in one list." = "«Добавить аккаунт…» выполняет вход со вторым адресом. После этого каждая страница показывает работу всех аккаунтов одним списком.";
+"Search Chats looks through the chats of all of them at once. Open takes you to the one you pick." = "«Поиск по чатам» ищет по чатам всех аккаунтов сразу. «Открыть» переходит к выбранному.";
+"An address in several organizations chooses which one is shown, from its name at the top of the page." = "Адрес, состоящий в нескольких организациях, выбирает, какую показывать: нажмите на его имя вверху страницы.";
+"Open Dictation in the sidebar and turn on Dictate into any app. macOS asks for Accessibility and the microphone." = "Откройте «Диктовку» в боковой панели и включите «Диктовать в любое приложение». macOS попросит разрешения «Универсальный доступ» и «Микрофон».";
+"Put the cursor where the words should go, in any app. Hold the key and speak, and a small panel shows the words as you talk." = "Поставьте курсор туда, где нужен текст, в любом приложении. Удерживайте клавишу и говорите: небольшая панель показывает слова по мере речи.";
+"Let go, and they are typed. Tap the key twice to keep recording with your hands free, and press it once more to finish." = "Отпустите — и они будут набраны. Нажмите клавишу дважды, чтобы запись шла без рук, и ещё раз, чтобы закончить.";
+"Escape throws a recording away. Nothing is ever typed into a password field." = "Escape отменяет запись. В поле пароля ничего не набирается.";
+"All Pages" = "Все страницы";
+"History" = "История";
+"Off" = "Выкл.";
+"The last %ld" = "Последние %ld";
+"Keeps the words of what you dictate, on this Mac, so you can find and copy them again. The sound is never kept. Off, nothing is kept and what was kept is deleted." = "Сохраняет слова продиктованного на этом Mac, чтобы их можно было найти и скопировать снова. Звук не сохраняется никогда. Если выключено, ничего не сохраняется, а сохранённое удаляется.";
+"%ld kept on this Mac" = "Сохранено на этом Mac: %ld";
+"Show History…" = "Показать историю…";
+"Dictation history" = "История диктовки";
+"Nothing has been dictated since History was turned on." = "С момента включения истории ничего не диктовалось.";
+"Copy" = "Скопировать";
+"Remove" = "Удалить";
+"Clear History" = "Очистить историю";

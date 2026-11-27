@@ -84,6 +84,11 @@ final class DictationController: ObservableObject {
         settings.$dictationKey.dropFirst().removeDuplicates().sink { [weak self] code in
             DispatchQueue.main.async { self?.rekey(code) }
         }.store(in: &watching)
+        // Turned down or off, what is over the new count goes at once.
+        Shared.dictationHistory.keep(settings.dictationHistory)
+        settings.$dictationHistory.dropFirst().removeDuplicates().sink { count in
+            DispatchQueue.main.async { Shared.dictationHistory.keep(count) }
+        }.store(in: &watching)
 
         let workspace = NSWorkspace.shared.notificationCenter
         for name in [NSWorkspace.willSleepNotification, NSWorkspace.screensDidSleepNotification,
@@ -104,7 +109,7 @@ final class DictationController: ObservableObject {
         refreshNeed()
     }
 
-    /// Asked again whenever Settings is looked at: a grant made in System
+    /// Asked again whenever its page is looked at: a grant made in System
     /// Settings tells nobody.
     func refreshNeed() {
         guard settings?.dictationEnabled == true else {
@@ -238,7 +243,7 @@ final class DictationController: ObservableObject {
         switch DictationMicrophone.permission {
         case .authorized: break
         case .notDetermined:
-            refusal = .notice(L10n.text("Dictation needs the microphone. Open Settings in Claude Graft to allow it."))
+            refusal = .notice(L10n.text("Dictation needs the microphone. Open Dictation in Claude Graft to allow it."))
             return
         default:
             refusal = .notice(L10n.text("Dictation needs the microphone. Allow Claude Graft in System Settings › Privacy & Security › Microphone."))
@@ -328,7 +333,7 @@ final class DictationController: ObservableObject {
             DispatchQueue.main.async {
                 guard self.recording === recording else { return }
                 recording.transcript.take(frame)
-                self.preview = recording.transcript.preview
+                self.preview = recording.transcript.spoken
             }
         }
         stream.onEnd = { failure in
@@ -439,14 +444,16 @@ final class DictationController: ObservableObject {
 
     private func streamEnded(_ recording: Recording, _ failure: DictationStream.Failure?) {
         guard self.recording === recording else { return }
-        let words = recording.transcript.settled
+        let words = recording.transcript.spoken
+        let heard = (recording.transcript.guesses, recording.transcript.corrections)
         gesture.ended()
         discard(recording)
         level = -120
         secondsLeft = nil
         preview = ""
         let length = words.count
-        Diagnostics.note("dictation.answered", ["characters": length, "failure": failure?.kind ?? "none"])
+        Diagnostics.note("dictation.answered", ["characters": length, "failure": failure?.kind ?? "none",
+                                                "guesses": heard.0, "corrections": heard.1])
         guard !words.isEmpty else {
             show(failure?.message ?? L10n.text("Nothing was heard."))
             return
@@ -466,6 +473,8 @@ final class DictationController: ObservableObject {
         phase = .transcribing
         let key = self.key
         let last = lastTyped
+        let copies = settings?.dictationCopies == true
+        let kept = settings?.dictationHistory ?? 0
         work.async { [weak self] in
             // The press that ended a hands-free recording may still be down.
             let patience = Date().addingTimeInterval(1)
@@ -474,10 +483,14 @@ final class DictationController: ObservableObject {
             let afterOwn = last.map { $0.app == place.app && Date().timeIntervalSince($0.at) < 45 } ?? false
             let text = DictationText.insertion(words, before: place.before, afterOwn: afterOwn)
             let typed = !place.isPassword && DictationTyping.type(text)
+            if typed, copies { DictationTyping.copy(words) }
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.isDelivering = false
-                Diagnostics.note("dictation.delivered", ["typed": typed, "password": place.isPassword])
+                Diagnostics.note("dictation.delivered",
+                                 ["typed": typed, "password": place.isPassword, "copied": copies || !typed])
+                // What was said at a password field may be the password.
+                if !place.isPassword { Shared.dictationHistory.add(words, keeping: kept) }
                 if typed {
                     self.lastTyped = (place.app, Date())
                     if let trouble { self.show(trouble) } else { self.phase = .idle }
@@ -553,7 +566,8 @@ final class DictationPanel {
     private let panel: NSPanel
 
     init(dictation: DictationController) {
-        panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 480, height: 64),
+        // Room for a long recording's words; all but the pill is clear, and no click lands on it.
+        panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 520, height: DictationIndicator.lines * 18 + 40),
                         styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
         panel.isOpaque = false
         panel.backgroundColor = .clear
@@ -582,20 +596,25 @@ final class DictationPanel {
 struct DictationIndicator: View {
     @ObservedObject var dictation: DictationController
 
+    /// How much of a recording stays in view before its oldest words give way.
+    static let lines: CGFloat = 20
+
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
             symbol
             Text(words)
                 .font(.callout)
-                .lineLimit(2)
+                .lineLimit(Int(Self.lines))
                 .truncationMode(.head)
                 .multilineTextAlignment(.leading)
+                .fixedSize(horizontal: false, vertical: true)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 9)
-        .background(.regularMaterial, in: Capsule())
-        .overlay(Capsule().strokeBorder(Color.primary.opacity(0.15)))
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 17))
+        .overlay(RoundedRectangle(cornerRadius: 17).strokeBorder(Color.primary.opacity(0.15)))
+        // Grows upward from where the pill sits, so a long recording never moves its first line.
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
         .accessibilityElement(children: .combine)
     }
 
@@ -625,14 +644,14 @@ struct DictationIndicator: View {
                 ? L10n.format("Listening. Press %@ to finish.", L10n.text(dictation.key.name))
                 : L10n.text("Listening…")
         case .transcribing:
-            return L10n.text("Writing it down…")
+            return dictation.preview.isEmpty ? L10n.text("Writing it down…") : dictation.preview
         case .notice(let text):
             return text
         }
     }
 }
 
-/// Dictation's rows in Settings: the switch, the key, and whatever macOS has
+/// Dictation's first rows on its page: the switch, the key, and whatever macOS has
 /// yet to allow.
 struct DictationControl: View {
     @EnvironmentObject private var settings: AppSettings
