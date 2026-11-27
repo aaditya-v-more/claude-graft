@@ -3041,6 +3041,16 @@ do {
     try! ManualUpdates.synchronize([later])
     check(read(selected(later))["disableAutoUpdates"] as? Bool == true,
           "a shortcut created after manual mode was enabled is protected too")
+    let gone = Graft.applicationSupport.appending(path: "Claude-Gone")
+    try! ManualUpdates.synchronize([gone])
+    let goneLibrary = try! ManualUpdates.library(for: gone)
+    try! ManualUpdates.release(allBut: profiles + [later])
+    check(!Graft.exists(goneLibrary.deletingLastPathComponent())
+          && !(try! ManualUpdates.readState().changes.values.contains { $0.folder == "Claude-Gone-3p" }),
+          "a deleted shortcut's policy folder and undo record go with it")
+    check(read(selected(later))["disableAutoUpdates"] as? Bool == true
+          && read(configFile)["disableAutoUpdates"] as? Bool == true,
+          "and every Claude that is still here keeps its policy")
     var edited = read(configFile)
     edited["deploymentDisplayName"] = "Renamed while protected"
     write(edited, to: configFile)

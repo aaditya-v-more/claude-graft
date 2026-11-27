@@ -44,6 +44,16 @@ does not rewrite an already protected configuration. Nothing restarts a Claude
 to apply this setting: a staged update in an existing process is precisely why
 the interface says to finish work before reopening it.
 
+**A deleted shortcut takes its policy with it.** The mode writes into
+`<profile>-3p` for every shortcut, and deleting one removed the profile and left
+that folder and its undo record. A Mac found on 27 Nov had ten such folders,
+`Claude-4-3p` to `Claude-13-3p`, from shortcuts made and deleted in one evening.
+`release(allBut:)` restores and forgets every record whose folder belongs to
+neither Claude's own profile nor a shortcut in the list; the app runs it at
+start and after a delete, never a launcher, which knows only its own profile. A
+profile kept when its shortcut went loses the policy too, and gets it back when
+a shortcut adopts it.
+
 **Checking for a release never closes a Claude.** `ClaudeDesktopUpdater` reads
 the public Desktop feed at launch and hourly, whether Claude is running or not.
 It has its own empty profile and device identifier, so checking needs no account
