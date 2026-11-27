@@ -59,6 +59,7 @@ enum Shared {
     static let usagePool = UsagePoolController()
     static let accountSignIn = AccountSignIn(pool: usagePool)
     static let autoSessions = AutoSessions()
+    static let whatsNew = WhatsNewPresenter()
     @MainActor static let artifacts = ArtifactCenter()
     @MainActor static let projects = ProjectCenter(accounts: artifacts)
     @MainActor static let webUsage = WebUsageReader()
@@ -128,8 +129,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var systemIsGoingDown = false
 
     func applicationWillFinishLaunching(_ notification: Notification) {
-        let wantsWindow = UserDefaults.standard.object(forKey: Self.windowOpenKey) as? Bool ?? true
-        Shared.startHidden = !wantsWindow && Shared.settings.showInMenuBar
+        let lastWindow = UserDefaults.standard.object(forKey: Self.windowOpenKey) as? Bool
+        Shared.whatsNew.start(usedBefore: lastWindow != nil)
+        Links.showWhatsNew = { Shared.whatsNew.showAgain() }
+        // An update with something to show opens the window once, however it
+        // was left: the sheet has nowhere else to appear.
+        Shared.startHidden = lastWindow == false && Shared.settings.showInMenuBar
+            && Shared.whatsNew.showing == nil
         // A login launch puts nothing on screen, so there is nobody to read a
         // keychain dialog; the first poll stays quiet and the prompt waits for
         // the window or the dropdown.
