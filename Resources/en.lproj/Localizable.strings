@@ -557,6 +557,18 @@
 "By Claude" = "By Claude";
 "By account" = "By account";
 "By account lists each account once. By Claude lists each Claude with every account it draws on." = "By account lists each account once. By Claude lists each Claude with every account it draws on.";
+"Version %@" = "Version %@";
+"All Release Notes" = "All Release Notes";
+"Continue" = "Continue";
+"A page for every account" = "A page for every account";
+"What each account has used, when its windows reset and which Claudes draw on it, with the order accounts are used in under Shared usage." = "What each account has used, when its windows reset and which Claudes draw on it, with the order accounts are used in under Shared usage.";
+"A shorter dropdown" = "A shorter dropdown";
+"Each account’s usage side by side on one line, listed by Claude or by account." = "Each account’s usage side by side on one line, listed by Claude or by account.";
+"Opens an account’s next five-hour window as soon as the last one closes. Off until you switch it on." = "Opens an account’s next five-hour window as soon as the last one closes. Off until you switch it on.";
+"A conversation stays on its account" = "A conversation stays on its account";
+"Under Shared usage a conversation keeps the account it started on until that account runs out, and a side chat follows it." = "Under Shared usage a conversation keeps the account it started on until that account runs out, and a side chat follows it.";
+"More than one organization" = "More than one organization";
+"An address in several organizations chooses which one Artifacts, Projects and Search Chats show." = "An address in several organizations chooses which one Artifacts, Projects and Search Chats show.";
 
 /* Dictation */
 "Dictation" = "Dictation";

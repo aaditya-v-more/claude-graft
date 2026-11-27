@@ -15,6 +15,7 @@ struct ContentView: View {
 
     @EnvironmentObject private var store: ShortcutStore
     @ObservedObject private var pool = Shared.usagePool
+    @ObservedObject private var news = Shared.whatsNew
     @State private var selection: UUID? = ContentView.mainProfileID
     @State private var pendingDeletion: UUID?
     @State private var pendingDeletionIsOpen = false
@@ -85,6 +86,10 @@ struct ContentView: View {
             Button("OK") { problem = nil }
         } message: {
             Text(problem ?? "")
+        }
+        .sheet(item: $news.showing, onDismiss: { news.markSeen() }) { release in
+            WhatsNewView(release: release)
+                .environment(\.controlSurface, ControlSurface.window)
         }
         // Last, so the toolbar and the dialogs hanging off this view are
         // inside it too.

@@ -131,6 +131,18 @@ form has no name of its own and is linked to the label beside it through
 own name as an image's identifier, which is why the check asks for this app's
 prefix rather than for any identifier at all.
 
+**What's New is a sheet on the main window, once per release.** `WhatsNew`
+holds a short list for a release, keyed by major and minor, and the sheet shows
+when the running version's line differs from the one in `whatsNewSeenVersion`,
+which is written when the sheet is dismissed. A first install is shown
+nothing: versions before 2.3 kept no such record, so an update is told from an
+install by `mainWindowOpen` having been written at all. A launch with
+something to show opens the window even where it was left closed, the one
+exception to coming back as left, because a sheet has nowhere else to appear
+and an update relaunch is the moment it is for. Help › What's New opens it
+again, or the releases page for a version that announced nothing. A release
+worth announcing adds its entry and both languages' strings; a patch adds none.
+
 **A popover is not one of the app's windows until it is put there.** AppKit
 hangs an `NSPopover`'s window under the status item that opened it, as an
 `AXPopover`, and leaves it out of the app's `AXWindows` — the one list most

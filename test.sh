@@ -28,6 +28,7 @@ swiftc -swift-version 5 \
     "$ROOT/Sources/App/WebUsage.swift" \
     "$ROOT/Sources/App/SessionStarter.swift" \
     "$ROOT/Sources/App/AutoSessions.swift" \
+    "$ROOT/Sources/App/WhatsNew.swift" \
     "$ROOT/Sources/App/ClaudeCredentials.swift" \
     "$ROOT/Sources/App/UsageMonitor.swift" \
     "$ROOT/Sources/App/UpdateRecovery.swift" \

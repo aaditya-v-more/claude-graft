@@ -557,6 +557,18 @@
 "By Claude" = "По Claude";
 "By account" = "По аккаунтам";
 "By account lists each account once. By Claude lists each Claude with every account it draws on." = "«По аккаунтам» — каждый аккаунт один раз. «По Claude» — каждый Claude со всеми аккаунтами, которыми он пользуется.";
+"Version %@" = "Версия %@";
+"All Release Notes" = "Все примечания к выпускам";
+"Continue" = "Продолжить";
+"A page for every account" = "Страница для каждой учётной записи";
+"What each account has used, when its windows reset and which Claudes draw on it, with the order accounts are used in under Shared usage." = "Сколько израсходовала каждая учётная запись, когда сбрасываются её лимиты и какие Claude ею пользуются, а также порядок учётных записей для общих лимитов.";
+"A shorter dropdown" = "Более компактное меню";
+"Each account’s usage side by side on one line, listed by Claude or by account." = "Лимиты каждой учётной записи в одну строку, списком по Claude или по аккаунтам.";
+"Opens an account’s next five-hour window as soon as the last one closes. Off until you switch it on." = "Открывает следующее пятичасовое окно учётной записи, как только закроется предыдущее. Выключен, пока вы его не включите.";
+"A conversation stays on its account" = "Разговор остаётся на своей учётной записи";
+"Under Shared usage a conversation keeps the account it started on until that account runs out, and a side chat follows it." = "При общих лимитах разговор остаётся на учётной записи, с которой начат, пока её лимит не исчерпан, и побочный чат идёт за ним.";
+"More than one organization" = "Несколько организаций";
+"An address in several organizations chooses which one Artifacts, Projects and Search Chats show." = "Если адрес состоит в нескольких организациях, можно выбрать, какую из них показывают «Артефакты», «Проекты» и «Поиск по чатам».";
 
 /* Dictation */
 "Dictation" = "Диктовка";

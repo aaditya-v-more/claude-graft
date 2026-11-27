@@ -6578,6 +6578,17 @@ do {
         check((try? cache.resourceValues(forKeys: [.isExcludedFromBackupKey]))?.isExcludedFromBackup == true,
               "the helper cache is left out of backups")
 
+        let plist = cache.appending(path: "Notes/Info.plist")
+        try! Data("a Claude".utf8).write(to: plist)
+        let wanted = String(SidebarSync.helperHash(Data("a Claude".utf8)).prefix(20))
+        try! fm.createDirectory(at: cache.appending(path: "\(wanted)/Sidebar.app"), withIntermediateDirectories: true)
+        try! fm.createDirectory(at: cache.appending(path: older), withIntermediateDirectories: true)
+        SidebarSync.clearOldHelpers(in: cache, builtFrom: plist)
+        let cleared = Set((try? fm.contentsOfDirectory(atPath: cache.path)) ?? [])
+        check(cleared.contains(wanted) && !cleared.contains(older) && !cleared.contains(current),
+              "helpers for earlier Claudes go when a Claude is opened, with no helper having to be built first")
+        try! fm.createDirectory(at: cache.appending(path: "\(current)/Sidebar.app"), withIntermediateDirectories: true)
+
         let destination = cache.appending(path: "\(current)/Sidebar.app")
         try! Data("half written".utf8).write(to: destination.appending(path: "leftover"))
         let fresh = cache.appending(path: ".build-new.noindex/Sidebar.app")
@@ -8841,6 +8852,40 @@ do {
             && source("ArtifactCenter.swift").contains("ArtifactAccounts.signedIn(accounts, store: id, as: identity)")
             && source("ArtifactCenter.swift").contains("for earlier in change.retired { retire(earlier) }"),
           "a sign-in is announced under the store it was made in, whether it adds an account or finds one already there")
+}
+
+section("What’s New is shown once, after an update")
+do {
+    let news = WhatsNew.releases.first { $0.version == "2.3" }
+    check(news != nil && WhatsNew.unseen(running: "2.3.0", seen: "2.2.1", usedBefore: true) == news,
+          "an update to a release with something new shows it")
+    check(WhatsNew.unseen(running: "2.3.0", seen: nil, usedBefore: true) == news,
+          "so does an update from a version that kept no record of what it had shown")
+    check(WhatsNew.unseen(running: "2.3.0", seen: nil, usedBefore: false) == nil,
+          "a first install is shown nothing")
+    check(WhatsNew.unseen(running: "2.3.0", seen: "2.3.0", usedBefore: true) == nil,
+          "a release already seen is not shown again")
+    check(WhatsNew.unseen(running: "2.3.1", seen: "2.3.0", usedBefore: true) == nil,
+          "nor by a patch to it")
+    check(WhatsNew.unseen(running: "2.3.1", seen: "2.2.1", usedBefore: true) == news,
+          "an update that skipped the release itself still shows what it brought")
+    check(WhatsNew.unseen(running: "9.9.0", seen: "2.3.0", usedBefore: true) == nil,
+          "a release with nothing written for it shows nothing")
+    let repo = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+    func strings(_ language: String) -> [String: String] {
+        let file = repo.appending(path: "Resources/\(language).lproj/Localizable.strings")
+        return (try? Data(contentsOf: file)).flatMap {
+            try? PropertyListSerialization.propertyList(from: $0, format: nil) as? [String: String]
+        } ?? [:]
+    }
+    let english = strings("en"), russian = strings("ru")
+    let lines = WhatsNew.releases.flatMap(\.items).flatMap { [$0.title, $0.detail] }
+    check(lines.allSatisfy { line in english[line] == line && russian[line].map { $0 != line } == true },
+          "every line of it is in the catalog and reads in Russian when macOS does")
+    let app = (try? String(contentsOf: repo.appending(path: "Sources/App/ClaudeGraftApp.swift"))) ?? ""
+    check(app.contains("Shared.whatsNew.start(usedBefore: lastWindow != nil)")
+            && app.contains("&& Shared.whatsNew.showing == nil"),
+          "an update with something to show opens the window even where it was left closed")
 }
 
 section("A chat two Claudes both carried on becomes two")
