@@ -1105,6 +1105,32 @@ do {
     kept.keep(0)
 }
 
+do {
+    let key = "layout-times"
+    Shared.autoSessions.add(6 * 60, to: key)
+    Shared.autoSessions.add(13 * 60 + 30, to: key)
+    let window = hosted(AutoSessionTimes(key: key, name: "Claude 2")
+        .background(Color(nsColor: .windowBackgroundColor))
+        .environment(\.controlSurface, ControlSurface.window), title: "Times check")
+    let tree = checkAccessibility(window, surface: ControlSurface.window, "session times")
+    check(["auto-session-times.360.remove", "auto-session-times.810.remove", "auto-session-times.add"]
+            .allSatisfy { element("window.\($0)", in: tree)?.pressable == true },
+          "session times: each time can be removed and another added, by name")
+    check(element("window.auto-session-times.at", in: tree) != nil,
+          "session times: the time to add has a name")
+    check(element("window.auto-session-times.none", in: tree) == nil,
+          "session times: with times set it no longer says a session starts whenever the last runs out")
+    check((window.contentView?.fittingSize.height ?? 0) <= 320,
+          "session times: two times and the way to add a third fit a popover (\(Int(window.contentView?.fittingSize.height ?? 0)))")
+    if let directory = ProcessInfo.processInfo.environment["GRAFT_LAYOUT_WINDOWS"] {
+        capture(window, as: "\(Bundle.main.preferredLocalizations.first ?? "en")-session-times", in: directory)
+    }
+    window.orderOut(nil)
+    Shared.autoSessions.remove(6 * 60, from: key)
+    Shared.autoSessions.remove(13 * 60 + 30, from: key)
+    Shared.autoSessions.set(key, on: false)
+}
+
 // Artifacts, drawn from sample rows: the real list is asked of claude.ai,
 // which a layout check must never reach.
 MainActor.assumeIsolated {
@@ -1725,6 +1751,9 @@ do {
     let moves = tree.filter { $0.identifier.hasSuffix(".order.move") }
     check(switches.count == 21 && moves.count == 21,
           "\(place): each of them and the account signed in has its Auto-start and its place (\(switches.count), \(moves.count))")
+    let clocks = tree.filter { $0.identifier.hasSuffix(".auto-session-times") }
+    check(clocks.count == 21 && clocks.allSatisfy(\.pressable),
+          "\(place): and each has its times beside its switch (\(clocks.count))")
     let names = tree.filter { $0.identifier.hasSuffix(".order.name") }
     check(names.count == 21 && names.allSatisfy { $0.frame.width >= 40 },
           "\(place): every one is still named in its row")

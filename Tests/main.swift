@@ -2368,6 +2368,49 @@ do {
           "and says a session is on its way while no window is known to be open")
     switches.set(UsagePoolController.mainKey, on: false)
     check(!AutoSessions().isOn(UsagePoolController.mainKey), "switched off, it stays off")
+
+    var clock = Calendar(identifier: .gregorian)
+    clock.timeZone = TimeZone(identifier: "UTC")!
+    let midnight = clock.startOfDay(for: now)
+    let six = midnight + 6 * 3600, eleven = midnight + 23 * 3600
+    check(AutoSessions.latest([360, 1380], by: six + 30, calendar: clock) == six
+            && AutoSessions.latest([360, 1380], by: six - 30, calendar: clock) == eleven - 86_400,
+          "the last of an account's times to come round may be yesterday's")
+    check(AutoSessions.following([360, 1380], after: six, calendar: clock) == eleven
+            && AutoSessions.following([360], after: six, calendar: clock) == six + 86_400,
+          "and the next of them may be tomorrow's")
+    check(AutoSessions.called([360], since: six - 3600, now: six + 30, calendar: clock),
+          "a time that has just come round asks for a window")
+    check(!AutoSessions.called([360], since: six - 3600, now: six - 30, calendar: clock),
+          "and asks for none before it has")
+    check(AutoSessions.called([360], since: six - 3600, now: six + AutoSessions.grace, calendar: clock)
+            && !AutoSessions.called([360], since: six - 3600, now: six + AutoSessions.grace + 60, calendar: clock),
+          "a time slept through is acted on for half an hour and then let go")
+    check(!AutoSessions.called([360], since: six + 10, now: six + 30, calendar: clock),
+          "a time that passed before it was given, or that already opened a window, asks for nothing")
+    check(!AutoSessions.called([], since: .distantPast, now: six, calendar: clock),
+          "an account with no times is never asked for by one")
+
+    switches.add(360, to: UsagePoolController.mainKey)
+    switches.add(360, to: UsagePoolController.mainKey)
+    switches.add(75, to: UsagePoolController.mainKey)
+    check(switches.times(of: UsagePoolController.mainKey) == [75, 360],
+          "an account's times are kept in order, each once")
+    check(switches.isOn(UsagePoolController.mainKey), "and giving one turns its sessions on")
+    check(AutoSessions().times(of: UsagePoolController.mainKey) == [75, 360],
+          "its times are still there after Graft starts again")
+    check(switches.state(of: UsagePoolController.mainKey)?.hasPrefix(
+            L10n.format("Next session at %@", "").trimmingCharacters(in: .whitespaces)) == true,
+          "and beside its switch it says when the next of them is")
+    switches.set(UsagePoolController.mainKey, on: false)
+    check(AutoSessions().times(of: UsagePoolController.mainKey) == [75, 360],
+          "switched off, an account keeps its times for when it is switched on again")
+    switches.remove(75, from: UsagePoolController.mainKey)
+    switches.remove(360, from: UsagePoolController.mainKey)
+    check(AutoSessions().times(of: UsagePoolController.mainKey).isEmpty, "a time removed stays removed")
+    try? #"{"accounts":["main"],"attempts":{}}"#.write(to: AutoSessions.file, atomically: true, encoding: .utf8)
+    check(AutoSessions().isOn("main") && AutoSessions().times(of: "main").isEmpty,
+          "switches saved before there were times are still on, with none")
     try? fm.removeItem(at: AutoSessions.file)
 
     let resets: [String: Date] = ["a": now + 3 * 86_400, "b": now + 86_400]

@@ -116,6 +116,9 @@ answers each conversation, with a tick beside the one in force.
 the next one is already running when you sit down to work. It is off until you
 turn it on, one account at a time, in the dropdown or under **Accounts**, and
 an account lent to several Claudes has the one switch wherever it is listed.
+Under **Accounts** the clock beside the switch gives an account times of day
+instead: its window is then opened at each of those times, if none is open,
+and at no other time.
 
 <img src="docs/images/03-dropdown.png" width="346" alt="Graft's menu bar dropdown with each account's usage">
 
