@@ -8284,6 +8284,25 @@ do {
         left.organizations.removeAll { $0.id == "team-b" }
         check(ArtifactAccounts.signedIn(moved ?? [], store: UUID(), as: left).accounts.last?.org == "team-a",
               "until the account no longer belongs to it")
+        // Two Claudes on that one address, each in a team of its own.
+        let here = [ClaudeHere(name: "Claude", account: "acc-2", organization: "TEAM-A"),
+                    ClaudeHere(name: "Claude 2", account: "acc-2", organization: "team-b"),
+                    ClaudeHere(name: "Other", account: "acc-a", organization: "elsewhere")]
+        check(listed.last.flatMap { ArtifactAccounts.claude(for: $0, among: here) } == "Claude"
+                && moved?.last.flatMap { ArtifactAccounts.claude(for: $0, among: here) } == "Claude 2",
+              "an account is named after the Claude working in the organization it shows")
+        check(moved?.last.flatMap { ArtifactAccounts.claude(for: $0, among: [here[0]]) } == nil
+                && moved?.last.flatMap { ArtifactAccounts.claude(for: $0, among: [ClaudeHere(name: "Claude", account: "acc-2")]) } == "Claude",
+              "and after none where the only Claude on its address is in the other one, unless nothing says where that Claude is")
+        check(ArtifactAccounts.claude(for: first, among: here) == "Other",
+              "an account with no choice of organization goes by its Claude as before")
+        check(ArtifactAccounts.starting(inTwo, among: [here[1], here[0]]).org == "team-b"
+                && ArtifactAccounts.starting(inTwo, among: [here[2]]) == inTwo
+                && ArtifactAccounts.starting(inTwo, among: [ClaudeHere(name: "Gone", account: "acc-2", organization: "left")]) == inTwo,
+              "a sign-in starts in the organization a Claude here is working in, and in the first listed where none is")
+        check(ArtifactAccounts.signedIn(moved ?? [], store: UUID(),
+                                        as: ArtifactAccounts.starting(inTwo, among: [here[0]])).accounts.last?.org == "team-b",
+              "but an organization somebody chose still outlives signing in again")
         let before = Data(#"[{"id":"\#(store.uuidString)","email":"two@example.com","accountUuid":"acc-2","org":"team-b"}]"#.utf8)
         let kept = try? JSONDecoder().decode([ArtifactAccount].self, from: before)
         check(kept?.first?.org == "team-b" && kept?.first?.organizations == nil,
