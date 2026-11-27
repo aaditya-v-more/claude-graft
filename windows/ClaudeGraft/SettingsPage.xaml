@@ -106,6 +106,14 @@
                                                            local:Localized.AutomationName="Show the name of the Claude in front" AutomationProperties.AutomationId="settings.frontName" /></Grid>
                         </StackPanel>
                     </local:SettingsCard>
+                    <local:SettingsCard local:Localized.Header="Badges on Claude's taskbar buttons" Glyph="&#xEA8F;"
+                                        local:Localized.Description="Red when a Claude needs you, green when it has finished a turn">
+                        <StackPanel Orientation="Horizontal" Spacing="12">
+                            <TextBlock Text="{x:Bind local:SettingsCard.OnOff(BadgesSwitch.IsOn), Mode=OneWay}" VerticalAlignment="Center" />
+                            <Grid Width="40"><ToggleSwitch x:Name="BadgesSwitch" Style="{StaticResource CardSwitch}" Toggled="Changed"
+                                                           local:Localized.AutomationName="Badges on Claude's taskbar buttons" AutomationProperties.AutomationId="settings.taskbarBadges" /></Grid>
+                        </StackPanel>
+                    </local:SettingsCard>
                     <local:SettingsCard local:Localized.Header="Chime when a Claude is ready" Glyph="&#xE767;"
                                         local:Localized.Description="A sound when a Claude in the background finishes, and a stronger one when it waits on you">
                         <StackPanel Orientation="Horizontal" Spacing="12">

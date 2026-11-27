@@ -48,6 +48,10 @@ public sealed class GraftSettings
     [JsonPropertyName("frontIcon")] public bool FrontIcon { get; set; } = true;
     [JsonPropertyName("frontName")] public bool FrontName { get; set; }
 
+    /// A coloured dot on each Claude's own taskbar button when it needs its person
+    /// or has finished a turn out of sight.
+    [JsonPropertyName("taskbarBadges")] public bool TaskbarBadges { get; set; } = true;
+
     /// A sound when a Claude in the background finishes a turn or waits on a
     /// permission. Off unless turned on: it puts an entry in Claude Code's own settings.
     [JsonPropertyName("chime")] public bool Chime { get; set; }
