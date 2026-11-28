@@ -26,6 +26,9 @@
 "Claude" = "Claude";
 "Claude Graft" = "Claude Graft";
 "Claude Graft is free. A tip on Ko-fi is what keeps it worked on." = "Claude Graft is free. A tip on Ko-fi is what keeps it worked on.";
+"Claude Graft is free" = "Claude Graft is free";
+"A tip on Ko-fi is what keeps it worked on. The app is the same whether you give one or not." = "A tip on Ko-fi is what keeps it worked on. The app is the same whether you give one or not.";
+"Not Now" = "Not Now";
 "Claude Desktop is updating" = "Claude Desktop is updating";
 "Claude Desktop %@ is available" = "Claude Desktop %@ is available";
 "Claude's application icon could not be read." = "Claude's application icon could not be read.";
@@ -225,8 +228,6 @@
 "The selected profile could not be opened. Try again after any Claude update finishes." = "The selected profile could not be opened. Try again after any Claude update finishes.";
 "Install Claude Graft %@" = "Install Claude Graft %@";
 "Hold Claude Graft updates" = "Hold Claude Graft updates";
-"Keep a conversation in the Claude it started in" = "Keep a conversation in the Claude it started in";
-"Where Claudes share usage, a Code tab conversation starts on its own Claude's account and moves to another only when that one has nothing left. Off, a new conversation starts on the first account in the order under Accounts." = "Where Claudes share usage, a Code tab conversation starts on its own Claude's account and moves to another only when that one has nothing left. Off, a new conversation starts on the first account in the order under Accounts.";
 "Graft still checks every hour and says when a version is ready, in this menu and on its icon. Nothing downloads until you press Install." = "Graft still checks every hour and says when a version is ready, in this menu and on its icon. Nothing downloads until you press Install.";
 "Ask Anthropic for this account's usage now" = "Ask Anthropic for this account's usage now";
 "Refresh usage for %@" = "Refresh usage for %@";
@@ -259,6 +260,8 @@
 "The relay could not be started." = "The relay could not be started.";
 "The relay's certificate could not be made: %@" = "The relay's certificate could not be made: %@";
 "Shared usage" = "Shared usage";
+"Anthropic's terms for Claude plans may not allow one person to combine subscriptions this way. Read them before adding an account." = "Anthropic's terms for Claude plans may not allow one person to combine subscriptions this way. Read them before adding an account.";
+"Caution about %@" = "Caution about %@";
 "The Code tab in this Claude can be answered by the accounts added here. A new conversation goes to the first that has room, in the order set under Accounts, and stays on that account until it has no room left or you move it. Chats, artifacts, connectors and Claude in Chrome stay with this Claude's own account, and the Chat tab is never shared.\n\nA request answered by another account carries the conversation to that account." = "The Code tab in this Claude can be answered by the accounts added here. A new conversation goes to the first that has room, in the order set under Accounts, and stays on that account until it has no room left or you move it. Chats, artifacts, connectors and Claude in Chrome stay with this Claude's own account, and the Chat tab is never shared.\n\nA request answered by another account carries the conversation to that account.";
 "Sharing usage needs macOS 15 or later." = "Sharing usage needs macOS 15 or later.";
 "Add an Account" = "Add an Account";
@@ -545,7 +548,7 @@
 "Next session at %@" = "Next session at %@";
 "Could not start · trying again at %1$@ · %2$@" = "Could not start · trying again at %1$@ · %2$@";
 "Starts within a minute" = "Starts within a minute";
-"Where Claudes share usage, a conversation in the Code tab starts on its own Claude's account and stays there until that account has nothing left or you move it. It then goes to the first account here that has room, and stays on that one. With “Keep a conversation in the Claude it started in” off in Settings, a new conversation starts on the first account here straight away. By weekly reset, the account whose week starts again soonest goes first, so what would be lost first is spent first.\n\nAn account with nothing left, or nothing left for the model asked for, is passed over wherever it stands: a model one account has run out of starts on the next, while the other models still start on the first.\n\nWith Auto-start on, an account is sent one short message whenever its five-hour window has run out, so the next window is already counting when you come to use it. The keychain is never asked for it: an account whose login cannot be read, or is refused, is tried again later, and its row says why. Give an account times with the clock beside its switch and its window is opened at those times instead, when none is open then." = "Where Claudes share usage, a conversation in the Code tab starts on its own Claude's account and stays there until that account has nothing left or you move it. It then goes to the first account here that has room, and stays on that one. With “Keep a conversation in the Claude it started in” off in Settings, a new conversation starts on the first account here straight away. By weekly reset, the account whose week starts again soonest goes first, so what would be lost first is spent first.\n\nAn account with nothing left, or nothing left for the model asked for, is passed over wherever it stands: a model one account has run out of starts on the next, while the other models still start on the first.\n\nWith Auto-start on, an account is sent one short message whenever its five-hour window has run out, so the next window is already counting when you come to use it. The keychain is never asked for it: an account whose login cannot be read, or is refused, is tried again later, and its row says why. Give an account times with the clock beside its switch and its window is opened at those times instead, when none is open then.";
+"Where Claudes share usage, a new conversation in the Code tab starts on the first account here that has room, and stays on it until that account has nothing left or you move it. It then goes to the next with room, and stays on that one, however long it sits and whichever week ends first by then. By weekly reset, the account whose week starts again soonest goes first, so what would be lost first is spent first.\n\nAn account with nothing left, or nothing left for the model asked for, is passed over wherever it stands: a model one account has run out of starts on the next, while the other models still start on the first.\n\nWith Auto-start on, an account is sent one short message whenever its five-hour window has run out, so the next window is already counting when you come to use it. The keychain is never asked for it: an account whose login cannot be read, or is refused, is tried again later, and its row says why. Give an account times with the clock beside its switch and its window is opened at those times instead, when none is open then." = "Where Claudes share usage, a new conversation in the Code tab starts on the first account here that has room, and stays on it until that account has nothing left or you move it. It then goes to the next with room, and stays on that one, however long it sits and whichever week ends first by then. By weekly reset, the account whose week starts again soonest goes first, so what would be lost first is spent first.\n\nAn account with nothing left, or nothing left for the model asked for, is passed over wherever it stands: a model one account has run out of starts on the next, while the other models still start on the first.\n\nWith Auto-start on, an account is sent one short message whenever its five-hour window has run out, so the next window is already counting when you come to use it. The keychain is never asked for it: an account whose login cannot be read, or is refused, is tried again later, and its row says why. Give an account times with the clock beside its switch and its window is opened at those times instead, when none is open then.";
 "Times %@ starts its sessions at" = "Times %@ starts its sessions at";
 "Starts its sessions at set times" = "Starts its sessions at set times";
 "Start its sessions at set times instead" = "Start its sessions at set times instead";
@@ -574,7 +577,8 @@
 "Under Shared usage a conversation keeps the account it started on until that account runs out, and a side chat follows it." = "Under Shared usage a conversation keeps the account it started on until that account runs out, and a side chat follows it.";
 "More than one organization" = "More than one organization";
 "An address in several organizations chooses which one Artifacts, Projects and Search Chats show." = "An address in several organizations chooses which one Artifacts, Projects and Search Chats show.";
-"Dictation in any app" = "Dictation in any app";
+"Claude's dictation in any app" = "Claude's dictation in any app";
+"Claude's own built-in dictation, working in every app." = "Claude's own built-in dictation, working in every app.";
 "Hold the right Command key and speak, and the words are typed where the cursor is. Off until you switch it on under Dictation." = "Hold the right Command key and speak, and the words are typed where the cursor is. Off until you switch it on under Dictation.";
 
 /* Dictation */
@@ -613,7 +617,7 @@
 "The dictation service ran into a problem." = "The dictation service ran into a problem.";
 "Claudes" = "Claudes";
 "Every Claude on this Mac" = "Every Claude on this Mac";
-"Speak into any app" = "Speak into any app";
+"Claude's built-in dictation, in any app" = "Claude's built-in dictation, in any app";
 "Settings" = "Settings";
 "Menu bar, updates and login" = "Menu bar, updates and login";
 "How to Use Graft" = "How to Use Graft";

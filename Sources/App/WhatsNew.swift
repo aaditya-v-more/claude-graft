@@ -17,7 +17,7 @@ struct WhatsNew: Identifiable, Equatable {
     static let releases = [
         WhatsNew(version: "2.3", items: [
             Item(symbol: "mic",
-                 title: "Dictation in any app",
+                 title: "Claude's dictation in any app",
                  detail: "Hold the right Command key and speak, and the words are typed where the cursor is. Off until you switch it on under Dictation."),
             Item(symbol: "person.crop.circle",
                  title: "A page for every account",
@@ -36,6 +36,12 @@ struct WhatsNew: Identifiable, Equatable {
                  detail: "An address in several organizations chooses which one Artifacts, Projects and Search Chats show."),
         ]),
     ]
+
+    /// A donation is asked for once for a release with a list, however often
+    /// the list is opened again.
+    static func asksForSupport(running: String, asked: String?) -> Bool {
+        asked != line(of: running)
+    }
 
     static func line(of version: String) -> String {
         version.split(separator: ".").prefix(2).joined(separator: ".")

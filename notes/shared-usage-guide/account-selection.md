@@ -12,9 +12,8 @@ not said no, its five-hour window is under 98% and its week under 99%, a window
 whose reset has passed counting as empty. Those with room go in the order
 somebody set under Accounts, for the accounts it names, and then by the
 soonest weekly reset, an unknown reset after every known one, and a tie to the
-sender, since staying costs nothing. The sender's own account goes first while it has room, unless
-that was turned off (below), when it takes its place in the order; it goes last
-when it has none; the request then
+sender, since staying costs nothing. The sender's own account takes its place
+in that order; it goes last when it has none; the request then
 goes out as Claude sent it and the service decides.
 
 Whatever its rank, the sender's account is also the last attempt, asked a
@@ -69,20 +68,20 @@ replaced: Fable was refused and logged as `credits_required`, a Sonnet
 conversation half a minute later began on that account, and the next Fable one
 was not offered to it.
 
-**A conversation begins in the Claude it was opened in.** Asked for on 26
-November 2026: with the ranking alone deciding, a conversation opened in one
-Claude began on another's account whenever that one's week ended sooner, and
-the dropdown named an account its owner had not expected. Graft now sends
-`ownFirst` with every configuration and `PoolPolicy.order` puts the sender in
-front of the ranking while it has room for the model asked for; a choice from
-the dropdown and the account that already answers still go ahead of it, so
-nothing under way moves. With its own account spent the conversation goes by
-the order as before and stays where it lands, its sender having room again or
-not. The switch is "Keep a conversation in the Claude it started in" in
-Settings, on unless turned off, kept as `ownFirst: false` in
-`usage-sharing.json` and as nothing at all when on. Off is the ranking as it
-was before 2.3.0, which spends first what would be lost first; a relay that is
-told nothing takes it for off.
+**A new conversation goes by the order, and nothing in the app says
+otherwise.** On 26 November 2026 the owner asked that a conversation be kept in
+the Claude it started in. What was meant was the staying described below: a
+conversation come back to days later, after a week has reset, still answered by
+the account that began it. What was built besides was a start at home, a
+conversation beginning on the account of the Claude it was opened in ahead of
+the ranking, on by default with a switch in Settings to turn it off. Two days
+later three Opus conversations opened in Claude, whose week ended on the 30th,
+began there and not on Claude 2, whose week ended on the 29th and which the
+Accounts page listed first, and the owner said which of the two had been
+wanted. The switch is gone and the app sends no `ownFirst`. The relay and
+`PoolPolicy.order` still take one, which nothing sets and `./test-relay.sh`
+still exercises; a relay that is told nothing goes by the order. It shipped in
+no release.
 
 **A side chat begins where its conversation is answered.** Asked for on 26
 November 2026. A question asked with `/btw` is a session of its own, so the
@@ -160,9 +159,8 @@ name the relay now counts it by: when a Claude's own login lapses and the same
 account signed in from the pane lends in its place, the name that answered is
 no longer a candidate, and holding it by that name let the conversation go by
 the ranking instead, away from an account that still had room. A request with no reasoning in it
-and nobody known to have answered it — a new conversation — begins at home,
-and goes by the order once home is spent or with that switch off, which is
-where sharing spreads the load. A choice from the
+and nobody known to have answered it — a new conversation — goes by the
+order, which is where sharing spreads the load. A choice from the
 dropdown still moves a held conversation: a person asking is the one move, made
 on purpose, and the conversation then stays on that account. The relay does not
 add the header that would make the service report a drop, since nothing that

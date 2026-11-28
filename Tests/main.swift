@@ -2244,6 +2244,8 @@ do {
           "a session nobody pressed for is sent from one place, and from one line of it")
     check(Set(considering) == ["AutoSessions.swift"],
           "which nothing outside it can set going")
+    check(swiftFiles.allSatisfy { (try? String(contentsOf: $0, encoding: .utf8))?.contains("ownFirst") != true },
+          "nothing in the app asks for a new conversation to begin anywhere but by the order")
     let automaticSource = (try? String(contentsOf: appSource.appending(path: "AutoSessions.swift"),
                                        encoding: .utf8)) ?? ""
     check(!automaticSource.contains("interactive: true") && !automaticSource.contains("onceIfShut")
@@ -7232,12 +7234,6 @@ do {
     pool.addLender(main, to: main)
     check(pool.lenders(of: main) == ["second"], "once, and never itself")
     check(UsagePoolController().lenders(of: main) == ["second"], "what each Claude draws on is kept between launches")
-    check(pool.startsAtHome, "a conversation begins in its own Claude unless somebody says otherwise")
-    pool.setStartsAtHome(false)
-    check(!UsagePoolController().startsAtHome, "and saying otherwise is kept between launches")
-    pool.setStartsAtHome(true)
-    check(UsagePoolController().sharing.ownFirst == nil && UsagePoolController().startsAtHome,
-          "going back to it leaves nothing written")
     check(pool.lenders(of: "second").isEmpty, "lending to a Claude does not make it a borrower")
     pool.removeLender("second", from: main)
     check(pool.sharing.lenders.isEmpty, "a Claude given nothing has no entry left")
@@ -7628,6 +7624,9 @@ do {
             && !AccountSignIn.Failure.ownAccount.isOfTheGrant && !AccountSignIn.Failure.otherAccount.isOfTheGrant
             && !AccountSignIn.Failure.cancelled.isOfTheGrant && !AccountSignIn.Failure.keychain.isOfTheGrant,
           "only a refusal of what was asked for is asked again for less")
+    check(!AccountSignIn.Failure.refused(0, nil).isOfTheGrant && !AccountSignIn.Failure.refused(503, nil).isOfTheGrant
+            && !AccountSignIn.Failure.refused(429, nil).isOfTheGrant && AccountSignIn.Failure.refused(403, nil).isOfTheGrant,
+          "and no answer at all, or a service in trouble, is not taken for one")
     let challenge = Data(SHA256.hash(data: Data(verifier.utf8))).base64EncodedString()
         .replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_")
         .replacingOccurrences(of: "=", with: "")
@@ -8968,6 +8967,12 @@ do {
     let lines = WhatsNew.releases.flatMap(\.items).flatMap { [$0.title, $0.detail] }
     check(lines.allSatisfy { line in english[line] == line && russian[line].map { $0 != line } == true },
           "every line of it is in the catalog and reads in Russian when macOS does")
+    check(WhatsNew.asksForSupport(running: "2.3.0", asked: nil)
+            && WhatsNew.asksForSupport(running: "2.3.0", asked: "2.2"),
+          "a donation is asked for once the list of a release has been put away")
+    check(!WhatsNew.asksForSupport(running: "2.3.0", asked: "2.3")
+            && !WhatsNew.asksForSupport(running: "2.3.1", asked: "2.3"),
+          "and not again for that release, however often the list is opened or patched")
     let app = (try? String(contentsOf: repo.appending(path: "Sources/App/ClaudeGraftApp.swift"))) ?? ""
     check(app.contains("Shared.whatsNew.start(usedBefore: lastWindow != nil)")
             && app.contains("&& Shared.whatsNew.showing == nil"),

@@ -26,6 +26,9 @@
 "Claude" = "Claude";
 "Claude Graft" = "Claude Graft";
 "Claude Graft is free. A tip on Ko-fi is what keeps it worked on." = "Claude Graft бесплатен. Поддержка на Ko-fi помогает продолжать его разработку.";
+"Claude Graft is free" = "Claude Graft бесплатен";
+"A tip on Ko-fi is what keeps it worked on. The app is the same whether you give one or not." = "Поддержка на Ko-fi помогает продолжать его разработку. Приложение остаётся тем же, поддержите вы его или нет.";
+"Not Now" = "Не сейчас";
 "Claude Desktop is updating" = "Claude Desktop обновляется";
 "Claude Desktop %@ is available" = "Доступен Claude Desktop %@";
 "Claude's application icon could not be read." = "Не удалось прочитать иконку приложения Claude.";
@@ -225,8 +228,6 @@
 "The selected profile could not be opened. Try again after any Claude update finishes." = "Не удалось открыть выбранный профиль. Повторите попытку после завершения обновления Claude.";
 "Install Claude Graft %@" = "Установить Claude Graft %@";
 "Hold Claude Graft updates" = "Откладывать обновления Claude Graft";
-"Keep a conversation in the Claude it started in" = "Оставлять разговор в том Claude, где он начат";
-"Where Claudes share usage, a Code tab conversation starts on its own Claude's account and moves to another only when that one has nothing left. Off, a new conversation starts on the first account in the order under Accounts." = "Там, где Claude делят лимиты, разговор во вкладке Code начинается на учётной записи своего Claude и переходит на другую, только когда на этой ничего не осталось. Если выключить, новый разговор начинается на первой учётной записи в порядке на странице «Учётные записи».";
 "Graft still checks every hour and says when a version is ready, in this menu and on its icon. Nothing downloads until you press Install." = "Graft по-прежнему проверяет обновления каждый час и сообщает о новой версии в этом меню и значком. Ничего не загружается, пока вы не нажмёте «Установить».";
 "Ask Anthropic for this account's usage now" = "Запросить у Anthropic использование этого аккаунта сейчас";
 "Refresh usage for %@" = "Обновить использование для %@";
@@ -259,6 +260,8 @@
 "The relay could not be started." = "Не удалось запустить ретранслятор.";
 "The relay's certificate could not be made: %@" = "Не удалось создать сертификат ретранслятора: %@";
 "Shared usage" = "Общие лимиты";
+"Anthropic's terms for Claude plans may not allow one person to combine subscriptions this way. Read them before adding an account." = "Условия Anthropic для тарифов Claude могут не разрешать одному человеку так объединять подписки. Прочитайте их, прежде чем добавлять учётную запись.";
+"Caution about %@" = "Предупреждение: %@";
 "The Code tab in this Claude can be answered by the accounts added here. A new conversation goes to the first that has room, in the order set under Accounts, and stays on that account until it has no room left or you move it. Chats, artifacts, connectors and Claude in Chrome stay with this Claude's own account, and the Chat tab is never shared.\n\nA request answered by another account carries the conversation to that account." = "На запросы вкладки Code в этом Claude могут отвечать добавленные здесь учётные записи. Новый разговор уходит первой, у которой есть запас, в порядке, заданном в разделе «Учётные записи», и остаётся у неё, пока у неё не кончится запас или вы его не перенесёте. Чаты, артефакты, коннекторы и Claude in Chrome остаются у собственной учётной записи этого Claude, а вкладка Chat не делится никогда.\n\nЗапрос, на который отвечает другая учётная запись, передаёт ей разговор.";
 "Sharing usage needs macOS 15 or later." = "Для общих лимитов нужна macOS 15 или новее.";
 "Add an Account" = "Добавить учётную запись";
@@ -545,7 +548,7 @@
 "Next session at %@" = "Следующая сессия в %@";
 "Could not start · trying again at %1$@ · %2$@" = "Не удалось запустить · повтор в %1$@ · %2$@";
 "Starts within a minute" = "Запустится в течение минуты";
-"Where Claudes share usage, a conversation in the Code tab starts on its own Claude's account and stays there until that account has nothing left or you move it. It then goes to the first account here that has room, and stays on that one. With “Keep a conversation in the Claude it started in” off in Settings, a new conversation starts on the first account here straight away. By weekly reset, the account whose week starts again soonest goes first, so what would be lost first is spent first.\n\nAn account with nothing left, or nothing left for the model asked for, is passed over wherever it stands: a model one account has run out of starts on the next, while the other models still start on the first.\n\nWith Auto-start on, an account is sent one short message whenever its five-hour window has run out, so the next window is already counting when you come to use it. The keychain is never asked for it: an account whose login cannot be read, or is refused, is tried again later, and its row says why. Give an account times with the clock beside its switch and its window is opened at those times instead, when none is open then." = "Там, где Claude делят лимиты, разговор во вкладке Code начинается на учётной записи своего Claude и остаётся на ней, пока запас не кончится или вы его не перенесёте. Тогда он переходит на первую здесь учётную запись, у которой есть запас, и остаётся уже на ней. Если в настройках выключить «Оставлять разговор в том Claude, где он начат», новый разговор сразу начинается на первой здесь учётной записи. По недельному сбросу первой идёт та, чья неделя начнётся заново раньше всех: первым тратится то, что первым пропадёт.\n\nУчётная запись, у которой ничего не осталось вообще или для запрошенной модели, пропускается, где бы она ни стояла: модель, которая кончилась у одной, начинается на следующей, а остальные модели по-прежнему начинаются на первой.\n\nПри включённом автозапуске учётной записи отправляется одно короткое сообщение каждый раз, когда её пятичасовое окно закончилось, так что к вашему приходу следующее окно уже идёт. Связка ключей для этого никогда не запрашивается: учётная запись, вход которой не удаётся прочитать или который отклонён, пробуется позже, а причина показана в её строке. Задайте учётной записи время кнопкой с часами рядом с её переключателем, и её окно будет открываться в это время, если в этот момент нет открытого.";
+"Where Claudes share usage, a new conversation in the Code tab starts on the first account here that has room, and stays on it until that account has nothing left or you move it. It then goes to the next with room, and stays on that one, however long it sits and whichever week ends first by then. By weekly reset, the account whose week starts again soonest goes first, so what would be lost first is spent first.\n\nAn account with nothing left, or nothing left for the model asked for, is passed over wherever it stands: a model one account has run out of starts on the next, while the other models still start on the first.\n\nWith Auto-start on, an account is sent one short message whenever its five-hour window has run out, so the next window is already counting when you come to use it. The keychain is never asked for it: an account whose login cannot be read, or is refused, is tried again later, and its row says why. Give an account times with the clock beside its switch and its window is opened at those times instead, when none is open then." = "Там, где Claude делят лимиты, новый разговор во вкладке Code начинается на первой здесь учётной записи, у которой есть запас, и остаётся на ней, пока запас не кончится или вы его не перенесёте. Тогда он переходит на следующую с запасом и остаётся уже на ней, сколько бы он ни простоял и чья бы неделя ни кончалась раньше к тому времени. По недельному сбросу первой идёт та, чья неделя начнётся заново раньше всех: первым тратится то, что первым пропадёт.\n\nУчётная запись, у которой ничего не осталось вообще или для запрошенной модели, пропускается, где бы она ни стояла: модель, которая кончилась у одной, начинается на следующей, а остальные модели по-прежнему начинаются на первой.\n\nПри включённом автозапуске учётной записи отправляется одно короткое сообщение каждый раз, когда её пятичасовое окно закончилось, так что к вашему приходу следующее окно уже идёт. Связка ключей для этого никогда не запрашивается: учётная запись, вход которой не удаётся прочитать или который отклонён, пробуется позже, а причина показана в её строке. Задайте учётной записи время кнопкой с часами рядом с её переключателем, и её окно будет открываться в это время, если в этот момент нет открытого.";
 "Times %@ starts its sessions at" = "Время запуска сессий для %@";
 "Starts its sessions at set times" = "Сессии запускаются в заданное время";
 "Start its sessions at set times instead" = "Запускать сессии в заданное время";
@@ -574,7 +577,8 @@
 "Under Shared usage a conversation keeps the account it started on until that account runs out, and a side chat follows it." = "При общих лимитах разговор остаётся на учётной записи, с которой начат, пока её лимит не исчерпан, и побочный чат идёт за ним.";
 "More than one organization" = "Несколько организаций";
 "An address in several organizations chooses which one Artifacts, Projects and Search Chats show." = "Если адрес состоит в нескольких организациях, можно выбрать, какую из них показывают «Артефакты», «Проекты» и «Поиск по чатам».";
-"Dictation in any app" = "Диктовка в любом приложении";
+"Claude's dictation in any app" = "Диктовка Claude в любом приложении";
+"Claude's own built-in dictation, working in every app." = "Встроенная диктовка самого Claude, работающая в любом приложении.";
 "Hold the right Command key and speak, and the words are typed where the cursor is. Off until you switch it on under Dictation." = "Удерживайте правую Command и говорите: слова набираются там, где курсор. Включается в «Диктовке».";
 
 /* Dictation */
@@ -613,7 +617,7 @@
 "The dictation service ran into a problem." = "В сервисе диктовки произошла ошибка.";
 "Claudes" = "Все Claude";
 "Every Claude on this Mac" = "Все Claude на этом Mac";
-"Speak into any app" = "Говорите в любое приложение";
+"Claude's built-in dictation, in any app" = "Встроенная диктовка Claude в любом приложении";
 "Settings" = "Настройки";
 "Menu bar, updates and login" = "Строка меню, обновления и вход";
 "How to Use Graft" = "Как пользоваться Graft";

@@ -16,12 +16,11 @@ struct AccountsView: View {
         """)
 
     static let orderExplanation = L10n.text("""
-        Where Claudes share usage, a conversation in the Code tab starts on its \
-        own Claude's account and stays there until that account has nothing left \
-        or you move it. It then goes to the first account here that has room, and \
-        stays on that one. With “Keep a conversation in the Claude it started in” \
-        off in Settings, a new conversation starts on the first account here \
-        straight away. By weekly reset, the account whose week \
+        Where Claudes share usage, a new conversation in the Code tab starts on \
+        the first account here that has room, and stays on it until that account \
+        has nothing left or you move it. It then goes to the next with room, and \
+        stays on that one, however long it sits and whichever week ends first by \
+        then. By weekly reset, the account whose week \
         starts again soonest goes first, so what would be lost first is spent first.
 
         An account with nothing left, or nothing left for the model asked for, \

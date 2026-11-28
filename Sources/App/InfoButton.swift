@@ -8,25 +8,27 @@ struct InfoButton: View {
     let text: String
     let topic: String
     let id: String
+    let caution: Bool
     @State private var showing = false
 
     /// `topic` is what VoiceOver says the explanation is about, since the
     /// symbol is all there is to see and SwiftUI reads that one as "Error".
-    init(_ text: String, about topic: String, id: String) {
+    init(_ text: String, about topic: String, id: String, caution: Bool = false) {
         self.text = text
         self.topic = topic
         self.id = id
+        self.caution = caution
     }
 
     var body: some View {
         Button { showing.toggle() } label: {
-            Image(systemName: "info.circle")
+            Image(systemName: caution ? "exclamationmark.triangle" : "info.circle")
                 .imageScale(.medium)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(caution ? Color.orange : Color.secondary)
         }
         .buttonStyle(.plain)
         .help(text)
-        .accessibilityLabel(L10n.format("About %@", L10n.text(topic)))
+        .accessibilityLabel(L10n.format(caution ? "Caution about %@" : "About %@", L10n.text(topic)))
         .identified(id)
         .popover(isPresented: $showing, arrowEdge: .bottom) {
             Text(text)
@@ -45,12 +47,15 @@ struct SectionHeader<Trailing: View>: View {
     let title: String
     let info: String
     let id: String
+    let caution: String?
     let trailing: Trailing
 
-    init(title: String, info: String, id: String, @ViewBuilder trailing: () -> Trailing) {
+    init(title: String, info: String, id: String, caution: String? = nil,
+         @ViewBuilder trailing: () -> Trailing) {
         self.title = title
         self.info = info
         self.id = id
+        self.caution = caution
         self.trailing = trailing()
     }
 
@@ -59,6 +64,9 @@ struct SectionHeader<Trailing: View>: View {
             Text(L10n.text(title))
                 .layoutPriority(1)
             InfoButton(info, about: title, id: id)
+            if let caution {
+                InfoButton(caution, about: title, id: id + ".caution", caution: true)
+            }
             Spacer(minLength: 8)
             trailing
         }

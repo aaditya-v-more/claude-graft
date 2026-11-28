@@ -100,8 +100,12 @@ struct ContentView: View {
         .onChange(of: selection) { chosen in
             if let chosen, showsClaude { lastClaude = chosen }
         }
-        .sheet(item: $news.showing, onDismiss: { news.markSeen() }) { release in
+        .sheet(item: $news.showing, onDismiss: { news.listClosed() }) { release in
             WhatsNewView(release: release)
+                .environment(\.controlSurface, ControlSurface.window)
+        }
+        .sheet(isPresented: $news.asking) {
+            DonateView()
                 .environment(\.controlSurface, ControlSurface.window)
         }
         // Last, so the toolbar and the dialogs hanging off this view are
@@ -253,7 +257,7 @@ struct ContentView: View {
 
             Section("Claude Graft") {
                 page("Dictation", icon: "mic", id: "dictation", tag: Self.dictationID,
-                     value: "Speak into any app")
+                     value: "Claude's built-in dictation, in any app")
                 page("Settings", icon: "gearshape", id: "settings", tag: Self.settingsID,
                      value: "Menu bar, updates and login")
                 page("How to Use Graft", icon: "book", id: "guide", tag: Self.guideID,
